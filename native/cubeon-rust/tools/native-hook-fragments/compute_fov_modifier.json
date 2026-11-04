@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "compute_fov_modifier",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_compute_fov_modifier",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_compute_fov_modifier",
       "neoforge": "ComputeFovModifierEvent",
       "side": "client",
       "cancellable": false,

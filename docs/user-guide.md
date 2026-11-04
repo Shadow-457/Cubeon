@@ -45,7 +45,10 @@ instance. Clicking the card itself still selects the instance. Play shows the
 loader as a compact tag beside the version.
 
 The first launch downloads missing game components and can take longer.
-Selecting an existing instance restores its version and loader.
+Selecting an existing instance restores its version and loader. Your render and
+simulation distances stay saved for that instance. FPS boost applies performance
+defaults once, then preserves later video changes. Turning it off restores previous
+graphics settings where you have not changed the boosted values yourself.
 With Discord desktop running, Rich Presence shows the Minecraft version and
 loader you are playing, for example “Playing Minecraft 1.21.11 (Fabric)”.
 
@@ -77,7 +80,10 @@ Microsoft/Mojang account.
   skin support. A selection is stored in the instance the game plays in, so
   each instance can keep a different item.
   In game, shoulder pets breathe and look around; wings beat slowly at rest,
-  speed up smoothly when sprinting and spread during gliding. The five wing themes
+  speed up smoothly when sprinting and spread with lifting strokes during gliding.
+  With an elytra equipped, your selected wings replace its appearance. You still
+  need the elytra item to fly; durability and flight controls work as usual.
+  The five wing themes
   offer the original cute **Small** wings and layered **Giant** wings. Each Giant feather
   flexes and recoils with a slight delay while its root stays attached.
   Press **N** with **Giant** wings equipped to spread them and
@@ -89,7 +95,9 @@ Microsoft/Mojang account.
   flare. This saves rendering work on weaker GPUs; Small wings are unaffected.
   **Other cosmetics** starts off. Turn it on to see other Cubeon players' selected
   wings, backpacks and shoulder pets within 64 blocks. Your own items stay visible
-  either way. Shared selections use the skin service; players need the updated
+  either way. Viewers who leave **Other cosmetics** off see your normal elytra.
+  Missing wing artwork or an unknown selection also keeps the normal elytra.
+  Shared selections use the skin service; players need the updated
   Cubeon Client and managed skin support in the launcher to publish their choices.
   Changes may take about a minute to appear for others. The N flare stays local.
   Backpacks sway while you move. The launcher preview shows
@@ -160,10 +168,20 @@ Microsoft/Mojang account.
   whose editor filled its unused pixels, or **Steve · 4 px** for wide arms.
   The choice is saved for that skin. Restart Minecraft after changing it.
 
-Screenshots have a separate section in Settings. Stats shows playtime and
+Screenshots live under Settings → Appearance. Stats shows playtime and
 activity comparisons; it does not measure the game's frame rate.
 
 ### Finding a mod
+
+Mods is one content area with four selectors: **Mods**, **Modpacks**,
+**Resource Packs**, and **Shaders**. Search directly below them, use **Installed**
+to manage your files, or **Import mods** to add local JARs. Optional category and
+compatibility choices sit under **Filters**. Compact tiles show artwork, name,
+author, download count and installed status; click a tile for its description
+and versions. **Install** adds the matching build. Modpacks create their own
+instances and do not need to match the selected Minecraft version.
+Search pages adjust their card count to the available window space. Larger
+windows show more results at once; paging keeps additional results available.
 
 Mod search shows the selected Minecraft version, loader, and category. Keep
 **Compatible only** enabled to find mods for that instance. If a mod seems
@@ -180,11 +198,20 @@ project published only elsewhere will not appear in these results.
 
 ### Fixing installed content
 
+For mods you already have, choose **Mods → Import mods** and select one or more
+JARs. Review the target instance, compatibility and dependency warnings before
+importing. Identical files are skipped even if renamed. Select a replacement
+explicitly to keep the previous build disabled as a backup. Each file reports
+its result, so a bad file does not stop the rest. Use **Check & repair** afterward
+if you want Cubeon to fetch missing dependencies.
+
 Choose the instance on Play, then open **Mods → Resource Packs** or **Shaders → Installed**.
-Each row has an enable/disable switch. Disabling keeps the file and applies to
+Each installed tile has an enable/disable switch. Disabling keeps the file and applies to
 that instance on the next launch; re-enable it with the same switch. Other
 instances keep their own state. Enabled packs are available to select in
 Minecraft's resource-pack or shader settings; the launcher does not select them.
+Installed packs use their included `pack.png` or saved project artwork. If no
+image is available, Cubeon shows its logo.
 
 **Check & repair** in **Mods → Installed** runs Cubeon's local Doctor in the
 background. The same button checks resource packs and shaders in their installed
@@ -201,7 +228,7 @@ fetch missing dependencies without replacing an existing build. The **Fix crash*
 Crash reports offer the website Doctor, Copy log, and Discord support.
 
 If entities disappear or skins flicker, close Minecraft and select the affected
-instance on Play. **Settings → Doctor → Rendering → Apply compatibility** turns
+instance on Play. **Settings → Performance → Fix problems → Rendering → Apply compatibility** turns
 off extra entity culling and enhanced batching in existing mod configs. Other
 preferences and skin files stay intact. Restart Minecraft to test it; FPS may
 decrease. **Restore settings** restores the saved values while preserving later
@@ -276,7 +303,12 @@ network settings.
 
 ## Launcher settings
 
-In **Settings → Display → Launcher**, open **Language** and search by native name,
+Settings has four sections: **Account** for your profile, updates and notifications;
+**Game** for versions, game window, files and backups; **Performance** for memory,
+Java and **Fix problems**; and **Appearance** for language, window style, seasonal
+decorations and screenshots.
+
+In **Settings → Appearance → Launcher**, open **Language** and search by native name,
 English name, or language code. Select a language, then click the **Restart** button
 that appears below the saved choice to apply it. Arabic, English, Russian, and Spanish appear first, followed by Chinese, Hindi,
 Portuguese, French, German, Japanese, Turkish, Korean, Italian, Polish, Indonesian,
@@ -287,13 +319,13 @@ Arabic, Urdu, Persian, and Pashto use a right-to-left layout.
 **Custom title bar** defaults on for Windows (including Windows 10) and Linux. An
 explicit saved choice to switch it off is preserved. Restart after changing it.
 
-**Settings → Seasonal → Seasonal look** enables the seasonal palette and extras.
+**Settings → Appearance → Theme and decorations → Seasonal look** enables the seasonal palette and extras.
 Switch off **Play scenery** in that section to hide the trees, grass and particles
 while keeping the seasonal colors and buddy. Spring has blossoms and petals; summer has green trees,
 butterflies and fireflies; autumn has falling leaves; winter has snow. The tilted
 tree appears in every season. A season selection updates the artwork immediately;
 the launcher's color palette applies after a restart. Turn off **Full motion** in
-Display to retain static artwork without moving particles. The **Seasonal buddy**
+Appearance to retain static artwork without moving particles. The **Seasonal buddy**
 wanders the launcher edges, climbs borders and rests above Play; changing tabs
 returns it to the bottom edge. Turning off Full motion also keeps the buddy static.
 Particles stop while Play is hidden. All seasonal animation pauses when the window
@@ -309,17 +341,19 @@ so the RAM slider no longer sets the heap. Set your own heap flags in **Custom
 Java flags** if needed. Minecraft and loader arguments remain required. The
 switch saves immediately; no launcher restart is needed.
 
-**Settings → System → Notifications → Chat messages** controls incoming message
+**Settings → Account → Notifications → Chat messages** controls incoming message
 notifications immediately. Open conversations in a focused launcher or the companion
 mod suppress their alerts; old history and your own sent messages do not trigger them.
 
 ## Updates
 
 Cubeon checks for a newer version when it starts. If one is available, a
-prompt offers **Skip** and **Update**. Skip continues this launch; Cubeon can
-offer the update again next time. Downloads start only after you choose Update.
+prompt offers **Skip** and **Update**. Skip remembers that release across
+launcher starts. A newer release can still appear; **Check for updates** in
+Settings can offer a skipped release again. An installed or older version never
+opens the prompt. Downloads start only after you choose Update.
 
-Choose **Stable** or **Beta** in **Settings → System → Updates**. Stable is
+Choose **Stable** or **Beta** in **Settings → Account → Updates**. Stable is
 the default; Beta also includes prereleases. Use **Check for updates** to check
 the selected channel immediately or retry after reconnecting to the internet.
 

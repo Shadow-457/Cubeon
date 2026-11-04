@@ -573,6 +573,18 @@ for t in threads:
 check("concurrent panel rebuilds never raise", not race_errors,
       str(race_errors[:2]))
 
+print("\n7. small Play windows keep controls reachable")
+body = next(c for c in every_control(page) if getattr(c, "data", None) == "play-body")
+space = next(c for c in every_control(page) if getattr(c, "data", None) == "play-art-space")
+play_size = next(c for c in every_control(page) if getattr(c, "on_size_change", None)
+                 and any(getattr(child, "data", None) == "play-body" for child in walk(c)))
+for width, height in ((738, 416), (604, 416), (850, 480)):
+    play_size.on_size_change(SimpleNamespace(width=width, height=height))
+    check(f"{width}x{height}: the Play body scrolls", body.scroll is not None)
+    check(f"{width}x{height}: no expanded spacer in the scroll viewport", not space.expand)
+play_size.on_size_change(SimpleNamespace(width=1259, height=772))
+check("Growing the window restores the full artwork layout", body.scroll is None and space.expand)
+
 print(f"\n{passed} passed, {failed} failed")
 print("Version-management UI test: " + ("FAIL" if failed else "PASS"))
 sys.exit(1 if failed else 0)

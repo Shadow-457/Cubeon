@@ -53,7 +53,7 @@ def mkzip(path, entries):
 src = os.path.join(_home, "old_mc")
 mkzip(f"{src}/mods/sodium.jar",
       [("fabric.mod.json", json.dumps({"id": "sodium", "name": "Sodium",
-                                       "depends": {"minecraft": "1.21"}}))])
+                                       "depends": {"minecraft": "1.21.x"}}))])
 mkzip(f"{src}/mods/forge-mod.jar",
       [("META-INF/mods.toml", 'modLoader="javafml"')])  # real Forge marker
 with open(f"{src}/mods/broken.jar", "wb") as f:
@@ -126,6 +126,12 @@ MC, LOADER, VID = "1.21.11", "fabric", "fabric-loader.0.16.9-1.21.11"
 
 print("import_item:")
 mod = next(e for e in r["mods"] if e["name"] == "Sodium")
+try:
+    importer.import_item(mod, mc_version='1.20.1', loader=LOADER)
+    rejected_wrong_version = False
+except ValueError:
+    rejected_wrong_version = True
+check('folder import rejects a mod for another Minecraft version', rejected_wrong_version)
 name = importer.import_item(mod, mc_version=MC, loader=LOADER)
 check("mod import returns a message", "Added mod" in name, name)
 pdir = mods.get_profile_dir(MC, LOADER)

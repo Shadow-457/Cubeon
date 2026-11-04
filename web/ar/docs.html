@@ -16,11 +16,10 @@
 <meta property="og:image:alt" content="مشغّل Cubeon معروض فوق عالم Minecraft: منتقي إصدار، واسم حساب، وزر تشغيل أخضر كبير." />
 <meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
-
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -58,12 +57,9 @@
 <!-- /cubeon:auto-language -->
 <link rel="stylesheet" href="/assets/site.css" />
 <script>document.documentElement.classList.add('js')</script>
-
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/docs" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/docs" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/docs" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/docs" />
 <link rel="alternate" hreflang="x-default" href="https://www.ylet.online/docs" />
 <link rel="canonical" href="https://www.ylet.online/ar/docs" />
 <meta property="og:url" content="https://www.ylet.online/ar/docs" />
@@ -85,8 +81,6 @@
     <nav class="lang-list" aria-label="اللغة">
           <a href="/docs" hreflang="en" lang="en">English</a>
           <a href="/ar/docs" hreflang="ar" lang="ar" aria-current="true">العربية</a>
-          <a href="/uk/docs" hreflang="uk" lang="uk">Українська</a>
-          <a href="/ru/docs" hreflang="ru" lang="ru">Русский</a>
     </nav>
   </details>
 </div>
@@ -131,6 +125,7 @@
         <div class="docs-nav-group">
           <span class="docs-nav-label"><svg viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9zM4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z"/></svg> أدلة</span>
           <a class="docs-nav-link" href="#docs-start" data-section="docs-start">كل الأدلة</a>
+          <a class="docs-nav-link" href="#guide-minecraft-launcher" data-section="guide-minecraft-launcher">اختيار مشغّل</a>
           <a class="docs-nav-link" href="#guide-getting-started" data-section="guide-getting-started">البدء</a>
           <a class="docs-nav-link" href="#guide-mods" data-section="guide-mods">المودات والمحتوى</a>
           <a class="docs-nav-link" href="#guide-modpacks" data-section="guide-modpacks">حزم المودات</a>
@@ -165,6 +160,19 @@
         <div class="note tip">
           <b>تريد اللعب فقط، دون أي إضافات؟</b>
           <p>لست بحاجة إلى أي من أدلة المودات. اختر الإصدار الذي يلعبه أصدقاؤك، واضغط تشغيل، واقرأ <a href="/ar/multiplayer">اللعب معًا</a> عندما تريد استضافة عالم.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-minecraft-launcher" class="docs-section">
+        <h2>اختيار مشغّل Minecraft</h2>
+        <p>تحقق من إصدار لعبتك ومتطلبات حساب الخادم ومحمّلات المودات ونظام التشغيل. تعرّف على مدى ملاءمة Cubeon لك وكيفية مقارنة ادعاءات الأداء.</p>
+        <p><a href="/ar/minecraft-launcher">اعثر على أفضل مشغّل Minecraft لإعداداتك</a></p>
+        <div class="docs-guide-links">
+          <a href="/ar/minecraft-launcher#edition-account">إصدار اللعبة والحساب</a>
+          <a href="/ar/minecraft-launcher#requirements">مقارنة الميزات</a>
+          <a href="/ar/minecraft-launcher#fps">الأداء ومعدل الإطارات</a>
         </div>
       </div>
 

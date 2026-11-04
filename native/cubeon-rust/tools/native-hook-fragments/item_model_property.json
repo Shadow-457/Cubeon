@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "item_model_property",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_model_property",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_model_property",
       "side": "client",
       "mod_api": {
         "contract": "listen"

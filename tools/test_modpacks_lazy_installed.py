@@ -74,75 +74,46 @@ stubs = fz.install_safe_stubs()
 stubs.core.list_installed_modpacks = fake_list_installed
 core.list_installed_modpacks = fake_list_installed
 
+from unittest.mock import patch
+from cubeon.theme import THEME, section_label
+from cubeon import thread_safe_ui
+from ui.modpacks_tab import build_modpacks_tab
+from test_content_install_feedback import QueuedThread, functions, env
+
 page = app_driver.DriverPage()
-stubs.app.run_sync(page)
-driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
-driver.open_tab("modpacks")
+with patch('threading.Thread', QueuedThread), patch.object(thread_safe_ui, 'refresh'):
+    root, refresh, load = build_modpacks_tab(
+        page, {}, {'selected_mc_version': '1.20.1'}, section_label=section_label,
+        go_to_pack=lambda meta: None, **THEME)
+    fns = functions(refresh, load, *[getattr(c, 'on_click', None) for c in fz.walk(root)])
+    scope = env(fns['_apply_installed_packs'])
+    installed_count = scope['installed_count']
+    active_view = scope['active_view']
+    segment_row = env(scope['_build_view_segment'])['view_segment_row']
+    installed_view = env(fns['_render_installed_rows'])['installed_view']
+    check('the tab opens on Browse', active_view['value'] == 'browse')
+    scans['n'] = 0
+    refresh()
+    check('hidden installed rows are not built', installed_view.controls == [])
+    check('the count uses one scan', installed_count.value == '40 installed' and scans['n'] == 1)
+    check('the Installed action shows its count', segment_row.controls[0].content == 'Installed (40)')
+    scans['n'] = 0
+    t1 = fns['installed_pack_tokens']()
+    t2 = fns['installed_pack_tokens']()
+    check('browse badges reuse the snapshot', scans['n'] == 0 and 'pack0' in t1 and t1 == t2)
+    QueuedThread.jobs.clear()
+    fns['on_view_change']('installed')
+    check('showing Installed does not scan on the handler', scans['n'] == 0)
+    while QueuedThread.jobs:
+        QueuedThread.jobs.pop(0)()
+    check('installed rows arrive from one background scan', scans['n'] == 1)
+    check('large installed sets start in a bounded batch', len(installed_view.controls) == 26)
+    scans['n'] = 0
+    installed_view.controls[-1].on_click(None)
+    check('Show more uses cached packs without scanning', scans['n'] == 0 and len(installed_view.controls) == 40)
+    original = tuple(installed_view.controls)
+    refresh()
+    check('a shown refresh preserves mounted cards', tuple(installed_view.controls) == original and scans['n'] == 1)
 
-found = find_functions(list(page.controls) + list(page.overlay),
-                       "refresh_installed_packs")
-check("found refresh_installed_packs", bool(found))
-refresh = found[0]
-scope = inspect.getclosurevars(refresh).nonlocals
-installed_count = scope["installed_count"]
-active_view = scope["active_view"]
-build_segment = scope["_build_view_segment"]
-
-render_rows = find_functions(list(page.controls) + list(page.overlay),
-                             "_render_installed_rows")
-check("found _render_installed_rows", bool(render_rows))
-installed_view = inspect.getclosurevars(render_rows[0]).nonlocals["installed_view"]
-segment_row = inspect.getclosurevars(build_segment).nonlocals["view_segment_row"]
-
-on_view_change = find_functions(list(page.controls) + list(page.overlay),
-                                "on_view_change")
-check("found on_view_change", bool(on_view_change))
-switch_view = on_view_change[0]
-
-# --- entry while Browse is showing ---------------------------------------
-check("the tab really opens on Browse", active_view["value"] == "browse",
-      active_view["value"])
-scans["n"] = 0
-refresh()
-check("no installed rows are built while the pane is hidden",
-      installed_view.controls == [], str(len(installed_view.controls)))
-check("the count line is still updated", installed_count.value == "40 installed",
-      repr(installed_count.value))
-check("the segment count is refreshed from the same scan", scans["n"] == 1,
-      str(scans["n"]))
-labels = [c.content.content.value for c in segment_row.controls
-          if getattr(getattr(getattr(c, "content", None), "content", None), "value", None)]
-check("the 'Installed (40)' tab label is right",
-      any("Installed (40)" in (label or "") for label in labels), str(labels))
-
-# The browse repaint asks for the same tokens twice (Modrinth, then CurseForge).
-tokens_fn = find_functions(list(page.controls) + list(page.overlay),
-                           "installed_pack_tokens")
-check("found installed_pack_tokens", bool(tokens_fn))
-scans["n"] = 0
-t1 = tokens_fn[0]()
-t2 = tokens_fn[0]()
-check("browse 'Installed' badges reuse the refresh's scan (no new walk)",
-      scans["n"] == 0, str(scans["n"]))
-check("the token set matches the installed names",
-      "pack0" in t1 and t1 == t2, str(sorted(t1))[:80])
-
-# --- opening the Installed pane builds them ------------------------------
-scans["n"] = 0
-switch_view("installed")
-check("switching to Installed builds one row per pack",
-      len(installed_view.controls) == len(PACKS),
-      str(len(installed_view.controls)))
-check("the switch scans once", scans["n"] == 1, str(scans["n"]))
-
-# --- and a later visit rebuilds while it is showing ----------------------
-scans["n"] = 0
-refresh()
-check("a refresh while Installed is showing keeps the rows",
-      len(installed_view.controls) == len(PACKS),
-      str(len(installed_view.controls)))
-check("that refresh scans once", scans["n"] == 1, str(scans["n"]))
-
-print()
-print(f"{passed} passed, {failed} failed")
+print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

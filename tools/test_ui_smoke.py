@@ -229,7 +229,7 @@ def all_tooltips(ctrl):
 
 print("\n2. the shell has every nav destination")
 text = " | ".join(all_text(page.controls[0])).lower()
-nav_labels = ("play", "mods", "modpacks", "cosmetics", "servers", "account", "settings")
+nav_labels = ("play", "mods", "cosmetics", "servers", "account", "settings")
 for label in nav_labels:
     check(f"nav shows {label!r}", label in text)
 # The Legacy toggle and the snapshots checkbox live in Settings now (this
@@ -954,7 +954,7 @@ if again:
           any(type(o).__name__ == "FilePicker" for o in page2.overlay))
     t2 = " | ".join(all_text(page2.controls[0])).lower()
     check("second build has the same nav", all(
-        k in t2 for k in ("play", "mods", "modpacks", "cosmetics",
+        k in t2 for k in ("play", "mods", "cosmetics",
                           "servers", "account", "settings")),
         f"text={t2[:400]!r}")
 
@@ -1336,11 +1336,12 @@ def _fn_src(source, name):
     return source[i:i+1+m.start()] if m else source[i:]
 
 _mods_src = open(os.path.join(_app_root, "ui", "mods_tab.py"), encoding="utf-8").read()
-check("mods tab has Browse/Installed view tabs",
+check("mods defaults to search with one Installed action",
       "view_segment_row" in _mods_src and "on_view_change" in _mods_src
       and "browse_pane" in _mods_src and "installed_pane" in _mods_src
-      and '"Installed"' in _mods_src,
-      "the mods tab must toggle between browse and installed panes")
+      and "data='mods-installed-toggle'" in _mods_src
+      and 'for vid, vlabel' not in _fn_src(_mods_src, '_build_view_segment'),
+      "the mods tab must keep one action between search and installed panes")
 _mp_src = open(os.path.join(_app_root, "ui", "modpacks_tab.py"), encoding="utf-8").read()
 check("modpacks tab has Browse/Installed view tabs",
       "view_segment_row" in _mp_src and "on_view_change" in _mp_src,
@@ -1457,11 +1458,11 @@ _screenshot_tab_src = (open(_screenshot_tab_path, encoding="utf-8").read()
                        if os.path.exists(_screenshot_tab_path) else "")
 check("screenshot gallery is in Settings, not Cosmetics",
       "def build_screenshot_gallery_tab" in _screenshot_tab_src
-      and '("images", ft.Icons.PHOTO_LIBRARY_ROUNDED, "Screenshots")' in open(
+      and "data='settings-screenshots'" in open(
           os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
       and "screenshot_gallery=screenshot_gallery_tab" in _main_src
       and "refresh_screenshot_gallery=refresh_screenshot_gallery" in _main_src
-      and 'key == "images"' in open(
+      and "requested == 'images'" in open(
           os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
       and "screenshot_gallery" not in open(
           os.path.join(_app_root, "ui", "skin_tab.py"), encoding="utf-8").read()
@@ -1814,9 +1815,9 @@ try:
 
     from ui.appearance_preview import AppearancePreview
     _orbit = AppearancePreview({"active_skin": None})
-    check("the 3D preview rotates through buttons only",
-          type(_orbit.gesture).__name__ == "Container"
-          and not hasattr(_orbit.gesture, "on_pan_update"))
+    check("the 3D preview supports drag rotation and buttons",
+          type(_orbit.gesture).__name__ == "GestureDetector"
+          and callable(_orbit.gesture.on_pan_update))
     check("preview keeps a native scene mounted rather than swapping frames",
           isinstance(_orbit.scene, ft.Stack) and _orbit.gesture.content is _orbit.scene)
 
@@ -2060,10 +2061,10 @@ check("the boost switch sits in the PLAY card, defined before play_tab",
       _src_main.index("fps_boost_switch = ft.Switch(")
       < _src_main.index("play_tab = ft.Stack("),
       "the switch must exist before the Play tab builds (UnboundLocalError)")
-check("OFF actively restores vanilla graphics at launch",
-      "restore_vanilla_look" in open(os.path.join(_app_root, "cubeon", "launch.py"),
+check("boost transitions preserve and restore previous graphics at launch",
+      "sync_fps_boost" in open(os.path.join(_app_root, "cubeon", "launch.py"),
                                      encoding="utf-8").read(),
-      "cubeon/launch.py must call restore_vanilla_look when the boost is off")
+      "cubeon/launch.py must use the reversible boost transition")
 check("the old max_fps_enabled key migrates, it does not silently reset",
       "fps_boost_enabled" in open(os.path.join(_app_root, "cubeon", "config.py"),
                                   encoding="utf-8").read()

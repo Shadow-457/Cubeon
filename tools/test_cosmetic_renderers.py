@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 JAVA = ROOT / 'mod/src/main/java'
 PACKAGE = 'com/cubeon/client/cosmetics/'
-OVERLAYS = ('1.21.2', '1.21.5', '1.21.9', '1.21.11')
+OVERLAYS = ('1.21.2', '1.21.5', '1.21.9', '1.21.11', '26')
 
 FIXTURES = {
     "com/cubeon/client/hud/CubeonHudConfig.java": '''
@@ -218,6 +218,10 @@ public class RendererTest {
             throw new AssertionError("id=" + id + " name=" + name + " drew " + Draws.textures);
         }
         if (pose.depth != 0) throw new AssertionError("Leaked body transform");
+        boolean replaced = CosmeticElytra.consume(state);
+        boolean wings = expected.stream().anyMatch(texture -> texture.contains("_wings"));
+        if (replaced != wings) throw new AssertionError("Elytra fallback failed for id=" + id + " " + expected);
+        if (CosmeticElytra.consume(state)) throw new AssertionError("Replacement must be consumed only once");
         if (!expected.isEmpty()) {
             int vertex = 0;
             var catalog = CosmeticCatalog.get();
@@ -299,8 +303,34 @@ public class RendererTest {
         if (CosmeticSelection.selectedWing() != null) throw new AssertionError("Pack must not enable N");
         Files.writeString(Path.of(args[0]), selection);
         CosmeticSelection.bind(Path.of(args[0]));
+        // A delayed filesystem worker must not hold up frame snapshots.
+        var readerField = CosmeticSelection.class.getDeclaredField("READER");
+        readerField.setAccessible(true);
+        var reader = (java.util.concurrent.ExecutorService) readerField.get(null);
+        var diskStarted = new java.util.concurrent.CountDownLatch(1);
+        var diskRelease = new java.util.concurrent.CountDownLatch(1);
+        reader.execute(() -> {
+            diskStarted.countDown();
+            try { diskRelease.await(5, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (InterruptedException error) { throw new RuntimeException(error); }
+        });
+        if (!diskStarted.await(2, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("Reader never started");
+        Files.writeString(Path.of(args[0]), "{}");
+        Thread.sleep(260);
+        long frameStart = System.nanoTime();
+        for (int frame = 0; frame < 1000; frame++) {
+            if (!"back_void_wings".equals(CosmeticSelection.snapshot().back()))
+                throw new AssertionError("Frame did not retain snapshot during delayed read");
+        }
+        if (System.nanoTime() - frameStart > 100_000_000L) throw new AssertionError("Snapshots waited for storage");
+        diskRelease.countDown();
+        reader.submit(() -> {}).get(2, java.util.concurrent.TimeUnit.SECONDS);
+        if (!CosmeticSelection.snapshot().empty()) throw new AssertionError("Async settings were not published");
+        Files.writeString(Path.of(args[0]), selection);
+        CosmeticSelection.bind(Path.of(args[0]));
         Class<?> type = Class.forName("com.cubeon.client.cosmetics.CosmeticFeatureRenderer");
         renderer = type.getConstructor(PlayerEntityRenderer.class).newInstance(new PlayerEntityRenderer());
+        type.getMethod("enableElytraReplacement").invoke(renderer);
         render = Arrays.stream(type.getDeclaredMethods()).filter(m -> m.getName().equals("render")
                  && !m.isBridge()).findFirst().orElseThrow();
         check(42, null, BOTH);                       // F5 hides our own name tag.
@@ -407,6 +437,70 @@ public class RendererTest {
 }
 
 
+def native_fixtures():
+    """Same recorded geometry/visibility expectations through the Mojang adapter."""
+    replacements = {
+        'net.minecraft.client.render.entity.model.PlayerEntityModel': 'net.minecraft.client.model.player.PlayerModel',
+        'net.minecraft.client.render.entity.state.PlayerEntityRenderState': 'net.minecraft.client.renderer.entity.state.AvatarRenderState',
+        'net.minecraft.client.render.entity.PlayerEntityRenderer': 'net.minecraft.client.renderer.entity.AvatarRenderer',
+        'net.minecraft.entity.player.PlayerEntity': 'net.minecraft.world.entity.player.Player',
+        'net.minecraft.client.util.math.MatrixStack': 'com.mojang.blaze3d.vertex.PoseStack',
+        'net.minecraft.client.MinecraftClient': 'net.minecraft.client.Minecraft',
+        'net.minecraft.util.math.Vec3d': 'net.minecraft.world.phys.Vec3',
+        'CosmeticFeatureRenderer': 'CosmeticRenderLayer',
+        'PlayerEntityRenderState': 'AvatarRenderState', 'PlayerEntityModel': 'PlayerModel',
+        'PlayerEntityRenderer': 'AvatarRenderer', 'PlayerEntity': 'Player',
+        'MinecraftClient': 'Minecraft', 'MatrixStack': 'PoseStack',
+        'getEntityById': 'getEntity', 'squaredDistanceTo': 'distanceToSqr',
+        'getVelocity': 'getDeltaMovement', 'horizontalLength': 'horizontalDistance',
+        'state.age': 'state.ageInTicks', 'instance.world': 'instance.level',
+    }
+
+    def adapt(text):
+        for before, after in replacements.items():
+            text = text.replace(before, after)
+        return text
+
+    fixtures = {name: FIXTURES[name] for name in
+                ('com/cubeon/client/hud/CubeonHudConfig.java', 'probe/Draws.java')}
+    fixtures['net/minecraft/client/Minecraft.java'] = adapt(FIXTURES['net/minecraft/client/MinecraftClient.java']).replace('World world', 'World level')
+    fixtures['net/minecraft/world/entity/player/Player.java'] = adapt(FIXTURES['net/minecraft/entity/player/PlayerEntity.java']).replace('package net.minecraft.entity.player;', 'package net.minecraft.world.entity.player;')
+    fixtures['net/minecraft/world/phys/Vec3.java'] = 'package net.minecraft.world.phys; public class Vec3 { public double horizontalDistance(){return 0;} }'
+    fixtures['com/mojang/blaze3d/vertex/PoseStack.java'] = adapt(FIXTURES['net/minecraft/client/util/math/MatrixStack.java']).replace('package net.minecraft.client.util.math;', 'package com.mojang.blaze3d.vertex;').replace('Entry', 'Pose').replace('void push()', 'void pushPose()').replace('void pop()', 'void popPose()').replace('Pose peek()', 'Pose last()')
+    fixtures['net/minecraft/client/model/player/PlayerModel.java'] = adapt(FIXTURES['net/minecraft/client/render/entity/model/PlayerEntityModel.java']).replace('package net.minecraft.client.render.entity.model;', 'package net.minecraft.client.model.player;').replace('applyTransform', 'translateAndRotate')
+    fixtures['net/minecraft/client/renderer/entity/state/AvatarRenderState.java'] = 'package net.minecraft.client.renderer.entity.state; public class AvatarRenderState { public int id; public Object displayName; public float ageInTicks=80; public boolean isFallFlying; }'
+    fixtures['net/minecraft/client/renderer/entity/RenderLayerParent.java'] = 'package net.minecraft.client.renderer.entity; public interface RenderLayerParent<S,M>{M getModel();}'
+    fixtures['net/minecraft/client/renderer/entity/AvatarRenderer.java'] = '''package net.minecraft.client.renderer.entity;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.model.player.PlayerModel;
+public class AvatarRenderer implements RenderLayerParent<AvatarRenderState,PlayerModel>{ public PlayerModel getModel(){return new PlayerModel();} }'''
+    fixtures['net/minecraft/client/renderer/entity/layers/RenderLayer.java'] = '''package net.minecraft.client.renderer.entity.layers;
+import net.minecraft.client.renderer.entity.RenderLayerParent;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import com.mojang.blaze3d.vertex.PoseStack;
+public class RenderLayer<S,M>{ private final RenderLayerParent<S,M> parent;
+ public RenderLayer(RenderLayerParent<S,M> p){parent=p;} public M getParentModel(){return parent.getModel();}
+ public void submit(PoseStack p,SubmitNodeCollector c,int light,S state,float a,float b){} }'''
+    fixtures['net/minecraft/resources/Identifier.java'] = 'package net.minecraft.resources; public record Identifier(String path){public static Identifier fromNamespaceAndPath(String n,String p){return new Identifier(p);}}'
+    fixtures['net/minecraft/client/renderer/rendertype/RenderType.java'] = 'package net.minecraft.client.renderer.rendertype; public record RenderType(net.minecraft.resources.Identifier texture){}'
+    fixtures['net/minecraft/client/renderer/rendertype/RenderTypes.java'] = 'package net.minecraft.client.renderer.rendertype; public class RenderTypes{public static RenderType entityCutout(net.minecraft.resources.Identifier t,boolean ignored){return new RenderType(t);}}'
+    fixtures['net/minecraft/client/renderer/texture/OverlayTexture.java'] = 'package net.minecraft.client.renderer.texture; public class OverlayTexture{public static final int NO_OVERLAY=0;}'
+    vertex = adapt(FIXTURES['net/minecraft/client/render/VertexConsumer.java']).replace('package net.minecraft.client.render;', 'package com.mojang.blaze3d.vertex;').replace('PoseStack.Entry', 'PoseStack.Pose')
+    for before, after in (('vertex(', 'addVertex('), ('color(', 'setColor('), ('texture(', 'setUv('), ('overlay(', 'setOverlay('), ('light(', 'setLight('), ('normal(', 'setNormal(')):
+        vertex = vertex.replace(before, after)
+    fixtures['com/mojang/blaze3d/vertex/VertexConsumer.java'] = vertex
+    fixtures['net/minecraft/client/renderer/SubmitNodeCollector.java'] = '''package net.minecraft.client.renderer;
+import com.mojang.blaze3d.vertex.*;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import probe.Draws;
+public class SubmitNodeCollector {
+ public interface Geometry{void draw(PoseStack.Pose pose,VertexConsumer buffer);}
+ public void submitCustomGeometry(PoseStack p,RenderType type,Geometry geometry){Draws.textures.add(type.texture().path());geometry.draw(p.last(),new VertexConsumer());}
+}'''
+    fixtures['probe/RendererTest.java'] = adapt(FIXTURES['probe/RendererTest.java']).replace('type.getConstructor(AvatarRenderer.class)', 'type.getConstructor(net.minecraft.client.renderer.entity.RenderLayerParent.class)').replace('m.getName().equals("render")', 'm.getName().equals("submit")')
+    return fixtures
+
+
 @unittest.skipUnless(shutil.which('javac') and shutil.which('java'), 'A JDK is required')
 class CosmeticRendererTests(unittest.TestCase):
     def test_renderers_draw_local_player_without_a_name_tag(self):
@@ -414,17 +508,18 @@ class CosmeticRendererTests(unittest.TestCase):
             with self.subTest(overlay=overlay), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 sources = []
-                for relative, source in FIXTURES.items():
+                for relative, source in (native_fixtures() if overlay == '26' else FIXTURES).items():
                     path = root / relative
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(source, encoding='utf-8')
                     sources.append(str(path))
                 sources += [str(JAVA / 'com/cubeon/client/Json.java')]
                 sources += [str(JAVA / PACKAGE / (name + '.java')) for name in
-                            ('CosmeticCatalog', 'CosmeticSelection', 'CosmeticGeometry', 'CosmeticAnimation', 'WingAction', 'RemoteCosmetics', 'CosmeticView')]
-                sources += [str(ROOT / 'mod/src/main/java-overlay-api-yarn' / PACKAGE / 'CosmeticPlayers.java')]
+                            ('CosmeticCatalog', 'CosmeticSelection', 'CosmeticGeometry', 'CosmeticAnimation', 'WingAction', 'RemoteCosmetics', 'CosmeticView', 'CosmeticElytra')]
+                api = 'mojang' if overlay == '26' else 'yarn'
+                sources += [str(ROOT / f'mod/src/main/java-overlay-api-{api}' / PACKAGE / 'CosmeticPlayers.java')]
                 sources += [str(ROOT / ('mod/src/main/java-overlay-cosmetics-' + overlay) /
-                                PACKAGE / 'CosmeticFeatureRenderer.java')]
+                                PACKAGE / ('CosmeticRenderLayer.java' if overlay == '26' else 'CosmeticFeatureRenderer.java'))]
                 classes = root / 'classes'
                 compiled = subprocess.run(['javac', '--release', '17', '-d', str(classes), *sources],
                                           capture_output=True, text=True, timeout=60)
@@ -432,6 +527,10 @@ class CosmeticRendererTests(unittest.TestCase):
                 resource = classes / 'assets/cubeon-client/cosmetics/catalog.json'
                 resource.parent.mkdir(parents=True)
                 shutil.copyfile(ROOT / 'assets/cosmetics/catalog.json', resource)
+                artwork = classes / 'assets/cubeon-client/textures/cosmetics'
+                artwork.mkdir(parents=True)
+                for source in (ROOT / 'assets/cosmetics').glob('*.png'):
+                    shutil.copyfile(source, artwork / source.name)
                 selection = root / 'cubeon-cosmetics.json'
                 selection.write_text(json.dumps({'version': 1, 'shoulder': 'shoulder_star_owl',
                                                  'back': 'back_void_wings'}), encoding='utf-8')

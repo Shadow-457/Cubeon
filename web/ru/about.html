@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="robots" content="noindex, follow" />
 <title>About Cubeon Launcher - Official Minecraft Java Project</title>
 <meta name="description" content="Official Cubeon Launcher facts, downloads and source code. Free Apache 2.0 Minecraft Java launcher for Windows, Linux and macOS with mods and local profiles." />
 <meta property="og:title" content="About Cubeon Launcher - Official Minecraft Java Project" />
@@ -19,7 +19,7 @@
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -155,11 +155,9 @@
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/about" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/about" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/about" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/about" />
 <link rel="alternate" hreflang="x-default" href="https://www.ylet.online/about" />
-<link rel="canonical" href="https://www.ylet.online/ru/about" />
-<meta property="og:url" content="https://www.ylet.online/ru/about" />
+<link rel="canonical" href="https://www.ylet.online/about" />
+<meta property="og:url" content="https://www.ylet.online/about" />
 <!-- /cubeon:seo -->
 </head>
 <body>
@@ -173,16 +171,15 @@
       <!-- cubeon:language -->
 <div class="lang-menu">
   <details>
-    <summary aria-label="Язык: Русский"><span aria-hidden="true">🌐</span> RU</summary>
-    <nav class="lang-list" aria-label="Язык">
-          <a href="/ru/about" hreflang="en" lang="en">English</a>
+    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
+    <nav class="lang-list" aria-label="Language">
+          <a href="/about" hreflang="en" lang="en" aria-current="true">English</a>
           <a href="/ar/about" hreflang="ar" lang="ar">العربية</a>
-          <a href="/uk/about" hreflang="uk" lang="uk">Українська</a>
-          <a href="/ru/about" hreflang="ru" lang="ru" aria-current="true">Русский</a>
     </nav>
   </details>
 </div>
 <!-- /cubeon:language -->
+
       <a href="/ru">Home</a>
       <a href="/ru/about" aria-current="page">About</a>
       <a href="/ru/download">Download</a>

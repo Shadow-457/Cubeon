@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "note_block_change",
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_note_block_change",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_note_block_change",
       "neoforge": "NoteBlockEvent.Change",
       "side": "server",
       "cancellable": true,

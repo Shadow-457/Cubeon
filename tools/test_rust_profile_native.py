@@ -9,12 +9,12 @@ DEPENDENCIES = ROOT / "native/cubeon-rust/target/fast/deps"
 
 
 def main():
-    libraries = list(DEPENDENCIES.glob("libhorizon_client_render-*.rlib"))
+    libraries = list(DEPENDENCIES.glob("libcubeon_client_render-*.rlib"))
     library = max(libraries, key=lambda p: p.stat().st_mtime)
     with tempfile.TemporaryDirectory(prefix="cubeon-rust-profile-") as temp:
         folder = Path(temp)
         source = folder / "profile.rs"
-        source.write_text('''use horizon_client_render::auth::*;
+        source.write_text('''use cubeon_client_render::auth::*;
 fn main() {
     assert!(AuthSession::parse("{}").is_err());
     let session = AuthSession::new("Fixture", 42, "discarded fixture token");
@@ -32,7 +32,7 @@ fn main() {
 ''')
         executable = folder / ("profile.exe" if os.name == "nt" else "profile")
         subprocess.run(["rustc", "--edition=2024", str(source), "--extern",
-                        f"horizon_client_render={library}", "-L", f"dependency={DEPENDENCIES}",
+                        f"cubeon_client_render={library}", "-L", f"dependency={DEPENDENCIES}",
                         "-o", str(executable)], check=True)
         env = {**os.environ, "HOME": str(folder), "USERPROFILE": str(folder),
                "CUBEON_RUST_PLAYER_UUID": "01234567-89ab-cdef-0123-456789abcdef"}

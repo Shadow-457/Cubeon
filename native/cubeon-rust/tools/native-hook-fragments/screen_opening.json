@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "screen_opening",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_opening",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_opening",
       "neoforge": "ScreenEvent.Opening",
       "side": "client",
       "cancellable": false,

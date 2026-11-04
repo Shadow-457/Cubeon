@@ -43,7 +43,7 @@ TRANSLATED = ("ar", "uk", "ru")
 
 PAGES = [
     "index", "about", "benchmarks", "cookies", "cosmetics", "docs", "doctor",
-    "download", "files", "getting-started", "help", "licenses", "modpacks",
+    "download", "files", "getting-started", "help", "licenses", "minecraft-launcher", "modpacks",
     "mods", "multiplayer", "privacy", "refunds", "terms", "troubleshooting",
     "403", "404", "429", "500", "502", "503",
 ]
@@ -65,7 +65,7 @@ META_NAMES = {
     "description", "og:title", "og:description", "og:image:alt",
     "twitter:title", "twitter:description",
 }
-JSONLD_TEXT_KEYS = {"name", "description", "text", "alternateName", "caption"}
+JSONLD_TEXT_KEYS = {"name", "headline", "description", "text", "alternateName", "caption"}
 
 PLACEHOLDER = re.compile(r"\{(\d+)\}")
 TAG_RE = re.compile(r"<(/?)([a-zA-Z][\w:-]*)([^>]*?)(/?)>", re.S)
@@ -458,10 +458,16 @@ def read_page(page: str) -> str:
     return (WEB / f"{page}.html").read_text(encoding="utf-8")
 
 
+def translated_languages():
+    """Advertise real translations; empty catalogues retain fallback routes."""
+    return ["en"] + [lang for lang in TRANSLATED if load_catalog(lang)]
+
+
 def strip_generated(source: str) -> str:
-    source = re.sub(r'[ \t]*' + re.escape(LANG_BLOCK) + r".*?" + re.escape(LANG_END), "", source, flags=re.S)
-    source = re.sub(re.escape(SEO_BLOCK) + r".*?" + re.escape(SEO_END), "", source, flags=re.S)
-    source = re.sub(re.escape(EARLY_BLOCK) + r".*?" + re.escape(EARLY_END), "", source, flags=re.S)
+    # Remove the generated block's own trailing newline as well, so each
+    # rebuild does not add another blank line at all three insertion points.
+    for start, end in ((LANG_BLOCK, LANG_END), (SEO_BLOCK, SEO_END), (EARLY_BLOCK, EARLY_END)):
+        source = re.sub(r'\n(?:[ \t]*\n)*[ \t]*' + re.escape(start) + r".*?" + re.escape(end) + r"\n?", "\n", source, flags=re.S)
     source = source.replace('<link rel="stylesheet" href="/assets/rtl.css" />\n', "")
     source = source.replace('<link rel="stylesheet" href="/assets/rtl.css" />', "")
     return source
@@ -545,9 +551,13 @@ def page_url(page: str, lang: str) -> str:
 
 
 def language_menu(page: str, lang: str) -> str:
+    available = translated_languages()
+    if lang not in available:
+        lang = "en"
     current = LANGUAGES[lang]
     options = []
-    for code, meta in LANGUAGES.items():
+    for code in available:
+        meta = LANGUAGES[code]
         attrs = f' hreflang="{code}" lang="{code}"'
         if code == lang:
             attrs += ' aria-current="true"'
@@ -569,12 +579,13 @@ def language_menu(page: str, lang: str) -> str:
 
 
 def head_block(page: str, lang: str) -> str:
+    available = translated_languages()
     alternates = "\n".join(
         f'<link rel="alternate" hreflang="{code}" href="{page_url(page, code)}" />'
-        for code in LANGUAGES
+        for code in available
     )
     alternates += f'\n<link rel="alternate" hreflang="x-default" href="{page_url(page, "en")}" />'
-    canonical = page_url(page, lang)
+    canonical = page_url(page, lang if lang in available else "en")
     return (
         f"{SEO_BLOCK}\n{alternates}\n"
         f'<link rel="canonical" href="{canonical}" />\n'
@@ -625,11 +636,16 @@ EARLY_SCRIPT = r"""<!-- cubeon:auto-language -->
 
 
 def patch_common(source: str, page: str, lang: str) -> str:
+    available = translated_languages()
+    content_lang = lang if lang in available else "en"
     source = re.sub(
         r"<html\b[^>]*>",
-        f'<html lang="{lang}"' + (' dir="rtl"' if LANGUAGES[lang]["dir"] == "rtl" else "") + ">",
+        f'<html lang="{content_lang}"' + (' dir="rtl"' if LANGUAGES[content_lang]["dir"] == "rtl" else "") + ">",
         source, count=1,
     )
+    if lang not in available and not page.isdigit():
+        source = re.sub(r'(<meta name="robots" content=")[^"]*(")',
+                        r'\1noindex, follow\2', source, count=1)
     source = re.sub(r"[ \t]*<link rel=\"canonical\"[^>]*>\n?", "", source)
     source = re.sub(r"[ \t]*<meta property=\"og:url\"[^>]*>\n?", "", source)
     block = head_block(page, lang)
@@ -637,12 +653,14 @@ def patch_common(source: str, page: str, lang: str) -> str:
         source = re.sub(re.escape(SEO_BLOCK) + r".*?" + re.escape(SEO_END), block, source, flags=re.S)
     else:
         source = source.replace("</head>", block + "\n</head>", 1)
+    names = ", ".join(code + ": 1" for code in available)
+    early = re.sub(r"var names = \{[^}]+\}", "var names = { " + names + " }", EARLY_SCRIPT)
     if EARLY_BLOCK in source:
-        source = re.sub(re.escape(EARLY_BLOCK) + r".*?" + re.escape(EARLY_END), EARLY_SCRIPT, source, flags=re.S)
+        source = re.sub(re.escape(EARLY_BLOCK) + r".*?" + re.escape(EARLY_END), early, source, flags=re.S)
     elif '<link rel="stylesheet"' in source:
-        source = source.replace('<link rel="stylesheet"', EARLY_SCRIPT + '\n<link rel="stylesheet"', 1)
+        source = source.replace('<link rel="stylesheet"', early + '\n<link rel="stylesheet"', 1)
     else:
-        source = source.replace("</head>", EARLY_SCRIPT + "\n</head>", 1)
+        source = source.replace("</head>", early + "\n</head>", 1)
     if LANGUAGES[lang]["dir"] == "rtl" and '/assets/rtl.css' not in source:
         source = source.replace("</head>", '<link rel="stylesheet" href="/assets/rtl.css" />\n</head>', 1)
     menu = language_menu(page, lang)
@@ -698,7 +716,7 @@ def rewrite_links(source: str, lang: str) -> str:
     return re.sub(r'srcset=(["\'])(.*?)\1', srcset, source, flags=re.S)
 
 
-def translate_jsonld(source: str, translator) -> str:
+def translate_jsonld(source: str, translator, page=None, lang="en") -> str:
     def repl(match):
         opening, body, closing = match.group(1), match.group(2), match.group(3)
         try:
@@ -706,17 +724,30 @@ def translate_jsonld(source: str, translator) -> str:
         except ValueError:
             return match.group(0)
 
-        def visit(value, parent=None):
+        def visit(value, parent=None, local_page=False):
             if isinstance(value, str):
+                if local_page and page and page not in ROOT_PAGES and lang != "en":
+                    canonical = page_url(page, "en")
+                    if value == canonical or value.startswith(canonical + "#"):
+                        return page_url(page, lang) + value[len(canonical):]
+                    if parent == "item":
+                        for target in PAGES:
+                            if value == page_url(target, "en"):
+                                return page_url(target, lang)
                 if parent in JSONLD_TEXT_KEYS:
                     key = clean_text(value)
                     if key and len(key) >= 3 and not SKIP_KEY.match(key):
                         return translator(key)
                 return value
             if isinstance(value, dict):
-                return {k: visit(v, k) for k, v in value.items()}
+                # Product/site IDs stay shared; each translated article and
+                # breadcrumb belongs to its own canonical page.
+                local_page = local_page or value.get("@type") in {
+                    "WebPage", "AboutPage", "Article", "BreadcrumbList"
+                }
+                return {k: visit(v, k, local_page) for k, v in value.items()}
             if isinstance(value, list):
-                return [visit(v, parent) for v in value]
+                return [visit(v, parent, local_page) for v in value]
             return value
 
         data = visit(data)
@@ -755,7 +786,7 @@ def translate_page(page: str, lang: str) -> tuple[str, set[str]]:
                 replacements.append((attr.start, attr.end, escape_attr(value)))
     for start, end, rendered in sorted(replacements, reverse=True):
         source = source[:start] + rendered + source[end:]
-    source = translate_jsonld(source, renderer.t)
+    source = translate_jsonld(source, renderer.t, page, lang if lang in translated_languages() else "en")
     source = rewrite_links(source, lang)
     source = patch_common(source, page, lang)
     return source, renderer.missing
@@ -775,6 +806,15 @@ def write_sitemap():
     ns = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
     xhtml = "{http://www.w3.org/1999/xhtml}"
     original = list(root)
+    languages = translated_languages()
+    # New public source pages must enter the sitemap without a manual XML edit.
+    known = {url.findtext(ns + "loc") for url in original}
+    for page in PAGES:
+        if page.isdigit() or page_url(page, "en") in known:
+            continue
+        entry = ET.Element(ns + "url")
+        ET.SubElement(entry, ns + "loc").text = page_url(page, "en")
+        original.append(entry)
     root.clear()
     seen = set()
     for url in original:
@@ -792,10 +832,10 @@ def write_sitemap():
         if page not in PAGES:
             root.append(url)
             continue
-        for lang in LANGUAGES:
+        for lang in languages:
             entry = ET.SubElement(root, ns + "url")
             ET.SubElement(entry, ns + "loc").text = page_url(page, lang)
-            for code in list(LANGUAGES) + ["x-default"]:
+            for code in languages + ["x-default"]:
                 ET.SubElement(entry, xhtml + "link", {
                     "rel": "alternate",
                     "hreflang": code,

@@ -35,7 +35,7 @@ def main():
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.route('**/*', route)
-            for path in ['/?time=day', '/download', '/about', '/docs']:
+            for path in ['/?time=day', '/download', '/about', '/docs', '/minecraft-launcher']:
                 page.goto('https://cubeon.test' + path)
                 page.evaluate('document.fonts.ready')
                 expect(page.locator('link[rel="icon"]')).to_have_attribute('href', '/assets/favicon.png')
@@ -45,7 +45,11 @@ def main():
                     await icon.decode();
                     return icon.naturalWidth === 256 && icon.naturalHeight === 256;
                 }'''), (width, path, 'favicon failed to load')
-                expect(page.locator('h1')).to_contain_text('Cubeon')
+                expect(page.locator('h1')).to_contain_text('best Minecraft launcher' if path == '/minecraft-launcher' else 'Cubeon')
+                if path == '/minecraft-launcher':
+                    expect(page.locator('table caption')).to_have_text('Launcher requirements and Cubeon support')
+                    expect(page.locator('article a[href="download.html"]').last).to_be_visible()
+                    expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://www.ylet.online/minecraft-launcher')
                 if path == '/docs':
                     expect(page.locator('.docs-gallery figure')).to_have_count(12)
                     for screenshot in page.locator('.docs-gallery img').all():
@@ -67,6 +71,12 @@ def main():
                 assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, path, 'horizontal overflow')
                 assert page.locator('h1').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1'), (width, path, 'heading clipped')
                 if path.startswith('/?'):
+                    assert page.locator('.hero .shot img').evaluate('''async (img) => {
+                        await img.decode();
+                        return img.currentSrc.endsWith('/assets/cubeon-play.webp') &&
+                            img.naturalWidth === 1268 && img.naturalHeight === 724 &&
+                            img.width / img.height > 1.7;
+                    }'''), (width, 'WebP hero failed to load')
                     expect(page.locator('.sign .lede')).to_contain_text('Minecraft Java Edition launcher')
                     expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://www.ylet.online/')
                     expect(page.locator('.sign .pane.on .btn')).to_be_visible()
@@ -93,6 +103,11 @@ def main():
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.route('**/*', route)
+            page.goto('https://cubeon.test/ar/minecraft-launcher')
+            expect(page.locator('html')).to_have_attribute('dir', 'rtl')
+            expect(page.locator('table tbody tr')).to_have_count(6)
+            expect(page.locator('article')).to_contain_text('Microsoft')
+            assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, 'Arabic guide overflow')
             page.goto('https://cubeon.test/ar/?time=night')
             expect(page.locator('html')).to_have_attribute('dir', 'rtl')
             expect(page.locator('.sign .pane.on .btn')).to_be_visible()
@@ -117,6 +132,12 @@ def main():
         expect(page.locator('#what-is-cubeon-launcher .q-body p')).to_be_visible()
         expect(page.locator('#cubeon-supported-loaders .q-body p')).to_be_visible()
         expect(page.locator('#cubeon-supported-loaders .q-body')).to_contain_text('NeoForge')
+        expect(page.locator('#choosing-minecraft-launcher .q-body p')).to_be_visible()
+        expect(page.locator('#choosing-minecraft-launcher a[href="minecraft-launcher.html"]')).to_be_visible()
+        page.goto('https://cubeon.test/minecraft-launcher')
+        expect(page.locator('h1')).to_contain_text('best Minecraft launcher')
+        expect(page.locator('table tbody tr')).to_have_count(6)
+        expect(page.locator('article')).to_contain_text('does not provide Microsoft sign-in')
         page.goto('https://cubeon.test/about')
         expect(page.locator('.project-facts')).to_contain_text('Shadow-457/Cubeon')
         expect(page.locator('.project-facts a[href="https://github.com/Shadow-457/Cubeon"]').first).to_be_visible()
@@ -126,7 +147,7 @@ def main():
         expect(page.locator('.docs-gallery img').first).to_have_attribute('alt', 'Cubeon Launcher Play screen with Minecraft version selection and the Play button.')
         page.locator('.docs-gallery img').first.scroll_into_view_if_needed()
         expect(page.locator('.docs-gallery img').first).to_be_visible()
-        print('PASS homepage/download/about/docs and 12 loaded gallery images at 1440, 768, 390 and 320px, no overflow/errors, crawlable content without JavaScript')
+        print('PASS homepage/download/about/docs/launcher guide, WebP hero and 12 gallery images at 1440, 768, 390 and 320px, no overflow/errors, readable without JavaScript')
         browser.close()
 
 

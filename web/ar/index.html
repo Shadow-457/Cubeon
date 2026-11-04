@@ -4,9 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="index, follow, max-image-preview:large" />
-<title>Cubeon Launcher - مشغّل Minecraft Java مجاني ومفتوح المصدر</title>
+<title>Cubeon Launcher | مشغّل Minecraft مجاني لإصدار Java</title>
 <meta name="description" content="Cubeon Minecraft Launcher الرسمي: مجاني ومفتوح المصدر ومصمّم لـ Java Edition على Windows وLinux وmacOS. أدر المودات وحزم المودات والسكنات والأصدقاء." />
-<meta property="og:title" content="Cubeon Launcher - مشغّل Minecraft Java مجاني ومفتوح المصدر" />
+<meta property="og:title" content="Cubeon Launcher | مشغّل Minecraft مجاني لإصدار Java" />
 <meta property="og:description" content="Cubeon Minecraft Launcher الرسمي: مجاني ومفتوح المصدر ومصمّم لـ Java Edition على Windows وLinux وmacOS. أدر المودات وحزم المودات والسكنات والأصدقاء." />
 <meta property="og:site_name" content="Cubeon Launcher" />
 <meta property="og:type" content="website" />
@@ -16,11 +16,10 @@
 <meta property="og:image:alt" content="مشغّل Cubeon معروض فوق عالم Minecraft: منتقي إصدار، واسم حساب، وزر تشغيل أخضر كبير." />
 <meta name="twitter:card" content="summary_large_image" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
-
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -57,6 +56,7 @@
 </script>
 <!-- /cubeon:auto-language -->
 <link rel="stylesheet" href="/assets/site.css" />
+<link rel="preload" as="image" type="image/webp" href="/assets/cubeon-play.webp" fetchpriority="high" />
 <script>document.documentElement.classList.add('js','sky');
 (function(){var q=new URLSearchParams(location.search),n=new Date(),h=n.getHours()+n.getMinutes()/60,m={night:23,sunrise:6.5,day:12,sunset:18.5};
 if(m[q.get('time')]!==undefined)h=m[q.get('time')];else if(q.get('hour')!==null&&!isNaN(+q.get('hour')))h=((+q.get('hour'))%24+24)%24;
@@ -172,7 +172,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       "@type": "WebPage",
       "@id": "https://www.ylet.online/#webpage",
       "url": "https://www.ylet.online/",
-      "name": "Cubeon Launcher - مشغّل Minecraft Java مجاني ومفتوح المصدر",
+      "name": "Cubeon Launcher | مشغّل Minecraft مجاني لإصدار Java",
       "isPartOf": {
         "@id": "https://www.ylet.online/#website"
       },
@@ -225,6 +225,14 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
         },
         {
           "@type": "Question",
+          "name": "هل Cubeon أفضل مشغّل Minecraft لإعداداتي؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "يناسبك Cubeon إذا أردت مشغّلًا مجانيًا مفتوح المصدر لإصدار Java مع محمّلات مودات متوافقة ومودات وحزم مودات وسكنات وأصدقاء على Windows أو Linux أو macOS. يستخدم ملفات تعريف محلية/غير متصلة، ولا يوفّر تسجيل الدخول بحساب Microsoft أو تشغيل إصدار Bedrock. يعتمد الخيار الأفضل على إصدار لعبتك ومتطلبات الخادم والمودات؛ استخدم دليل مشغّل Minecraft للتحقق من احتياجاتك قبل التنزيل."
+          }
+        },
+        {
+          "@type": "Question",
           "name": "هل هو مجاني حقاً؟",
           "acceptedAnswer": {
             "@type": "Answer",
@@ -252,7 +260,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
           "name": "هل هو سريع؟",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "قِسنا ذلك بدل الادّعاء به. على الحاسوب نفسه وبإصدار Minecraft نفسه، بلغ متوسط Cubeon داخل اللعبة 206 إطار/ثانية مقابل 152 لـ FastClient و119 لـ SKLauncher - وكان أسوأ ثانية لديه 102 إطار/ثانية، بينما هبط الآخران إلى 37 و33. وتتضمن صفحة المقارنات كل رقم والمخططات والتحفظات التي تُضعف المقارنة."
+            "text": "قِسنا ذلك بدل الادّعاء به. على الحاسوب نفسه وبإصدار Minecraft نفسه، بلغ متوسط Cubeon داخل اللعبة 206 إطار/ثانية مقابل 152 لـ FastClient و119 لـ SKLauncher - وكان أسوأ ثانية لديه 102 إطار/ثانية، بينما هبط الآخران إلى 37 و33. تتضمن صفحة المقارنات كل رقم والمخططات والتحفظات التي تُضعف المقارنة."
           }
         },
         {
@@ -332,12 +340,9 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
   ]
 }
 </script>
-
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru" />
 <link rel="alternate" hreflang="x-default" href="https://www.ylet.online/" />
 <link rel="canonical" href="https://www.ylet.online/ar" />
 <meta property="og:url" content="https://www.ylet.online/ar" />
@@ -359,8 +364,6 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
     <nav class="lang-list" aria-label="اللغة">
           <a href="/" hreflang="en" lang="en">English</a>
           <a href="/ar" hreflang="ar" lang="ar" aria-current="true">العربية</a>
-          <a href="/uk" hreflang="uk" lang="uk">Українська</a>
-          <a href="/ru" hreflang="ru" lang="ru">Русский</a>
     </nav>
   </details>
 </div>
@@ -386,7 +389,10 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
   <div class="wrap hero-wrap">
       <div class="isle" aria-hidden="false">
         <div class="shot">
-          <img src="/assets/cubeon-play.png" width="1177" height="756" alt="نافذة مشغّل Cubeon: ملف تعريف Minecraft، ومنتقي إصدار، وصف مُحمّل مودات، وزر تشغيل أخضر كبير." />
+          <picture>
+            <source srcset="/assets/cubeon-play.webp" type="image/webp" />
+            <img src="/assets/cubeon-play.png" width="1268" height="724" fetchpriority="high" decoding="async" alt="نافذة مشغّل Cubeon: ملف تعريف Minecraft، ومنتقي إصدار، وصف مُحمّل مودات، وزر تشغيل أخضر كبير." />
+          </picture>
         </div>
         <div class="rock" aria-hidden="true"></div>
       </div>
@@ -396,7 +402,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
         <div class="dl">
           <div class="pane" data-os="windows">
             <a class="btn big" href="/windowsdownload"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4.5 11 3.4v8H3zM12 3.3 21 2v9.4h-9zM3 12.6h8v8L3 19.5zM12 12.6h9V22l-9-1.3z" fill="currentColor"/></svg>تنزيل لـ Windows</a>
-            <p class="meta">v1.3.45 مستقر &middot; مثبّت &middot; مجاني</p>
+            <p class="meta">v1.3.45 مستقر &middot; مُثبّت &middot; مجاني</p>
           </div>
 
           <div class="pane" data-os="linux">
@@ -441,6 +447,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
   <h2>ما هو Cubeon Launcher؟</h2>
   <p>Cubeon Launcher، المعروف أيضاً باسم Cubeon Minecraft Launcher، تطبيق سطح مكتب مجاني ومفتوح المصدر لـ Minecraft Java Edition على Windows وLinux وmacOS. هذا هو موقع Cubeon الرسمي. ثبّت إصدارات اللعبة، وأدر النسخ المعدّلة بالمودات، وخصّص السكنات والمستلزمات التجميلية، والعب مع أصدقائك.</p>
   <p><a href="/ar/about">صفحة عن Cubeon وروابط المشروع الرسمية</a> تشرح المنصات والترخيص وملفات تعريف اللاعبين المحلية. وCubeon مشروع منفصل عن مشغّل Cubion الذي يشبهه في الاسم.</p>
+  <p>هل تبحث عن <a href="/ar/minecraft-launcher">أفضل مشغّل Minecraft لإعداداتك</a>؟ ابدأ بإصدار اللعبة ومتطلبات حساب الخادم ومحمّل المودات. يشرح دليلنا مدى ملاءمة Cubeon لك، وما يجب التحقق منه قبل التنزيل، وكيفية تقييم ادعاءات معدل الإطارات.</p>
   <p><a href="/ar/getting-started">ثبّت مشغّل Minecraft</a>، أو <a href="/ar/mods">أضف مودات وحزم موارد وشيدرات</a>، أو <a href="/ar/modpacks">جهّز حزمة مودات</a>. استخدم الأدلة <a href="/ar/multiplayer">للعب Minecraft مع الأصدقاء</a> و<a href="/ar/troubleshooting">لحل مشكلة تعطل</a>. يوجد <a href="https://github.com/Shadow-457/Cubeon">مستودع Cubeon الرسمي</a> و<a href="https://github.com/Shadow-457/Cubeon/releases">سجل الإصدارات</a> على GitHub.</p>
 </div></div></section>
 
@@ -544,6 +551,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
     <div class="faq">
       <div class="q" id="what-is-cubeon-launcher"><button class="q-a" type="button" aria-expanded="false">ما هو Cubeon Launcher؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Cubeon Launcher مشغّل سطح مكتب مجاني مفتوح المصدر بترخيص Apache 2.0 لـ Minecraft Java Edition على Windows وLinux وmacOS. يدير إصدارات اللعبة والنسخ المعدّلة بالمودات والمودات وحزم المودات والسكنات والمستلزمات التجميلية والأصدقاء والخوادم المحلية. الموقع الرسمي هو <a href="https://www.ylet.online/">www.ylet.online</a> ومستودع المصدر هو <a href="https://github.com/Shadow-457/Cubeon">Shadow-457/Cubeon على GitHub</a>. اقرأ <a href="/ar/about">حقائق المشروع الرسمية</a> بشأن ملفات التعريف المدعومة والتنزيلات والقيود.</p></div></div></div>
       <div class="q" id="cubeon-supported-loaders"><button class="q-a" type="button" aria-expanded="false">أي إصدار من Minecraft وأي مُحمّلات مودات يدعمها Cubeon؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>يشغّل Cubeon لعبة Minecraft Java Edition بنسخ Vanilla أو Fabric أو Quilt أو Forge أو NeoForge. ولا يشغّل Bedrock Edition. يجب أن تتوافق المودات مع إصدار Minecraft والمُحمّل المحددين؛ كما تحتاج الشيدرات إلى إعداد متوافق مثل Iris. راجع <a href="/ar/mods">دليل المودات والشيدرات</a>.</p></div></div></div>
+      <div class="q" id="choosing-minecraft-launcher"><button class="q-a" type="button" aria-expanded="false">هل Cubeon أفضل مشغّل Minecraft لإعداداتي؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>يناسبك Cubeon إذا أردت مشغّلًا مجانيًا مفتوح المصدر لإصدار Java مع محمّلات مودات متوافقة ومودات وحزم مودات وسكنات وأصدقاء على Windows أو Linux أو macOS. يستخدم ملفات تعريف محلية/غير متصلة، ولا يوفّر تسجيل الدخول بحساب Microsoft أو تشغيل إصدار Bedrock. يعتمد الخيار الأفضل على إصدار لعبتك ومتطلبات الخادم والمودات؛ استخدم <a href="/ar/minecraft-launcher">دليل مشغّل Minecraft</a> للتحقق من احتياجاتك قبل التنزيل.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">هل هو مجاني حقاً؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>نعم. كل الميزات تعمل دون دفع ولا توجد إعلانات. واللعب مع أصدقائك لن يكون خلف جدار دفع أبداً.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">هل أحتاج إلى حساب Minecraft؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>يستخدم Cubeon ملفات تعريف لاعبين محلية/دون اتصال: اختر اسماً من ثلاثة إلى ستة عشر حرفاً. ولا يوفّر تسجيل الدخول بحساب Microsoft. الخوادم التي تتطلب مصادقة Microsoft لا يمكنها قبول ملفات التعريف هذه؛ راجع <a href="/ar/multiplayer#offline">دليل اللعب الجماعي</a>.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">كيف ألعب مع الأصدقاء؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>أضف أصدقاءك باسمهم في Cubeon ويحتفظ المشغّل بالمحادثة، ويعرض من متصل وما يلعبه. ولمشاركة عالم فعلي، افتح <strong>الخوادم</strong>، وثبّت خادماً للإصدار الذي اخترته، ووزّع العنوان العام المجاني الذي يمنحك إياه - عيّن كلمة مرور للانضمام فلن يدخل إلا من تخبره. لا خادم تستأجره، ولا شيء تغيّره على حاسوب أي أحد.</p></div></div></div>

@@ -76,7 +76,7 @@ public class AnimationTest {
                 var q = quads.get(i); var saved = original.get(i);
                 check(Arrays.equals(saved, new float[]{q.x[0], q.y[0], q.z[0], q.normalX, q.normalY, q.normalZ, q.u[0], q.v[0]}), "Cache changed: " + item.id);
             }
-            if (!item.id.endsWith("_pack")) {
+            if (item.boxes.stream().anyMatch(box -> List.of("wing", "body", "head", "float").contains(box.motion))) {
                 check(difference(points(item, CosmeticAnimation.sample(0, 0, false)),
                         points(item, CosmeticAnimation.sample(0.4f, 0, false))) > 0.05f, "Independent idle animation: " + item.id);
             }
@@ -131,6 +131,14 @@ public class AnimationTest {
         var saved = points(wings, snapshot);
         tracker.sample(0.4f, 0, false);
         check(Arrays.equals(saved, points(wings, snapshot)), "Deferred draw frame mutated");
+        for (var item : List.of(wings, wings.forWingDepth(false))) {
+            var flight = new CosmeticAnimation.Tracker();
+            float[] start = points(item, flight.sample(10, 1, true));
+            float[] beat = points(item, flight.sample(10.75f, 1, true));
+            check(difference(start, beat) > (item.id.endsWith("_small") ? .25f : .5f), "Visible flying wing stroke: " + item.id);
+            check(Arrays.equals(beat, points(item, flight.sample(10.75f, 1, true))), "Flying pose pauses");
+            check(Arrays.equals(points(item, null), points(item, flight.disabled())), "Flight motion OFF uses rest mesh");
+        }
         points(wings, CosmeticAnimation.sample(Float.NaN, Float.POSITIVE_INFINITY, false));
     }
     static int wingCycles(boolean sprinting) {
@@ -402,6 +410,7 @@ public class AnimationTest {
         verifyFrames(catalog);
         verifyAttachments(catalog.get("back_void_wings"));
         verifyTime(catalog.get("back_void_wings"));
+        verifyTime(catalog.get("back_void_wings_small"));
         verifyLegacy();
         verifyFeathers(catalog);
         verifySmallIgnoresN(catalog);

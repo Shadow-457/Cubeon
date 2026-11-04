@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "potential_spawns",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_potential_spawns",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_potential_spawns",
       "side": "server",
       "cancellable": true,
       "neoforge": "LevelEvent.PotentialSpawns",

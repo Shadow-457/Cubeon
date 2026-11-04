@@ -29,6 +29,7 @@ substitute for current code.
 | Native Rust beta | `rust_engine.py`; bundling in `tools/build_rust_engine.py` |
 | Instances | `instances.py`, `versions.py`, `content.py` |
 | Mods and packs | `mods.py`, `modpacks.py`, `global_mod_cache.py`, `content.py` |
+| Reviewed local mod imports | `local_mods.py`, `ui/local_mod_import.py` |
 | Content compatibility | `packformat.py`, `doctor.py`, `mod_dependencies.py`, `content.py` |
 | Download infrastructure | `net.py`, `global_mod_cache.py`, `local_cache.py` |
 | Friends ownership | `friends_service.py`, `friends.py`, `e2ee.py` |
@@ -92,6 +93,8 @@ keep builders consistent with the shared `THEME` contract.
   reapplies geometry as an interrupted-setup fallback; never recenter the visible finished UI.
   Do not map Linux windows with native `window.opacity=0`: GTK can stall waiting for frames.
   Entrance/page fades use control opacity, with the existing motion preference.
+- Startup keeps the painted loading splash visible for at least 3 seconds using
+  a monotonic deadline; await only the remaining time before replacing its controls.
 - Idle daemons block on an Event, they do not sleep-poll: `main._bar_loop` waits on `_bar_wake`
   (set by `set_bar`, the only thing that starts a progress animation) and `_wedge_watchdog` waits on
   `_wedge_wake` (set by `_wedge_arm`). Each clears its event *before* re-reading the state, so a
@@ -224,7 +227,8 @@ keep builders consistent with the shared `THEME` contract.
 - The hero PLAY click has a 0.35 s `_PLAY_CLICK_COOLDOWN` gate so a rapid double-press cannot run the
   username/config/Java pipeline twice; CANCEL/QUIT bypass it. A click that returns `False` releases the
   gate immediately (only a click that started work keeps it).
-- The 64px Play action uses `assets/pixel_button_frame.svg` and the bundled Minecraftia font;
+- The 64px Play action uses `assets/pixel_button_frame.svg` with bundled Inter bold action labels
+  (small Minecraftia glyphs distort under Windows DPI/font rendering);
   keep frame/label descendants inside the clickable container and retain semantic fills. Flet 0.86
   mode changes must assign `play_button_icon.icon` (a `.name` assignment never updates the glyph).
 - A launch has three ordered claims: `installing_version` (cancellable install) → `launching_version`
@@ -253,6 +257,13 @@ keep builders consistent with the shared `THEME` contract.
   download targets survive selection changes. Browse must cache its page before
   applying the installed snapshot, or that repaint can launch a duplicate fetch.
   Installed rows expand in 25-item batches and detail versions add 25 at a time.
+- Local mod import is an offline batch review (`local_mods.review_files`) before
+  writes: validates archive/descriptors, loader/Minecraft version, server-only
+  builds and protected identities. Exact hashes skip duplicates even after a
+  rename. Replacements are opt-in, preserve old files/sidecars disabled, and
+  recheck preview hashes/installed conflicts before staged publication/rollback.
+  `ui/local_mod_import.py` owns selection/results; file picking and imports retain
+  the captured instance. No automatic network repair runs during local import.
 - Resource-pack/shader switches rename only the profile entry to/from `.disabled`;
   launch staging skips these files/folders, while shared store bytes and sibling
   metadata survive. Enabled means available at next launch, not selected in game.
@@ -328,6 +339,44 @@ keep builders consistent with the shared `THEME` contract.
   avatar, name, one-line username field, Upload/Remove); the "Wearing" previews were removed 2026-10-26
   (`refresh_wearing()` is a no-op). Settings inside is a 188 px vertical rail plus a scrollable content
   pane.
+- Settings has exactly four sections: Account (profile, updates/notifications),
+  Game (versions/window/files/backups), Performance (RAM/Java and expandable
+  **Fix problems**), Appearance (launcher/language/decorations/screenshots).
+  `select_section` maps old system/doctor/display/seasonal/images deep links to
+  their new parent and expands requested repair/gallery content. Keep the existing
+  controls and config keys; the Account picture actions name the profile picture.
+- Mods is the single sidebar content destination, with visible neutral icon/text
+  selectors for Mods, Modpacks, Resource Packs and Shaders. `build_mods_tab` embeds
+  the retained Modpacks host; old `switch_tab("modpacks")` links select it inside Mods,
+  never mounting that host twice. Both engines keep their own callbacks/install state.
+  Search and one Installed/Find action replace stacked view tabs. Optional Filters
+  exposes compatibility and a scrolling category strip, without a dropdown.
+  `ui/content_tiles.py` keeps cached browse/installed cards in lazy GridViews;
+  width events set column count and aspect ratio to preserve 96 px tile height.
+  Browse requests use a stable 24-item page size; viewport events only change
+  tile layout and cached installed-row capacity, never restart catalogue reads.
+  Mods retains up to 12 browse sessions keyed by query/type/instance/filter;
+  type switches restore queries, filters, view and cached rows. Hidden completions
+  populate their own session and cannot paint another type. Modpacks coalesces
+  in-flight provider pages and duplicate submitted queries.
+  Installed Mods initially fills the screen, with additional cached batches on demand.
+  Empty/loading panels span the grid. Tiles show name/author/count and a small
+  Installed badge; descriptions/compatibility hints remain in tooltips/details.
+  Installed packs/shaders prefer a bounded, cached `pack.png` thumbnail read by
+  `content.list_content` on its snapshot worker, then recorded Modrinth artwork
+  or slug lookup. Missing/failed artwork uses the bundled Cubeon logo; no raw
+  filesystem paths reach Flet Images. Image changes invalidate the thumbnail cache.
+  `icons.valid_source` rejects corrupt image bytes before publication, because native
+  Flet's `Image.error_content` alone can leave invalid base64 art blank.
+  Catalogue titles and artwork requests publish before installed-file/compatibility
+  scans; a failed local scan cannot replace successful search results with an error.
+  `IconLoader` uses eight coalesced workers. `icons.load_source` downloads in that
+  worker through `net._do_get`'s existing connection pool, sharing in-flight events
+  with older `prefetch` callers, then validates/caches bytes before repainting art.
+  Accent/ON_ACCENT marks only
+  available Install actions, neutral text marks installed/unavailable/busy actions,
+  and DANGER marks failures. Panes remain
+  mounted and switching/filtering preserves cached snapshots and scoped repaints.
 - The online version list merges installed-only ids so opening "New instance" cannot drop an
   isolated/imported instance or move the selection.
 - Reserve the loader-status slot and keep hero labels single-line; a notice appearing must not change hero
@@ -347,6 +396,9 @@ keep builders consistent with the shared `THEME` contract.
   clears the installation marker and preserves worlds/settings. Runtime/archive
   hashes and resources are checked before launch; cheap installed scans do not hash
   executables. Failed staged replacements retain the previous working files.
+- Rust instance scans recognize both `cubeon-prepare.json` and older verified
+  beta bundles' `horizon-prepare.json`; the bundled preparer's `--check` remains
+  authoritative. Validate staged resources before replacing an existing set.
 - Rust resources come from verified official Mojang downloads or local cache and
   are prepared locally. The pinned exporters require **exact Java 25 once**, not
   during gameplay. `_find_preparation_java` checks configured Java, PATH, JAVA_HOME,
@@ -362,9 +414,11 @@ keep builders consistent with the shared `THEME` contract.
   source fingerprints and license notices, never Mojang JARs/assets/generated data.
   Source checkouts reuse verified `build/rust-engine/<platform>` bundles, including
   same-beta rebuilds; distributed installs use Cubeon's pinned release manifest.
-  `.github/workflows/rust-beta.yml` is manual and produces artifacts only. Linux
-  native rendering/save/reopen is verified; Windows CI/public release and measured
-  FPS remain pending. **1000 FPS is a target**, not a measured claim.
+  `.github/workflows/rust-beta.yml` builds on relevant pushes to `rust-beta-26.3`
+  and has a manual trigger, producing artifacts only. Baseline Linux/Windows
+  build, CLI and preparer checks passed; new branding/full-client changes still
+  need rebuilt artifacts. Linux native rendering/save/reopen is verified; Windows
+  gameplay, public release and measured FPS remain pending. **1000 FPS is a target**, not a measured claim.
   See [Rust integration](../../docs/development/horizon-integration-plan.md).
 - Content install gating uses the selected INSTANCE's real loader (`ui/mods_tab._instance_mod_capable` ->
   `instances.describe`), not `state["mod_loader"]` (a sibling instance or armed install can make the
@@ -439,7 +493,7 @@ keep builders consistent with the shared `THEME` contract.
   incomplete scan must never say "No problems found". Verified jars skip online checks; unavailable
   verification is one advisory, never a per-mod disable. The incompatible check is LOCAL (the jar's own
   `fabric.mod.json`), so a missing Modrinth release disables nothing.
-- Full-Doctor entry points: Settings → Doctor and the crash report's **Check & fix** both run
+- Full-Doctor entry points: Settings → Performance → Fix problems and the crash report's **Check & fix** both run
   `doctor_ui.start_doctor_worker` with `include=None`, `check_online=True`, `approve_all=True` - the
   explicit click is the consent. Mods → Installed stays scoped to the current content type. The crash
   report needs `mc_version`/`loader`/`version_id`; without them its check button is disabled rather than
@@ -559,6 +613,10 @@ keep builders consistent with the shared `THEME` contract.
 - `sync_mods_to_game`'s copy fallback removes a partially written destination and raises a
   `RuntimeError` naming the jar (chained from the original error); never leave a truncated jar in
   `MINECRAFT_DIR/mods`.
+- Mod staging retains an unchanged jar only when it is recorded as launcher-owned
+  and `os.path.samefile` matches the selected profile's chosen file. Names/mtimes
+  cannot prove identity across profiles. Unchanged ownership manifests and global-store
+  links stay untouched; disabled/stale/dangling managed entries are still removed.
 - Keyless CF entries are named `mods/<fileID>.jar`, so after download `_relocate_non_mod_jar` moves an
   archive with `pack.mcmeta` and no mod metadata to the instance's `resourcepacks/`; unresolvable
   entries are counted and reported through `status_cb`, never dropped silently.
@@ -681,7 +739,7 @@ keep builders consistent with the shared `THEME` contract.
   `-XX:+UseG1GC` plus tuning.
 - Play and crash reports have no Fix crash action. Crash reports expose **Check & fix** (the local doctor
   for the crashed instance), website Doctor, Copy log, Discord and Close. Local dependency/conflict
-  repair also lives in Mods → Installed's Check & repair and Settings → Doctor.
+  repair also lives in Mods → Installed's Check & repair and Settings → Performance → Fix problems.
 - `i18n.py` owns language order, `ui_language`, locale detection and reading direction (`page.rtl`);
   `cubeon/lang/*.py` tables use English strings as keys and fall back to English. Changes apply after
   restart. Every PyInstaller build must collect `cubeon.lang` because tables import dynamically.
@@ -705,13 +763,24 @@ keep builders consistent with the shared `THEME` contract.
   non-identity lift/press factors install transforms. Do not restore identity transforms on scroll cards.
 - Shared storage must not leak one instance's active content into another. Installs/cancellation must
   respect instance ownership and atomic writes.
-- FPS boost is the Play-menu toggle. Turning it off restores the previous settings; do not replace
-  Sodium's defaults with unsupported tuning claims.
+- `CosmeticSelection.snapshot()` queues at most one settings read every 250 ms
+  on `cubeon-cosmetic-settings`; disk reads (64 KiB cap) and JSON parsing stay
+  outside the render thread/selection monitor. Initial bind loads once, and
+  generation guards reject an old binding's response. The renderer fixture
+  delays the reader and verifies 1,000 snapshots return within 100 ms.
+- FPS boost is the Play-menu toggle. Launch calls `game_options.sync_fps_boost`
+  once per transition, backs up exact originals in `options.txt.cubeon-boost.json`
+  before writes, and OFF restores only values still matching the applied boost.
+  Later player edits survive relaunch and restore; render/simulation distances,
+  VSync and maxFps are never managed. Missing/corrupt backups never trigger guessed
+  vanilla resets. Do not replace Sodium's defaults with unsupported tuning claims.
 - `perf_mods.apply_max_fps_sodium()` seeds missing/partial configs with only
   `performance.chunk_builder_threads` (always exactly 2 as requested by the player;
   Sodium owns any hardware clamp).
   Sodium 0.4/0.8/0.9 actual Gson readers retain all other compiled defaults.
-  Other tuning still edits existing keys only; writes use `atomicio.write_json`.
+  Launch passes `preserve_existing=True`, retaining existing builder counts and
+  driver/renderer workarounds; missing configs still seed two builders. Explicit
+  tuning edits existing keys only; writes use `atomicio.write_json`.
   This fixes the first launch using Auto before Sodium generated its config.
 - Managed AuthMe settings are seeded before the first hosted-server spawn and
   tuned on every start (`server._tune_authme_config`). Tunnel users can share an
@@ -831,7 +900,7 @@ keep builders consistent with the shared `THEME` contract.
   and uses a separate 240/minute read limiter so reads cannot exhaust the 20/minute write gate.
   `worker/wrangler-skins.toml` must declare name/main/date before any TOML table; putting them after
   `[ratelimits.simple]` nests them inside the limiter and breaks deployment configuration.
-  Never hide Minecraft capes, Elytra or shoulder parrots through this setting. Position reset preserves it.
+  Other cosmetics OFF must keep vanilla capes, elytra and shoulder parrots. Position reset preserves it.
   Skin Worker public reads use Cache API canonical keys (case/query/texture-alias folding),
   single-flight misses, 60s mutable/negative TTL, immutable hash textures and ETag/HEAD support.
   `/faces/<name>.png` is mutable; only `/textures/<hash>` may use one-year caching.
@@ -889,6 +958,17 @@ keep builders consistent with the shared `THEME` contract.
 - Per-era overlays: `cosmetics-1.20` (1.20-1.20.4, manual normal), `cosmetics-1.20.5` (1.20.5-1.20.6,
   `Entry`), `cosmetics-1.21` (1.21-1.21.1), `cosmetics-1.21.2`, `cosmetics-1.21.5`, `cosmetics-1.21.9`,
   `cosmetics-1.21.11`, `cosmetics-26`; `next()` exists through 1.20.6, gone from 1.21. Map them in `brackets.json`.
+- `CosmeticElytra` replaces only the appearance of equipped elytra. Registration uses
+  the API overlay's `CosmeticLayersAccessor` to put cosmetics immediately before vanilla
+  wings; enable replacement only after that ordering succeeds. Every cosmetic render begins
+  a thread-local identity pass, then marks only successfully emitted/queued wing geometry
+  with decoded, nonempty bundled artwork. The era's `CosmeticElytraMixin` consumes it at the
+  concrete vanilla wing overload (never its bridge), including no-equipment passes. Hidden/
+  unknown/distant peers, missing art and backpacks preserve vanilla; no equipment/physics changes.
+  Keep queued items/frames immutable. `test_cosmetic_elytra.py --targets` audits all 24 hooks;
+  `test_cosmetic_elytra_native.py` boots isolated cached Fabric 26.3 and verifies real registration,
+  cancellation/fallback in a temporary copy of a cached world. Yarn trails gate on grounded,
+  dry players; that already excludes gliding and avoids the renamed flight flag/pose API.
 - Local player plus opted-in peers, back before shoulder. Unknown ids = no cosmetic, never a crash. Missing Fabric API
   costs cosmetics only (registration is try/caught). `assets/jars/cubeon-client-*.jar` is what ships, so
   refresh it after every mod build; `test_repository_hygiene.py` fails a tracked jar without the catalogue.
@@ -1070,8 +1150,12 @@ keep builders consistent with the shared `THEME` contract.
 
 - Startup launcher updates use one automatic public Worker metadata check per process; Settings →
   System → Check for updates can retry offline checks or check the selected channel immediately. A newer release opens
-  `ui/update_prompt.py` with Skip / Update. Skip lasts this launch; `update_notice_seen` limits only
-  OS toasts. `update_channel` defaults stable; beta includes prereleases and changes apply to the next check.
+  `ui/update_prompt.py` with Skip / Update. `update_skipped_version` persists Skip;
+  startup suppresses that release and older ones, while a manual check can reoffer it.
+  `update_notice_seen` independently limits OS toasts. Freshness is rechecked at
+  display time against the current `APP_VERSION`, never a captured default argument;
+  same/older/ambiguous versions never prompt. `update_channel` defaults stable;
+  beta includes prereleases and changes apply to the next check.
   No installer bytes download before Update. `cubeon/update_install.py` verifies size/SHA-256 and
   handles registered Windows installs and x86_64 AppImages in writable directories, including mode
   0555 files; AppRun preserves the original path as `CUBEON_APPIMAGE_PATH`. Update never opens a browser;
@@ -1216,6 +1300,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Play/selection/banner | `test_version_ui.py`, `test_version_art_cache.py`, `test_play_backend_audit.py` |
 | Play backend/path safety | `test_version_path_safety.py`, `test_launch_claim.py`, `test_launch_log_tail.py`, `test_instance_install_flow.py` |
 | Mods and artwork | `test_mod_ui_stability.py`, `test_modpack_performance.py`, `test_loader_content_rules.py` |
+| Local mod import | `test_local_mod_import.py`, `test_mods_management_ui.py`, `test_importer.py`; native fixture `capture_local_mod_import.py` |
 | Navigation backend reads | `test_navigation_background.py`, `test_server_repaint_scope.py`, `test_tab_repaint_scope.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
 | Rust beta | `test_rust_engine.py`, `test_rust_profile_native.py` (compiled renderer), `test_rust_engine_native.py` (built bundle/prepared resources/GPU); `capture_rust_beta.py` (native Flet) |
@@ -1226,7 +1311,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
 | Chat | `test_in_game_chat.py`, `test_chat_stack.py --targets` (mapped jars), `test_chat_connection.py`, `test_chat_poll_locking.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
-| FPS defaults | `test_perf_mods.py` |
+| FPS defaults and relaunch persistence | `test_perf_mods.py`, `test_game_options_persistence.py` |
 | Hosted authentication | `test_authme_config.py`, `test_server_integrity.py` |
 | Cosmetics | `test_cosmetics_picker.py`, `test_skin_loading.py`, `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py`, `test_skins_net.py`, `node worker/test-cosmetics.mjs` |
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
@@ -1244,8 +1329,9 @@ requires retrying with normal system access, not changing unrelated app code.
   offsets; changing body lengths before attribute replacements corrupts tags and links. Relative
   `srcset` entries must become root asset paths on locale pages. Arabic checks use `check --lang ar`;
   UK/RU catalogues remain empty English fallbacks. Sitemap regeneration starts from English entries
-  only and deduplicates alternates: 19 canonical pages across four locales give 76 unique URLs,
-  not 19 total. Shared `site.js` consent closure must remain terminated; its syntax error hides
+  only and deduplicates alternates: 20 English pages plus Arabic translations give 40 indexable URLs.
+  Empty UK/RU catalogues retain English fallback routes (`lang=en`, noindex, English canonical),
+  excluded from hreflang, language detection/pickers and the sitemap. Shared `site.js` consent closure must remain terminated; its syntax error hides
   download panes and disables language persistence even on otherwise intact pages.
 - Public website canonicals use `https://www.ylet.online/` and clean, extensionless page paths.
   The displayed brand is Cubeon Launcher; Ylet publisher credits are removed. Bare `ylet.online`
@@ -1266,7 +1352,7 @@ requires retrying with normal system access, not changing unrelated app code.
   Public HTML, image URLs and the sitemap are shared by all visitors, with no Google-only responses.
 - `/about` is the official Cubeon product facts page; homepage/AboutPage schema share
   `https://www.ylet.online/#launcher` and the official GitHub source identity. The sitemap has
-  19 canonical public pages plus locale variants. `tools/submit_website_indexnow.py` previews by default; `--submit` checks the
+  20 canonical English public pages plus Arabic variants. `tools/submit_website_indexnow.py` previews by default; `--submit` checks the
   deployed key, sitemap, robots, indexing directives and exact HTML before notifying IndexNow.
   Unpublished HTML edits intentionally fail that check; run from the deployed checkout or select
   only matching canonical URLs. `web/indexnow-key.txt` is the public verification file. OAI-SearchBot
@@ -1277,6 +1363,12 @@ requires retrying with normal system access, not changing unrelated app code.
   `/llms.txt`, linked by About, is optional reference text, not an AI indexing requirement.
   Browser/spoofed-UA HTTP 200 checks cannot verify real crawler-IP firewall access or
   index inclusion; Bing Webmaster URL inspection requires the owner's account.
+  `/minecraft-launcher` is the choosing guide linked from home/download/docs, with localized Article
+  and breadcrumb IDs. Translation builds add new non-error `PAGES` entries to the sitemap; IndexNow
+  accepts canonical locale URLs and maps `/ar` to `ar/index.html`. The homepage uses a preloaded
+  WebP Play screenshot with PNG fallback; regenerate with `tools/prepare_website_hero.py` after PNG edits.
+  Docs `.docs-main` grid items require `min-width:0` so comparison tables scroll inside their
+  wrapper on mobile instead of widening the article and sidebar beyond the viewport.
 - Website page counts use **Vercel Web Analytics** (cookieless, no personal data, visitor hash
   discarded after 24h). Every content page carries the HTML snippet
   (`window.vaq` + `/_vercel/insights/script.js`) before `</body>`; numeric status pages
@@ -1330,5 +1422,8 @@ requires retrying with normal system access, not changing unrelated app code.
   GitHub's release name can say beta while `isPrerelease` is false; public v1.3.17 points to
   `89ff6b9` (only an updater stamp over `f8fae0f`). FPS comparisons need identical game/instance,
   world, mods, graphics settings, VSync and frame cap; an idle-launcher probe does not benchmark Minecraft.
+- Local Minecraft 26.3 saves store player data under `players/data/` and world generation,
+  rules, weather and clocks under `data/minecraft/`; `level.dat` alone no longer contains
+  those settings. Benchmark fixtures must copy the complete save directory.
 - See [builds](../../docs/release/build.md), [security](../../SECURITY.md), and
   [Worker deployment](../../worker/README.md) for the current public references.

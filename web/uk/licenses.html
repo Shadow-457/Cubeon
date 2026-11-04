@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="robots" content="noindex, follow" />
 <title>Cubeon credits and licenses</title>
 <meta name="description" content="The fonts Cubeon uses, who made them, and what belongs to Mojang." />
 <meta property="og:title" content="Cubeon credits" />
@@ -19,7 +19,7 @@
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -60,11 +60,9 @@
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/licenses" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/licenses" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/licenses" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/licenses" />
 <link rel="alternate" hreflang="x-default" href="https://www.ylet.online/licenses" />
-<link rel="canonical" href="https://www.ylet.online/uk/licenses" />
-<meta property="og:url" content="https://www.ylet.online/uk/licenses" />
+<link rel="canonical" href="https://www.ylet.online/licenses" />
+<meta property="og:url" content="https://www.ylet.online/licenses" />
 <!-- /cubeon:seo -->
 </head>
 <body>
@@ -78,16 +76,15 @@
       <!-- cubeon:language -->
 <div class="lang-menu">
   <details>
-    <summary aria-label="Мова: Українська"><span aria-hidden="true">🌐</span> UK</summary>
-    <nav class="lang-list" aria-label="Мова">
-          <a href="/uk/licenses" hreflang="en" lang="en">English</a>
+    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
+    <nav class="lang-list" aria-label="Language">
+          <a href="/licenses" hreflang="en" lang="en" aria-current="true">English</a>
           <a href="/ar/licenses" hreflang="ar" lang="ar">العربية</a>
-          <a href="/uk/licenses" hreflang="uk" lang="uk" aria-current="true">Українська</a>
-          <a href="/ru/licenses" hreflang="ru" lang="ru">Русский</a>
     </nav>
   </details>
 </div>
 <!-- /cubeon:language -->
+
       <a href="/uk">Home</a>
       <a href="/uk/download">Download</a>
       <a href="/uk/docs">Docs</a>
@@ -109,11 +106,11 @@
 
 <div class="prose">
   <h2>Fonts</h2>
-  <p>This site uses Inter and Minecraftia. The launcher also bundles script fonts for its language picker; licence notices travel with the font files.</p>
+  <p>This site uses Inter, Minecraftia and Noto Sans Arabic (Arabic pages only). The launcher also bundles script fonts for its language picker; licence notices travel with the font files.</p>
   <ul>
     <li><strong>Inter</strong> - made by Rasmus Andersson, licensed under the SIL Open Font License 1.1.</li>
     <li><strong>Minecraftia</strong> - made by Andrew Tyler, licensed under Creative Commons Attribution Share Alike.</li>
-    <li><strong>Noto Sans Arabic UI, Devanagari UI, Bengali UI, and Cubeon Language CJK</strong> - licensed under the SIL Open Font License 1.1. Cubeon Language CJK is a subset of Noto Sans CJK SC by Adobe and Google.</li>
+    <li><strong>Noto Sans Arabic UI, Devanagari UI, Bengali UI, and Cubeon Language CJK</strong> - licensed under the SIL Open Font License 1.1. Cubeon Language CJK is a subset of Noto Sans CJK SC by Adobe and Google. The site's Arabic pages use a subset of Noto Sans Arabic.</li>
   </ul>
 
   <h2>Pictures and icons</h2>

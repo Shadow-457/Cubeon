@@ -13,10 +13,9 @@ import java.util.Map;
  *
  * <p>The launcher owns this file ({@code <game>/config/cubeon-cosmetics.json});
  * the mod only reads it. Writing it from both processes would be a race, and a
- * cosmetic is not worth a lock file. The launcher rewrites it atomically and
- * only when the selection actually changes, so re-reading a tiny file a few
- * times a second is cheap and picks up a change while the game is still
- * running.
+ * cosmetic is not worth a lock file. The launcher rewrites it atomically.
+ * One daemon reads changes; rendering consumes an immutable snapshot and
+ * never waits for filesystem access or JSON parsing.
  *
  * <p>Unknown ids are ignored, not errors: an older mod jar paired with a newer
  * launcher must degrade to "no cosmetic", never to a missing texture or a
@@ -33,53 +32,68 @@ public final class CosmeticSelection {
     private static final long CHECK_INTERVAL_NANOS = 250_000_000L;
 
     private static Path file;
-    private static String lastText;
     private static long lastCheck;
     private static boolean loaded;
+    private static boolean pending;
+    private static long generation;
+    private static final java.util.concurrent.ExecutorService READER =
+            java.util.concurrent.Executors.newSingleThreadExecutor(job -> {
+                Thread thread = new Thread(job, "cubeon-cosmetic-settings");
+                thread.setDaemon(true);
+                return thread;
+            });
     public static final java.util.List<String> SLOTS = CosmeticCatalog.SLOTS;
     private static volatile Items selected = new Items(null, null);
 
     private CosmeticSelection() {
     }
 
-    /** Points the reader at one config file and loads it immediately. */
-    public static synchronized void bind(Path configFile) {
-        file = configFile;
-        lastText = null;
-        lastCheck = 0L;
-        loaded = false;
-        selected = new Items(null, null);
-        refresh();
+    /** Initial binding loads once; later frame-time refreshes never read storage. */
+    public static void bind(Path configFile) {
+        long requestGeneration;
+        synchronized (CosmeticSelection.class) {
+            file = configFile;
+            lastCheck = System.nanoTime();
+            loaded = true;
+            requestGeneration = ++generation;
+            selected = new Items(null, null);
+        }
+        read(configFile, requestGeneration);
     }
 
-    /** Re-reads the file if it changed. Safe to call every frame. */
+    /** Safe every frame: enqueue at most one bounded read, then return. */
     public static synchronized void refresh() {
-        if (file == null) {
-            return;
-        }
+        if (file == null || pending) return;
         long now = System.nanoTime();
-        if (loaded && now - lastCheck < CHECK_INTERVAL_NANOS) {
-            return;
-        }
+        if (loaded && now - lastCheck < CHECK_INTERVAL_NANOS) return;
         lastCheck = now;
-        String text;
-        try {
-            text = Files.readString(file, StandardCharsets.UTF_8);
-        } catch (IOException | RuntimeException ignored) {
-            // Missing file, read-only folder, half-written file: no cosmetics.
-            lastText = null;
-            loaded = true;
-            selected = new Items(null, null);
-            return;
+        pending = true;
+        Path source = file;
+        long requestGeneration = generation;
+        READER.execute(() -> {
+            try { read(source, requestGeneration); }
+            finally {
+                synchronized (CosmeticSelection.class) { pending = false; }
+            }
+        });
+    }
+
+    private static void read(Path source, long requestGeneration) {
+        String text = null;
+        if (source != null) {
+            try (var stream = Files.newInputStream(source)) {
+                byte[] bytes = stream.readNBytes(65_537);
+                if (bytes.length <= 65_536) text = new String(bytes, StandardCharsets.UTF_8);
+            } catch (IOException | RuntimeException ignored) {
+                // Unreadable settings remove decorations without interrupting frames.
+            }
         }
-        if (text.equals(lastText)) {
+        Items next = text == null ? new Items(null, null) : Items.parse(Json.parseObject(text));
+        synchronized (CosmeticSelection.class) {
+            if (generation != requestGeneration) return;
+            selected = next;
             loaded = true;
-            return;
         }
-        lastText = text;
-        Map<String, Object> root = Json.parseObject(text);
-        selected = Items.parse(root);
-        loaded = true;
     }
 
     /** The selected id for a slot, or {@code null}. */
@@ -112,7 +126,7 @@ public final class CosmeticSelection {
         }
     }
 
-    public static synchronized Items snapshot() {
+    public static Items snapshot() {
         refresh();
         return selected;
     }

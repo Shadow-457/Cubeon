@@ -1,5 +1,6 @@
 """Modpack rows render without icon I/O; artwork and installed lists stay bounded."""
 import inspect
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -7,6 +8,8 @@ import sys
 import threading
 import time
 import unittest
+from types import SimpleNamespace
+import tempfile
 from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -57,15 +60,15 @@ class ModpackPerformance(unittest.TestCase):
             with condition:
                 active-=1
             return 'encoded image'
-        loader=IconLoader(workers=4,read=read)
+        loader=IconLoader(read=read)
         applied=[]
         for i in range(20):
             loader.request(str(i),applied.append)
         loader.request('0',applied.append)
         with condition:
-            condition.wait_for(lambda:len(reads)>=4,timeout=2)
+            condition.wait_for(lambda:len(reads)>=8,timeout=2)
         try:
-            self.assertEqual(len(reads),4)
+            self.assertEqual(len(reads),8)
             self.assertTrue(thread_safe_ui.TREE_LOCK.acquire(timeout=.5))
             thread_safe_ui.TREE_LOCK.release()
         finally:
@@ -73,7 +76,7 @@ class ModpackPerformance(unittest.TestCase):
         deadline=time.monotonic()+3
         while loader._running and time.monotonic()<deadline:
             time.sleep(.01)
-        self.assertEqual(peak,4)
+        self.assertEqual(peak,8)
         self.assertEqual(len(reads),20)
         self.assertEqual(len(applied),21)
         self.assertFalse(loader._callbacks)
@@ -84,6 +87,7 @@ class ModpackPerformance(unittest.TestCase):
         callbacks=[]
         art=scope['pack_art']
         with patch.object(art,'request',side_effect=lambda url,callback:callbacks.append((url,callback))), \
+                patch.object(icons,'valid_source',side_effect=lambda source: source == 'new source'), \
                 patch.object(icons,'src',side_effect=AssertionError('icon disk I/O on UI')), \
                 patch.object(icons,'prefetch',side_effect=AssertionError('download on UI')), \
                 patch.object(thread_safe_ui,'refresh'):
@@ -96,6 +100,23 @@ class ModpackPerformance(unittest.TestCase):
             self.assertNotEqual(image.src,'old source')
             callbacks[1][1]('new source')
             self.assertEqual(image.src,'new source')
+
+    def test_artwork_downloads_inside_existing_worker_and_uses_pooled_transport(self):
+        from cubeon import net
+        from PIL import Image
+        output = io.BytesIO()
+        Image.new('RGB', (16, 16), 'green').save(output, 'PNG')
+        response = SimpleNamespace(content=output.getvalue(), raise_for_status=lambda: None, close=lambda: None)
+        with tempfile.TemporaryDirectory() as directory, patch.object(icons, 'ICON_DIR', directory), \
+                patch.object(net, '_do_get', return_value=response) as transport, \
+                patch.object(icons.threading, 'Thread', side_effect=AssertionError('extra download worker')):
+            first = icons.load_source('https://test/one.png')
+            second = icons.load_source('https://test/two.png')
+            self.assertTrue(icons.valid_source(first) and icons.valid_source(second))
+            self.assertEqual(transport.call_count, 2)
+            self.assertEqual(icons.load_source('https://test/one.png'), first)
+            self.assertEqual(transport.call_count, 2)
+            self.assertFalse(icons._inflight)
 
     def test_installed_list_builds_only_first_batch_and_loads_more_on_request(self):
         _,fn=self.build()

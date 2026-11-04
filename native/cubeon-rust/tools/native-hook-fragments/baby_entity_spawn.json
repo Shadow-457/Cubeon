@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "baby_entity_spawn",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_baby_entity_spawn",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_baby_entity_spawn",
       "neoforge": "BabyEntitySpawnEvent",
       "side": "server",
       "cancellable": true,

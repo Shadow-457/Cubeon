@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "living_death",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_death",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_death",
       "neoforge": "LivingDeathEvent",
       "side": "server",
       "cancellable": true,

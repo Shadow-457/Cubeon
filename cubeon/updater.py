@@ -44,8 +44,8 @@ DEFAULT_BETA_FEED = UPDATE_SERVICE + "/updates/beta"
 # file for the visitor's OS. Override with CUBEON_DOWNLOAD_URL for staging.
 DOWNLOAD_URL = "https://www.ylet.online/download"
 
-# OS notifications remain once per version. The startup Skip / Update prompt
-# is independent of this marker and can appear again on the next launch.
+# OS notifications remain once per version. A skipped release also stays
+# dismissed across launches; Settings can explicitly offer it again.
 #
 # WHY IT EXISTS (2026-10-18 report: "the notification of new cubeon release is
 # just spamming ... coming up again and again"): the in-app snackbar had NO
@@ -54,6 +54,7 @@ DOWNLOAD_URL = "https://www.ylet.online/download"
 # whatever the channel: the marker is written when the notice is handed to the
 # UI, not when it is seen.
 NOTICE_SEEN_KEY = "update_notice_seen"
+SKIPPED_VERSION_KEY = "update_skipped_version"
 
 _TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 
@@ -63,11 +64,30 @@ def _parse(tag: str):
     return tuple(int(g) for g in m.groups()) if m else None
 
 
-def is_newer(remote_tag: str, local: str = APP_VERSION) -> bool:
+def is_newer(remote_tag: str, local: str | None = None) -> bool:
     """True when remote_tag is strictly newer than local. Unparseable tags
     (rc suffixes, hashes) compare as 'not newer' - never nag on ambiguity."""
-    remote, local_v = _parse(remote_tag), _parse(local)
+    remote, local_v = _parse(remote_tag), _parse(APP_VERSION if local is None else local)
     return bool(remote and local_v and remote > local_v)
+
+
+def should_prompt(cfg: dict, version: str, *, manual: bool = False) -> bool:
+    """Recheck freshness at display time and respect an explicit saved Skip."""
+    if not is_newer(version):
+        return False
+    if manual:
+        return True
+    skipped = _parse(str(cfg.get(SKIPPED_VERSION_KEY) or ""))
+    return skipped is None or _parse(version) > skipped
+
+
+def remember_skip(cfg: dict, version: str) -> None:
+    parsed = _parse(version)
+    if parsed:
+        previous = _parse(str(cfg.get(SKIPPED_VERSION_KEY) or ''))
+        if previous and previous > parsed:
+            return
+        cfg[SKIPPED_VERSION_KEY] = ".".join(str(part) for part in parsed)
 
 
 def should_announce(cfg: dict, version: str) -> bool:

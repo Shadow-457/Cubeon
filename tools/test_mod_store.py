@@ -81,6 +81,13 @@ def main():
           os.readlink(dest2) == os.path.join(GLOBAL_MODS_DIR, "sodium-0.1.jar")
           or open(dest2, "rb").read() == b"A" * 100)
 
+    original_link = os.lstat(dest2)
+    store.put_file(a1.name, dest2)
+    after_link = os.lstat(dest2)
+    check("put_file: unchanged profile link keeps its inode and ctime",
+          (original_link.st_ino, original_link.st_ctime_ns) ==
+          (after_link.st_ino, after_link.st_ctime_ns))
+
     # Different bytes with the same human name get disambiguated, never clobber.
     dest3 = os.path.join(p1, "sodium-0.1.jar")  # name clash with different bytes
     store.put_file(a2.name, dest3)
@@ -114,6 +121,50 @@ def main():
           "sodium-0.2.jar" not in game, game)
     check("sync: enabled jar synced to game",
           "sodium-0.1.jar" in game, game)
+
+    staged = os.path.join(MODS_DIR, "sodium-0.1.jar")
+    manifest = os.path.join(MODS_DIR, mods._SYNC_MANIFEST)
+    original_jar, original_manifest = os.stat(staged), os.stat(manifest)
+    mods.sync_mods_to_game("1.20.1", "fabric")
+    check("sync: unchanged relaunch leaves jar ctime untouched",
+          os.stat(staged).st_ctime_ns == original_jar.st_ctime_ns)
+    check("sync: unchanged relaunch leaves ownership manifest untouched",
+          os.stat(manifest).st_ctime_ns == original_manifest.st_ctime_ns)
+
+    # Another profile can use the same filename/size for DIFFERENT bytes.
+    alternate = os.path.join(PROFILES_DIR, "1.21.1-fabric")
+    os.makedirs(alternate, exist_ok=True)
+    with open(os.path.join(alternate, "sodium-0.1.jar"), "wb") as fh:
+        fh.write(b"C" * 100)
+    mods.sync_mods_to_game("1.21.1", "fabric")
+    check("sync: same-named jar from another profile replaces old bytes",
+          open(staged, "rb").read() == b"C" * 100)
+    mods.sync_mods_to_game("1.20.1", "fabric")
+    check("sync: switching back restores the selected profile's bytes",
+          open(staged, "rb").read() == b"B" * 100)
+
+    os.rename(os.path.join(p1, "sodium-0.1.jar"),
+              os.path.join(p1, "sodium-0.1.jar.disabled"))
+    mods.sync_mods_to_game("1.20.1", "fabric")
+    check("sync: disabling a retained jar removes it from the game",
+          not os.path.lexists(staged))
+    os.rename(os.path.join(p1, "sodium-0.1.jar.disabled"),
+              os.path.join(p1, "sodium-0.1.jar"))
+    mods.sync_mods_to_game("1.20.1", "fabric")
+
+    mods.sync_mods_to_game("1.20.1", "vanilla")
+    check("sync: vanilla clears every managed jar",
+          not any(name.endswith(".jar") for name in os.listdir(MODS_DIR)))
+    mods.sync_mods_to_game("1.20.1", "fabric")
+
+    # A dead managed link has no bytes, but still needs to lose its filename.
+    dead_staged = os.path.join(MODS_DIR, "missing-staged.jar")
+    os.symlink(os.path.join(MODS_DIR, "no-such-store-file"), dead_staged)
+    with open(manifest, "w", encoding="utf-8") as fh:
+        json.dump({"files": ["sodium-0.1.jar", "missing-staged.jar"]}, fh)
+    mods.sync_mods_to_game("1.20.1", "fabric")
+    check("sync: dangling managed game link is removed",
+          not os.path.lexists(dead_staged))
 
     # --- DANGLE LINK REGRESSIONS (the reason this suite exists) -------------
     # Simulate a store file that was deleted/moved out from under a profile

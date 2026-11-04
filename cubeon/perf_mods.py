@@ -382,7 +382,7 @@ def _same(a, b) -> bool:
     return a == b and isinstance(a, bool) == isinstance(b, bool)
 
 
-def apply_max_fps_sodium(path: str | None = None) -> dict:
+def apply_max_fps_sodium(path: str | None = None, *, preserve_existing: bool = False) -> dict:
     """Puts Sodium's own renderer options back to the fast values, in place.
 
     Returns {"changed", "detail", "path"} - the same shape as
@@ -391,6 +391,9 @@ def apply_max_fps_sodium(path: str | None = None) -> dict:
     supported Sodium generations. The write is atomic and idempotent, and every
     failure is reported instead of raised. This runs on the launch path before
     the JVM starts, so it can never race Sodium's own save-on-exit.
+
+    Launch passes preserve_existing=True: retain player/driver workarounds,
+    including builder counts, and only seed a missing builder count.
 
     A fresh config seeds only performance.chunk_builder_threads. Sodium fills
     its other compiled defaults when reading that partial config, so the first
@@ -424,7 +427,7 @@ def apply_max_fps_sodium(path: str | None = None) -> dict:
         if not isinstance(current, dict):
             continue        # not this generation's schema: leave it alone
         for key, value in wanted.items():
-            if key in current and not _same(current[key], value):
+            if not preserve_existing and key in current and not _same(current[key], value):
                 current[key] = value
                 result["changed"].append(f"{section}.{key}")
 

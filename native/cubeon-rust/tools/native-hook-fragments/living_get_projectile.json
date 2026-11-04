@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "living_get_projectile",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_get_projectile",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_get_projectile",
       "side": "both",
       "neoforge": "net.neoforged.neoforge.event.entity.living.LivingGetProjectileEvent (NeoForge.EVENT_BUS, not cancellable)",
       "mod_api": {

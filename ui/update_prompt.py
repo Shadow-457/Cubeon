@@ -12,9 +12,10 @@ from cubeon import dialogs, thread_safe_ui, update_install, updater, theme
 
 
 class UpdatePrompt:
-    def __init__(self, page, info, *, busy, install, target=None):
+    def __init__(self, page, info, *, busy, install, target=None, on_skip=None):
         self.page, self.info = page, info
         self.busy, self.install = busy, install
+        self.on_skip = on_skip
         self.target = target or update_install.installation_target()
         self.cancel = threading.Event()
         self.phase = "offered"
@@ -57,6 +58,9 @@ class UpdatePrompt:
 
     def open(self):
         with thread_safe_ui.TREE_LOCK:
+            if not updater.is_newer(self.info.get("version")):
+                self.phase = "skipped"
+                return None
             dialogs.open_dialog(self.page, self.dialog)
         return self
 
@@ -78,6 +82,11 @@ class UpdatePrompt:
             dialogs.close_dialog(self.page, self.dialog)
             if cleanup:
                 self.download = None
+            if self.on_skip:
+                try:
+                    self.on_skip(self.info["version"])
+                except Exception:
+                    logging.getLogger(__name__).warning("Could not save skipped update", exc_info=True)
         if cleanup:
             self._start_worker(lambda: self._cleanup(cleanup), 'cubeon-update-cleanup')
 

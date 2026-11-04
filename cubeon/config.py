@@ -745,7 +745,7 @@ def validate_username(username: str) -> tuple[bool, str]:
     return True, ""
 
 
-def run_file_picker(page, file_picker, on_files=None, **kwargs):
+def run_file_picker(page, file_picker, on_files=None, on_error=None, **kwargs):
     """
     Opens a Flet FilePicker's dialog and delivers the selected files to
     on_files(files), working across Flet versions:
@@ -786,16 +786,28 @@ def run_file_picker(page, file_picker, on_files=None, **kwargs):
                 files = await result
                 if on_files is not None:
                     on_files(files)
+            except Exception as error:
+                if on_error is None:
+                    raise
+                on_error(error)
             finally:
                 file_picker.on_result = _prev_on_result
 
         run_task = getattr(page, "run_task", None)
         if callable(run_task):
-            run_task(_await_it)
+            try:
+                run_task(_await_it)
+            except Exception:
+                result.close()
+                file_picker.on_result = _prev_on_result
+                raise
         else:
             # No page.run_task on this Flet version - nothing more we can
             # do without it, since the coroutine can't run on its own.
             file_picker.on_result = _prev_on_result
+            result.close()
+            if on_error:
+                on_error(RuntimeError('The file chooser could not start. Try reopening Cubeon.'))
     # Old Flet: pick_files() already ran synchronously and will deliver
     # the result via file_picker.on_result, as originally wired by the
     # caller - nothing further to do here.

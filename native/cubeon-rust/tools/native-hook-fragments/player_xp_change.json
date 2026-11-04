@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "player_xp_change",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_xp_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_xp_change",
       "neoforge": "PlayerXpEvent.XpChange",
       "side": "server",
       "cancellable": true,

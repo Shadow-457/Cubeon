@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "living_incoming_damage_v2",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_incoming_damage_v2",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_incoming_damage_v2",
       "neoforge": "LivingIncomingDamageEvent",
       "side": "server",
       "cancellable": true,

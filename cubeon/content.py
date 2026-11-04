@@ -49,6 +49,9 @@ effect in-game, but the .zip still just lives in shaderpacks/ either way, so
 that's the mod-loader layer's concern, not this module's.
 """
 import json
+import base64
+import io
+from functools import lru_cache
 import os
 import shutil
 import tempfile
@@ -437,6 +440,47 @@ def _attach_content_meta(content_type: str, item: dict, metadata=None) -> None:
                 item[key] = entry[key]
 
 
+@lru_cache(maxsize=64)
+def _read_pack_icon(path, stamp, folder):
+    """Read bounded pack.png bytes on the snapshot worker, never extract files."""
+    try:
+        if folder:
+            with open(path, 'rb') as stream:
+                raw = stream.read(512 * 1024 + 1)
+        else:
+            with zipfile.ZipFile(path) as archive:
+                info = archive.getinfo('pack.png')
+                if info.file_size > 512 * 1024 or info.flag_bits & 1:
+                    return None
+                with archive.open(info) as stream:
+                    raw = stream.read(512 * 1024 + 1)
+        if len(raw) > 512 * 1024 or len(raw) < 24 or not raw.startswith(b'\x89PNG\r\n\x1a\n'):
+            return None
+        if int.from_bytes(raw[16:20], 'big') * int.from_bytes(raw[20:24], 'big') > 4_194_304:
+            return None
+        from PIL import Image
+        with Image.open(io.BytesIO(raw)) as image:
+            if image.width * image.height > 4_194_304:
+                return None
+            image.thumbnail((96, 96))
+            output = io.BytesIO()
+            image.convert('RGBA').save(output, format='PNG')
+        return base64.b64encode(output.getvalue()).decode('ascii')
+    except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile):
+        return None
+
+
+def _pack_icon_source(path, folder):
+    image_path = os.path.join(path, 'pack.png') if folder else path
+    if folder and not inside(path, image_path):
+        return None
+    try:
+        stamp = os.stat(image_path)
+        return _read_pack_icon(image_path, (stamp.st_mtime_ns, stamp.st_ctime_ns, stamp.st_size), folder)
+    except OSError:
+        return None
+
+
 def list_content(content_type: str, mc_version: str | None = None, *,
                  version_id: str | None = None, loader: str | None = None) -> list[dict]:
     """Every pack/shader installed for THIS instance, including disabled entries.
@@ -487,6 +531,9 @@ def list_content(content_type: str, mc_version: str | None = None, *,
             item["compat"] = content_compat(content_type, fname, mc_version,
                                             version_id, loader)
         _attach_content_meta(content_type, item, metadata)
+        source = _pack_icon_source(full, item['folder'])
+        if source:
+            item['icon_source'] = source
         items.append(item)
     return items
 

@@ -24,6 +24,7 @@
 ## Player documentation
 
 - [Documentation index](https://www.ylet.online/docs): player guides and screenshots.
+- [Choosing a Minecraft launcher](https://www.ylet.online/minecraft-launcher): edition, account, mods, platforms and performance criteria.
 - [Getting started](https://www.ylet.online/getting-started): installation and first launch.
 - [Mods and shaders](https://www.ylet.online/mods): loaders, compatibility and dependencies.
 - [Modpacks](https://www.ylet.online/modpacks): packs and imports.

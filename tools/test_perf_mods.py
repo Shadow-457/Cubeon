@@ -222,7 +222,7 @@ with tempfile.TemporaryDirectory() as tmp:
           and "maxFps" not in result["changed"], f"got {result!r}")
     check("trailing newline preserved", text.endswith("\n"), repr(text[-5:]))
     check("other options untouched",
-          "renderDistance:6" in text and "fullscreen:false" in text
+          "renderDistance:8" in text and "fullscreen:false" in text
           and "resourcePacks:[\"vanilla\"]" in text, repr(text))
     check("exactly one line changed per key",
           text.count("enableVsync:") == 1 and text.count("maxFps:") == 1,
@@ -341,7 +341,7 @@ with tempfile.TemporaryDirectory() as tmp:
           sorted(result["changed"]) == sorted(
               ["graphicsPreset", "particles", "ao", "entityShadows",
                "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites",
-               "renderDistance", "simulationDistance", "mipmapLevels",
+               "mipmapLevels",
                "renderClouds"]),
           f"got {result!r}")
     text = open(path, encoding="utf-8").read()
@@ -357,8 +357,8 @@ with tempfile.TemporaryDirectory() as tmp:
     # side-by-side run against FastClient showed the frame-rate gap was almost
     # entirely these - Cubeon at renderDistance 8 meshes ~70% more chunks than
     # FastClient at 6, and the GPU was idle while both were Java-bound.
-    check("the distance levers are lowered too",
-          "renderDistance:6" in text and "simulationDistance:5" in text
+    check("view and simulation distance are preserved",
+          "renderDistance:12" in text and "simulationDistance:12" in text
           and "mipmapLevels:2" in text and 'renderClouds:"fast"' in text,
           repr(text))
     check("no lines added or removed",
@@ -418,7 +418,7 @@ with tempfile.TemporaryDirectory() as tmp:
           sorted(result["changed"]) == sorted(
               ["graphicsPreset", "particles", "ao", "entityShadows",
                "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites",
-               "renderDistance", "simulationDistance", "mipmapLevels",
+               "mipmapLevels",
                "renderClouds"]),
           f"got {result!r}")
     text = open(path, encoding="utf-8").read()
@@ -433,8 +433,8 @@ with tempfile.TemporaryDirectory() as tmp:
     # FPS boost OFF has to hand the view distance back too, or "vanilla look
     # restored" would leave the player stuck at the boost's renderDistance 6
     # with no obvious way back.
-    check("the distance levers go back to vanilla too",
-          "renderDistance:12" in text and "simulationDistance:12" in text
+    check("restore leaves view and simulation distance alone",
+          "renderDistance:6" in text and "simulationDistance:5" in text
           and "mipmapLevels:4" in text and 'renderClouds:"true"' in text,
           repr(text))
     again = go.restore_vanilla_look(path)
@@ -447,7 +447,7 @@ with tempfile.TemporaryDirectory() as tmp:
           sorted(back["changed"]) == sorted(
               ["graphicsPreset", "particles", "ao", "entityShadows",
                "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites",
-               "renderDistance", "simulationDistance", "mipmapLevels",
+               "mipmapLevels",
                "renderClouds"]),
           f"got {back!r}")
 
@@ -658,14 +658,14 @@ with tempfile.TemporaryDirectory() as tmp:
 # block (a Sodium-only repair with Vsync still on would be half a boost).
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _launch_src = open(os.path.join(_REPO, "cubeon", "launch.py"), encoding="utf-8").read()
-check("the launch path enforces Sodium's options on every boosted launch",
+check("launch seeds Sodium while preserving existing options",
       'if cfg.get("fps_boost_enabled", True):\n'
       "                tuned = perf_mods.apply_max_fps_sodium(\n"
-      "                    perf_mods.sodium_config_path(game_dir))" in _launch_src,
+      "                    perf_mods.sodium_config_path(game_dir), preserve_existing=True)" in _launch_src,
       "expected the call directly under the fps_boost_enabled check")
 check("it is not in the FPS-boost-OFF branch",
       _launch_src.index("tuned = perf_mods.apply_max_fps_sodium(")
-      > _launch_src.index("restored = game_options.restore_vanilla_look("),
+      > _launch_src.index("graphics = game_options.sync_fps_boost("),
       "Sodium's defaults are already the fast values - OFF must not rewrite it")
 # Configs are per instance now (paths.INSTANCES_GAME_DIR): the repair must
 # write the folder this launch is actually using, not the shared root.

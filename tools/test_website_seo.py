@@ -96,6 +96,12 @@ class SEOTests(unittest.TestCase):
             if key.rsplit('/', 1)[-1].isdigit():
                 self.assertIn('noindex', ','.join(page.meta.get('robots', [])))
                 continue
+            if key.split('/')[0] in ('uk', 'ru'):
+                self.assertIn('noindex', ','.join(page.meta.get('robots', [])))
+                stem = key.split('/', 1)[1] if '/' in key else 'index'
+                self.assertEqual(page.canonicals, self.pages[stem].canonicals)
+                self.assertEqual(page.meta['og:url'], self.pages[stem].canonicals)
+                continue
             url = ORIGIN + '/' + key
             expected.add(url)
             self.assertEqual(page.canonicals, [url])
@@ -187,6 +193,7 @@ class SEOTests(unittest.TestCase):
         self.assertIn('Cubeon', page.headings[0])
         self.assertIn('Launcher', page.headings[0])
         self.assertIn('Cubeon Launcher', page.title)
+        self.assertIn('Minecraft Launcher', page.title)
         self.assertIn('Minecraft Launcher', self.pages['download'].title)
         schema, = [json.loads(value) for value in page.schemas]
         self.assertEqual(schema['@context'], 'https://schema.org')
@@ -205,8 +212,29 @@ class SEOTests(unittest.TestCase):
         self.assertNotIn('review', product)
         for asset in ['screenshot', 'image']:
             self.assertTrue((WEB / urlsplit(product[asset]).path.lstrip('/')).is_file())
-        for guide in ['getting-started', 'mods', 'modpacks', 'multiplayer', 'troubleshooting']:
+        for guide in ['minecraft-launcher', 'getting-started', 'mods', 'modpacks', 'multiplayer', 'troubleshooting']:
             self.assertTrue(any(urlsplit(link).path in [guide + '.html', '/' + guide] for link in page.links))
+
+    def test_launcher_guide_is_connected_and_has_accurate_structured_data(self):
+        guide = self.pages['minecraft-launcher']
+        self.assertIn('best Minecraft launcher', guide.headings[0])
+        for page in ('index', 'docs', 'download', 'getting-started', 'mods', 'modpacks'):
+            self.assertIn('minecraft-launcher.html', self.pages[page].links, page)
+        schema, = [json.loads(value) for value in guide.schemas]
+        graph = {entry['@type']: entry for entry in schema['@graph']}
+        article = graph['Article']
+        self.assertEqual(article['headline'], guide.headings[0])
+        self.assertEqual(article['mainEntityOfPage'], {'@id': graph['WebPage']['@id']})
+        self.assertEqual(article['about'], {'@id': ORIGIN + '/#launcher'})
+        self.assertEqual(article['publisher'], {'@id': ORIGIN + '/#organization'})
+        breadcrumbs = graph['BreadcrumbList']['itemListElement']
+        self.assertEqual([entry['item'] for entry in breadcrumbs],
+                         [ORIGIN + '/', ORIGIN + '/docs', guide.canonicals[0]])
+        self.assertEqual([entry['position'] for entry in breadcrumbs], [1, 2, 3])
+        source = (WEB / 'minecraft-launcher.html').read_text()
+        for fact in ('does not provide Microsoft sign-in', 'Bedrock is not supported',
+                     'cannot guarantee higher FPS', 'free launcher does not include a Minecraft license'):
+            self.assertIn(fact, source)
 
     def test_domain_migration_preserves_paths_and_identity(self):
         for config in [ROOT / 'vercel.json', WEB / 'vercel.json']:
@@ -266,6 +294,10 @@ class SEOTests(unittest.TestCase):
         self.assertEqual(faq['about'], {'@id': ORIGIN + '/#launcher'})
         self.assertEqual(visible[0]['name'], 'What is Cubeon Launcher?')
         self.assertIn('Minecraft Java Edition', visible[0]['acceptedAnswer']['text'])
+        arabic = (WEB / 'ar/index.html').read_text()
+        arabic_graph = json.loads(Page(arabic).schemas[0])['@graph']
+        arabic_faq, = [node for node in arabic_graph if node['@type'] == 'FAQPage']
+        self.assertEqual(arabic_faq['mainEntity'], Answers(arabic).answers)
 
     def test_plain_text_project_guide_uses_public_official_sources(self):
         guide = (WEB / 'llms.txt').read_text()

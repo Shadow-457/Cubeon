@@ -53,7 +53,7 @@ class LauncherPet:
         w, h = self.size
         left, right, floor = min(104, w - SIZE), max(0, w - SIZE - 12), max(44, h - SIZE - 12)
         points = [(left, floor, "floor"), (right, floor, "floor")]
-        if self.active_tab == "play" and w >= 980 and h >= 640:
+        if self.active_tab == "play" and w >= 1120 and h >= 700:
             # Play's 64px frame is above its reserved footer/progress area.
             y = h - 287 - SIZE
             points.extend([(right, y, "climb"), (w - 226, y, "button"),

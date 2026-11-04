@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="robots" content="noindex, follow" />
 <title>Cubeon Launcher Docs - Minecraft Setup, Mods &amp; Crash Help</title>
 <meta name="description" content="Cubeon Minecraft Launcher guides and screenshots: setup, mods, modpacks, skins, friends, servers, settings and crash help, with a full-size image gallery." />
 <meta property="og:title" content="Cubeon Launcher Docs - Minecraft Setup, Mods &amp; Crash Help" />
@@ -19,7 +19,7 @@
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -60,11 +60,9 @@
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/docs" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/docs" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/docs" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/docs" />
 <link rel="alternate" hreflang="x-default" href="https://www.ylet.online/docs" />
-<link rel="canonical" href="https://www.ylet.online/uk/docs" />
-<meta property="og:url" content="https://www.ylet.online/uk/docs" />
+<link rel="canonical" href="https://www.ylet.online/docs" />
+<meta property="og:url" content="https://www.ylet.online/docs" />
 <!-- /cubeon:seo -->
 </head>
 <body>
@@ -78,16 +76,15 @@
       <!-- cubeon:language -->
 <div class="lang-menu">
   <details>
-    <summary aria-label="Мова: Українська"><span aria-hidden="true">🌐</span> UK</summary>
-    <nav class="lang-list" aria-label="Мова">
-          <a href="/uk/docs" hreflang="en" lang="en">English</a>
+    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
+    <nav class="lang-list" aria-label="Language">
+          <a href="/docs" hreflang="en" lang="en" aria-current="true">English</a>
           <a href="/ar/docs" hreflang="ar" lang="ar">العربية</a>
-          <a href="/uk/docs" hreflang="uk" lang="uk" aria-current="true">Українська</a>
-          <a href="/ru/docs" hreflang="ru" lang="ru">Русский</a>
     </nav>
   </details>
 </div>
 <!-- /cubeon:language -->
+
       <a href="/uk">Home</a>
       <a href="/uk/download">Download</a>
       <a href="/uk/docs" aria-current="page">Docs</a>
@@ -130,6 +127,7 @@
             Guides
           </span>
           <a class="docs-nav-link" href="#docs-start" data-section="docs-start">All guides</a>
+          <a class="docs-nav-link" href="#guide-minecraft-launcher" data-section="guide-minecraft-launcher">Choosing a launcher</a>
           <a class="docs-nav-link" href="#guide-getting-started" data-section="guide-getting-started">Getting started</a>
           <a class="docs-nav-link" href="#guide-mods" data-section="guide-mods">Mods &amp; content</a>
           <a class="docs-nav-link" href="#guide-modpacks" data-section="guide-modpacks">Modpacks</a>
@@ -170,6 +168,19 @@
         <div class="note tip">
           <b>Just want to play, nothing added?</b>
           <p>You do not need any of the mod guides. Choose the version your friends play, press Play, and read <a href="/uk/multiplayer">playing together</a> when you want to host a world.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-minecraft-launcher" class="docs-section">
+        <h2>Choosing a Minecraft launcher</h2>
+        <p>Check your game edition, server account requirements, mod loaders and platform. Understand where Cubeon fits and how to compare performance claims.</p>
+        <p><a href="/uk/minecraft-launcher">Find the best Minecraft launcher for your setup</a></p>
+        <div class="docs-guide-links">
+          <a href="/uk/minecraft-launcher#edition-account">Edition and account</a>
+          <a href="/uk/minecraft-launcher#requirements">Feature comparison</a>
+          <a href="/uk/minecraft-launcher#fps">Performance and FPS</a>
         </div>
       </div>
 
@@ -308,7 +319,7 @@
           <figure>
             <a class="gallery-image" href="/assets/cubeon-play.png" aria-label="Open full-size image: Play and game versions">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-play.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-play.webp" type="image/webp">
                 <img src="/assets/cubeon-play.png" width="1268" height="724" loading="lazy" decoding="async" alt="Cubeon Launcher Play screen with Minecraft version selection and the Play button.">
               </picture>
             </a>
@@ -317,7 +328,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-mods.png" aria-label="Open full-size image: Mods browser">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-launcher-mods.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-launcher-mods.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-launcher-mods.png" width="1268" height="719" loading="lazy" decoding="async" alt="Cubeon Launcher browsing compatible Minecraft mods from Modrinth.">
               </picture>
             </a>
@@ -326,7 +337,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-resource-packs.png" aria-label="Open full-size image: Resource packs">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-launcher-resource-packs.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-launcher-resource-packs.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-launcher-resource-packs.png" width="1262" height="712" loading="lazy" decoding="async" alt="Cubeon Launcher resource pack browser for Minecraft Java Edition.">
               </picture>
             </a>
@@ -335,7 +346,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-shaders.png" aria-label="Open full-size image: Shaders">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-launcher-shaders.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-launcher-shaders.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-launcher-shaders.png" width="1266" height="720" loading="lazy" decoding="async" alt="Cubeon Launcher shader browser with Minecraft shader packs.">
               </picture>
             </a>
@@ -344,7 +355,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-modpacks.png" aria-label="Open full-size image: Modpacks">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-launcher-modpacks.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-launcher-modpacks.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-launcher-modpacks.png" width="1269" height="717" loading="lazy" decoding="async" alt="Cubeon Launcher modpack catalogue for Minecraft Java Edition.">
               </picture>
             </a>
@@ -353,7 +364,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-friends-chat.png" aria-label="Open full-size image: Friends and chat">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-launcher-friends-chat.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-launcher-friends-chat.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-launcher-friends-chat.png" width="1261" height="717" loading="lazy" decoding="async" alt="Cubeon Launcher friends and chat screen with personal details masked.">
               </picture>
             </a>
@@ -362,7 +373,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-server-console.png" aria-label="Open full-size image: Server console">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-launcher-server-console.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-launcher-server-console.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-launcher-server-console.png" width="1262" height="718" loading="lazy" decoding="async" alt="Cubeon Launcher Minecraft server console, plugins and settings.">
               </picture>
             </a>
@@ -371,7 +382,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-account-settings.png" aria-label="Open full-size image: Account and settings">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-launcher-account-settings.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-launcher-account-settings.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-launcher-account-settings.png" width="1262" height="715" loading="lazy" decoding="async" alt="Cubeon Launcher account and settings panel with account details masked.">
               </picture>
             </a>
@@ -380,7 +391,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-playtime-stats.png" aria-label="Open full-size image: Playtime statistics">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-launcher-playtime-stats.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-launcher-playtime-stats.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-launcher-playtime-stats.png" width="1264" height="718" loading="lazy" decoding="async" alt="Cubeon Launcher Stats tab displaying daily Minecraft playtime.">
               </picture>
             </a>
@@ -389,7 +400,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-cosmetics-wings.png" aria-label="Open full-size image: Skins and back cosmetics">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-launcher-cosmetics-wings.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-launcher-cosmetics-wings.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-launcher-cosmetics-wings.png" width="1271" height="717" loading="lazy" decoding="async" alt="Cubeon Launcher cosmetics preview showing a Minecraft skin, shoulder companion and back items.">
               </picture>
             </a>
@@ -398,7 +409,7 @@
           <figure>
             <a class="gallery-image" href="/assets/cubeon-cosmetics.webp" aria-label="Open full-size image: Cosmetics in Minecraft">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-cosmetics.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-cosmetics.webp" type="image/webp">
                 <img src="/assets/cubeon-cosmetics.webp" width="1280" height="720" loading="lazy" decoding="async" alt="Cubeon shoulder companion and back cosmetics on a Minecraft player beside the ocean.">
               </picture>
             </a>
@@ -407,7 +418,7 @@
           <figure>
             <a class="gallery-image" href="/assets/screenshots/cubeon-shoulder-companion-textures.png" aria-label="Open full-size image: Shoulder companion artwork">
               <picture>
-                <source srcset="assets/screenshots/previews/cubeon-shoulder-companion-textures.webp" type="image/webp">
+                <source srcset="/assets/screenshots/previews/cubeon-shoulder-companion-textures.webp" type="image/webp">
                 <img src="/assets/screenshots/cubeon-shoulder-companion-textures.png" width="1000" height="530" loading="lazy" decoding="async" alt="Ten Cubeon shoulder companion texture designs for Minecraft player cosmetics.">
               </picture>
             </a>

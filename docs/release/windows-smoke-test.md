@@ -51,6 +51,9 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
      slow part, and the thing most likely to fail on someone else's machine).
 9. **Mods tab**: browse Modrinth, install one mod, toggle it off and on again,
    and confirm the game still launches. ☐
+   - Confirm Mods, Modpacks, Resource Packs and Shaders share one content area.
+     Switch each selector without changing the selected instance; check compact
+     tiles, artwork, Installed badges and usable controls at 980 and 1280 px widths.
 10. **Settings**: change something obvious, close Cubeon completely, reopen it,
     and confirm the setting stuck. ☐
 
@@ -58,8 +61,10 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
 
 11. Install an older version, then reopen it while a **newer release exists
     in its selected update channel**. Expect the Skip / Update prompt. Skip
-    should download nothing. Settings → System → **Check for updates** can
+    should download nothing. Settings → Account → **Check for updates** can
     retry after an offline startup or a skip. ☐
+    - Restart after Skip: the same release must stay dismissed. Install the
+      latest version and check both channels: no update prompt should appear.
 12. Close Minecraft and stop installs or hosted servers, then click **Update**
     once. Expect download progress and checksum verification, followed by an
     automatic close, installation and reopen. No browser or second Restart

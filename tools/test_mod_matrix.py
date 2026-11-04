@@ -419,7 +419,8 @@ def test_removed_effect_guard():
         def write(extra):
             entries = dict.fromkeys(REQUIRED_ENTRIES, b"fixture")
             entries["fabric.mod.json"] = json.dumps({"depends": {"minecraft": "*"},
-                "mixins": ["cubeon-client.freelook.mixins.json", "cubeon-client.camera-blur.mixins.json"]}).encode()
+                "mixins": ["cubeon-client.mixins.json", "cubeon-client.freelook.mixins.json", "cubeon-client.camera-blur.mixins.json"]}).encode()
+            entries["cubeon-client.mixins.json"] = Path(MOD, "src/main/resources/cubeon-client.mixins.json").read_bytes()
             entries["cubeon-client.camera-blur.mixins.json"] = json.dumps({
                 "required": False, "package": "com.cubeon.client.hud.blur.mixin",
                 "client": ["CameraBlurMixin", "CameraBlurReloadMixin"],

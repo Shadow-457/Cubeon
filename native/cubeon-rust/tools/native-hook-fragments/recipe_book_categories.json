@@ -2,14 +2,14 @@
   "hooks": [
     {
       "name": "recipe_book_categories",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipe_book_categories",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_recipe_book_categories",
       "mod_api": { "contract": "listen" }
     }
   ],
   "helpers": [
     {
       "name": "recipe_book_category",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipe_book_category",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_recipe_book_category",
       "mod_api": {}
     }
   ],

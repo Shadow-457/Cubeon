@@ -81,14 +81,17 @@ public final class CosmeticAnimation {
                     0.06f * sin(t * 1.3f), 1);
             // The shoulder stroke is the parent of independently bending feathers.
             // Quiet, slightly asymmetric down/up strokes with a delayed tip lift.
-            // Idle ~0.4 beats/sec, sprint ~1.1; gliding settles into a spread pose.
+            // Idle ~0.4 beats/sec, sprint ~1.1; flight spreads the wings with
+            // slower lifting strokes. The eased flight weight keeps takeoff smooth.
             float stroke = sin(phase) + 0.12f * sin(phase * 2);
             float beat = stroke * (0.07f + sprint * 0.045f);
             float sweep = (0.36f + beat) * (1 - gliding)
-                    + (0.12f + 0.018f * sin(t * 2.6f)) * gliding;
+                    + (0.12f + 0.045f * sin(t * 4.2f)) * gliding;
             float lift = (-0.05f + (0.028f + sprint * 0.012f)
-                    * sin(phase - 0.45f)) * (1 - gliding) - 0.10f * gliding;
-            float pitch = 0;
+                    * sin(phase - 0.45f)) * (1 - gliding)
+                    + (-0.10f + (0.14f + move * 0.035f)
+                        * sin(t * 4.2f - 0.45f)) * gliding;
+            float pitch = 0.035f * sin(t * 4.2f - 0.8f) * gliding;
             if (Float.isFinite(dragonElapsed) && dragonElapsed >= 0 && dragonElapsed < WingAction.DURATION) {
                 // Spread and lift first, then three sweeping dragon-like beats.
                 // Smooth entry/exit blends back into the uninterrupted idle phase.
@@ -100,7 +103,7 @@ public final class CosmeticAnimation {
                         - 0.08f * sin(beatPhase * 2);
                 sweep += (dragonSweep - sweep) * weight;
                 lift += (dragonLift - lift) * weight;
-                pitch = (0.10f + 0.13f * sin(beatPhase - 0.5f)) * weight;
+                pitch += (0.10f + 0.13f * sin(beatPhase - 0.5f) - pitch) * weight;
             }
             leftWing = new Transform(pitch, -sweep, lift, 1);
             rightWing = new Transform(pitch, sweep, -lift, 1);
@@ -127,9 +130,11 @@ public final class CosmeticAnimation {
                 float phase = wingPhase - lag;
                 float bend = (.025f + sprinting * .02f) * sin(phase)
                         + .007f * sin(phase * 2 - .6f);
-                bend = bend * (1 - flight) + .009f * sin(time * 2.6f - lag) * flight;
+                bend = bend * (1 - flight) + .035f * sin(time * 4.2f - lag) * flight;
                 float fan = (.007f + sprinting * .004f) * sin(phase - .8f);
                 float twist = (.045f + sprinting * .025f) * sin(phase - .4f);
+                fan = fan * (1 - flight) + .012f * sin(time * 4.2f - lag - .8f) * flight;
+                twist = twist * (1 - flight) + .075f * sin(time * 4.2f - lag - .4f) * flight;
                 bend += (.16f * sin(beat - lag) + .025f * sin(beat * 2 - lag) - bend) * action;
                 fan += (.034f * sin(beat - lag - .8f) - fan) * action;
                 twist += (.20f * sin(beat - lag - .4f) - twist) * action;

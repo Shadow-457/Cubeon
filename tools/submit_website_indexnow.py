@@ -42,13 +42,15 @@ def sitemap_urls(source):
     for url in urls:
         parsed = urlsplit(url)
         if (parsed.scheme + '://' + parsed.netloc != ORIGIN or parsed.query or parsed.fragment
-                or not re.fullmatch(r'/|/[a-z][a-z0-9-]*', parsed.path)):
+                or not re.fullmatch(r'/|/(?:ar|uk|ru)(?:/[a-z][a-z0-9-]*)?|/[a-z][a-z0-9-]*', parsed.path)):
             raise ValueError('The sitemap contains a noncanonical URL: ' + str(url))
     return urls
 
 
 def local_page(url):
     name = urlsplit(url).path.lstrip('/') or 'index'
+    if name in ('ar', 'uk', 'ru'):
+        name += '/index'
     return WEB / (name + '.html')
 
 

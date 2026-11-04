@@ -1,50 +1,14 @@
-"""
-Minecraft's own graphics knobs, without touching the player's frame pacing.
+"""Optional graphics defaults with per-instance, reversible boost transitions.
 
-Adding Sodium and friends only raises the frame rate a machine is *capable* of
-rendering. Max FPS mode (apply_max_fps) is the launcher's DEFAULT graphics
-config (fps_boost_enabled defaults to True). It sets the engine-work options -
-fast graphics preset, minimal particles, no ambient occlusion/shadow passes,
-trimmed entity update distance, no biome blending, chunk saves off the render
-thread - plus the four levers that dominate frame rate on real hardware:
-renderDistance (8/12 -> 6), simulationDistance (12 -> 5), mipmapLevels (2) and
-2D clouds (renderClouds "fast").
-
-  2026-10-18: those four used to be deliberately left alone "because they
-  change what the player sees". A side-by-side run against FastClient on the
-  same box settled it the other way: the GPU sat idle (0-76% busy) while both
-  games were Java-bound, and Cubeon at renderDistance 8 was meshing +70% more
-  chunks than FastClient at 6. FastClient's own options.txt sets every
-  speed-only key AND render/simulation distance, so leaving them out meant
-  Cubeon shipped measurably slower than the thing it is compared to. This is
-  still a DEFAULT, not a lock: FPS boost OFF rewrites every one of these keys
-  back to Minecraft's own defaults, render distance included.
-
-  2026-10-24: the launcher NO LONGER touches enableVsync or maxFps at all.
-  It used to force `enableVsync:false` + `maxFps:260` on every launch, which
-  meant a player could never keep Vsync on - and on a machine that can feed
-  frames faster than the monitor, that turns Minecraft into a six-core space
-  heater (the 2026-10-24 fan-noise report: 582% CPU, 83 C package, in a
-  singleplayer world). A fresh install now keeps Minecraft's own defaults
-  (Vsync ON, maxFps 120); a player who already turned Vsync off keeps it off.
-  The launcher never rewrites that choice in either direction.
-
-restore_vanilla_look() is Max FPS mode's OFF switch (2026-10-15): it rewrites
-the SAME keys back to Minecraft's own defaults, so turning FPS boost off in
-the Play menu actually undoes the boost on an already-installed instance -
-instead of leaving the fast values baked into options.txt (the old Settings
-toggle only stopped FUTURE launches from re-applying them, which is why it
-"did nothing" once installed). It also restores the smooth-lighting key, so
-shadows and textures come back the way vanilla draws them. Like every applier
-here it only touches keys the file already has, and never resource packs or
-shaders.
-
-Only keys that already exist are touched, so an options.txt from an older
-Minecraft version that has no such key is not given an unknown one. The write
-is atomic and idempotent. It is called on the launch path, before the JVM
-starts, so it can never race the game's own save-on-exit.
+Launch uses sync_fps_boost: apply once when enabled, retain in-game changes on
+later launches, and restore only unchanged boost values when disabled. View and
+simulation distances, VSync and the frame cap always belong to the player.
 """
 import os
+import json
+import threading
+
+from .atomicio import write_json
 
 from .paths import MINECRAFT_DIR
 
@@ -78,22 +42,13 @@ MAX_FPS_OPTIONS = (
     ("entityDistanceScaling", "0.75", "fewer far-away entity updates"),
     ("biomeBlendRadius", "0", "fewer biome blend samples per pixel"),
     ("syncChunkWrites", "false", "chunk saves off the render thread"),
-    # The distance levers (2026-10-18). Chunk meshing is CPU work, so these
-    # cost frames directly: 6 is 169 chunks in view against 289 at 8.
-    ("renderDistance", "6", "fewer chunks meshed and drawn"),
-    ("simulationDistance", "5", "fewer ticked chunks and entities"),
     ("mipmapLevels", "2", "less texture mip work and VRAM"),
     # A STRING option too - quoted, like graphicsPreset.
     ("renderClouds", '"fast"', "2D clouds instead of 3D volumes"),
 )
 
-# The OFF switch for Max FPS mode: the SAME keys, at Minecraft's own defaults
-# (verified against the 1.21.11 jar's options.txt - the same audit that fixed
-# the values above). ao:true is smooth lighting, the "shadows on the ground"
-# look; graphicsPreset fancy is textured, shadowed terrain. renderDistance /
-# simulationDistance go back to the client's own 12, mipmaps to 4 and clouds
-# to "true". Only keys the file already has are touched, so a fresh install
-# that has never written e.g. syncChunkWrites is not given one.
+# Legacy explicit vanilla-look helper. Normal launch restores saved originals
+# through sync_fps_boost instead. Distances always remain player-owned.
 VANILLA_LOOK_OPTIONS = {
     "graphicsPreset": '"fancy"',
     "particles": "0",
@@ -104,8 +59,6 @@ VANILLA_LOOK_OPTIONS = {
     "syncChunkWrites": "true",
     # Smooth lighting (per-vertex light smoothing; vanilla ON). A bool, like ao.
     "smoothLighting": "true",
-    "renderDistance": "12",
-    "simulationDistance": "12",
     "mipmapLevels": "4",
     "renderClouds": '"true"',
 }
@@ -214,11 +167,77 @@ def apply_max_fps(path: str | None = None) -> dict:
 
 
 def restore_vanilla_look(path: str | None = None) -> dict:
-    """FPS boost OFF: put Minecraft's speed-only graphics options back to the
-    game's own defaults, so an install that ran with the boost on looks
-    vanilla again (fancy graphics, smooth lighting, entity shadows, all
-    particles, full biome blend, full render/simulation distance, 4x mipmaps,
-    3D clouds). Never raises; same result shape.
+    """Explicit vanilla graphics helper; launch uses saved originals instead.
+
+    View/simulation distances remain unchanged. Never raises; same result shape.
     """
     return _set_options(path or options_path(), dict(VANILLA_LOOK_OPTIONS),
                         "vanilla look restored")
+
+
+_BOOST_LOCK = threading.RLock()
+
+
+def sync_fps_boost(enabled: bool, path: str | None = None) -> dict:
+    """Apply on transitions only. Save originals before touching game options.
+
+    A later in-game edit wins, including during OFF restore. Existing installs
+    without a backup are never reset to guessed vanilla values. No running game
+    may call this; launch owns the spawn lock and calls it before spawning Java.
+    """
+    target = path or options_path()
+    result = {"changed": [], "detail": "", "path": target}
+    marker = target + ".cubeon-boost.json"
+    with _BOOST_LOCK:
+        try:
+            with open(marker, encoding="utf-8") as fh:
+                saved = json.load(fh)
+            if (not isinstance(saved, dict) or saved.get("schema") != 1
+                    or not isinstance(saved.get("before"), dict)
+                    or not isinstance(saved.get("applied"), dict)):
+                raise ValueError("invalid boost backup")
+        except FileNotFoundError:
+            saved = None
+        except (OSError, ValueError):
+            result["detail"] = "boost backup is not readable; keeping game settings"
+            return result
+        if saved and saved.get("enabled") is enabled:
+            result["detail"] = "boost already applied; keeping game settings"
+            return result
+        if not enabled and saved is None:
+            result["detail"] = "no previous boost settings to restore"
+            return result
+        try:
+            with open(target, encoding="utf-8") as fh:
+                current = dict(line.rstrip("\r\n").split(":", 1)
+                               for line in fh if ":" in line)
+        except OSError:
+            result["detail"] = "no readable options.txt yet"
+            return result
+        if enabled:
+            wanted = {key: value for key, value, _ in MAX_FPS_OPTIONS if key in current}
+            if saved is None or saved.get("enabled") is False:
+                saved = {"schema": 1, "enabled": None,
+                         "before": {key: current[key] for key in wanted}, "applied": wanted}
+            else:
+                # A failed write retains the original backup for the retry.
+                wanted = saved["applied"]
+        else:
+            managed_keys = {key for key, _, _ in MAX_FPS_OPTIONS}
+            wanted = {key: value for key, value in saved["before"].items()
+                      if key in managed_keys
+                      and current.get(key) == saved["applied"].get(key)}
+        try:
+            write_json(marker, saved)
+        except OSError:
+            result["detail"] = "could not back up boost settings; keeping game settings"
+            return result
+        result = _set_options(target, wanted, "FPS boost" if enabled else "previous graphics restored")
+        if result["detail"] == "options.txt is not writable":
+            return result
+        saved["enabled"] = enabled
+        try:
+            write_json(marker, saved)
+        except OSError:
+            result["detail"] += "; could not record boost transition"
+        return result

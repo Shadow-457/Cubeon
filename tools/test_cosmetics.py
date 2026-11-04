@@ -446,7 +446,7 @@ def test_selection():
         check("payload drops a cleared slot", json.load(fh)["shoulder"] is None)
 
     for label, args in (
-        ("unknown slot", ("head", None)),
+        ("unknown slot", ("unknown_slot", None)),
         ("unknown item", ("shoulder", "shoulder_does_not_exist")),
         ("item in the wrong slot", ("shoulder", "back_ember_wings")),
     ):

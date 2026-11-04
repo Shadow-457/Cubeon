@@ -151,6 +151,8 @@ def dismiss_transient(page, baseline_ids):
 
 
 def reach_tab(page, nav, key):
+    if key == 'modpacks':
+        return reach_tab(page, nav, 'mods') and _subtab(page, 'modpack')
     return key in nav and _click(nav[key])
 
 
@@ -505,6 +507,9 @@ def seed_rich():
             return _orig_src(url) if callable(_orig_src) else url
 
         icons_mod.src = _src
+        _orig_peek, _orig_load = icons_mod.peek_src, icons_mod.load_source
+        icons_mod.peek_src = lambda url: _src(url) if url and url.startswith('uxseed://') else _orig_peek(url)
+        icons_mod.load_source = lambda url: _src(url) if url and url.startswith('uxseed://') else _orig_load(url)
         seeded.append("icons.src")
     except Exception:
         pass
@@ -782,7 +787,7 @@ def build_plan(nav, empty=False):
             # naming convention, so strip it before looking the nav control up
             # (STATE_PLAN says tab_mods, the nav key is "mods").
             key = name[len("tab_"):]
-            if key in nav:
+            if key in nav or (key == 'modpacks' and 'mods' in nav):
                 plan.append((name, cat, note,
                              (lambda p, n, k=key: reach_tab(p, n, k))))
             continue

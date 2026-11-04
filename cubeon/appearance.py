@@ -13,6 +13,11 @@ class Face:
     vertices: tuple
     normal: tuple
     texture: Image.Image
+    detail: bool = False
+
+
+class RenderCancelled(Exception):
+    """A newer preview request has replaced this render."""
 
 
 @dataclass
@@ -141,7 +146,7 @@ def _voxel_layer(faces, thickness=0.5):
                                 first, third = point(edge, start), point(edge, column)
                                 second = tuple(first[i] + inward[i] for i in range(3))
                                 strip = texture.crop((row, start, row + 1, column))
-                            result.append(Face((first, second, third), normal, strip))
+                            result.append(Face((first, second, third), normal, strip, detail=True))
                             start = None
     return result
 
@@ -203,7 +208,7 @@ class CharacterModel:
                 worn.extend(cosmetics.preview_faces(item, cosmetics_dir, simplify=True))
         return cls(sheet, slim=slim, cape=cape, cosmetics_faces=worn)
 
-    def project(self, yaw=25, pitch=10, size=(320, 440)):
+    def project(self, yaw=25, pitch=10, size=(320, 440), *, detail=True):
         yaw, pitch = math.radians(yaw), math.radians(pitch)
         yaw_cos, yaw_sin = math.cos(yaw), math.sin(yaw)
         pitch_cos, pitch_sin = math.cos(pitch), math.sin(pitch)
@@ -226,6 +231,8 @@ class CharacterModel:
 
         visible = []
         for index, face in enumerate(self.faces):
+            if not detail and face.detail:
+                continue
             normal = rotate(face.normal, centered=False)
             if normal[2] <= 0.001 or not face.texture.getbbox():
                 continue
@@ -238,7 +245,7 @@ class CharacterModel:
         return render_faces(self.project(yaw, pitch, size), size=size)
 
 
-def render_faces(faces, textures=None, size=(320, 440), supersample=1):
+def render_faces(faces, textures=None, size=(320, 440), supersample=1, *, cancel=None):
     """Depth-test the same skin, voxel, cape and cosmetic faces in every preview.
 
     Inflated sleeves intersect the torso and neighbouring limbs. A whole-face
@@ -250,6 +257,8 @@ def render_faces(faces, textures=None, size=(320, 440), supersample=1):
     depth_buffer = Image.new("F", canvas.size, -100000)
     translucent = []
     for face in sorted(faces, key=lambda face: face.depth):
+        if cancel is not None and cancel.is_set():
+            raise RenderCancelled()
         texture = face.texture if textures is None else textures.get(face.index)
         if texture is None:
             continue
@@ -307,6 +316,8 @@ def render_faces(faces, textures=None, size=(320, 440), supersample=1):
         canvas.alpha_composite(tile, (left, top))
         depth_buffer.paste(candidate_depth, (left, top), opaque_pixels)
     for tile, candidate_depth, bounds in translucent:
+        if cancel is not None and cancel.is_set():
+            raise RenderCancelled()
         visible_pixels = ImageMath.lambda_eval(
             lambda values: (values["candidate"] > values["stored"]) * 255,
             candidate=candidate_depth, stored=depth_buffer.crop(bounds)).convert("L")

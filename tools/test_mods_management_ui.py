@@ -1,5 +1,7 @@
 """Content UI actions stay scoped, responsive and retryable under races."""
 import inspect
+import base64
+import io
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -45,6 +47,31 @@ class ManagementUI(unittest.TestCase):
         self.refresh()
         return self.scope['mods_list_view'].controls[0]
 
+    def test_content_selectors_keep_instance_and_update_import_and_search_labels(self):
+        selector = next(c for c in fz.walk(self.root) if getattr(c, 'data', None) == 'content-resourcepack')
+        header = env(self.fns['_apply_type_labels'])
+        selector.on_click(None)
+        self.assertEqual(self.dropdown.value, 'instance-A')
+        self.assertEqual(header['header_title'].value, 'Resource Packs')
+        self.assertEqual(header['local_install_label'].value, 'Import packs')
+        self.assertFalse(any(isinstance(c, ft.PopupMenuButton) for c in fz.walk(self.root)))
+        self.assertIn('resource packs', header['mod_search_field'].hint_text)
+
+    def test_filters_are_closed_by_default_and_installed_is_one_action(self):
+        filters = env(self.fns['on_filters_toggle'])
+        self.assertFalse(filters['category_chips_container'].visible)
+        self.fns['on_filters_toggle']()
+        self.assertTrue(filters['category_chips_container'].visible)
+        toggle = next(c for c in fz.walk(self.root) if getattr(c, 'data', None) == 'mods-installed-toggle')
+        toggle.on_click(None)
+        view = env(self.fns['on_view_change'])
+        self.assertFalse(view['browse_pane'].visible)
+        self.assertTrue(view['installed_pane'].visible)
+        toggle = next(c for c in fz.walk(self.root) if getattr(c, 'data', None) == 'mods-installed-toggle')
+        toggle.on_click(None)
+        self.assertTrue(view['browse_pane'].visible)
+        self.assertFalse(view['installed_pane'].visible)
+
     def test_resource_and_shader_switches_capture_instance_and_guard_stale_rows(self):
         for kind in ('resourcepack', 'shader'):
             row = self.row(kind)
@@ -84,6 +111,25 @@ class ManagementUI(unittest.TestCase):
         self.assertIs(self.scope['mods_list_view'].controls[0], row)
         self.assertIs(row.content.controls[0], icon)
         self.assertFalse(row.content.controls[2].value)
+
+    def test_installed_pack_and_shader_art_have_cubeon_fallback(self):
+        from PIL import Image
+        stream = io.BytesIO()
+        Image.new('RGB', (16, 16), 'green').save(stream, 'PNG')
+        source = base64.b64encode(stream.getvalue()).decode('ascii')
+        for kind in ('resourcepack', 'shader'):
+            row = self.row(kind)
+            self.assertEqual(row.content.controls[0].content.src, 'icon_64.png')
+            self.items[0]['icon_source'] = source
+            self.refresh()
+            image = self.scope['mods_list_view'].controls[0].content.controls[0].content
+            self.assertEqual(image.src, source)
+            self.assertIsInstance(image.error_content, ft.Image)
+            self.assertEqual(image.error_content.src, 'icon_64.png')
+            self.items[0]['icon_source'] = 'aW52YWxpZA=='
+            self.refresh()
+            image = self.scope['mods_list_view'].controls[0].content.controls[0].content
+            self.assertEqual(image.src, 'icon_64.png')
 
     def test_enabled_disabled_collision_has_two_distinct_rows(self):
         self.row()
@@ -148,25 +194,108 @@ class ManagementUI(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(QueuedThread.jobs, [])
 
+    def test_titles_appear_before_installed_file_scan_and_survive_scan_failure(self):
+        project = {'project_id': 'immediate', 'title': 'Immediate title'}
+        self.core.get_recommended_mods = lambda **kw: [project]
+        def slow_scan(*a, **kw):
+            visible = [c.value for c in fz.walk(self.root) if isinstance(c, ft.Text)]
+            self.assertIn('Immediate title', visible)
+            raise OSError('fixture scan unavailable')
+        self.core.list_mods = slow_scan
+        self.fns['load_recommended_mods']()
+        QueuedThread.jobs.pop(0)()
+        visible = [c.value for c in fz.walk(self.root) if isinstance(c, ft.Text)]
+        self.assertIn('Immediate title', visible)
+        self.assertNotIn('Search unavailable', visible)
+
     def test_initial_skeleton_is_enabled_and_lists_are_lazy(self):
         self.fns['_show_browse_loading']()
         browse = env(self.fns['_show_browse_loading'])['browse_results_view']
         self.assertFalse(browse.disabled)
         self.assertEqual(browse.controls[0].data, 'content-loading')
         for control in (browse, self.scope['mods_list_view']):
-            self.assertIsInstance(control, ft.ListView)
+            self.assertIsInstance(control, ft.GridView)
             self.assertTrue(control.build_controls_on_demand)
+
+    def test_modpacks_selector_keeps_both_engines_mounted_and_instance_unchanged(self):
+        pack_host = ft.Container(expand=True)
+        opened = []
+        root, *_ = build_mods_tab(self.page, {}, self.state, self.dropdown,
+                                section_label=section_label, modpacks_content=pack_host,
+                                on_modpacks_open=lambda: opened.append(True), **THEME)
+        before = tuple(root.controls)
+        root.select_content_type('modpack')
+        self.assertTrue(pack_host.visible)
+        self.assertEqual(opened, [True])
+        self.assertEqual(self.dropdown.value, 'instance-A')
+        root.select_content_type('resourcepack')
+        self.assertFalse(pack_host.visible)
+        self.assertEqual(tuple(root.controls), before)
 
     def test_large_installed_list_expands_in_batches(self):
         self.active['type'] = 'resourcepack'
         self.items[:] = [{'filename': f'{i}.zip', 'display_name': str(i), 'size_kb': 1, 'enabled': True} for i in range(300)]
         self.refresh()
         view = self.scope['mods_list_view']
-        self.assertEqual(len(view.controls), 6)
+        self.assertEqual(len(view.controls), 13)
         view.controls[-1].on_click(None)
-        self.assertLessEqual(len(view.controls), 27)
+        self.assertEqual(len(view.controls), 39)
         view.controls[-2].on_click(None)
-        self.assertLessEqual(len(view.controls), 52)
+        self.assertEqual(len(view.controls), 64)
+
+    def test_resizing_only_changes_layout_and_preserves_request_offsets(self):
+        scope = env(self.fns['_render_browse_page'])
+        grid = scope['browse_results_view']
+        field = env(self.fns['_browse_key'])['mod_search_field']
+        field.value = 'animation'
+        old_token = self.fns['_begin_browse']()
+        old_key = old_token[1]
+        grid.on_size_change(SimpleNamespace(width=1500, height=900))
+        new_key = self.fns['_browse_key']()
+        self.assertEqual(new_key, old_key)
+        self.assertEqual(grid.runs_count, 4)
+        calls = []
+        self.core.search_mods = lambda *a, **kw: calls.append(kw) or []
+        self.fns['_browse_fetch'](1, old_key)
+        self.fns['_browse_fetch'](1, new_key)
+        self.assertEqual([(kw['limit'], kw['offset']) for kw in calls], [(24, 24), (24, 24)])
+
+    def test_type_switch_restores_query_rows_and_does_not_refetch(self):
+        field = env(self.fns['_browse_key'])['mod_search_field']
+        calls = []
+        self.core.search_mods = lambda query, **kw: calls.append(query) or [
+            {'project_id': 'saved', 'slug': 'saved', 'title': 'Saved search', 'downloads': 1}]
+        field.value = 'saved query'
+        self.fns['run_mod_search']()
+        QueuedThread.jobs.pop(0)()
+        scope = env(self.fns['_render_browse_page'])
+        saved_rows = tuple(scope['browse_results_view'].controls)
+        saved_token = scope['browse_state']['token']
+        self.root.select_content_type('resourcepack')
+        self.root.select_content_type('mod')
+        current = env(self.fns['_render_browse_page'])
+        self.assertEqual(field.value, 'saved query')
+        self.assertEqual(current['browse_state']['token'], saved_token)
+        self.assertEqual(tuple(current['browse_results_view'].controls), saved_rows)
+        self.assertEqual(calls, ['saved query'])
+        self.fns['run_mod_search']()
+        self.assertEqual(calls, ['saved query'])
+
+    def test_hidden_search_completion_is_cached_without_painting_wrong_type(self):
+        field = env(self.fns['_browse_key'])['mod_search_field']
+        self.core.search_mods = lambda *a, **kw: [
+            {'project_id': 'late', 'title': 'Late mod', 'downloads': 1}]
+        field.value = 'late query'
+        self.fns['run_mod_search']()
+        late = QueuedThread.jobs.pop(0)
+        self.root.select_content_type('resourcepack')
+        grid = env(self.fns['_render_browse_page'])['browse_results_view']
+        before = tuple(grid.controls)
+        late()
+        self.assertEqual(tuple(grid.controls), before)
+        self.root.select_content_type('mod')
+        self.assertEqual(field.value, 'late query')
+        self.assertEqual(env(self.fns['_render_browse_page'])['browse_state']['results'][0]['title'], 'Late mod')
 
     def test_download_start_failure_is_retryable(self):
         row = self.fns['build_browse_row']({'project_id': 'demo', 'title': 'Demo'})

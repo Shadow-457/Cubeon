@@ -343,7 +343,7 @@ class DependencyTests(unittest.TestCase):
             return SimpleNamespace(pid=123)
         scope = dict(_spawn_lock=Lock(), mc_version=self.mc, loader="fabric", version_id=self.instance,
                      status_cb=None, command=[], game_dir=str(self.profile), log_fh=None, log_path="unused",
-                     popen_kwargs={}, session_id="test", username="test", _active_logs=set(),
+                     popen_kwargs={}, session_id="test", username="test", stage_java=True, _active_logs=set(),
                      _prune_game_logs=lambda: None, subprocess=SimpleNamespace(Popen=spawn, DEVNULL=-1, STDOUT=-2),
                      watchdog=SimpleNamespace(register=lambda *a, **kw:None, stale_session=lambda:None),
                      sync_mods_to_game=lambda *a:events.append("sync"), __name__="cubeon.launch", __package__="cubeon")

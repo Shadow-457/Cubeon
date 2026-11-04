@@ -943,8 +943,8 @@ async def main(page: ft.Page):
         Mesa/gallium driver mid first-frame (SIGSEGV coredumps, 2026-09-06).
         """
         _fit_geometry_to_work_area()
-        page.window.min_width = min(980, int(_gw))
-        page.window.min_height = min(640, int(_gh))
+        page.window.min_width = min(720, int(_gw))
+        page.window.min_height = min(480, int(_gh))
         page.window.resizable = True
         if _saved_maximized:
             # Do NOT ask for the saved rect as a window SIZE when the window
@@ -1267,6 +1267,7 @@ async def main(page: ft.Page):
     except Exception:
         pass
     _startup_mark("splash revealed and flushed to the client")
+    _splash_min_until = time.monotonic() + 3.0
 
     # cfg was loaded above, before the saved geometry was applied to the
     # window.
@@ -1422,7 +1423,6 @@ async def main(page: ft.Page):
     top_nav_items = [
         ("play", ft.Icons.PLAY_ARROW_ROUNDED, i18n.t("Play")),
         ("mods", ft.Icons.EXTENSION_ROUNDED, i18n.t("Mods")),
-        ("modpacks", ft.Icons.INVENTORY_2_ROUNDED, i18n.t("Modpacks")),
         ("profile", ft.Icons.CHECKROOM_ROUNDED, i18n.t("Cosmetics")),
         ("stats", ft.Icons.QUERY_STATS_ROUNDED, i18n.t("Stats")),
         ("server", ft.Icons.DNS_ROUNDED, i18n.t("Servers")),
@@ -1430,7 +1430,7 @@ async def main(page: ft.Page):
     # The Chat tab only exists in builds that ship the social layer; a public
     # no-Friends build stays a plain launcher with no dead nav entry.
     if friends_enabled():
-        top_nav_items.insert(3, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED,
+        top_nav_items.insert(2, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED,
                                  i18n.t("Chat")))
     server_group_items = [
         ("server_console", ft.Icons.TERMINAL_ROUNDED, i18n.t("Console")),
@@ -2456,19 +2456,21 @@ async def main(page: ft.Page):
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.UPLOAD_ROUNDED, color=ON_ACCENT, size=14),
-                ft.Text("Upload", color=ON_ACCENT, weight=ft.FontWeight.W_700, size=12),
+                ft.Text(i18n.t("Upload profile picture"), color=ON_ACCENT, weight=ft.FontWeight.W_700, size=12),
             ],
             alignment=ft.MainAxisAlignment.CENTER, spacing=4, tight=True,
         ),
         bgcolor=ACCENT, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
         ink=False, on_click=open_pfp_picker,
+        tooltip="Choose a profile picture for your Cubeon account",
     )
     profile_pfp_remove_btn = ft.Container(
-        content=ft.Text(i18n.t("Remove"), color=DANGER, weight=ft.FontWeight.W_700, size=12),
+        content=ft.Text(i18n.t("Remove profile picture"), color=DANGER, weight=ft.FontWeight.W_700, size=12),
         border=ft.border.Border.all(1, DANGER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
         ink=False, on_click=on_remove_pfp, alignment=ft.Alignment.CENTER,
+        tooltip="Remove your Cubeon profile picture",
     )
 
     # -----------------------------------------------------------------
@@ -2730,6 +2732,13 @@ async def main(page: ft.Page):
         must not leave it small - that was the user's complaint about the
         fixed size. Only the card geometry changes; no rebuild, no page.update.
         """
+        try:
+            _fit_play(max(1, float(page.width) - 116),
+                      max(1, float(page.height) - 64))
+        except (NameError, TypeError, AttributeError):
+            pass  # Play is built later; native viewport updates also fit it.
+        for preview in tuple(getattr(page, "_cubeon_appearance_previews", ())):
+            preview.resize(preview._available_width)
         if not _account_panel_is_open():
             return
         try:
@@ -2869,12 +2878,9 @@ async def main(page: ft.Page):
 
     # FPS boost: the Play-menu toggle (moved out of Settings on 2026-10-15).
     # ON = the launcher sets Minecraft's own speed-only graphics options at
-    # launch (Fast graphics, minimal particles, no entity shadows, biome
-    # blend 0, chunk writes off the render thread) - the big FPS win. OFF =
-    # those same keys are written back to Minecraft's defaults at launch, so
-    # an install that ran boosted actually looks vanilla again. The player's
-    # own visual choices (render distance etc.) are never rewritten either
-    # way. Built here so both the Play card and any future surface share it.
+    # Performance defaults apply once; later in-game changes survive. OFF
+    # restores only unchanged boost settings from the per-instance backup.
+    # Render/simulation distances, VSync and the frame cap belong to the player.
     fps_boost_switch = ft.Switch(
         value=bool(cfg.get("fps_boost_enabled", True)),
         active_color=ACCENT,
@@ -2884,8 +2890,8 @@ async def main(page: ft.Page):
         cfg["fps_boost_enabled"] = bool(fps_boost_switch.value)
         core.save_config(cfg)
         set_status("FPS boost " +
-                   ("on - max FPS at launch" if fps_boost_switch.value
-                    else "off - vanilla graphics restored at launch"))
+                   ("on - performance defaults at next launch" if fps_boost_switch.value
+                    else "off - previous graphics restored at next launch"))
 
     fps_boost_switch.on_change = on_fps_boost_change
 
@@ -3720,8 +3726,11 @@ async def main(page: ft.Page):
 
     # The main play button - its appearance changes based on state (play/download/busy)
     play_button_icon = ft.Icon(ft.Icons.PLAY_ARROW, color=ON_ACCENT, size=20)
-    play_button_text = ft.Text(i18n.t("PLAY"), size=16, color=ON_ACCENT,
-                               font_family=FONT_DISPLAY, weight=ft.FontWeight.W_400,
+    # Small Minecraftia glyphs break up under Windows' font rasterizer/DPI
+    # scaling. Keep the pixel frame, with the bundled UI face for action labels.
+    play_button_text = ft.Text(i18n.t("PLAY"), size=18, color=ON_ACCENT,
+                               font_family=FONT_BODY, weight=ft.FontWeight.W_700,
+                               text_align=ft.TextAlign.CENTER, expand=True, expand_loose=True,
                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
 
     # Soft red fill for the button's stop meanings (CANCEL / QUIT GAME): a
@@ -6413,8 +6422,9 @@ async def main(page: ft.Page):
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS,
         padding=ft.padding.Padding.only(left=12, right=4, top=4, bottom=4),
-        tooltip=("Max FPS at launch. Off restores vanilla graphics (fancy, "
-                 "smooth lighting, shadows) on the next launch."),
+        tooltip=("Applies performance defaults once. Your later video changes stay saved. "
+                 "Off restores previous unchanged graphics settings at next launch. "
+                 "Render distance, VSync and frame cap stay under your control."),
         data="play-fps-tile",
     )
 
@@ -6440,90 +6450,116 @@ async def main(page: ft.Page):
         season_info, width=max(360, int(_gw or 1380) - 116),
         height=max(440, int(_gh or 836) - 64),
     )
-    play_tab = ft.Stack(
+    play_header = ft.Row(
         [
-            hero_art_layer,
-            hero_art_scrim,
-            play_season.control,
+            ft.Column(
+                [
+                    ft.Row([hero_title], spacing=0),
+                    ft.Row(
+                        [hero_loader_chip, pack_name_badge,
+                         hero_version_text],
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    version_issue_text,
+                ],
+                spacing=8, expand=True,
+            ),
+            # A solid dark backing so the actions never
+            # dissolve into bright art.
             ft.Container(
-                left=0, top=0, right=0, bottom=0,
-                padding=32,
-                content=ft.Column(
-                    [
-                        # --- TOP: who am I launching -----------------------
-                        ft.Row(
-                            [
-                                ft.Column(
-                                    [
-                                        ft.Row([hero_title], spacing=0),
-                                        ft.Row(
-                                            [hero_loader_chip, pack_name_badge,
-                                             hero_version_text],
-                                            spacing=12,
-                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                        ),
-                                        version_issue_text,
-                                    ],
-                                    spacing=8, expand=True,
-                                ),
-                                # A solid dark backing so the actions never
-                                # dissolve into bright art.
-                                ft.Container(
-                                    content=ft.Row(
-                                        [folder_instance_btn, rename_instance_btn,
-                                         delete_instance_btn],
-                                        spacing=4, tight=True,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
-                                    bgcolor=ft.Colors.with_opacity(0.72, BG),
-                                    border=ft.border.Border.all(1, CARD_BORDER),
-                                    border_radius=RADIUS_LG,
-                                    padding=ft.padding.Padding.symmetric(
-                                        horizontal=8, vertical=4),
-                                ),
-                            ],
-                            vertical_alignment=ft.CrossAxisAlignment.START,
-                        ),
-
-                        # The art breathes here.
-                        ft.Container(expand=True),
-
-                        config_panel,
-
-                        # --- BOTTOM: version, username, PLAY ----------------
-                        ft.Row(
-                            [
-                                ft.Column(
-                                    [section_label(i18n.t("Version")), ft.Container(height=8),
-                                     ft.Container(content=version_dropdown_button,
-                                                  width=300)],
-                                    spacing=0),
-                                ft.Column(
-                                    [section_label(i18n.t("Username")), ft.Container(height=8),
-                                     ft.Container(content=username_field, width=220)],
-                                    spacing=0),
-                                ft.Container(expand=True),
-                                ft.Container(content=theme.keyboard_target(play_button, play_button_text.value), width=300),
-                            ],
-                            spacing=16,
-                            vertical_alignment=ft.CrossAxisAlignment.END,
-                        ),
-
-                        ft.Container(height=16),
-                        ft.Row(
-                            [fps_boost_tile],
-                            spacing=12,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-
-                        ft.Container(height=12),
-                        ft.Container(content=progress_card, height=100),
-                    ],
-                    spacing=0,
-                    expand=True,
+                content=ft.Row(
+                    [folder_instance_btn, rename_instance_btn,
+                     delete_instance_btn],
+                    spacing=4, tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
+                bgcolor=ft.Colors.with_opacity(0.72, BG),
+                border=ft.border.Border.all(1, CARD_BORDER),
+                border_radius=RADIUS_LG,
+                padding=ft.padding.Padding.symmetric(
+                    horizontal=8, vertical=4),
             ),
         ],
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+    play_space = ft.Container(expand=True, data="play-art-space")
+    play_version_field = ft.Column(
+        [section_label(i18n.t("Version")), ft.Container(height=8),
+         version_dropdown_button], spacing=0,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+    )
+    play_username_field = ft.Column(
+        [section_label(i18n.t("Username")), ft.Container(height=8), username_field],
+        spacing=0, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+    )
+    play_action_host = ft.Container(
+        content=theme.keyboard_target(play_button, play_button_text.value),
+        padding=ft.padding.Padding.only(top=10),
+    )
+    play_fields = ft.Row(spacing=16, vertical_alignment=ft.CrossAxisAlignment.END)
+    play_inputs = ft.Column(spacing=12, data="play-inputs",
+                           horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    play_progress_slot = ft.Container(content=progress_card, height=100)
+    play_body = ft.Column(
+        [play_header, play_space, config_panel, play_inputs,
+         ft.Container(height=16), ft.Row([fps_boost_tile], spacing=12),
+         ft.Container(height=12), play_progress_slot],
+        spacing=0, expand=True, data="play-body",
+    )
+    play_host = ft.Container(content=play_body, padding=32)
+    _play_layout = {"key": None}
+
+    def _fit_play(width, height, repaint=True):
+        # These are the actual content dimensions in logical pixels. A Windows
+        # display at 125/150% scaling can have far less room than its resolution.
+        if width <= 0 or height <= 0:
+            return
+        compact = width < 1000 or height < 600
+        inner_width = width - (32 if compact else 64)
+        arrangement = "row" if inner_width >= 900 else "pair" if inner_width >= 480 else "stack"
+        layout_key = (compact, arrangement)
+        with thread_safe_ui.TREE_LOCK:
+            if layout_key == _play_layout["key"]:
+                return
+            _play_layout["key"] = layout_key
+            play_host.padding = 16 if compact else 32
+            if arrangement == "row":
+                play_version_field.expand = 4
+                play_username_field.expand = 3
+                play_action_host.expand = 5
+                play_fields.controls = [play_version_field, play_username_field, play_action_host]
+                play_inputs.controls = [play_fields]
+            elif arrangement == "pair":
+                play_version_field.expand = play_username_field.expand = True
+                play_action_host.expand = None
+                play_fields.controls = [play_version_field, play_username_field]
+                play_inputs.controls = [play_fields, play_action_host]
+            else:
+                play_version_field.expand = play_username_field.expand = None
+                play_action_host.expand = None
+                play_fields.controls = []
+                play_inputs.controls = [play_version_field, play_username_field, play_action_host]
+            hero_title.size = 28 if compact else 38
+            play_body.scroll = ft.ScrollMode.AUTO if compact else None
+            # Expanded children cannot live inside a vertical scroll viewport.
+            play_space.expand = None if compact else True
+            play_space.height = 16 if compact else None
+            # Do not reserve a blank 100px progress panel on small displays.
+            play_progress_slot.height = None if compact else 100
+        if repaint:
+            thread_safe_ui.refresh(play_host)
+
+    _fit_play(max(1, int(getattr(page, "width", None) or _gw or 1380) - 116),
+              max(1, int(getattr(page, "height", None) or _gh or 836) - 64), repaint=False)
+    play_inner = ft.Stack(
+        [play_host], fit=ft.StackFit.EXPAND,
+        on_size_change=lambda event: _fit_play(event.width, event.height),
+        size_change_interval=100,
+    )
+    play_tab = ft.Stack(
+        [hero_art_layer, hero_art_scrim, play_season.control,
+         ft.Container(content=play_inner, left=0, top=0, right=0, bottom=0)],
         expand=True,
     )
 
@@ -6595,10 +6631,18 @@ async def main(page: ft.Page):
         return False
 
     def _build_mods_tab():
+        _ensure_tab('modpacks')
+        def open_modpacks():
+            refresh_installed_packs(background=True)
+            if not state.get('modpacks_loaded'):
+                state['modpacks_loaded'] = True
+                load_popular_modpacks()
+
         content, refresh, recommend, browse = build_mods_tab(
             page, cfg, state, version_dropdown,
             section_label=section_label,
             switch_loader=_switch_loader_for_mods,
+            modpacks_content=modpacks_tab, on_modpacks_open=open_modpacks,
             **THEME,
         )
         mods_tab.content = content
@@ -6694,7 +6738,7 @@ async def main(page: ft.Page):
     def _build_modpacks_tab():
         content, installed, popular = build_modpacks_tab(
             page, cfg, state,
-            section_label=section_label, go_to_pack=go_to_pack,
+            section_label=section_label, go_to_pack=go_to_pack, embedded=True,
             **THEME,
         )
         modpacks_tab.content = content
@@ -7994,7 +8038,6 @@ async def main(page: ft.Page):
     tabs = {
         "play": play_tab,
         "mods": mods_tab,
-        "modpacks": modpacks_tab,
         "profile": profile_tab,
         "server_console": server_console_tab,
         "server_plugins": server_plugins_tab,
@@ -8071,6 +8114,14 @@ async def main(page: ft.Page):
           to leave an old pane visible forever, so the next switch painted the
           new tab on top of it (the Play + Modpacks screenshot).
         """
+        # Older links and the controller still open the Modpacks selector
+        # inside the one content destination; never mount its host twice.
+        if key == 'modpacks':
+            with thread_safe_ui.TREE_LOCK:
+                _ensure_tab('mods')
+                if mods_tab.content is not None:
+                    mods_tab.content.select_content_type('modpack')
+            key = 'mods'
         # Settings is not a tab any more: it lives in the combined
         # Account & Settings popup. The nav entry (and every deep link) opens
         # that popup, so the previous tab stays visible behind the scrim.
@@ -8328,6 +8379,11 @@ async def main(page: ft.Page):
         animate_opacity=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
         **_bg_kwargs,
     )
+    # Keep the painted splash up for at least three seconds, including build
+    # time. Yield only for the remainder so slower starts incur no extra delay.
+    _splash_remaining = _splash_min_until - time.monotonic()
+    if _splash_remaining > 0:
+        await asyncio.sleep(_splash_remaining)
     page.controls.clear()
     page.controls.append(_app_root)
     page.update()
@@ -8760,7 +8816,7 @@ async def main(page: ft.Page):
             state["updating_launcher"] = False
             raise
 
-    def _announce_update(info: dict):
+    def _announce_update(info: dict, *, manual=False):
         try:
             if not _update_active.is_set():
                 return
@@ -8768,7 +8824,7 @@ async def main(page: ft.Page):
             if info.get("channel", "stable") != selected_channel:
                 return  # Settings changes apply on the next start
             version = str((info or {}).get("version") or "").strip()
-            if not version:
+            if not updater.should_prompt(cfg, version, manual=manual):
                 return
             if updater.should_announce(cfg, version):
                 try:
@@ -8783,10 +8839,17 @@ async def main(page: ft.Page):
             from ui.update_prompt import UpdatePrompt
             from cubeon.update_install import installation_target
             target = installation_target()
+            def remember_skip(skipped_version):
+                updater.remember_skip(cfg, skipped_version)
+                core.save_config(cfg)
             with thread_safe_ui.TREE_LOCK:
-                if _update_active.is_set():
+                current = _update_prompt.get("value")
+                if current and current.phase in {"offered", "downloading", "preparing", "ready", "closing"}:
+                    return
+                if _update_active.is_set() and updater.should_prompt(cfg, version, manual=manual):
                     _update_prompt["value"] = UpdatePrompt(
-                        page, info, busy=_update_busy, install=_install_app_update, target=target).open()
+                        page, info, busy=_update_busy, install=_install_app_update,
+                        target=target, on_skip=remember_skip).open()
         except Exception:
             logging.getLogger(__name__).debug("update prompt failed", exc_info=True)
 
@@ -8812,7 +8875,7 @@ async def main(page: ft.Page):
             if manual and _update_active.is_set():
                 set_status("Couldn't check for updates. Check your connection and try again.")
 
-        updater.check_in_background(_announce_update, token=cfg.get("update_token"),
+        updater.check_in_background(lambda info: _announce_update(info, manual=manual), token=cfg.get("update_token"),
                                    channel=cfg.get("update_channel", "stable"),
                                    on_complete=complete, on_error=failed)
 

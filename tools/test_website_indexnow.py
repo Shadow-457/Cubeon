@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import submit_website_indexnow as indexing
+from translate_website import PAGES, translated_languages
 
 
 class IndexNowTests(unittest.TestCase):
@@ -17,7 +18,7 @@ class IndexNowTests(unittest.TestCase):
 
     def test_preview_uses_only_canonical_sitemap_pages(self):
         payload = indexing.make_payload()
-        self.assertEqual(len(payload['urlList']), 19)
+        self.assertEqual(len(payload['urlList']), sum(not page.isdigit() for page in PAGES) * len(translated_languages()))
         self.assertEqual(payload['keyLocation'], indexing.ORIGIN + '/indexnow-key.txt')
         for url in ('https://preview.vercel.app/about', indexing.ORIGIN + '/api/doctor',
                     indexing.ORIGIN + '/about#report=private', indexing.ORIGIN + '/404',
@@ -30,6 +31,12 @@ class IndexNowTests(unittest.TestCase):
                     indexing.ORIGIN + '/about?token=123', indexing.ORIGIN + '/about#private'):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 indexing.sitemap_urls(f'<urlset><url><loc>{url}</loc></url></urlset>')
+
+    def test_translated_pages_and_locale_homepages_are_supported(self):
+        urls = [indexing.ORIGIN + path for path in ('/ar', '/ar/about', '/ar/minecraft-launcher')]
+        self.assertEqual(indexing.make_payload(urls)['urlList'], urls)
+        self.assertEqual(indexing.local_page(urls[0]), indexing.WEB / 'ar/index.html')
+        self.assertEqual(indexing.local_page(urls[1]), indexing.WEB / 'ar/about.html')
 
     def test_verified_batch_is_received_once(self):
         response = MagicMock()

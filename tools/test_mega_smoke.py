@@ -564,7 +564,7 @@ SUITES = [
     "test_source_runtime.py", "test_startup_recovery.py",
     "test_invites.py",
     "test_modpacks.py", "test_mod_store.py", "test_net.py",
-    "test_content_management_audit.py", "test_mods_management_ui.py",
+    "test_content_management_audit.py", "test_mods_management_ui.py", "test_local_mod_import.py",
     "test_fuzz.py", "test_production.py", "test_content_instance.py",
     "test_version_integrity.py", "test_local_api_gate.py",
     "test_auto_cleanup.py", "test_doctor_bundled_deps.py",
@@ -586,14 +586,14 @@ SUITES = [
     # The FPS boost as the user experiences it (options.txt + Sodium's own
     # config/sodium-options.json), and the motion layer every hover goes
     # through. Both are offline and take a few seconds.
-    "test_perf_mods.py", "test_perf_mod_removal.py", "test_motion.py", "test_tab_navigation.py",
+    "test_perf_mods.py", "test_game_options_persistence.py", "test_perf_mod_removal.py", "test_motion.py", "test_tab_navigation.py",
     "test_activity_stats.py", "test_keyboard_shortcuts.py", "test_keyboard_accessibility.py",
     "test_ui_sounds.py", "test_milestones.py", "test_play_backend_audit.py",
     "test_winproc.py", "test_authme_config.py", "test_cosmetics_picker.py",
     "test_version_path_safety.py",
     "test_scrolling.py", "test_play_seasons.py", "test_launcher_pet.py",
     "test_appearance_preview.py", "test_loader_content_rules.py",
-    "test_cosmetics.py", "test_cosmetic_renderers.py", "test_cosmetic_animation.py", "test_wing_action.py", "test_zoom.py", "test_freelook.py", "test_camera_blur.py", "test_camera_blur_lifecycle.py", "test_enemy_health.py", "test_emotes.py", "test_emote_models.py", "test_emote_wheel.py", "test_client_ui.py", "test_skin_models.py", "test_local_api_emotes.py", "test_window_close.py",
+    "test_cosmetics.py", "test_cosmetic_renderers.py", "test_cosmetic_elytra.py", "test_cosmetic_animation.py", "test_wing_action.py", "test_zoom.py", "test_freelook.py", "test_camera_blur.py", "test_camera_blur_lifecycle.py", "test_enemy_health.py", "test_emotes.py", "test_emote_models.py", "test_emote_wheel.py", "test_client_ui.py", "test_skin_models.py", "test_local_api_emotes.py", "test_window_close.py",
     "test_mod_ui_stability.py",
     "test_mod_search.py",
     "test_doctor_consent.py",

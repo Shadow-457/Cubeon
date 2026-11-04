@@ -568,6 +568,464 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b365fabc795046672053e29c954733ec3b05e4be654ab130fe8f1f94d7051f35"
 
 [[package]]
+name = "cubeon-anticheat"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "cubeon-assets"
+version = "0.1.0"
+dependencies = [
+ "cubeon-core",
+ "log",
+ "png",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cubeon-bench"
+version = "0.1.0"
+dependencies = [
+ "cubeon-telemetry",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cubeon-chat-filter"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "cubeon-client"
+version = "0.1.0"
+dependencies = [
+ "ab_glyph",
+ "bytemuck",
+ "chrono",
+ "cubeon-anticheat",
+ "cubeon-assets",
+ "cubeon-bench",
+ "cubeon-chat-filter",
+ "cubeon-client-core",
+ "cubeon-client-input",
+ "cubeon-client-lib",
+ "cubeon-client-render",
+ "cubeon-command",
+ "cubeon-core",
+ "cubeon-cosmetics",
+ "cubeon-dualsense",
+ "cubeon-friends",
+ "cubeon-hdr",
+ "cubeon-items",
+ "cubeon-mod-api-gen",
+ "cubeon-mods",
+ "cubeon-narrator",
+ "cubeon-optifine",
+ "cubeon-protocol",
+ "cubeon-server-files",
+ "cubeon-shader-api",
+ "cubeon-shaders",
+ "cubeon-telemetry",
+ "cubeon-theme",
+ "cubeon-threads",
+ "cubeon-world",
+ "flate2",
+ "fs4",
+ "gilrs",
+ "glam",
+ "log",
+ "miniz_oxide 0.8.9",
+ "naga",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "open",
+ "png",
+ "pollster",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "unicode-bidi",
+ "ureq",
+ "wgpu",
+ "winit",
+ "winresource",
+ "zip",
+]
+
+[[package]]
+name = "cubeon-client-core"
+version = "0.1.0"
+dependencies = [
+ "cubeon-world",
+ "serde_json",
+]
+
+[[package]]
+name = "cubeon-client-input"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "cubeon-client-core",
+ "cubeon-dualsense",
+ "cubeon-theme",
+ "png",
+ "winit",
+]
+
+[[package]]
+name = "cubeon-client-lib"
+version = "0.1.0"
+dependencies = [
+ "ab_glyph",
+ "bytemuck",
+ "chrono",
+ "cubeon-anticheat",
+ "cubeon-assets",
+ "cubeon-bench",
+ "cubeon-chat-filter",
+ "cubeon-client-core",
+ "cubeon-client-input",
+ "cubeon-client-render",
+ "cubeon-command",
+ "cubeon-core",
+ "cubeon-dualsense",
+ "cubeon-friends",
+ "cubeon-hdr",
+ "cubeon-items",
+ "cubeon-mods",
+ "cubeon-narrator",
+ "cubeon-optifine",
+ "cubeon-protocol",
+ "cubeon-server-files",
+ "cubeon-shader-api",
+ "cubeon-shaders",
+ "cubeon-telemetry",
+ "cubeon-theme",
+ "cubeon-threads",
+ "cubeon-world",
+ "flate2",
+ "fs4",
+ "gilrs",
+ "glam",
+ "log",
+ "miniz_oxide 0.8.9",
+ "mio",
+ "naga",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "open",
+ "png",
+ "pollster",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "unicode-bidi",
+ "ureq",
+ "wgpu",
+ "winit",
+ "xxhash-rust",
+ "zip",
+]
+
+[[package]]
+name = "cubeon-client-render"
+version = "0.1.0"
+dependencies = [
+ "ab_glyph",
+ "base64",
+ "bytemuck",
+ "chrono",
+ "cpal",
+ "cubeon-assets",
+ "cubeon-bench",
+ "cubeon-client-core",
+ "cubeon-client-input",
+ "cubeon-command",
+ "cubeon-core",
+ "cubeon-cosmetics",
+ "cubeon-hdr",
+ "cubeon-items",
+ "cubeon-mod-api-gen",
+ "cubeon-narrator",
+ "cubeon-optifine",
+ "cubeon-protocol",
+ "cubeon-shader-api",
+ "cubeon-shaders",
+ "cubeon-telemetry",
+ "cubeon-theme",
+ "cubeon-threads",
+ "cubeon-world",
+ "flate2",
+ "glam",
+ "half",
+ "image-webp",
+ "log",
+ "lz4_flex",
+ "miniz_oxide 0.8.9",
+ "naga",
+ "png",
+ "pollster",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "smallvec",
+ "symphonia",
+ "unicode-bidi",
+ "ureq",
+ "wgpu",
+ "winit",
+ "zip",
+ "zune-jpeg",
+]
+
+[[package]]
+name = "cubeon-command"
+version = "0.1.0"
+dependencies = [
+ "cubeon-client-core",
+ "cubeon-core",
+ "cubeon-protocol",
+ "cubeon-world",
+]
+
+[[package]]
+name = "cubeon-core"
+version = "0.1.0"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "cubeon-cosmetics"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "glam",
+ "png",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "cubeon-dualsense"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "hidapi",
+ "log",
+]
+
+[[package]]
+name = "cubeon-friends"
+version = "0.1.0"
+dependencies = [
+ "chacha20poly1305",
+ "getrandom 0.3.4",
+ "hkdf",
+ "if-addrs",
+ "serde",
+ "serde_json",
+ "sha2",
+ "socket2 0.5.10",
+ "spake2",
+]
+
+[[package]]
+name = "cubeon-hdr"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "wgpu",
+]
+
+[[package]]
+name = "cubeon-items"
+version = "0.1.0"
+dependencies = [
+ "cubeon-client-core",
+ "cubeon-core",
+ "cubeon-world",
+ "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cubeon-mod-api-gen"
+version = "0.1.0"
+dependencies = [
+ "heck",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "cubeon-mods"
+version = "0.1.0"
+dependencies = [
+ "cubeon-shader-api",
+ "log",
+ "minisign-verify",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+ "wasmparser",
+ "zip",
+]
+
+[[package]]
+name = "cubeon-narrator"
+version = "0.1.0"
+dependencies = [
+ "libloading",
+ "log",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "cubeon-optifine"
+version = "0.1.0"
+dependencies = [
+ "cubeon-bench",
+ "cubeon-core",
+ "log",
+ "regex",
+]
+
+[[package]]
+name = "cubeon-prepare"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "libc",
+ "regex",
+ "sha1",
+ "sha2",
+ "zip",
+]
+
+[[package]]
+name = "cubeon-protocol"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "cubeon-core",
+ "cubeon-world",
+ "flate2",
+ "getrandom 0.3.4",
+ "ipconfig",
+ "log",
+ "serde_json",
+ "sha1",
+ "sha2",
+]
+
+[[package]]
+name = "cubeon-server-files"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cubeon-core",
+ "cubeon-protocol",
+ "cubeon-world",
+ "log",
+ "ureq",
+]
+
+[[package]]
+name = "cubeon-shader-api"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "naga",
+ "png",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+ "zip",
+]
+
+[[package]]
+name = "cubeon-shaders"
+version = "0.1.0"
+dependencies = [
+ "cubeon-core",
+ "half",
+ "naga",
+ "png",
+ "zip",
+]
+
+[[package]]
+name = "cubeon-telemetry"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "ruzstd",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "cubeon-theme"
+version = "0.1.0"
+
+[[package]]
+name = "cubeon-threads"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "libmimalloc-sys",
+ "mimalloc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cubeon-world"
+version = "0.1.0"
+dependencies = [
+ "cubeon-core",
+ "flate2",
+ "libm",
+ "log",
+ "lz4_flex",
+ "postcard",
+ "serde",
+ "serde_json",
+ "sha2",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "cursor-icon"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1079,472 +1537,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest",
-]
-
-[[package]]
-name = "horizon-anticheat"
-version = "0.1.0"
-dependencies = [
- "serde",
- "toml",
-]
-
-[[package]]
-name = "horizon-assets"
-version = "0.1.0"
-dependencies = [
- "horizon-core",
- "log",
- "png",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "horizon-bench"
-version = "0.1.0"
-dependencies = [
- "horizon-telemetry",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "horizon-chat-filter"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "toml",
-]
-
-[[package]]
-name = "horizon-client"
-version = "0.1.0"
-dependencies = [
- "ab_glyph",
- "bytemuck",
- "chrono",
- "flate2",
- "fs4",
- "gilrs",
- "glam",
- "horizon-anticheat",
- "horizon-assets",
- "horizon-bench",
- "horizon-chat-filter",
- "horizon-client-core",
- "horizon-client-input",
- "horizon-client-lib",
- "horizon-client-render",
- "horizon-command",
- "horizon-core",
- "horizon-cosmetics",
- "horizon-dualsense",
- "horizon-friends",
- "horizon-hdr",
- "horizon-items",
- "horizon-mod-api-gen",
- "horizon-mods",
- "horizon-narrator",
- "horizon-optifine",
- "horizon-protocol",
- "horizon-server-files",
- "horizon-shader-api",
- "horizon-shaders",
- "horizon-telemetry",
- "horizon-theme",
- "horizon-threads",
- "horizon-world",
- "log",
- "miniz_oxide 0.8.9",
- "naga",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "open",
- "png",
- "pollster",
- "rustix 1.1.5",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "unicode-bidi",
- "ureq",
- "wgpu",
- "winit",
- "winresource",
- "zip",
-]
-
-[[package]]
-name = "horizon-client-core"
-version = "0.1.0"
-dependencies = [
- "horizon-world",
- "serde_json",
-]
-
-[[package]]
-name = "horizon-client-input"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "horizon-client-core",
- "horizon-dualsense",
- "horizon-theme",
- "png",
- "winit",
-]
-
-[[package]]
-name = "horizon-client-lib"
-version = "0.1.0"
-dependencies = [
- "ab_glyph",
- "bytemuck",
- "chrono",
- "flate2",
- "fs4",
- "gilrs",
- "glam",
- "horizon-anticheat",
- "horizon-assets",
- "horizon-bench",
- "horizon-chat-filter",
- "horizon-client-core",
- "horizon-client-input",
- "horizon-client-render",
- "horizon-command",
- "horizon-core",
- "horizon-dualsense",
- "horizon-friends",
- "horizon-hdr",
- "horizon-items",
- "horizon-mcp",
- "horizon-mods",
- "horizon-narrator",
- "horizon-optifine",
- "horizon-protocol",
- "horizon-server-files",
- "horizon-shader-api",
- "horizon-shaders",
- "horizon-telemetry",
- "horizon-theme",
- "horizon-threads",
- "horizon-world",
- "log",
- "miniz_oxide 0.8.9",
- "mio",
- "naga",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "open",
- "png",
- "pollster",
- "rustix 1.1.5",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "unicode-bidi",
- "ureq",
- "wgpu",
- "winit",
- "xxhash-rust",
- "zip",
-]
-
-[[package]]
-name = "horizon-client-render"
-version = "0.1.0"
-dependencies = [
- "ab_glyph",
- "base64",
- "bytemuck",
- "chrono",
- "cpal",
- "flate2",
- "glam",
- "half",
- "horizon-assets",
- "horizon-bench",
- "horizon-client-core",
- "horizon-client-input",
- "horizon-command",
- "horizon-core",
- "horizon-cosmetics",
- "horizon-hdr",
- "horizon-items",
- "horizon-mod-api-gen",
- "horizon-narrator",
- "horizon-optifine",
- "horizon-protocol",
- "horizon-shader-api",
- "horizon-shaders",
- "horizon-telemetry",
- "horizon-theme",
- "horizon-threads",
- "horizon-world",
- "image-webp",
- "log",
- "lz4_flex",
- "miniz_oxide 0.8.9",
- "naga",
- "png",
- "pollster",
- "rustix 1.1.5",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "smallvec",
- "symphonia",
- "unicode-bidi",
- "ureq",
- "wgpu",
- "winit",
- "zip",
- "zune-jpeg",
-]
-
-[[package]]
-name = "horizon-command"
-version = "0.1.0"
-dependencies = [
- "horizon-client-core",
- "horizon-core",
- "horizon-protocol",
- "horizon-world",
-]
-
-[[package]]
-name = "horizon-core"
-version = "0.1.0"
-dependencies = [
- "libm",
-]
-
-[[package]]
-name = "horizon-cosmetics"
-version = "0.1.0"
-dependencies = [
- "base64",
- "glam",
- "png",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "horizon-dualsense"
-version = "0.1.0"
-dependencies = [
- "cpal",
- "hidapi",
- "log",
-]
-
-[[package]]
-name = "horizon-friends"
-version = "0.1.0"
-dependencies = [
- "chacha20poly1305",
- "getrandom 0.3.4",
- "hkdf",
- "if-addrs",
- "serde",
- "serde_json",
- "sha2",
- "socket2 0.5.10",
- "spake2",
-]
-
-[[package]]
-name = "horizon-hdr"
-version = "0.1.0"
-dependencies = [
- "ash",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wgpu",
-]
-
-[[package]]
-name = "horizon-items"
-version = "0.1.0"
-dependencies = [
- "horizon-client-core",
- "horizon-core",
- "horizon-world",
- "log",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "horizon-mcp"
-version = "0.1.0"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
-name = "horizon-mod-api-gen"
-version = "0.1.0"
-dependencies = [
- "heck",
- "quote",
- "serde",
- "serde_json",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "horizon-mods"
-version = "0.1.0"
-dependencies = [
- "horizon-shader-api",
- "log",
- "minisign-verify",
- "serde",
- "serde_json",
- "sha2",
- "toml",
- "wasmparser",
- "zip",
-]
-
-[[package]]
-name = "horizon-narrator"
-version = "0.1.0"
-dependencies = [
- "libloading",
- "log",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "windows 0.62.2",
-]
-
-[[package]]
-name = "horizon-optifine"
-version = "0.1.0"
-dependencies = [
- "horizon-bench",
- "horizon-core",
- "log",
- "regex",
-]
-
-[[package]]
-name = "horizon-prepare"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
- "libc",
- "regex",
- "sha1",
- "sha2",
- "zip",
-]
-
-[[package]]
-name = "horizon-protocol"
-version = "0.1.0"
-dependencies = [
- "aes",
- "flate2",
- "getrandom 0.3.4",
- "horizon-core",
- "horizon-world",
- "ipconfig",
- "log",
- "serde_json",
- "sha1",
- "sha2",
-]
-
-[[package]]
-name = "horizon-server-files"
-version = "0.1.0"
-dependencies = [
- "base64",
- "horizon-core",
- "horizon-protocol",
- "horizon-world",
- "log",
- "ureq",
-]
-
-[[package]]
-name = "horizon-shader-api"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "naga",
- "png",
- "serde",
- "serde_json",
- "sha2",
- "toml",
- "zip",
-]
-
-[[package]]
-name = "horizon-shaders"
-version = "0.1.0"
-dependencies = [
- "half",
- "horizon-core",
- "naga",
- "png",
- "zip",
-]
-
-[[package]]
-name = "horizon-telemetry"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.3.4",
- "ruzstd",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "horizon-theme"
-version = "0.1.0"
-
-[[package]]
-name = "horizon-threads"
-version = "0.1.0"
-dependencies = [
- "libc",
- "libmimalloc-sys",
- "mimalloc",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "horizon-world"
-version = "0.1.0"
-dependencies = [
- "flate2",
- "horizon-core",
- "libm",
- "log",
- "lz4_flex",
- "postcard",
- "serde",
- "serde_json",
- "sha2",
- "xxhash-rust",
 ]
 
 [[package]]

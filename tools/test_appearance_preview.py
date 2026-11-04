@@ -18,7 +18,7 @@ from flet.messaging.protocol import configure_encode_object_for_msgpack
 from PIL import Image, ImageChops
 from cubeon import skins
 from cubeon import cosmetics
-from cubeon.appearance import CharacterModel, Face
+from cubeon.appearance import CharacterModel, Face, RenderCancelled, render_faces
 from cubeon.appearance_scene import order_faces, _intersection, _area
 from ui.appearance_preview import AppearancePreview, render_frame
 from ui.settings_tab import SECTIONS
@@ -126,6 +126,27 @@ check("empty outer layers add no geometry", len(CharacterModel(bare_sheet).faces
 check("fully opaque layers merge their caps and hide internal voxel walls",
       len(CharacterModel(Image.new("RGBA", (64, 64), "white")).faces) == 72)
 
+# Detailed skin masks can generate thousands of tiny voxel walls. Interaction
+# keeps the same raised texture caps and depth tests, then restores the walls.
+interactive = layer_model.project(0, 0, detail=False)
+interactive_frame = render_faces(interactive)
+check("interactive geometry keeps every raised skin cap and base pixel",
+      all(interactive_frame.getpixel(point) == layer_frame.getpixel(point)
+          for point in ((129, 82), (143, 82), (129, 168), (87, 168), (219, 168), (131, 300), (175, 300)))
+      and all(not layer_model.faces[face.index].detail for face in interactive))
+check("settled geometry restores the voxel side walls",
+      any(face.detail for face in layer_model.faces)
+      and len(layer_model.project(35, 10)) > len(layer_model.project(35, 10, detail=False)))
+import threading
+cancel = threading.Event()
+cancel.set()
+try:
+    render_faces(layer_model.project(0, 0), cancel=cancel)
+    cancelled = False
+except RenderCancelled:
+    cancelled = True
+check("an obsolete detailed render stops before rasterizing more faces", cancelled)
+
 slim_layers = CharacterModel(layer_sheet, slim=True)
 slim_layer_frame = render_frame(slim_layers.project(0, 0), {i: f.texture for i, f in enumerate(slim_layers.faces)}, 1)
 check("both Alex sleeves retain their outer pixels on three-pixel arms",
@@ -205,8 +226,8 @@ check("native face ordering keeps the cape outside the body across the orbit",
       all(correct_native_order(yaw, pitch) for yaw in range(0, 360, 15) for pitch in (-60, -20, 0, 20, 60)))
 
 stage = AppearancePreview({"active_skin": "older.png"})
-check("rotation uses one stable scene without drag handlers",
-      stage.gesture.content is stage.scene and type(stage.gesture).__name__ == "Container")
+check("drag rotation uses one stable scene",
+      stage.gesture.content is stage.scene and type(stage.gesture).__name__ == "GestureDetector" and callable(stage.gesture.on_pan_update))
 jobs, loads, paints = [], [], []
 
 
@@ -239,15 +260,13 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
     check("a stale asset load never replaces the selected skin",
           len(loads) == 2 and loads[-1]["active_skin"] == "newest.png" and len(stage._frames) == 1)
     check("opening renders only the visible angle and makes rotation ready",
-          raster.call_count == 1 and stage.note.value == "Use the arrows to rotate")
+          raster.call_count == 2 and "Drag to rotate" in stage.note.value)
     check("the asset worker exits once frames are ready", not stage._running)
     stage.turn(30)
-    jobs.pop(0)()
-    check("an uncached turn coalesces intermediate angles into one worker", len(jobs) == 1)
+    check("an uncached turn requests one worker without a glide thread", len(jobs) == 1)
     jobs.pop(0)()
     check("the rotation button changes the camera", stage.yaw == 85)
     stage.reset()
-    jobs.pop(0)()
     if jobs:
         jobs.pop(0)()
     check("reset restores the camera without remounting the scene",
@@ -258,8 +277,9 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
         if jobs:
             jobs.pop(0)()
     check("unvisited camera angles remain unrendered", len(stage._frames) < 15)
-    textures = tuple((id(frame.content), frame.content.src) for frame in stage._frames.values())
+    image_id = id(stage.image)
     render_count = raster.call_count
+    cached_sources = dict(stage._frames)
     initial, _added, _removed = ObjectPatch.from_diff(None, stage.scene, BaseControl)
     msgpack.packb(initial.to_message(), default=encode)
     patch_sizes = []
@@ -268,13 +288,71 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
         changes, added, removed = ObjectPatch.from_diff(stage.scene, stage.scene, BaseControl)
         encoded = msgpack.packb(changes.to_message(), default=encode)
         patch_sizes.append(len(encoded))
-        check(f"orbit {angle}: frame opacity changes reach the client", len(encoded) > 3 and b"opacity" in encoded)
-        check(f"orbit {angle}: cached frames never remount", not added and not removed)
-        check(f"orbit {angle}: no image source retransmits", b"src" not in encoded)
-    check("rotation keeps every cached image and starts no asset workers",
-          not jobs and raster.call_count == render_count
-          and textures == tuple((id(frame.content), frame.content.src) for frame in stage._frames.values()))
-    check("rotation patches remain small", max(patch_sizes) < 20000)
+        check(f"orbit {angle}: one gapless image stays visible", stage.image.visible
+              and stage.image.gapless_playback and stage.image.opacity == 1)
+        check(f"orbit {angle}: the image control never remounts", id(stage.image) == image_id and not added and not removed)
+    check("cached rotation starts no render workers", not jobs and raster.call_count == render_count
+          and cached_sources == dict(stage._frames))
+    check("rotation patches remain bounded", max(patch_sizes) < 80000)
+    from types import SimpleNamespace
+    point = lambda x, y: SimpleNamespace(local_position=SimpleNamespace(x=x, y=y))
+    stage._drag_start(point(100, 100))
+    old_source = stage.image.src
+    for x in range(110, 310, 5):
+        stage._drag_update(point(x, 115))
+        check("drag keeps the displayed skin until another frame is ready",
+              stage.image.visible and stage.image.src == old_source and id(stage.image) == image_id)
+    check("rapid drag requests coalesce into one worker", len(jobs) == 1)
+    jobs.pop(0)()
+    check("drag follows the latest yaw and pitch", stage._shown == stage._camera_key() and stage.pitch == 4)
+    check("drag renders at native resolution", raster.call_args.args[2] == 1)
+    stage._drag_end()
+    jobs.pop(0)()
+    check("release refines the same visible image", raster.call_args.args[2] == 2 and stage.image.visible and id(stage.image) == image_id)
+
+    # A pointer update landing mid-render must not discard every completed
+    # interactive frame. The next request still follows the latest position.
+    stage._drag_start(point(100, 100))
+    stage._drag_update(point(140, 120))
+    completed = []
+    initial_key = stage._camera_key()
+    def moving_render(*args, **kwargs):
+        if not completed:
+            stage._drag_update(point(180, 120))
+        completed.append(stage._camera_key())
+        return Image.new("RGBA", (320, 440), "red" if len(completed) == 1 else "blue")
+    frame_keys = []
+    def capture_frame(control):
+        if control is stage.image:
+            frame_keys.append(stage._shown)
+    with patch("ui.appearance_preview.render_frame", side_effect=moving_render), \
+         patch("ui.appearance_preview.thread_safe_ui.refresh", side_effect=capture_frame):
+        jobs.pop(0)()
+    check("continuous input paints completed frames instead of starving the preview",
+          initial_key in frame_keys and frame_keys[-1] == stage._camera_key()
+          and len(completed) == 2)
+    stage._drag_end()
+    if jobs:
+        jobs.pop(0)()
+
+    # Starting another drag interrupts a costly settled-frame refinement.
+    cancelled_refine = threading.Event()
+    stage._refine_cancel = cancelled_refine
+    stage._drag_start(point(100, 100))
+    check("starting a drag interrupts background detail refinement", cancelled_refine.is_set())
+    stage._refine_cancel = None
+    stage._drag_end()
+    before_resize = raster.call_count
+    stage.resize(180)
+    check("a narrow viewport fits the entire model without rendering", stage.scene.width <= 180
+          and stage.image.width == stage.scene.width and raster.call_count == before_resize)
+    for index in range(90):
+        stage.pitch = (index % 15 - 7) * 5
+        stage._set_yaw(index * 13)
+        if jobs:
+            jobs.pop(0)()
+    check("orbit cache stays bounded across yaw and pitch", len(stage._frames) <= 64 and len(stage.scene.controls) == 2)
+
 
 driver = app_driver.build_headless()
 driver.open_tab("profile")
@@ -283,26 +361,28 @@ cosmetics_root = inspect.getclosurevars(switch).nonlocals["_tab_views"]["profile
 controls = list(walk(cosmetics_root))
 check("Cosmetics mounts exactly one character preview", sum(control.data == "appearance-orbit" for control in controls) == 1)
 check("Cosmetics keeps Skin and Cape, not Images", not any(getattr(control, "value", None) == "Images" for control in controls))
-check("Cosmetics offers rotation buttons without drag gestures",
+check("Cosmetics offers drag rotation and accessible rotation buttons",
       any(getattr(c, "tooltip", None) == "Rotate left" for c in controls)
       and any(getattr(c, "tooltip", None) == "Rotate right" for c in controls)
-      and not any(type(c).__name__ == "GestureDetector" for c in controls))
+      and any(type(c).__name__ == "GestureDetector" and callable(c.on_pan_update) for c in controls))
 check("Cosmetics has no global arm dropdown or separate Apply button",
       not any(getattr(c, "label", None) == "Arm model" for c in controls)
       and not any(getattr(c, "value", None) == "Apply model to active skin" for c in controls))
 driver.open_tab("settings")
 settings = next(control for control in every_control(driver.page) if callable(getattr(control, "select_section", None)))
 panes = inspect.getclosurevars(settings.select_section).nonlocals["panes"]
+images = inspect.getclosurevars(settings.select_section).nonlocals['images_pane']
 check("Settings initially shows one section, not screenshots",
-      not panes["images"].visible and sum(bool(pane.visible) for pane in panes.values()) == 1)
-check("Screenshots has its own Settings section", any(key == "images" and label == "Screenshots" for key, icon, label in SECTIONS))
+      not images.visible and sum(bool(pane.visible) for pane in panes.values()) == 1)
+check("Settings has four named sections", [label for key, icon, label in SECTIONS] == ['Account', 'Game', 'Performance', 'Appearance'])
 settings.select_section("images")
-check("Settings owns the screenshot gallery", panes["images"].visible and all(not pane.visible for key, pane in panes.items() if key != "images"))
+check("Appearance owns the screenshot gallery", images.visible and panes['appearance'].visible
+      and all(not pane.visible for key, pane in panes.items() if key != 'appearance'))
 settings.select_section("memory")
-check("leaving Screenshots hides the gallery", panes["memory"].visible and all(not pane.visible for key, pane in panes.items() if key != "memory"))
+check("leaving Appearance hides its gallery", panes["memory"].visible and not panes['appearance'].visible)
 driver.open_tab("play")
 driver.open_tab("settings")
-check("returning to Settings keeps the selected section without showing screenshots", panes["memory"].visible and not panes["images"].visible)
+check("returning to Settings keeps the selected section without showing screenshots", panes["memory"].visible and not panes['appearance'].visible)
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

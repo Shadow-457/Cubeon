@@ -101,13 +101,21 @@ def installed_entries() -> list[dict]:
     if marker.get("engine") != "rust" or marker.get("minecraft") != VERSION:
         return []
     try:
-        complete = _runtime_valid(runtime_dir(), verify=False) and (resources_dir() / "horizon-prepare.json").is_file()
+        complete = _runtime_valid(runtime_dir(), verify=False) and _has_resource_stamp(resources_dir())
     except RustEngineError:
         complete = False
     return [{"id": INSTANCE_ID, "folder": INSTANCE_ID, "engine": "rust",
              "display_name": "26.3 (Rust · Beta)", "type": "release",
              "incomplete": not complete,
              "issue": "Rust resources need repair. Install Rust 26.3 again." if not complete else ""}]
+
+
+def _has_resource_stamp(directory: Path) -> bool:
+    # Earlier verified Cubeon beta bundles kept the preparer's original stamp
+    # name. The bundled --check remains authoritative at install and launch;
+    # the inexpensive instance scan must recognize both bundle generations.
+    return any((directory / name).is_file() and not (directory / name).is_symlink()
+               for name in ("cubeon-prepare.json", "horizon-prepare.json"))
 
 
 def _exe(name: str) -> str:
@@ -486,6 +494,10 @@ def install(*, cfg=None, cancel=None, status_cb=lambda _: None,
                       "--java-home", str(Path(java).parent.parent), "--output", str(stage)],
                      cancel=cancel, status_cb=status_cb, progress_cb=progress_cb)
                 _check_cancel(cancel)
+                _run([preparer, "--check", "--output", str(stage)],
+                     cancel=cancel, timeout=30)
+                if not _has_resource_stamp(stage):
+                    raise RustEngineError("Rust resource preparation did not finish. Retry the installation.")
                 previous = _owned(resources.with_name(resources.name + ".previous"))
                 if previous.exists():
                     shutil.rmtree(previous)
@@ -496,6 +508,8 @@ def install(*, cfg=None, cancel=None, status_cb=lambda _: None,
                     previous.rename(resources)
                     raise
         _check_cancel(cancel)
+        if not _has_resource_stamp(resources):
+            raise RustEngineError("Rust resource preparation did not finish. Retry the installation.")
         game_dir(create=True)
         atomicio.write_json(str(_owned(root() / "instance.json")),
                             {"engine": "rust", "minecraft": VERSION, "build": BUILD})
@@ -504,7 +518,8 @@ def install(*, cfg=None, cancel=None, status_cb=lambda _: None,
 def launch_command(username: str, width: int, height: int) -> list[str]:
     if not re.fullmatch(r"[A-Za-z0-9_]{1,16}", username):
         raise RustEngineError("Use a player name with 1–16 letters, numbers or underscores.")
-    if not installed_entries() or installed_entries()[0]["incomplete"]:
+    entries = installed_entries()
+    if not entries or entries[0]["incomplete"]:
         raise RustEngineError("Install Rust 26.3 from Instances before playing.")
     directory = runtime_dir()
     if not _runtime_valid(directory):

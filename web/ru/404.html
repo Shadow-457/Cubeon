@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,7 +10,7 @@
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -65,11 +65,9 @@
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/404" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/404" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/404" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/404" />
 <link rel="alternate" hreflang="x-default" href="https://www.ylet.online/404" />
-<link rel="canonical" href="https://www.ylet.online/ru/404" />
-<meta property="og:url" content="https://www.ylet.online/ru/404" />
+<link rel="canonical" href="https://www.ylet.online/404" />
+<meta property="og:url" content="https://www.ylet.online/404" />
 <!-- /cubeon:seo -->
 </head>
 <body>
@@ -83,16 +81,15 @@
       <!-- cubeon:language -->
 <div class="lang-menu">
   <details>
-    <summary aria-label="Язык: Русский"><span aria-hidden="true">🌐</span> RU</summary>
-    <nav class="lang-list" aria-label="Язык">
-          <a href="/ru/404" hreflang="en" lang="en">English</a>
+    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
+    <nav class="lang-list" aria-label="Language">
+          <a href="/404" hreflang="en" lang="en" aria-current="true">English</a>
           <a href="/ar/404" hreflang="ar" lang="ar">العربية</a>
-          <a href="/uk/404" hreflang="uk" lang="uk">Українська</a>
-          <a href="/ru/404" hreflang="ru" lang="ru" aria-current="true">Русский</a>
     </nav>
   </details>
 </div>
 <!-- /cubeon:language -->
+
       <a href="/ru">Home</a>
       <a href="/ru/download">Download</a>
       <a href="/ru/benchmarks">Benchmarks</a>

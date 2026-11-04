@@ -14,8 +14,8 @@ causes, both pinned here:
 
 Run: python3 tools/test_update_notice.py
 
-The startup Skip / Update prompt now repeats on later launches by user choice;
-its download and installation behavior is tested in test_launcher_updates.py.
+Explicit Skip now persists too; a manual Settings check can offer it again.
+Download and installation behavior is tested in test_launcher_updates.py.
 """
 import os
 import sys
@@ -86,8 +86,7 @@ check("a lower version never announces (the feed is trusted to be newer only)",
       updater.should_announce({}, "") is False)
 
 
-# The OS toast keeps its once-per-version gate. The startup prompt now has
-# different semantics: Skip lasts this launch, so do not gate it on saved notices.
+# The OS notice and explicit Skip have separate persistent markers.
 print("\n2. startup prompt and OS notice wiring")
 from pathlib import Path
 _main = (Path(__file__).resolve().parents[1] / "main.py").read_text()
@@ -97,6 +96,18 @@ check("startup prompt uses the explicit Skip / Update surface", "from ui.update_
 check("startup check is process scoped", '_session_runtime["update_check_started"] = True' in _main)
 check("old snackbar update path is removed", "def _offer_update" not in _main)
 check("old second GET is removed", "osnotify_last_update" not in _main)
+
+print("\n3. skipped update persistence")
+_cfg = {}
+updater.remember_skip(_cfg, 'v9.2.7')
+check('Skip persists the normalized version', _cfg.get(updater.SKIPPED_VERSION_KEY) == '9.2.7')
+check('startup respects Skip after a restart', not updater.should_prompt(dict(_cfg), '9.2.7'))
+check('older channels do not re-nag', not updater.should_prompt(_cfg, '9.1.0'))
+updater.remember_skip(_cfg, '9.1.0')
+check('a manual skip on an older channel preserves the newer dismissal', _cfg[updater.SKIPPED_VERSION_KEY] == '9.2.7')
+check('Settings can reoffer a skipped release', updater.should_prompt(_cfg, '9.2.7', manual=True))
+check('a newer release is offered', updater.should_prompt(_cfg, '9.2.8'))
+check('the installed version is never offered', not updater.should_prompt({}, updater.APP_VERSION, manual=True))
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(bool(_failed))

@@ -1,0 +1,22 @@
+[package]
+name = "cubeon-items"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.90"
+description = "Blocks and items as the client knows them: block facts, item stacks and their data components, enchantments, cooldowns, bundles, and items in NBT"
+
+[dependencies]
+cubeon-client-core = { path = "../cubeon-client-core" }
+cubeon-core = { path = "../cubeon-core" }
+cubeon-world = { path = "../cubeon-world" }
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
+serde_json = { version = "1.0.151", features = ["raw_value"] }
+
+[features]
+# Test helpers (`Items::for_tests`, `enchant::tests`) for cubeon-client's unit tests.
+test-support = []
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "register_configs",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_register_configs",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_register_configs",
       "neoforge": "ModContainer.registerConfig",
       "side": "both",
       "mod_api": {
@@ -12,7 +12,7 @@
     },
     {
       "name": "config_loading",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_config_loading",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_config_loading",
       "neoforge": "ModConfigEvent.Loading",
       "side": "both",
       "cancellable": false,
@@ -22,7 +22,7 @@
     },
     {
       "name": "config_reloading",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_config_reloading",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_config_reloading",
       "neoforge": "ModConfigEvent.Reloading",
       "side": "both",
       "cancellable": false,
@@ -32,7 +32,7 @@
     },
     {
       "name": "config_unloading",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_config_unloading",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_config_unloading",
       "neoforge": "ModConfigEvent.Unloading",
       "side": "server",
       "cancellable": false,

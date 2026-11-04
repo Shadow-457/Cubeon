@@ -34,8 +34,13 @@ public final class CosmeticsClient {
         LivingEntityFeatureRendererRegistrationCallback.EVENT.register(
                 (entityType, renderer, helper, context) -> {
                     if (renderer instanceof PlayerEntityRenderer) {
-                        helper.register(new CosmeticFeatureRenderer(
-                                (PlayerEntityRenderer) renderer));
+                        CosmeticFeatureRenderer cosmetics = new CosmeticFeatureRenderer((PlayerEntityRenderer) renderer);
+                        helper.register(cosmetics);
+                        if (renderer instanceof com.cubeon.client.mixin.CosmeticLayersAccessor access
+                                && CosmeticElytra.order(access.cubeon$getCosmeticLayers(),
+                                        cosmetics, net.minecraft.client.render.entity.feature.ElytraFeatureRenderer.class)) {
+                            cosmetics.enableElytraReplacement();
+                        }
                     }
                 });
     }

@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "living_conversion_post",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_conversion_post",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_conversion_post",
       "neoforge": "LivingConversionEvent.Post",
       "side": "server",
       "cancellable": false,

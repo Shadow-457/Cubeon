@@ -127,6 +127,9 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/cosmetics/CosmeticSelection.class",
                     "com/cubeon/client/cosmetics/CosmeticSelection$Items.class",
                     "com/cubeon/client/cosmetics/CosmeticView.class",
+                    "com/cubeon/client/cosmetics/CosmeticElytra.class",
+                    "com/cubeon/client/mixin/CosmeticLayersAccessor.class",
+                    "com/cubeon/client/mixin/CosmeticElytraMixin.class",
                     "com/cubeon/client/cosmetics/CosmeticPlayers.class",
                     "com/cubeon/client/cosmetics/RemoteCosmetics.class",
                     "com/cubeon/client/cosmetics/CosmeticsClient.class",
@@ -280,6 +283,7 @@ def verify(jar_path, bracket=None):
             freelook = json.loads(zf.read("cubeon-client.freelook.mixins.json"))
             labels = json.loads(zf.read("assets/cubeon-client/lang/en_us.json"))
             camera_blur = json.loads(zf.read("cubeon-client.camera-blur.mixins.json"))
+            client_hooks = json.loads(zf.read("cubeon-client.mixins.json"))
     except (OSError, zipfile.BadZipFile, KeyError, ValueError) as exc:
         return f"jar is unreadable ({exc})"
     left = re.findall(r"\$\{(\w+)\}", meta)
@@ -293,6 +297,10 @@ def verify(jar_path, bracket=None):
         return "fabric.mod.json declares no Minecraft range"
     configs = [entry.get("config") if isinstance(entry, dict) else entry
                for entry in parsed.get("mixins", [])]
+    if "cubeon-client.mixins.json" not in configs or any(
+            hook not in client_hooks.get("client", [])
+            for hook in ("CosmeticLayersAccessor", "CosmeticElytraMixin")):
+        return "cosmetic elytra hooks are not registered"
     if "cubeon-client.freelook.mixins.json" not in configs:
         return "freelook mixin config is not registered"
     if "cubeon-client.camera-blur.mixins.json" not in configs:

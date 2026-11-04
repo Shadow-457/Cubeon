@@ -92,7 +92,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # won't be visible, instead of pretending it's a full skin-server swap.
     # =====================================================================
 
-    appearance = AppearancePreview(cfg, assets_dir)
+    appearance = AppearancePreview(cfg, assets_dir, page=page)
     skin_preview_name = ft.Text("Default Minecraft skin", size=13, color=TEXT)
     skin_preview_meta = ft.Text("Not wearing a custom skin", size=10, color=TEXT_DIM)
 

@@ -8,8 +8,12 @@ Edition launcher for Windows, Linux and macOS. The homepage visibly identifies
 in the introduction, and links to installation, mods, modpacks, multiplayer
 and troubleshooting guides.
 
-`web/sitemap.xml` lists all 19 public HTML pages, using `/` for the homepage and
-extensionless paths for other pages. It excludes error pages, API calls,
+`web/sitemap.xml` lists 20 English public pages and their Arabic translations
+(40 canonical URLs), using `/` for the homepage and extensionless paths for
+other pages. Russian and Ukrainian catalogues are empty: those existing routes
+serve English fallbacks with `noindex, follow`, English canonical URLs and
+`lang="en"`. They stay out of the sitemap, language picker, browser-language
+detection and hreflang alternatives until translated. It excludes error pages, API calls,
 download redirects and report fragments. `web/robots.txt` allows crawling and
 advertises the sitemap; API routes are excluded. Error pages carry `noindex`.
 Both Vercel configurations enable clean URLs with no trailing slash.
@@ -19,6 +23,35 @@ WebPage and SoftwareApplication records,
 using the real platforms, free price, download page and bundled screenshot.
 Do not add fabricated ratings, reviews, update dates or unsupported features.
 Structured data helps identify the product; it does not guarantee rich results.
+
+## Minecraft launcher searches
+
+The homepage title connects the Cubeon Launcher name to “Free Minecraft
+Launcher for Java Edition”. The download title and introduction cover Windows,
+Linux and macOS. `/minecraft-launcher` is a substantive choosing guide for
+“best Minecraft launcher” searches: game edition, Microsoft authentication,
+platforms, mod loaders, modpacks, backups and how to compare FPS measurements.
+It explains Cubeon's fit and limitations and links to the official Minecraft
+launcher when account sign-in or Bedrock is needed. Its Article and breadcrumb
+data match visible content; translated page IDs use their own canonical URLs
+while product and publisher IDs remain shared.
+
+The homepage, download page, docs hub and installation/mod guides link to this
+guide. Do not add unsupported “number one” claims, fake comparisons, ratings,
+keyword lists or misspelled search terms to the page. Broad queries are competitive;
+clear content and crawlability support relevance without guaranteeing placement.
+
+The homepage preloads a 1268×724 WebP screenshot (33,708 bytes instead of the
+549,181-byte PNG), with a PNG fallback and explicit dimensions. Regenerate it
+with `python3 tools/prepare_website_hero.py` after changing the public Play PNG.
+This reduces image transfer; it is not a measured Core Web Vitals score.
+
+`tools/translate_website.py build` adds new public `PAGES` entries to the sitemap
+and preserves its image records. Only languages with populated catalogues are
+advertised. Adding a catalogue entry alone does not translate a whole language;
+complete and check the catalogue before publishing it. Empty fallback routes
+become indexable when built with a populated catalogue. The IndexNow tool accepts
+canonical locale pages and resolves locale homepages to their `index.html` files.
 
 ## Official identity and AI search
 
@@ -68,7 +101,7 @@ python3 tools/prepare_website_faq.py
 python3 tools/test_website_seo.py
 ```
 
-Regenerate after changing any homepage FAQ. All 15 answers are in the initial
+Regenerate after changing any homepage FAQ. All 16 answers are in the initial
 HTML and are expanded when JavaScript is disabled. This schema supports
 machine-readable answers; it does not guarantee search-engine FAQ rich results
 or AI citations. `/llms.txt`, linked from `/about`, is an optional plain-text
@@ -186,7 +219,7 @@ After publishing, submit or resubmit the existing `/sitemap.xml` in Search Conso
 
 ## After publishing
 
-1. Verify that the live homepage, `/about`, `/download`, `/llms.txt`, `/robots.txt` and `/sitemap.xml`
+1. Verify that the live homepage, `/about`, `/download`, `/minecraft-launcher`, `/llms.txt`, `/robots.txt` and `/sitemap.xml`
    return HTTP 200 on `www.ylet.online`. The deployed static output must
    contain the contents of `web/`, including the two crawl files.
 2. Open [Google Search Console](https://search.google.com/search-console).
@@ -195,7 +228,7 @@ After publishing, submit or resubmit the existing `/sitemap.xml` in Search Conso
    verification using the exact value Google supplies. Verification needs the
    site owner's Google account and hosting/DNS access.
 3. Under **Sitemaps**, submit `https://www.ylet.online/sitemap.xml`.
-4. Use **URL inspection** on the homepage, `/about` and download page, run the live test,
+4. Use **URL inspection** on the homepage, `/about`, download page and `/minecraft-launcher`, run the live test,
    and request indexing. Review Google's chosen canonical and any blocked URLs.
 5. In the old subdomain property, use Change of Address when available after
    verifying the permanent redirects. Keep them for at least a year. The previous
@@ -204,8 +237,9 @@ After publishing, submit or resubmit the existing `/sitemap.xml` in Search Conso
 6. Import the verified Google property into Bing Webmaster Tools, submit the
    sitemap and inspect `/`, `/about` and `/download`. This requires the owner's
    account; do not infer Bing index status from an unreliable search endpoint.
-7. Monitor indexing and Performance queries such as “Cubeon launcher” and
-   “Cubeon Minecraft launcher”. Keep release information and helpful guides
+7. Monitor indexing and Performance queries such as “Cubeon”, “Cubeon launcher”,
+   “Minecraft launcher” and “best Minecraft launcher”. Compare impressions,
+   clicks and the pages Google actually selects for each query. Keep release information and helpful guides
    accurate, and link to the canonical site from the real project profiles.
 
 Do not submit preview deployments for indexing. Keep preview environments
@@ -225,7 +259,7 @@ python3 tools/test_website_browser.py
 
 The first check uses only the standard library and verifies crawl coverage,
 canonical consistency, unique metadata and accurate product data. The optional
-Playwright check intercepts all HTTP traffic and checks the homepage/download/about at
+Playwright check intercepts all HTTP traffic and checks the homepage/download/about/docs/launcher guide at
 1440, 768, 390 and 320 pixels, plus crawlable content with JavaScript disabled.
 Set `CUBEON_TEST_CHROMIUM` to an installed Chromium executable if needed.
 Screenshots stay under `archive/ui-captures/`.

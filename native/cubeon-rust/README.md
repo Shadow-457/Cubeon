@@ -6,9 +6,9 @@ The original MIT copyright and license remain in `LICENSE`; patched library
 licenses and attributions remain in `THIRD_PARTY_NOTICES.md` and `third_party/`.
 
 The workspace contains the client's local dependency closure and original Java
-exporter sources. Horizon's launcher and hosted server applications are excluded.
-Package names and internal symbols retain upstream names to keep gameplay parity
-and future source review manageable. Cubeon owns the binaries, patches and releases.
+exporter sources. The upstream launcher and hosted server applications are excluded.
+Packages, internal namespaces, bundled translations, runtime icons and UI palettes
+use Cubeon branding. Cubeon owns the binaries, patches and releases.
 
 Cubeon's changes remove account/session loading, chat credentials, account HTTP,
 heartbeat and telemetry collection, default server injection and world sharing.

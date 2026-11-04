@@ -146,8 +146,11 @@ with patch("ui.mods_tab.threading.Thread", QueuedThread), patch.object(icons, "p
     action = row.content.controls[-1]
     check("installed browse actions update in place", action.disabled and action.content.controls[1].value == "Installed")
     build_row(project, False)
-    check("deleted mods offer Download without rebuilding the row", not action.disabled and callable(action.on_click) and action.content.controls[1].value == "Download")
-    check("download action width stays fixed while its label changes", action.width == 136 and action.height == 36)
+    check("deleted mods offer Install without rebuilding the row", not action.disabled and callable(action.on_click) and action.content.controls[1].value == "Install")
+    action_width = action.width
+    build_row(project, True)
+    build_row(project, False)
+    check("install action width stays fixed while its label changes", action.width == action_width and action.height == 30)
     check("mod rows have no click shrink animation", not callable(row.on_tap_down))
     render = functions["_render_browse_page"]
     browse_scope = inspect.getclosurevars(render).nonlocals
@@ -189,14 +192,14 @@ with patch("ui.modpacks_tab.threading.Thread", QueuedThread), patch.object(icons
     check("modpack browse refreshes reuse rows and artwork", build_pack(dict(pack), False) is row and row.content.controls[0] is image)
     changed_pack = dict(pack, downloads=20)
     build_pack(changed_pack, False)
-    check("new provider metadata updates without reloading pack artwork", row.content.controls[0] is image and "20 downloads" in row.content.controls[1].controls[2].value)
+    check("new provider metadata updates without reloading pack artwork", row.content.controls[0] is image and row.content.controls[1].controls[2].controls[1].value == "20")
     build_pack(changed_pack, True)
     action = row.content.controls[-1]
     check("modpack install status changes preserve the row and icon", action.disabled and action.content.controls[1].value == "Installed" and row.content.controls[0] is image)
     state["selected_mc_version"] = "1.20.1"
     build_pack(changed_pack, False)
-    check("Play-version changes update pack hints without reloading art", row.content.controls[0] is image and "installs its own" in row.content.controls[1].controls[2].value)
-    check("pack action width stays fixed", action.width == 136 and action.height == 36)
+    check("Play-version changes update pack hints without reloading art", row.content.controls[0] is image and "installs its own" in row.tooltip)
+    check("pack action width stays fixed", action.width == 84 and action.height == 30)
     pack_scope = inspect.getclosurevars(functions["_render_installed_rows"]).nonlocals
     inspect.getclosurevars(functions["_apply_installed_packs"]).nonlocals["active_view"]["value"] = "installed"
     refresh_packs()

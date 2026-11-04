@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="robots" content="noindex, follow" />
 <title>Cubeon Cookies and Optional Doctor AI</title>
 <meta name="description" content="Cubeon uses no tracking cookies. Optional Doctor AI connects to Groq and Kilo through Cubeon’s server. Learn how logs and interface preferences are handled." />
 <meta property="og:title" content="Cubeon Cookies and Optional Doctor AI" />
@@ -19,7 +19,7 @@
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -60,11 +60,9 @@
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/cookies" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/cookies" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/cookies" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/cookies" />
 <link rel="alternate" hreflang="x-default" href="https://www.ylet.online/cookies" />
-<link rel="canonical" href="https://www.ylet.online/ru/cookies" />
-<meta property="og:url" content="https://www.ylet.online/ru/cookies" />
+<link rel="canonical" href="https://www.ylet.online/cookies" />
+<meta property="og:url" content="https://www.ylet.online/cookies" />
 <!-- /cubeon:seo -->
 </head>
 <body>
@@ -78,16 +76,15 @@
       <!-- cubeon:language -->
 <div class="lang-menu">
   <details>
-    <summary aria-label="Язык: Русский"><span aria-hidden="true">🌐</span> RU</summary>
-    <nav class="lang-list" aria-label="Язык">
-          <a href="/ru/cookies" hreflang="en" lang="en">English</a>
+    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
+    <nav class="lang-list" aria-label="Language">
+          <a href="/cookies" hreflang="en" lang="en" aria-current="true">English</a>
           <a href="/ar/cookies" hreflang="ar" lang="ar">العربية</a>
-          <a href="/uk/cookies" hreflang="uk" lang="uk">Українська</a>
-          <a href="/ru/cookies" hreflang="ru" lang="ru" aria-current="true">Русский</a>
     </nav>
   </details>
 </div>
 <!-- /cubeon:language -->
+
       <a href="/ru">Home</a>
       <a href="/ru/download">Download</a>
       <a href="/ru/docs">Docs</a>
@@ -119,7 +116,7 @@
   <h2>Optional Doctor AI</h2>
   <p>Doctor does not load an AI provider script, create a visitor account or use provider sign-in cookies. Uploading a file or choosing Analyze log sends the excerpt to Cubeon's server, which calls Kilo auto/free. Local checks and file previews work without it. Logs and guides are kept in page memory, not Cubeon browser storage. See <a href="/ru/privacy#doctor">Doctor privacy details</a>.</p>
   <h2>Small interface preferences</h2>
-  <p>The dismissal of our cookie information badge is remembered in localStorage on this browser. If a consent banner is enabled, its choice is also stored there. These preferences are not sent to an analytics service.</p>
+  <p>The dismissal of our cookie information badge is remembered in localStorage on this browser. If a consent banner is enabled, its choice is also stored there. The language you pick for the site is saved as <code>cubeon-lang</code> so it is not asked again. These preferences are not sent to an analytics service.</p>
 
   <h2>What the app stores</h2>
   <p>The Cubeon launcher keeps your settings, your name and your skins in a folder on your computer. Those are ordinary files rather than cookies, and they stay on your machine unless you upload a skin so that other players can see it.</p>

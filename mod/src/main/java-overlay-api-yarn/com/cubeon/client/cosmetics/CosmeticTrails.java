@@ -27,7 +27,7 @@ public final class CosmeticTrails {
         String id = CosmeticSelection.get("trail");
         if (id == null) { EMISSION.reset(); return; }
         if (!EMISSION.step(client.world, id, player.age, player.getX(), player.getY(), player.getZ(),
-                player.isOnGround() && !player.isTouchingWater() && !player.isFallFlying())) return;
+                player.isOnGround() && !player.isTouchingWater())) return;
         boolean leaves = "trail_leaves".equals(id);
         var particle = leaves ? LEAVES : STEPS;
         var velocity = player.getVelocity();

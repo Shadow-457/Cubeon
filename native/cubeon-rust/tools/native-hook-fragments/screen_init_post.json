@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "screen_init_post",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_init_post",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_init_post",
       "neoforge": "ScreenEvent.Init.Post",
       "side": "client",
       "cancellable": false,

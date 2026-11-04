@@ -147,5 +147,43 @@ c.forget_content_meta("resourcepack", "SameLink.zip")
 check("content meta: forget drops the thumbnail",
       "icon_url" not in listed_as("SameLink.zip"), listed_as("SameLink.zip"))
 
+import base64
+import io
+from PIL import Image
+
+def thumbnail(color):
+    output = io.BytesIO()
+    Image.new('RGBA', (128, 128), color).save(output, 'PNG')
+    return output.getvalue()
+
+for kind in ('resourcepack', 'shader'):
+    artwork_path = Path(_home, kind + '-art.zip')
+    with zipfile.ZipFile(artwork_path, 'w') as archive:
+        archive.writestr('pack.mcmeta', '{"pack":{"pack_format":15,"description":"art"}}')
+        archive.writestr('shaders/test.fsh', 'void main() {}')
+        archive.writestr('pack.png', thumbnail('green'))
+    filename = c.install_local_content(kind, str(artwork_path), A[0], loader=A[1])
+    entries = c.list_content(kind, A[0], loader=A[1])
+    entry = next(i for i in entries if i['filename'] == filename)
+    with Image.open(io.BytesIO(base64.b64decode(entry['icon_source']))) as image:
+        check(kind + ': local pack.png becomes a bounded thumbnail', image.size == (96, 96))
+    before = c._read_pack_icon.cache_info().hits
+    c.list_content(kind, A[0], loader=A[1])
+    check(kind + ': repeated snapshots reuse thumbnail bytes', c._read_pack_icon.cache_info().hits > before)
+    c.toggle_content(kind, filename, A[0], loader=A[1])
+    disabled = next(i for i in c.list_content(kind, A[0], loader=A[1])
+                    if i['filename'] == filename + '.disabled')
+    check(kind + ': disabling preserves artwork', disabled['icon_source'] == entry['icon_source'])
+
+folder = Path(_home, 'folder-art'); folder.mkdir()
+(folder / 'pack.png').write_bytes(thumbnail('green'))
+first = c._pack_icon_source(str(folder), True)
+(folder / 'pack.png').write_bytes(thumbnail('red'))
+check('unpacked artwork invalidates when the image changes', c._pack_icon_source(str(folder), True) != first)
+(folder / 'pack.png').write_bytes(b'corrupt image')
+check('corrupt artwork allows the Cubeon fallback', c._pack_icon_source(str(folder), True) is None)
+(folder / 'pack.png').write_bytes(b'x' * (512 * 1024 + 1))
+check('oversized artwork allows the Cubeon fallback', c._pack_icon_source(str(folder), True) is None)
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

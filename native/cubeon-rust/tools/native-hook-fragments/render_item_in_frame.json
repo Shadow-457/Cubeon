@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "render_item_in_frame",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_render_item_in_frame",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_render_item_in_frame",
       "neoforge": "RenderItemInFrameEvent",
       "side": "client",
       "cancellable": true,

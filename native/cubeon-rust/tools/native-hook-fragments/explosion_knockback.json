@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "explosion_knockback",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_explosion_knockback",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_explosion_knockback",
       "neoforge": "ExplosionKnockbackEvent",
       "side": "server",
       "cancellable": false,

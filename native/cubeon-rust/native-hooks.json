@@ -2,462 +2,462 @@
   "helpers": [
     {
       "name": "draw_quad",
-      "target": "horizon_client::game::native_block_entity_draw::Game<'_>::native_draw_quad"
+      "target": "cubeon_client::game::native_block_entity_draw::Game<'_>::native_draw_quad"
     },
     {
       "name": "draw_cube",
-      "target": "horizon_client::game::native_block_entity_draw::Game<'_>::native_draw_cube"
+      "target": "cubeon_client::game::native_block_entity_draw::Game<'_>::native_draw_cube"
     },
     {
       "name": "draw_block",
-      "target": "horizon_client::game::native_block_entity_draw::Game<'_>::native_draw_block"
+      "target": "cubeon_client::game::native_block_entity_draw::Game<'_>::native_draw_block"
     },
     {
       "name": "draw_item",
-      "target": "horizon_client::game::native_block_entity_draw::Game<'_>::native_draw_item"
+      "target": "cubeon_client::game::native_block_entity_draw::Game<'_>::native_draw_item"
     },
     {
       "name": "attachments",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_attachments"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_attachments"
     },
     {
       "name": "teleport_mob",
-      "target": "horizon_client::game::native_mobs::Game<'_>::native_teleport_mob"
+      "target": "cubeon_client::game::native_mobs::Game<'_>::native_teleport_mob"
     },
     {
       "name": "push_mob",
-      "target": "horizon_client::game::native_mobs::Game<'_>::native_push_mob"
+      "target": "cubeon_client::game::native_mobs::Game<'_>::native_push_mob"
     },
     {
       "name": "set_mob_health",
-      "target": "horizon_client::game::native_mobs::Game<'_>::native_set_mob_health"
+      "target": "cubeon_client::game::native_mobs::Game<'_>::native_set_mob_health"
     },
     {
       "name": "kill_mob",
-      "target": "horizon_client::game::native_mobs::Game<'_>::native_kill_mob"
+      "target": "cubeon_client::game::native_mobs::Game<'_>::native_kill_mob"
     },
     {
       "name": "remove_mob",
-      "target": "horizon_client::game::native_mobs::Game<'_>::native_remove_mob"
+      "target": "cubeon_client::game::native_mobs::Game<'_>::native_remove_mob"
     },
     {
       "name": "summon",
-      "target": "horizon_client::game::native_entities::Game<'_>::native_summon"
+      "target": "cubeon_client::game::native_entities::Game<'_>::native_summon"
     },
     {
       "name": "move_entity",
-      "target": "horizon_client::game::native_entities::Game<'_>::native_move_entity"
+      "target": "cubeon_client::game::native_entities::Game<'_>::native_move_entity"
     },
     {
       "name": "remove_entity",
-      "target": "horizon_client::game::native_entities::Game<'_>::native_remove_entity"
+      "target": "cubeon_client::game::native_entities::Game<'_>::native_remove_entity"
     },
     {
       "name": "server_players",
-      "target": "horizon_client::game::native_server::Game<'_>::native_server_players"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_server_players"
     },
     {
       "name": "tell",
-      "target": "horizon_client::game::native_server::Game<'_>::native_tell"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_tell"
     },
     {
       "name": "action_bar",
-      "target": "horizon_client::game::native_server::Game<'_>::native_action_bar"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_action_bar"
     },
     {
       "name": "tab_list",
-      "target": "horizon_client::game::native_server::Game<'_>::native_tab_list"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_tab_list"
     },
     {
       "name": "tick_stats",
-      "target": "horizon_client::game::native_server::Game<'_>::native_tick_stats"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_tick_stats"
     },
     {
       "name": "sleep_ignored",
-      "target": "horizon_client::game::native_server::Game<'_>::native_sleep_ignored"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_sleep_ignored"
     },
     {
       "name": "set_nickname",
-      "target": "horizon_client::game::native_server::Game<'_>::native_set_nickname"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_set_nickname"
     },
     {
       "name": "text_allowed",
-      "target": "horizon_client::game::native_server::Game<'_>::native_text_allowed"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_text_allowed"
     },
     {
       "name": "broadcast",
-      "target": "horizon_client::game::native_server::Game<'_>::native_broadcast"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_broadcast"
     },
     {
       "name": "feedback",
-      "target": "horizon_client::game::native_server::Game<'_>::native_feedback"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_feedback"
     },
     {
       "name": "acting_player",
-      "target": "horizon_client::game::native_server::Game<'_>::native_acting_player"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_acting_player"
     },
     {
       "name": "run_command",
-      "target": "horizon_client::game::native_server::Game<'_>::native_run_command"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_run_command"
     },
     {
       "name": "world_dir",
-      "target": "horizon_client::game::native_server::Game<'_>::native_world_dir"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_world_dir"
     },
     {
       "name": "held",
-      "target": "horizon_client::game::native_server::Game<'_>::native_held"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_held"
     },
     {
       "name": "count_items",
-      "target": "horizon_client::game::native_server::Game<'_>::native_count_items"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_count_items"
     },
     {
       "name": "carried_items",
-      "target": "horizon_client::game::native_server::Game<'_>::native_carried_items"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_carried_items"
     },
     {
       "name": "take_items",
-      "target": "horizon_client::game::native_server::Game<'_>::native_take_items"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_take_items"
     },
     {
       "name": "room_for",
-      "target": "horizon_client::game::native_server::Game<'_>::native_room_for"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_room_for"
     },
     {
       "name": "give_items",
-      "target": "horizon_client::game::native_server::Game<'_>::native_give_items"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_give_items"
     },
     {
       "name": "give_stack",
-      "target": "horizon_client::game::native_server::Game<'_>::native_give_stack"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_give_stack"
     },
     {
       "name": "give_experience",
-      "target": "horizon_client::game::native_server::Game<'_>::native_give_experience"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_give_experience"
     },
     {
       "name": "give_levels",
-      "target": "horizon_client::game::native_server::Game<'_>::native_give_levels"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_give_levels"
     },
     {
       "name": "lit_block_name",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_lit_block_name"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_lit_block_name"
     },
     {
       "name": "flame_particle",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_flame_particle"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_flame_particle"
     },
     {
       "name": "carried_stack",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_carried_stack"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_carried_stack"
     },
     {
       "name": "set_block",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_set_block"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_set_block"
     },
     {
       "name": "edit_blocks",
-      "target": "horizon_client::game::native_world_edit::Game<'_>::native_edit_blocks"
+      "target": "cubeon_client::game::native_world_edit::Game<'_>::native_edit_blocks"
     },
     {
       "name": "surface_heights",
-      "target": "horizon_client::game::native_world_columns::Game<'_>::native_surface_heights"
+      "target": "cubeon_client::game::native_world_columns::Game<'_>::native_surface_heights"
     },
     {
       "name": "read_columns",
-      "target": "horizon_client::game::native_world_columns::Game<'_>::native_read_columns"
+      "target": "cubeon_client::game::native_world_columns::Game<'_>::native_read_columns"
     },
     {
       "name": "refresh_biome_colors",
-      "target": "horizon_client::game::native_biome_colors::Game<'_>::native_refresh_biome_colors"
+      "target": "cubeon_client::game::native_biome_colors::Game<'_>::native_refresh_biome_colors"
     },
     {
       "name": "neighbor_signal",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_neighbor_signal"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_neighbor_signal"
     },
     {
       "name": "light",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_light"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_light"
     },
     {
       "name": "weather",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_weather"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_weather"
     },
     {
       "name": "day_time",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_day_time"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_day_time"
     },
     {
       "name": "world_height",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_world_height"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_world_height"
     },
     {
       "name": "max_stack_size",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_max_stack_size"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_max_stack_size"
     },
     {
       "name": "item_model",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_model"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_model"
     },
     {
       "name": "quad",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_quad"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_quad"
     },
     {
       "name": "mod_screen_open",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mod_screen_open"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mod_screen_open"
     },
     {
       "name": "mod_screen_close",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mod_screen_close"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mod_screen_close"
     },
     {
       "name": "mod_screen",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mod_screen"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mod_screen"
     },
     {
       "name": "set_experience_orb",
-      "target": "horizon_client::game::native_server::Game<'_>::native_set_experience_orb"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_set_experience_orb"
     },
     {
       "name": "experience_orbs",
-      "target": "horizon_client::game::native_server::Game<'_>::native_experience_orbs"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_experience_orbs"
     },
     {
       "name": "clock",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_clock"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_clock"
     },
     {
       "name": "spawn_falling_block",
-      "target": "horizon_client::game::native_falling::Game<'_>::native_spawn_falling_block"
+      "target": "cubeon_client::game::native_falling::Game<'_>::native_spawn_falling_block"
     },
     {
       "name": "block_state_property",
-      "target": "horizon_client::game::native_block_entity_draw::Game<'_>::native_block_state_property"
+      "target": "cubeon_client::game::native_block_entity_draw::Game<'_>::native_block_state_property"
     },
     {
       "name": "raycast",
-      "target": "horizon_client::game::native_claimed_items::Game<'_>::native_raycast"
+      "target": "cubeon_client::game::native_claimed_items::Game<'_>::native_raycast"
     },
     {
       "name": "view_hit",
-      "target": "horizon_client::game::native_claimed_items::Game<'_>::native_view_hit"
+      "target": "cubeon_client::game::native_claimed_items::Game<'_>::native_view_hit"
     },
     {
       "name": "claim_items",
-      "target": "horizon_client::game::native_claimed_items::Game<'_>::native_claim_items"
+      "target": "cubeon_client::game::native_claimed_items::Game<'_>::native_claim_items"
     },
     {
       "name": "poll",
-      "target": "horizon_client::game::native_claimed_items::Game<'_>::native_poll"
+      "target": "cubeon_client::game::native_claimed_items::Game<'_>::native_poll"
     },
     {
       "name": "set_item_entity",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_set_item_entity"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_set_item_entity"
     },
     {
       "name": "update_output_neighbors",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_update_output_neighbors"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_update_output_neighbors"
     },
     {
       "name": "update_signal_neighbors",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_update_signal_neighbors"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_update_signal_neighbors"
     },
     {
       "name": "block_entity_sync",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_sync"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_sync"
     },
     {
       "name": "play_local_sound",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_play_local_sound"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_play_local_sound"
     },
     {
       "name": "fill",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_fill"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_fill"
     },
     {
       "name": "sprite",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_sprite"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_sprite"
     },
     {
       "name": "item",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item"
     },
     {
       "name": "screen_title",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_title"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_title"
     },
     {
       "name": "data",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_data"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_data"
     },
     {
       "name": "block",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block"
     },
     {
       "name": "block_property",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_property"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_property"
     },
     {
       "name": "insert_item",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_insert_item"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_insert_item"
     },
     {
       "name": "cursor",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_cursor"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_cursor"
     },
     {
       "name": "text",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_text"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_text"
     },
     {
       "name": "built_data",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_built_data"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_built_data"
     },
     {
       "name": "on",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_on"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_on"
     },
     {
       "name": "mod_key",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mod_key"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mod_key"
     },
     {
       "name": "setting",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_setting"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_setting"
     },
     {
       "name": "set_setting",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_set_setting"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_set_setting"
     },
     {
       "name": "set_block_property",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_set_block_property"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_set_block_property"
     },
     {
       "name": "set_block_property_with",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_set_block_property_with"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_set_block_property_with"
     },
     {
       "name": "config_dir",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_config_dir"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_config_dir"
     },
     {
       "name": "panel_items",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_panel_items"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_panel_items"
     },
     {
       "name": "recipes_of_type",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipes_of_type"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_recipes_of_type"
     },
     {
       "name": "recipe_ingredient",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipe_ingredient"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_recipe_ingredient"
     },
     {
       "name": "recipe_result",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipe_result"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_recipe_result"
     },
     {
       "name": "known_recipes",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_known_recipes"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_known_recipes"
     },
     {
       "name": "place_recipe",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_place_recipe"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_place_recipe"
     },
     {
       "name": "give",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_give"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_give"
     },
     {
       "name": "push_player",
-      "target": "horizon_client::game::native_motion::Game<'_>::native_push_player"
+      "target": "cubeon_client::game::native_motion::Game<'_>::native_push_player"
     },
     {
       "name": "set_flying_speed",
-      "target": "horizon_client::game::native_motion::Game<'_>::native_set_flying_speed"
+      "target": "cubeon_client::game::native_motion::Game<'_>::native_set_flying_speed"
     },
     {
       "name": "net_send_to_player",
-      "target": "horizon_client::game::native_net::Game<'_>::native_net_send_to_player"
+      "target": "cubeon_client::game::native_net::Game<'_>::native_net_send_to_player"
     },
     {
       "name": "net_send_to_server",
-      "target": "horizon_client::game::native_net::Game<'_>::native_net_send_to_server"
+      "target": "cubeon_client::game::native_net::Game<'_>::native_net_send_to_server"
     },
     {
       "name": "dispense_default",
-      "target": "horizon_client::game::dispenser::Game<'_>::native_dispense_default"
+      "target": "cubeon_client::game::dispenser::Game<'_>::native_dispense_default"
     },
     {
       "name": "open_menu",
-      "target": "horizon_client::game::native_menus::Game<'_>::native_open_menu"
+      "target": "cubeon_client::game::native_menus::Game<'_>::native_open_menu"
     },
     {
       "name": "set_menu_items",
-      "target": "horizon_client::game::native_menus::Game<'_>::native_set_menu_items"
+      "target": "cubeon_client::game::native_menus::Game<'_>::native_set_menu_items"
     },
     {
       "name": "close_menu",
-      "target": "horizon_client::game::native_menus::Game<'_>::native_close_menu"
+      "target": "cubeon_client::game::native_menus::Game<'_>::native_close_menu"
     },
     {
       "name": "player_stacks",
-      "target": "horizon_client::game::native_menus::Game<'_>::native_player_stacks"
+      "target": "cubeon_client::game::native_menus::Game<'_>::native_player_stacks"
     },
     {
       "name": "exchange_items",
-      "target": "horizon_client::game::native_menus::Game<'_>::native_exchange_items"
+      "target": "cubeon_client::game::native_menus::Game<'_>::native_exchange_items"
     },
     {
       "name": "fluid_insert",
-      "target": "horizon_client::game::machines::native_fluids::Game<'_>::native_fluid_insert"
+      "target": "cubeon_client::game::machines::native_fluids::Game<'_>::native_fluid_insert"
     },
     {
       "name": "fluid_extract",
-      "target": "horizon_client::game::machines::native_fluids::Game<'_>::native_fluid_extract"
+      "target": "cubeon_client::game::machines::native_fluids::Game<'_>::native_fluid_extract"
     },
     {
       "name": "move_fluids",
-      "target": "horizon_client::game::machines::native_fluids::Game<'_>::native_move_fluids"
+      "target": "cubeon_client::game::machines::native_fluids::Game<'_>::native_move_fluids"
     },
     {
       "name": "dimension",
-      "target": "horizon_client::game::machines::native_items::Game<'_>::native_dimension"
+      "target": "cubeon_client::game::machines::native_items::Game<'_>::native_dimension"
     },
     {
       "name": "extract_item",
-      "target": "horizon_client::game::machines::native_items::Game<'_>::native_extract_item"
+      "target": "cubeon_client::game::machines::native_items::Game<'_>::native_extract_item"
     },
     {
       "name": "move_items",
-      "target": "horizon_client::game::machines::native_items::Game<'_>::native_move_items"
+      "target": "cubeon_client::game::machines::native_items::Game<'_>::native_move_items"
     },
     {
       "name": "hide_player",
-      "target": "horizon_client::game::native_server::Game<'_>::native_hide_player"
+      "target": "cubeon_client::game::native_server::Game<'_>::native_hide_player"
     },
     {
       "name": "item_stack",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_stack"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_stack"
     },
     {
       "name": "mod_image",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mod_image"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mod_image"
     },
     {
       "name": "instance_dir",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_instance_dir"
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_instance_dir"
     }
   ],
   "hooks": [
     {
       "name": "frame",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_frame",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_frame",
       "mod_api": {
         "contract": "listen"
       }
@@ -465,7 +465,7 @@
     {
       "name": "tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_tick",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_tick",
       "mod_api": {
         "contract": "listen"
       }
@@ -473,7 +473,7 @@
     {
       "name": "visuals",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_visuals",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_visuals",
       "mod_api": {
         "contract": "listen"
       }
@@ -481,7 +481,7 @@
     {
       "name": "emissive",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_emissive",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_emissive",
       "mod_api": {
         "contract": "collect",
         "out": "layers"
@@ -490,7 +490,7 @@
     {
       "name": "world_lifecycle",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_world_lifecycle",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_world_lifecycle",
       "mod_api": {
         "contract": "listen"
       }
@@ -498,7 +498,7 @@
     {
       "name": "server_about_to_start",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_server_about_to_start",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_server_about_to_start",
       "neoforge": "ServerAboutToStartEvent",
       "side": "server",
       "cancellable": false,
@@ -509,7 +509,7 @@
     {
       "name": "server_stopping",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_server_stopping",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_server_stopping",
       "neoforge": "ServerStoppingEvent",
       "side": "server",
       "cancellable": false,
@@ -520,7 +520,7 @@
     {
       "name": "server_tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_server_tick",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_server_tick",
       "mod_api": {
         "contract": "listen"
       }
@@ -528,7 +528,7 @@
     {
       "name": "level_tick_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_level_tick_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_level_tick_pre",
       "mod_api": {
         "contract": "listen"
       }
@@ -536,7 +536,7 @@
     {
       "name": "level_tick_post",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_level_tick_post",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_level_tick_post",
       "mod_api": {
         "contract": "listen"
       }
@@ -544,7 +544,7 @@
     {
       "name": "block_changed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_block_changed",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_block_changed",
       "mod_api": {
         "contract": "listen"
       }
@@ -552,7 +552,7 @@
     {
       "name": "neighbor_changed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_neighbor_changed",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_neighbor_changed",
       "mod_api": {
         "contract": "listen"
       }
@@ -560,7 +560,7 @@
     {
       "name": "random_tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_random_tick",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_random_tick",
       "mod_api": {
         "contract": "cancel",
         "out": "handled"
@@ -569,7 +569,7 @@
     {
       "name": "tick_block",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_tick_block",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_tick_block",
       "mod_api": {
         "contract": "cancel",
         "out": "handled"
@@ -578,7 +578,7 @@
     {
       "name": "update_shape",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_update_shape",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_update_shape",
       "mod_api": {
         "contract": "replace",
         "out": "new"
@@ -587,7 +587,7 @@
     {
       "name": "hud",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_hud",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_hud",
       "mod_api": {
         "contract": "listen"
       }
@@ -595,7 +595,7 @@
     {
       "name": "key",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_key",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_key",
       "mod_api": {
         "contract": "listen"
       }
@@ -603,7 +603,7 @@
     {
       "name": "wheel",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_wheel",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_wheel",
       "mod_api": {
         "contract": "cancel",
         "out": "claimed"
@@ -612,7 +612,7 @@
     {
       "name": "command",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_command",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_command",
       "mod_api": {
         "contract": "cancel",
         "out": "ran"
@@ -621,7 +621,7 @@
     {
       "name": "commands",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_commands",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_commands",
       "mod_api": {
         "contract": "collect",
         "out": "commands"
@@ -630,7 +630,7 @@
     {
       "name": "zoom",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_zoom",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_zoom",
       "mod_api": {
         "contract": "replace",
         "out": "zoom"
@@ -639,7 +639,7 @@
     {
       "name": "minimap",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_minimap",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_minimap",
       "mod_api": {
         "contract": "replace",
         "out": "minimap"
@@ -648,7 +648,7 @@
     {
       "name": "mods",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mods",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mods",
       "mod_api": {
         "contract": "collect",
         "out": "mods"
@@ -657,7 +657,7 @@
     {
       "name": "settings",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_settings",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_settings",
       "mod_api": {
         "contract": "collect",
         "out": "buttons"
@@ -666,7 +666,7 @@
     {
       "name": "settings_click",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_settings_click",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_settings_click",
       "mod_api": {
         "contract": "listen"
       }
@@ -674,7 +674,7 @@
     {
       "name": "panel_event",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_panel_event",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_panel_event",
       "mod_api": {
         "contract": "listen"
       }
@@ -682,7 +682,7 @@
     {
       "name": "block_entity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity",
       "mod_api": {
         "contract": "replace",
         "out": "entity"
@@ -691,7 +691,7 @@
     {
       "name": "block_entity_ticks",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_ticks",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_ticks",
       "mod_api": {
         "contract": "listen"
       }
@@ -699,7 +699,7 @@
     {
       "name": "block_entity_tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_tick",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_tick",
       "mod_api": {
         "contract": "listen"
       }
@@ -707,7 +707,7 @@
     {
       "name": "block_entity_update_tag",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_update_tag",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_update_tag",
       "mod_api": {
         "contract": "replace",
         "out": "tag"
@@ -716,7 +716,7 @@
     {
       "name": "block_entity_container",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_container",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_container",
       "mod_api": {
         "contract": "replace",
         "out": "container"
@@ -725,7 +725,7 @@
     {
       "name": "screen",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen",
       "mod_api": {
         "contract": "replace",
         "out": "screen"
@@ -734,7 +734,7 @@
     {
       "name": "screen_draw",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_draw",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_draw",
       "mod_api": {
         "contract": "listen"
       }
@@ -742,7 +742,7 @@
     {
       "name": "screen_click",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_click",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_click",
       "mod_api": {
         "contract": "replace",
         "out": "button"
@@ -751,7 +751,7 @@
     {
       "name": "screen_tooltip",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_tooltip",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_tooltip",
       "mod_api": {
         "contract": "collect",
         "out": "lines"
@@ -760,7 +760,7 @@
     {
       "name": "menu_button",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_menu_button",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_menu_button",
       "mod_api": {
         "contract": "listen"
       }
@@ -768,7 +768,7 @@
     {
       "name": "register_commands",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_register_commands",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_register_commands",
       "mod_api": {
         "contract": "collect",
         "out": "commands"
@@ -777,7 +777,7 @@
     {
       "name": "perform_command",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_perform_command",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_perform_command",
       "mod_api": {
         "contract": "cancel",
         "out": "ran"
@@ -786,7 +786,7 @@
     {
       "name": "menu_clicked",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_menu_clicked",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_menu_clicked",
       "mod_api": {
         "contract": "listen"
       }
@@ -794,7 +794,7 @@
     {
       "name": "menu_closed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_menu_closed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_menu_closed",
       "mod_api": {
         "contract": "listen"
       }
@@ -802,7 +802,7 @@
     {
       "name": "tooltip",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_tooltip",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_tooltip",
       "mod_api": {
         "contract": "collect",
         "out": "lines"
@@ -811,7 +811,7 @@
     {
       "name": "use_item_on",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_use_item_on",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_use_item_on",
       "mod_api": {
         "contract": "cancel",
         "out": "claimed"
@@ -820,7 +820,7 @@
     {
       "name": "use_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_use_item",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_use_item",
       "mod_api": {
         "contract": "cancel",
         "out": "claimed"
@@ -829,7 +829,7 @@
     {
       "name": "destroy_block",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_destroy_block",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_destroy_block",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -838,7 +838,7 @@
     {
       "name": "place_block",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_place_block",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_place_block",
       "mod_api": {
         "contract": "listen"
       }
@@ -846,7 +846,7 @@
     {
       "name": "right_click_block",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_right_click_block",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_right_click_block",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -855,7 +855,7 @@
     {
       "name": "block_spread",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_block_spread",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_block_spread",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -864,7 +864,7 @@
     {
       "name": "piston_move",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_piston_move",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_piston_move",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -873,7 +873,7 @@
     {
       "name": "explosion_detonate",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_explosion_detonate",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_explosion_detonate",
       "mod_api": {
         "contract": "collect",
         "out": "blocks"
@@ -882,7 +882,7 @@
     {
       "name": "fill_bucket",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_fill_bucket",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_fill_bucket",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -891,7 +891,7 @@
     {
       "name": "attack_entity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_attack_entity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_attack_entity",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -900,7 +900,7 @@
     {
       "name": "net_from_client",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_net_from_client",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_net_from_client",
       "mod_api": {
         "contract": "listen"
       }
@@ -908,7 +908,7 @@
     {
       "name": "net_from_server",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_net_from_server",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_net_from_server",
       "mod_api": {
         "contract": "listen"
       }
@@ -916,7 +916,7 @@
     {
       "name": "player_died",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_died",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_died",
       "mod_api": {
         "contract": "listen"
       }
@@ -924,7 +924,7 @@
     {
       "name": "mob_spawned",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mob_spawned",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mob_spawned",
       "mod_api": {
         "contract": "listen"
       }
@@ -932,7 +932,7 @@
     {
       "name": "mob_killed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mob_killed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mob_killed",
       "mod_api": {
         "contract": "listen"
       }
@@ -940,7 +940,7 @@
     {
       "name": "item_dropped",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_dropped",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_dropped",
       "mod_api": {
         "contract": "listen"
       }
@@ -948,7 +948,7 @@
     {
       "name": "item_picked_up",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_picked_up",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_picked_up",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -957,7 +957,7 @@
     {
       "name": "hurt_enemy",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_hurt_enemy",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_hurt_enemy",
       "mod_api": {
         "contract": "listen"
       }
@@ -965,7 +965,7 @@
     {
       "name": "inventory_tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_inventory_tick",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_inventory_tick",
       "mod_api": {
         "contract": "listen"
       }
@@ -973,7 +973,7 @@
     {
       "name": "on_equip",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_on_equip",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_on_equip",
       "mod_api": {
         "contract": "listen"
       }
@@ -981,7 +981,7 @@
     {
       "name": "block_signal",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_block_signal",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_block_signal",
       "mod_api": {
         "contract": "listen"
       }
@@ -989,7 +989,7 @@
     {
       "name": "is_signal_source",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_is_signal_source",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_is_signal_source",
       "mod_api": {
         "contract": "listen"
       }
@@ -997,7 +997,7 @@
     {
       "name": "health_hud",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_health_hud",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_health_hud",
       "mod_api": {
         "contract": "replace",
         "out": "draws"
@@ -1006,7 +1006,7 @@
     {
       "name": "interact_entity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_interact_entity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_interact_entity",
       "mod_api": {
         "contract": "cancel",
         "out": "claimed"
@@ -1015,7 +1015,7 @@
     {
       "name": "left_click_block",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_left_click_block",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_left_click_block",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -1024,7 +1024,7 @@
     {
       "name": "player_tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_tick",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_tick",
       "mod_api": {
         "contract": "listen"
       }
@@ -1032,7 +1032,7 @@
     {
       "name": "entity_join_level",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_join_level",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_join_level",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -1041,7 +1041,7 @@
     {
       "name": "living_incoming_damage",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_incoming_damage",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_incoming_damage",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -1050,7 +1050,7 @@
     {
       "name": "menu_button_v2",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_menu_button_v2",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_menu_button_v2",
       "mod_api": {
         "contract": "listen"
       }
@@ -1058,7 +1058,7 @@
     {
       "name": "entity_leave_level",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_leave_level",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_leave_level",
       "mod_api": {
         "contract": "listen"
       }
@@ -1066,7 +1066,7 @@
     {
       "name": "block_entity_fluids",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_fluids",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_fluids",
       "mod_api": {
         "contract": "replace",
         "out": "fluids"
@@ -1075,7 +1075,7 @@
     {
       "name": "should_apply_effect_tick_this_tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_should_apply_effect_tick_this_tick",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_should_apply_effect_tick_this_tick",
       "mod_api": {
         "contract": "listen"
       }
@@ -1083,7 +1083,7 @@
     {
       "name": "apply_effect_tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_apply_effect_tick",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_apply_effect_tick",
       "mod_api": {
         "contract": "listen"
       }
@@ -1091,7 +1091,7 @@
     {
       "name": "on_effect_added",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_on_effect_added",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_on_effect_added",
       "mod_api": {
         "contract": "listen"
       }
@@ -1099,7 +1099,7 @@
     {
       "name": "mob_effect_added",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mob_effect_added",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mob_effect_added",
       "mod_api": {
         "contract": "listen"
       }
@@ -1107,7 +1107,7 @@
     {
       "name": "chunk_load",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_chunk_load",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_chunk_load",
       "mod_api": {
         "contract": "listen"
       }
@@ -1115,7 +1115,7 @@
     {
       "name": "chunk_unload",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_chunk_unload",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_chunk_unload",
       "mod_api": {
         "contract": "listen"
       }
@@ -1123,7 +1123,7 @@
     {
       "name": "player_logged_in",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_logged_in",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_logged_in",
       "mod_api": {
         "contract": "listen"
       }
@@ -1131,7 +1131,7 @@
     {
       "name": "player_logged_out",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_logged_out",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_logged_out",
       "mod_api": {
         "contract": "listen"
       }
@@ -1139,7 +1139,7 @@
     {
       "name": "world_drawn",
       "version": 1,
-      "target": "horizon_client_render::gfx::native_render::native_world_drawn",
+      "target": "cubeon_client_render::gfx::native_render::native_world_drawn",
       "mod_api": {
         "contract": "listen"
       }
@@ -1147,7 +1147,7 @@
     {
       "name": "render_needs",
       "version": 1,
-      "target": "horizon_client_render::gfx::native_render::native_render_needs",
+      "target": "cubeon_client_render::gfx::native_render::native_render_needs",
       "mod_api": {
         "contract": "collect",
         "out": "needs"
@@ -1156,7 +1156,7 @@
     {
       "name": "item_bar",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_bar",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_bar",
       "mod_api": {
         "contract": "listen"
       }
@@ -1164,7 +1164,7 @@
     {
       "name": "has_analog_output",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_has_analog_output",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_has_analog_output",
       "mod_api": {
         "contract": "collect",
         "out": "output"
@@ -1173,7 +1173,7 @@
     {
       "name": "analog_output",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_analog_output",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_analog_output",
       "mod_api": {
         "contract": "collect",
         "out": "output"
@@ -1182,7 +1182,7 @@
     {
       "name": "component_types",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_component_types",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_component_types",
       "mod_api": {
         "contract": "collect",
         "out": "types"
@@ -1191,7 +1191,7 @@
     {
       "name": "dispense_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_dispense_item",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_dispense_item",
       "side": "server",
       "mod_api": {
         "contract": "replace",
@@ -1201,7 +1201,7 @@
     {
       "name": "tooltip_component",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_tooltip_component",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_tooltip_component",
       "side": "client",
       "mod_api": {
         "contract": "replace",
@@ -1211,7 +1211,7 @@
     {
       "name": "tooltip_component_draw",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_tooltip_component_draw",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_tooltip_component_draw",
       "side": "client",
       "mod_api": {
         "contract": "listen"
@@ -1220,7 +1220,7 @@
     {
       "name": "can_survive",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_can_survive",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_can_survive",
       "mod_api": {
         "contract": "replace",
         "out": "survives"
@@ -1229,7 +1229,7 @@
     {
       "name": "may_place_on",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_may_place_on",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_may_place_on",
       "mod_api": {
         "contract": "replace",
         "out": "may"
@@ -1238,7 +1238,7 @@
     {
       "name": "block_entity_submit",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_submit",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_submit",
       "mod_api": {
         "contract": "listen"
       }
@@ -1246,7 +1246,7 @@
     {
       "name": "block_entity_render_bounding_box",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_render_bounding_box",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_render_bounding_box",
       "mod_api": {
         "contract": "collect",
         "out": "bounds"
@@ -1255,7 +1255,7 @@
     {
       "name": "is_valid_bonemeal_target",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_is_valid_bonemeal_target",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_is_valid_bonemeal_target",
       "mod_api": {
         "contract": "replace",
         "out": "valid"
@@ -1264,7 +1264,7 @@
     {
       "name": "is_bonemeal_success",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_is_bonemeal_success",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_is_bonemeal_success",
       "mod_api": {
         "contract": "collect",
         "out": "success"
@@ -1273,7 +1273,7 @@
     {
       "name": "perform_bonemeal",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_perform_bonemeal",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_perform_bonemeal",
       "mod_api": {
         "contract": "listen"
       }
@@ -1281,7 +1281,7 @@
     {
       "name": "block_step_on",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_step_on",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_step_on",
       "side": "server",
       "mod_api": {
         "contract": "listen"
@@ -1290,7 +1290,7 @@
     {
       "name": "block_entity_inside",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_inside",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_inside",
       "side": "server",
       "mod_api": {
         "contract": "listen"
@@ -1299,7 +1299,7 @@
     {
       "name": "block_fall_on",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_fall_on",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_fall_on",
       "side": "server",
       "mod_api": {
         "contract": "collect",
@@ -1309,7 +1309,7 @@
     {
       "name": "consume_effect",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_consume_effect",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_consume_effect",
       "mod_api": {
         "contract": "listen"
       }
@@ -1317,7 +1317,7 @@
     {
       "name": "loot_table_load",
       "version": 1,
-      "target": "horizon_world::loot::native_loot_table_load",
+      "target": "cubeon_world::loot::native_loot_table_load",
       "mod_api": {
         "contract": "collect",
         "out": "table"
@@ -1326,7 +1326,7 @@
     {
       "name": "loot_drops",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_loot_drops",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_loot_drops",
       "mod_api": {
         "contract": "collect",
         "out": "drops"
@@ -1335,7 +1335,7 @@
     {
       "name": "state_for_placement",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_state_for_placement",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_state_for_placement",
       "mod_api": {
         "contract": "replace",
         "out": "answer"
@@ -1344,7 +1344,7 @@
     {
       "name": "enchant_effect",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_enchant_effect",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_enchant_effect",
       "mod_api": {
         "contract": "listen"
       }
@@ -1352,7 +1352,7 @@
     {
       "name": "screen_render_post",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_render_post",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_render_post",
       "mod_api": {
         "contract": "listen"
       }
@@ -1360,7 +1360,7 @@
     {
       "name": "modify_default_components",
       "version": 1,
-      "target": "horizon_world::item_defaults::native_modify_default_components",
+      "target": "cubeon_world::item_defaults::native_modify_default_components",
       "mod_api": {
         "contract": "collect",
         "out": "components"
@@ -1369,7 +1369,7 @@
     {
       "name": "screen_mouse_button_pressed_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_mouse_button_pressed_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_mouse_button_pressed_pre",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -1378,7 +1378,7 @@
     {
       "name": "screen_mouse_button_released_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_mouse_button_released_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_mouse_button_released_pre",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -1387,7 +1387,7 @@
     {
       "name": "camera_shake",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_camera_shake",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_camera_shake",
       "mod_api": {
         "contract": "listen"
       }
@@ -1395,7 +1395,7 @@
     {
       "name": "shader_params",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_shader_params",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_shader_params",
       "mod_api": {
         "contract": "listen"
       }
@@ -1403,7 +1403,7 @@
     {
       "name": "block_highlight",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_highlight",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_highlight",
       "side": "client",
       "cancellable": true,
       "mod_api": {
@@ -1414,7 +1414,7 @@
     {
       "name": "render_hand",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_render_hand",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_render_hand",
       "neoforge": "RenderHandEvent",
       "side": "client",
       "cancellable": true,
@@ -1426,7 +1426,7 @@
     {
       "name": "client_resources_reloaded",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_client_resources_reloaded",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_client_resources_reloaded",
       "side": "client",
       "mod_api": {
         "contract": "listen"
@@ -1435,7 +1435,7 @@
     {
       "name": "item_decorations",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_decorations",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_decorations",
       "neoforge": "RegisterItemDecorationsEvent",
       "side": "client",
       "mod_api": {
@@ -1445,7 +1445,7 @@
     {
       "name": "use_duration",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_use_duration",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_use_duration",
       "mod_api": {
         "contract": "listen"
       }
@@ -1453,7 +1453,7 @@
     {
       "name": "use_animation",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_use_animation",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_use_animation",
       "side": "client",
       "mod_api": {
         "contract": "listen"
@@ -1462,7 +1462,7 @@
     {
       "name": "can_eat",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_can_eat",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_can_eat",
       "mod_api": {
         "contract": "listen"
       }
@@ -1470,7 +1470,7 @@
     {
       "name": "living_entity_use_item_start",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_entity_use_item_start",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_entity_use_item_start",
       "neoforge": "LivingEntityUseItemEvent.Start",
       "cancellable": true,
       "mod_api": {
@@ -1481,7 +1481,7 @@
     {
       "name": "living_entity_use_item_finish",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_entity_use_item_finish",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_entity_use_item_finish",
       "neoforge": "LivingEntityUseItemEvent.Finish",
       "side": "server",
       "mod_api": {
@@ -1491,7 +1491,7 @@
     {
       "name": "screen_mouse_scrolled_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_mouse_scrolled_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_mouse_scrolled_pre",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -1500,7 +1500,7 @@
     {
       "name": "player_command",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_command",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_command",
       "neoforge": "CommandEvent",
       "side": "server",
       "cancellable": true,
@@ -1512,7 +1512,7 @@
     {
       "name": "perform_console_command",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_perform_console_command",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_perform_console_command",
       "mod_api": {
         "contract": "cancel",
         "out": "ran"
@@ -1521,7 +1521,7 @@
     {
       "name": "screen_key_pressed_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_key_pressed_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_key_pressed_pre",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -1530,7 +1530,7 @@
     {
       "name": "screen_char_typed_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_char_typed_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_char_typed_pre",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -1539,7 +1539,7 @@
     {
       "name": "data_pack_files",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_data_pack_files",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_data_pack_files",
       "mod_api": {
         "contract": "collect",
         "out": "files"
@@ -1548,7 +1548,7 @@
     {
       "name": "biome_colors",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_biome_colors",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_biome_colors",
       "side": "client",
       "mod_api": {
         "contract": "listen"
@@ -1557,7 +1557,7 @@
     {
       "name": "server_data_loaded",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_server_data_loaded",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_server_data_loaded",
       "mod_api": {
         "contract": "listen"
       }
@@ -1565,7 +1565,7 @@
     {
       "name": "compute_fov",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_compute_fov",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_compute_fov",
       "neoforge": "ViewportEvent.ComputeFov",
       "side": "client",
       "mod_api": {
@@ -1575,7 +1575,7 @@
     {
       "name": "mob_submit",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mob_submit",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mob_submit",
       "neoforge": "RenderLivingEvent.Pre",
       "side": "client",
       "cancellable": true,
@@ -1587,7 +1587,7 @@
     {
       "name": "camera_distance",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_camera_distance",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_camera_distance",
       "neoforge": "CalculateDetachedCameraDistanceEvent",
       "side": "client",
       "mod_api": {
@@ -1597,7 +1597,7 @@
     {
       "name": "compute_fog_color",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_compute_fog_color",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_compute_fog_color",
       "neoforge": "ViewportEvent.ComputeFogColor",
       "side": "client",
       "mod_api": {
@@ -1607,7 +1607,7 @@
     {
       "name": "mouse_button_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mouse_button_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mouse_button_pre",
       "neoforge": "InputEvent.MouseButton.Pre",
       "side": "client",
       "cancellable": true,
@@ -1619,7 +1619,7 @@
     {
       "name": "mouse_button_post",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mouse_button_post",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mouse_button_post",
       "neoforge": "InputEvent.MouseButton.Post",
       "side": "client",
       "mod_api": {
@@ -1629,7 +1629,7 @@
     {
       "name": "player_respawned",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_respawned",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_respawned",
       "neoforge": "PlayerEvent.PlayerRespawnEvent",
       "side": "server",
       "mod_api": {
@@ -1639,7 +1639,7 @@
     {
       "name": "render_fog",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_render_fog",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_render_fog",
       "neoforge": "ViewportEvent.RenderFog",
       "side": "client",
       "mod_api": {
@@ -1649,7 +1649,7 @@
     {
       "name": "screen_key_released_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_key_released_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_key_released_pre",
       "neoforge": "ScreenEvent.KeyReleased.Pre",
       "side": "client",
       "cancellable": true,
@@ -1661,7 +1661,7 @@
     {
       "name": "music",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_music",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_music",
       "neoforge": "SelectMusicEvent",
       "side": "client",
       "mod_api": {
@@ -1671,7 +1671,7 @@
     {
       "name": "music_layers",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_music_layers",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_music_layers",
       "side": "client",
       "mod_api": {
         "contract": "collect",
@@ -1681,7 +1681,7 @@
     {
       "name": "datapack_sync",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_datapack_sync",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_datapack_sync",
       "neoforge": "OnDatapackSyncEvent",
       "side": "server",
       "mod_api": {
@@ -1692,7 +1692,7 @@
     {
       "name": "recipes_received",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipes_received",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_recipes_received",
       "neoforge": "RecipesReceivedEvent",
       "side": "client",
       "mod_api": {
@@ -1702,7 +1702,7 @@
     {
       "name": "input_key",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_input_key",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_input_key",
       "neoforge": "InputEvent.Key",
       "side": "client",
       "mod_api": {
@@ -1712,7 +1712,7 @@
     {
       "name": "mouse_scrolling",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mouse_scrolling",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mouse_scrolling",
       "neoforge": "InputEvent.MouseScrollingEvent",
       "side": "client",
       "cancellable": true,
@@ -1724,7 +1724,7 @@
     {
       "name": "screen_mouse_dragged_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_mouse_dragged_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_screen_mouse_dragged_pre",
       "neoforge": "ScreenEvent.MouseDragged.Pre",
       "side": "client",
       "cancellable": true,
@@ -1736,7 +1736,7 @@
     {
       "name": "mod_container_viewers",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mod_container_viewers",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mod_container_viewers",
       "side": "server",
       "mod_api": {
         "contract": "listen"
@@ -1745,7 +1745,7 @@
     {
       "name": "living_knockback",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_knockback",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_knockback",
       "mod_api": {
         "contract": "cancel",
         "out": "canceled"
@@ -1754,7 +1754,7 @@
     {
       "name": "experience_orb_can_merge",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_experience_orb_can_merge",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_experience_orb_can_merge",
       "side": "server",
       "mod_api": {
         "contract": "listen"
@@ -1763,7 +1763,7 @@
     {
       "name": "experience_orb_merge",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_experience_orb_merge",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_experience_orb_merge",
       "side": "server",
       "cancellable": true,
       "mod_api": {
@@ -1774,7 +1774,7 @@
     {
       "name": "menu_slot_rules",
       "version": 1,
-      "target": "horizon_client_lib::menu::native_menu_slot_rules",
+      "target": "cubeon_client_lib::menu::native_menu_slot_rules",
       "side": "server",
       "cancellable": false,
       "mod_api": {
@@ -1784,7 +1784,7 @@
     {
       "name": "living_entity_use_item_tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_entity_use_item_tick",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_entity_use_item_tick",
       "neoforge": "LivingEntityUseItemEvent.Tick",
       "cancellable": true,
       "mod_api": {
@@ -1795,7 +1795,7 @@
     {
       "name": "on_use_tick",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_on_use_tick",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_on_use_tick",
       "mod_api": {
         "contract": "listen"
       }
@@ -1803,7 +1803,7 @@
     {
       "name": "living_entity_use_item_stop",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_entity_use_item_stop",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_entity_use_item_stop",
       "neoforge": "LivingEntityUseItemEvent.Stop",
       "cancellable": true,
       "mod_api": {
@@ -1814,7 +1814,7 @@
     {
       "name": "release_using",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_release_using",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_release_using",
       "mod_api": {
         "contract": "listen"
       }
@@ -1822,7 +1822,7 @@
     {
       "name": "loot_function",
       "version": 1,
-      "target": "horizon_world::loot::native_loot_function",
+      "target": "cubeon_world::loot::native_loot_function",
       "mod_api": {
         "contract": "collect",
         "out": "stack"
@@ -1831,7 +1831,7 @@
     {
       "name": "loot_condition",
       "version": 1,
-      "target": "horizon_world::loot::native_loot_condition",
+      "target": "cubeon_world::loot::native_loot_condition",
       "mod_api": {
         "contract": "collect",
         "out": "holds"
@@ -1840,7 +1840,7 @@
     {
       "name": "level_load",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_level_load",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_level_load",
       "neoforge": "LevelEvent.Load",
       "side": "server",
       "cancellable": false,
@@ -1851,7 +1851,7 @@
     {
       "name": "level_unload",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_level_unload",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_level_unload",
       "neoforge": "LevelEvent.Unload",
       "side": "server",
       "cancellable": false,
@@ -1862,7 +1862,7 @@
     {
       "name": "client_level_load",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_client_level_load",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_client_level_load",
       "neoforge": "LevelEvent.Load",
       "side": "client",
       "cancellable": false,
@@ -1873,7 +1873,7 @@
     {
       "name": "client_level_unload",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_client_level_unload",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_client_level_unload",
       "neoforge": "LevelEvent.Unload",
       "side": "client",
       "cancellable": false,
@@ -1884,7 +1884,7 @@
     {
       "name": "hears_projectile_impacts",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_hears_projectile_impacts",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_hears_projectile_impacts",
       "side": "server",
       "mod_api": {
         "contract": "collect",
@@ -1894,7 +1894,7 @@
     {
       "name": "projectile_impact",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_projectile_impact",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_projectile_impact",
       "neoforge": "ProjectileImpactEvent",
       "side": "server",
       "cancellable": true,
@@ -1906,7 +1906,7 @@
     {
       "name": "entity_mount",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_mount",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_mount",
       "neoforge": "EntityMountEvent",
       "side": "server",
       "cancellable": true,
@@ -1918,7 +1918,7 @@
     {
       "name": "interaction_key",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_interaction_key",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_interaction_key",
       "neoforge": "InputEvent.InteractionKeyMappingTriggered",
       "side": "client",
       "cancellable": true,
@@ -1930,7 +1930,7 @@
     {
       "name": "gui_layer_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_gui_layer_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_gui_layer_pre",
       "neoforge": "RenderGuiLayerEvent.Pre",
       "side": "client",
       "cancellable": true,
@@ -1942,7 +1942,7 @@
     {
       "name": "gui_layer_post",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_gui_layer_post",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_gui_layer_post",
       "neoforge": "RenderGuiLayerEvent.Post",
       "side": "client",
       "cancellable": false,
@@ -1953,7 +1953,7 @@
     {
       "name": "map_decorations",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_map_decorations",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_map_decorations",
       "neoforge": "MapDecorationType",
       "side": "client",
       "cancellable": false,
@@ -1965,7 +1965,7 @@
     {
       "name": "player_start_tracking",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_start_tracking",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_start_tracking",
       "neoforge": "PlayerEvent.StartTracking",
       "side": "server",
       "cancellable": false,
@@ -1976,7 +1976,7 @@
     {
       "name": "player_stop_tracking",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_stop_tracking",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_stop_tracking",
       "neoforge": "PlayerEvent.StopTracking",
       "side": "server",
       "cancellable": false,
@@ -1987,7 +1987,7 @@
     {
       "name": "block_entity_energy",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_energy",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_entity_energy",
       "neoforge": "Capabilities.Energy.BLOCK",
       "side": "server",
       "mod_api": {
@@ -1998,7 +1998,7 @@
     {
       "name": "data_map_types",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_data_map_types",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_data_map_types",
       "neoforge": "RegisterDataMapTypesEvent",
       "side": "server",
       "mod_api": {
@@ -2009,7 +2009,7 @@
     {
       "name": "living_breathe",
       "version": 1,
-      "target": "horizon_client_lib::breathing::native_living_breathe",
+      "target": "cubeon_client_lib::breathing::native_living_breathe",
       "neoforge": "LivingBreatheEvent",
       "side": "server",
       "cancellable": false,
@@ -2020,7 +2020,7 @@
     {
       "name": "blocks",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_blocks",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_blocks",
       "neoforge": "RegisterEvent",
       "mod_api": {
         "contract": "collect",
@@ -2030,7 +2030,7 @@
     {
       "name": "items",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_items",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_items",
       "neoforge": "RegisterEvent",
       "mod_api": {
         "contract": "collect",
@@ -2040,7 +2040,7 @@
     {
       "name": "entity_tick_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_tick_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_tick_pre",
       "neoforge": "EntityTickEvent.Pre",
       "side": "server",
       "cancellable": true,
@@ -2052,7 +2052,7 @@
     {
       "name": "entity_tick_post",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_tick_post",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_tick_post",
       "neoforge": "EntityTickEvent.Post",
       "side": "server",
       "cancellable": false,
@@ -2063,7 +2063,7 @@
     {
       "name": "entity_tick_listened",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_tick_listened",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_tick_listened",
       "side": "server",
       "cancellable": false,
       "mod_api": {
@@ -2074,7 +2074,7 @@
     {
       "name": "item_fluid_tank",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_fluid_tank",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_fluid_tank",
       "neoforge": "Capabilities.FluidHandler.ITEM",
       "mod_api": {
         "contract": "replace",
@@ -2084,7 +2084,7 @@
     {
       "name": "living_equipment_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_equipment_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_equipment_change",
       "neoforge": "LivingEquipmentChangeEvent",
       "side": "server",
       "cancellable": false,
@@ -2095,7 +2095,7 @@
     {
       "name": "living_equipment_listened",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_equipment_listened",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_living_equipment_listened",
       "side": "server",
       "cancellable": false,
       "mod_api": {
@@ -2106,7 +2106,7 @@
     {
       "name": "player_submit",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_submit",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_submit",
       "neoforge": "RenderPlayerEvent.Pre",
       "side": "client",
       "cancellable": true,
@@ -2118,7 +2118,7 @@
     {
       "name": "mob_layer",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mob_layer",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mob_layer",
       "neoforge": "EntityRenderersEvent.AddLayers",
       "side": "client",
       "cancellable": false,
@@ -2129,7 +2129,7 @@
     {
       "name": "player_render_listened",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_render_listened",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_render_listened",
       "side": "client",
       "cancellable": false,
       "mod_api": {
@@ -2140,7 +2140,7 @@
     {
       "name": "sign_changed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_sign_changed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_sign_changed",
       "neoforge": "none (NeoForge has no sign-editing event)",
       "side": "server",
       "cancellable": true,
@@ -2152,7 +2152,7 @@
     {
       "name": "standalone_models",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_standalone_models",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_standalone_models",
       "neoforge": "ModelEvent.RegisterStandalone",
       "side": "client",
       "mod_api": {
@@ -2163,7 +2163,7 @@
     {
       "name": "player_container_open",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_container_open",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_container_open",
       "neoforge": "PlayerContainerEvent.Open",
       "side": "server",
       "cancellable": false,
@@ -2174,7 +2174,7 @@
     {
       "name": "player_container_close",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_container_close",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_container_close",
       "neoforge": "PlayerContainerEvent.Close",
       "side": "server",
       "cancellable": false,
@@ -2185,7 +2185,7 @@
     {
       "name": "player_toggle_flight",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_toggle_flight",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_toggle_flight",
       "neoforge": "none (NeoForge has no flight toggle event; Bukkit's PlayerToggleFlightEvent)",
       "side": "server",
       "cancellable": true,
@@ -2197,7 +2197,7 @@
     {
       "name": "anvil_damaged",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_anvil_damaged",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_anvil_damaged",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2207,7 +2207,7 @@
     {
       "name": "arrow_loose",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_arrow_loose",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_arrow_loose",
       "neoforge": "ArrowLooseEvent",
       "side": "server",
       "cancellable": true,
@@ -2219,7 +2219,7 @@
     {
       "name": "beacon_state_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_beacon_state_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_beacon_state_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2229,7 +2229,7 @@
     {
       "name": "bell_ring",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_bell_ring",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_bell_ring",
       "neoforge": "none (NeoForge has no such event; Bukkit's BellRingEvent)",
       "side": "server",
       "cancellable": true,
@@ -2241,7 +2241,7 @@
     {
       "name": "block_break_progress_update",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_break_progress_update",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_break_progress_update",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2251,7 +2251,7 @@
     {
       "name": "block_burn",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_block_burn",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_block_burn",
       "neoforge": "none (NeoForge has no such event; Bukkit's BlockBurnEvent)",
       "side": "server",
       "cancellable": true,
@@ -2263,7 +2263,7 @@
     {
       "name": "block_cook",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_cook",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_cook",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2273,7 +2273,7 @@
     {
       "name": "block_damage_abort",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_damage_abort",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_damage_abort",
       "neoforge": "none (NeoForge has no such event; Bukkit's BlockDamageAbortEvent)",
       "side": "server",
       "mod_api": {
@@ -2283,7 +2283,7 @@
     {
       "name": "block_dispense_armor",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_dispense_armor",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_dispense_armor",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2293,7 +2293,7 @@
     {
       "name": "block_exp",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_block_exp",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_block_exp",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2303,7 +2303,7 @@
     {
       "name": "block_fade",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_block_fade",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_block_fade",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -2315,7 +2315,7 @@
     {
       "name": "block_failed_dispense",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_failed_dispense",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_failed_dispense",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2325,7 +2325,7 @@
     {
       "name": "block_form",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_block_form",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_block_form",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -2337,7 +2337,7 @@
     {
       "name": "block_ignite",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_block_ignite",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_block_ignite",
       "neoforge": "none (NeoForge has no such event; Bukkit's BlockIgniteEvent)",
       "side": "server",
       "cancellable": true,
@@ -2349,7 +2349,7 @@
     {
       "name": "block_lock_check",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_lock_check",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_lock_check",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2360,7 +2360,7 @@
     {
       "name": "block_receive_game",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_receive_game",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_receive_game",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -2372,7 +2372,7 @@
     {
       "name": "block_shear_entity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_shear_entity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_block_shear_entity",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2382,7 +2382,7 @@
     {
       "name": "brewing_complete",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_brewing_complete",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_brewing_complete",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2392,7 +2392,7 @@
     {
       "name": "brewing_fuel",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_brewing_fuel",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_brewing_fuel",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2402,7 +2402,7 @@
     {
       "name": "brewing_start",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_brewing_start",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_brewing_start",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2412,7 +2412,7 @@
     {
       "name": "broadcast_message",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_broadcast_message",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_broadcast_message",
       "neoforge": "none (NeoForge has no such event; Bukkit's BroadcastMessageEvent)",
       "side": "server",
       "cancellable": true,
@@ -2424,7 +2424,7 @@
     {
       "name": "campfire_start",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_campfire_start",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_campfire_start",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2434,7 +2434,7 @@
     {
       "name": "cauldron_level_changed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_cauldron_level_changed",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_cauldron_level_changed",
       "neoforge": "none (NeoForge has no such event; Bukkit's CauldronLevelChangeEvent)",
       "side": "server",
       "cancellable": true,
@@ -2446,7 +2446,7 @@
     {
       "name": "chorus_fruit_teleport",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_chorus_fruit_teleport",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_chorus_fruit_teleport",
       "neoforge": "EntityTeleportEvent.ChorusFruit",
       "side": "server",
       "cancellable": true,
@@ -2458,7 +2458,7 @@
     {
       "name": "compost_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_compost_item",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_compost_item",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2468,7 +2468,7 @@
     {
       "name": "crafter_craft",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_crafter_craft",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_crafter_craft",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2478,7 +2478,7 @@
     {
       "name": "creeper_ignite",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_creeper_ignite",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_creeper_ignite",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2488,7 +2488,7 @@
     {
       "name": "creeper_power",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_creeper_power",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_creeper_power",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2498,7 +2498,7 @@
     {
       "name": "critical_hit",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_critical_hit",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_critical_hit",
       "neoforge": "CriticalHitEvent",
       "side": "both",
       "cancellable": false,
@@ -2509,7 +2509,7 @@
     {
       "name": "difficulty_changed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_difficulty_changed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_difficulty_changed",
       "neoforge": "DifficultyChangeEvent",
       "side": "server",
       "mod_api": {
@@ -2519,7 +2519,7 @@
     {
       "name": "dragon_egg_form",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_dragon_egg_form",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_dragon_egg_form",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -2531,7 +2531,7 @@
     {
       "name": "enchant_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_enchant_item",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_enchant_item",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2541,7 +2541,7 @@
     {
       "name": "ender_pearl_teleport",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_ender_pearl_teleport",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_ender_pearl_teleport",
       "neoforge": "EntityTeleportEvent.EnderPearl",
       "side": "server",
       "cancellable": true,
@@ -2553,7 +2553,7 @@
     {
       "name": "entities_load",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entities_load",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entities_load",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2563,7 +2563,7 @@
     {
       "name": "entities_unload",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entities_unload",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entities_unload",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2573,7 +2573,7 @@
     {
       "name": "entity_break_door",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_break_door",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_break_door",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2583,7 +2583,7 @@
     {
       "name": "entity_breed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_breed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_breed",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2593,7 +2593,7 @@
     {
       "name": "entity_change_block",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_change_block",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_change_block",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2603,7 +2603,7 @@
     {
       "name": "entity_drop_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_drop_item",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_drop_item",
       "neoforge": "none (NeoForge has no such event; Bukkit's EntityDropItemEvent)",
       "side": "server",
       "mod_api": {
@@ -2613,7 +2613,7 @@
     {
       "name": "entity_enter_block",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_enter_block",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_enter_block",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2623,7 +2623,7 @@
     {
       "name": "entity_enter_love_mode",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_enter_love_mode",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_enter_love_mode",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2633,7 +2633,7 @@
     {
       "name": "entity_portal",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_portal",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_portal",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2643,7 +2643,7 @@
     {
       "name": "entity_pose_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_pose_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_pose_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2653,7 +2653,7 @@
     {
       "name": "entity_shoot_bow",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_shoot_bow",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_shoot_bow",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2663,7 +2663,7 @@
     {
       "name": "entity_tame",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_tame",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_tame",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2673,7 +2673,7 @@
     {
       "name": "entity_teleport",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_teleport",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_teleport",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2683,7 +2683,7 @@
     {
       "name": "entity_toggle_glide",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_toggle_glide",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_toggle_glide",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2693,7 +2693,7 @@
     {
       "name": "entity_transform",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_transform",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_transform",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2703,7 +2703,7 @@
     {
       "name": "entity_unleash",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_unleash",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_entity_unleash",
       "neoforge": "none (NeoForge has no such event; Bukkit's EntityUnleashEvent)",
       "side": "server",
       "mod_api": {
@@ -2713,7 +2713,7 @@
     {
       "name": "exp_bottle",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_exp_bottle",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_exp_bottle",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2723,7 +2723,7 @@
     {
       "name": "experience_orb_pickup_listened",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_experience_orb_pickup_listened",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_experience_orb_pickup_listened",
       "side": "server",
       "mod_api": {
         "contract": "collect",
@@ -2733,7 +2733,7 @@
     {
       "name": "experience_orb_pickup",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_experience_orb_pickup",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_experience_orb_pickup",
       "side": "server",
       "cancellable": true,
       "mod_api": {
@@ -2744,7 +2744,7 @@
     {
       "name": "mending_repair",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mending_repair",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mending_repair",
       "side": "server",
       "mod_api": {
         "contract": "listen"
@@ -2753,7 +2753,7 @@
     {
       "name": "explosion_prime",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_explosion_prime",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_explosion_prime",
       "neoforge": "none (NeoForge has no such event; Bukkit's ExplosionPrimeEvent)",
       "side": "server",
       "mod_api": {
@@ -2763,7 +2763,7 @@
     {
       "name": "fire_odds",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_fire_odds",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_fire_odds",
       "mod_api": {
         "contract": "replace",
         "out": "odds"
@@ -2772,7 +2772,7 @@
     {
       "name": "smoke_source",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_smoke_source",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_smoke_source",
       "mod_api": {
         "contract": "replace",
         "out": "smoke"
@@ -2781,7 +2781,7 @@
     {
       "name": "firework_explode",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_firework_explode",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_firework_explode",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2791,7 +2791,7 @@
     {
       "name": "fluid_level_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_fluid_level_change",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_fluid_level_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -2803,7 +2803,7 @@
     {
       "name": "framerate_limit",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_framerate_limit",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_framerate_limit",
       "neoforge": "none (vanilla FramerateLimitTracker.getFramerateLimit fires no event)",
       "side": "client",
       "cancellable": false,
@@ -2814,7 +2814,7 @@
     {
       "name": "furnace_burn",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_furnace_burn",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_furnace_burn",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2824,7 +2824,7 @@
     {
       "name": "furnace_extract",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_furnace_extract",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_furnace_extract",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2834,7 +2834,7 @@
     {
       "name": "furnace_smelt",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_furnace_smelt",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_furnace_smelt",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2844,7 +2844,7 @@
     {
       "name": "furnace_start_smelt",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_furnace_start_smelt",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_furnace_start_smelt",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2854,7 +2854,7 @@
     {
       "name": "game_event",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_game_event",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_game_event",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2864,7 +2864,7 @@
     {
       "name": "hopper_inventory_search",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_hopper_inventory_search",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_hopper_inventory_search",
       "neoforge": "none (NeoForge has no such event; Bukkit's InventoryMoveItemEvent)",
       "side": "server",
       "mod_api": {
@@ -2874,7 +2874,7 @@
     {
       "name": "hopper_pickup_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_hopper_pickup_item",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_hopper_pickup_item",
       "neoforge": "none (NeoForge has no direct equivalent; Bukkit's InventoryPickupItemEvent)",
       "side": "server",
       "cancellable": true,
@@ -2886,7 +2886,7 @@
     {
       "name": "ingredient",
       "version": 1,
-      "target": "horizon_client_lib::crafting::native_ingredient",
+      "target": "cubeon_client_lib::crafting::native_ingredient",
       "mod_api": {
         "contract": "collect",
         "out": "items"
@@ -2895,7 +2895,7 @@
     {
       "name": "inventory_block_start",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_inventory_block_start",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_inventory_block_start",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -2907,7 +2907,7 @@
     {
       "name": "inventory_move_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_inventory_move_item",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_inventory_move_item",
       "neoforge": "none (NeoForge has no such event; Bukkit's InventoryMoveItemEvent)",
       "side": "server",
       "cancellable": true,
@@ -2919,7 +2919,7 @@
     {
       "name": "item_crafted",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_crafted",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_crafted",
       "neoforge": "PlayerEvent.ItemCraftedEvent",
       "side": "server",
       "mod_api": {
@@ -2929,7 +2929,7 @@
     {
       "name": "item_despawn",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_despawn",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_despawn",
       "neoforge": "none (NeoForge has no such event; Bukkit's ItemDespawnEvent)",
       "side": "server",
       "mod_api": {
@@ -2939,7 +2939,7 @@
     {
       "name": "item_energy_buffer",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_energy_buffer",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_energy_buffer",
       "neoforge": "Capabilities.Energy.ITEM",
       "mod_api": {
         "contract": "replace",
@@ -2949,7 +2949,7 @@
     {
       "name": "item_expire",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_expire",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_expire",
       "neoforge": "ItemExpireEvent",
       "side": "server",
       "cancellable": false,
@@ -2960,7 +2960,7 @@
     {
       "name": "item_spawn",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_spawn",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_spawn",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -2970,7 +2970,7 @@
     {
       "name": "leaves_decay",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_leaves_decay",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_leaves_decay",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -2982,7 +2982,7 @@
     {
       "name": "lightning_strike",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_lightning_strike",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_lightning_strike",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -2994,7 +2994,7 @@
     {
       "name": "menu_quick_move",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_menu_quick_move",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_menu_quick_move",
       "neoforge": "none (a Java menu overrides AbstractContainerMenu.quickMoveStack; no event)",
       "side": "server",
       "cancellable": true,
@@ -3006,7 +3006,7 @@
     {
       "name": "moisture_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_moisture_change",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_moisture_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -3018,7 +3018,7 @@
     {
       "name": "anvil_craft_post",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_anvil_craft_post",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_anvil_craft_post",
       "neoforge": "AnvilCraftEvent.Post",
       "side": "server",
       "mod_api": {
@@ -3028,7 +3028,7 @@
     {
       "name": "anvil_craft_pre",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_anvil_craft_pre",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_anvil_craft_pre",
       "neoforge": "AnvilCraftEvent.Pre",
       "side": "server",
       "cancellable": true,
@@ -3040,7 +3040,7 @@
     {
       "name": "armor_stand_manipulate",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_armor_stand_manipulate",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_armor_stand_manipulate",
       "neoforge": "none (Bukkit's PlayerArmorStandManipulateEvent)",
       "side": "server",
       "cancellable": true,
@@ -3052,7 +3052,7 @@
     {
       "name": "bucket_empty",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_bucket_empty",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_bucket_empty",
       "neoforge": "none (vanilla BucketItem.emptyContents; NeoForge has no matching event)",
       "side": "server",
       "cancellable": true,
@@ -3064,7 +3064,7 @@
     {
       "name": "container_opened",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_container_opened",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_container_opened",
       "neoforge": "none (NeoForge's PlayerContainerEvent.Open fires after the menu is open and is not cancellable)",
       "side": "server",
       "cancellable": true,
@@ -3076,7 +3076,7 @@
     {
       "name": "creative_slot",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_creative_slot",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_creative_slot",
       "side": "server",
       "cancellable": true,
       "mod_api": {
@@ -3087,7 +3087,7 @@
     {
       "name": "food_level_changed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_food_level_changed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_food_level_changed",
       "neoforge": "none (vanilla: FoodData; Bukkit's FoodLevelChangeEvent)",
       "side": "server",
       "mod_api": {
@@ -3098,7 +3098,7 @@
     {
       "name": "hanging_break",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_hanging_break",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_hanging_break",
       "side": "server",
       "cancellable": true,
       "mod_api": {
@@ -3109,7 +3109,7 @@
     {
       "name": "hanging_place",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_hanging_place",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_hanging_place",
       "side": "server",
       "cancellable": true,
       "mod_api": {
@@ -3120,7 +3120,7 @@
     {
       "name": "item_damaged",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_damaged",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_item_damaged",
       "neoforge": "none (vanilla: ItemStack.hurtAndBreak; PlayerDestroyItemEvent is only the break)",
       "side": "server",
       "mod_api": {
@@ -3131,7 +3131,7 @@
     {
       "name": "player_changed_dimension",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_changed_dimension",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_changed_dimension",
       "neoforge": "PlayerEvent.PlayerChangedDimensionEvent",
       "side": "server",
       "mod_api": {
@@ -3141,7 +3141,7 @@
     {
       "name": "player_clone",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_clone",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_clone",
       "neoforge": "PlayerEvent.Clone (not cancellable)",
       "side": "server",
       "cancellable": false,
@@ -3152,7 +3152,7 @@
     {
       "name": "player_commands_sent",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_commands_sent",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_commands_sent",
       "side": "server",
       "mod_api": {
         "contract": "collect",
@@ -3162,7 +3162,7 @@
     {
       "name": "player_destroy_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_destroy_item",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_destroy_item",
       "neoforge": "none (NeoForge's PlayerDestroyItemEvent carries the original stack and a hand, which armour has not; this hook only listens and names the slot instead. Bukkit's PlayerItemBreakEvent)",
       "side": "server",
       "mod_api": {
@@ -3172,7 +3172,7 @@
     {
       "name": "player_fish",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_fish",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_fish",
       "neoforge": "none (NeoForge's ItemFishedEvent fires after the loot roll, in FishingHook.retrieve; Bukkit's PlayerFishEvent)",
       "side": "server",
       "mod_api": {
@@ -3183,7 +3183,7 @@
     {
       "name": "player_flower_pot_manipulate",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_flower_pot_manipulate",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_flower_pot_manipulate",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3193,7 +3193,7 @@
     {
       "name": "player_game_mode_changed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_game_mode_changed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_game_mode_changed",
       "mod_api": {
         "contract": "cancel",
         "out": "cancel"
@@ -3202,7 +3202,7 @@
     {
       "name": "player_insert_lectern_book",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_insert_lectern_book",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_insert_lectern_book",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3212,7 +3212,7 @@
     {
       "name": "player_item_frame_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_item_frame_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_item_frame_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3222,7 +3222,7 @@
     {
       "name": "player_item_mend",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_item_mend",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_item_mend",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3232,7 +3232,7 @@
     {
       "name": "player_lectern_page_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_lectern_page_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_lectern_page_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3242,7 +3242,7 @@
     {
       "name": "player_load_from_file",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_load_from_file",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_load_from_file",
       "neoforge": "PlayerEvent.LoadFromFile (not cancellable)",
       "side": "server",
       "cancellable": false,
@@ -3253,7 +3253,7 @@
     {
       "name": "player_login",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_login",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_login",
       "neoforge": "none (Bukkit's PlayerLoginEvent; NeoForge's PlayerNegotiationEvent is not cancellable)",
       "side": "server",
       "cancellable": true,
@@ -3265,7 +3265,7 @@
     {
       "name": "player_save_to_file",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_save_to_file",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_save_to_file",
       "neoforge": "PlayerEvent.SaveToFile (not cancellable)",
       "side": "server",
       "cancellable": false,
@@ -3276,7 +3276,7 @@
     {
       "name": "player_sprint",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_sprint",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_sprint",
       "side": "server",
       "mod_api": {
         "contract": "listen"
@@ -3285,7 +3285,7 @@
     {
       "name": "player_swap_hands",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_swap_hands",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_swap_hands",
       "neoforge": "LivingSwapItemsEvent.Hands",
       "side": "server",
       "mod_api": {
@@ -3296,7 +3296,7 @@
     {
       "name": "player_take_lectern_book",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_take_lectern_book",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_take_lectern_book",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3306,7 +3306,7 @@
     {
       "name": "player_teleported",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_teleported",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_teleported",
       "neoforge": "none (EntityTeleportEvent.TeleportCommand fires before the move and can cancel it; this hook is told after the move)",
       "side": "server",
       "mod_api": {
@@ -3316,7 +3316,7 @@
     {
       "name": "player_totem",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_totem",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_totem",
       "neoforge": "none (NeoForge's LivingUseTotemEvent can cancel the save; this hook only listens. Bukkit's EntityResurrectEvent)",
       "side": "server",
       "mod_api": {
@@ -3326,7 +3326,7 @@
     {
       "name": "resource_pack_status",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_resource_pack_status",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_resource_pack_status",
       "side": "server",
       "mod_api": {
         "contract": "listen"
@@ -3335,7 +3335,7 @@
     {
       "name": "spawn_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_spawn_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_spawn_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3345,7 +3345,7 @@
     {
       "name": "tnt_primed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_tnt_primed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_tnt_primed",
       "side": "server",
       "cancellable": true,
       "mod_api": {
@@ -3356,7 +3356,7 @@
     {
       "name": "vehicle_create",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_vehicle_create",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_vehicle_create",
       "neoforge": "none (NeoForge has no such event; Bukkit's VehicleCreateEvent)",
       "side": "server",
       "mod_api": {
@@ -3366,7 +3366,7 @@
     {
       "name": "vehicle_damage",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_vehicle_damage",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_vehicle_damage",
       "neoforge": "none (NeoForge has no such event; Bukkit's VehicleDamageEvent)",
       "side": "server",
       "cancellable": true,
@@ -3378,7 +3378,7 @@
     {
       "name": "vehicle_destroy",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_vehicle_destroy",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_vehicle_destroy",
       "neoforge": "none (NeoForge has no such event; Bukkit's VehicleDestroyEvent)",
       "side": "server",
       "mod_api": {
@@ -3388,7 +3388,7 @@
     {
       "name": "vehicle_moved",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_vehicle_moved",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_vehicle_moved",
       "side": "server",
       "mod_api": {
         "contract": "listen"
@@ -3397,7 +3397,7 @@
     {
       "name": "world_border_bounds_changed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_world_border_bounds_changed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_world_border_bounds_changed",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3407,7 +3407,7 @@
     {
       "name": "world_border_center_changed",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_world_border_center_changed",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_world_border_center_changed",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3417,7 +3417,7 @@
     {
       "name": "world_game_rule_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_world_game_rule_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_world_game_rule_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3427,7 +3427,7 @@
     {
       "name": "note_play",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_note_play",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_note_play",
       "neoforge": "none (NeoForge has no such event; Bukkit's NotePlayEvent)",
       "side": "server",
       "cancellable": true,
@@ -3439,7 +3439,7 @@
     {
       "name": "player_advancement_criterion_grant",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_advancement_criterion_grant",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_advancement_criterion_grant",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerAdvancementCriterionGrant)",
       "side": "server",
       "mod_api": {
@@ -3449,7 +3449,7 @@
     {
       "name": "player_advancement_done",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_advancement_done",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_advancement_done",
       "neoforge": "AdvancementEvent.AdvancementEarnEvent",
       "side": "server",
       "cancellable": false,
@@ -3460,7 +3460,7 @@
     {
       "name": "player_advancement_progress",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_advancement_progress",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_advancement_progress",
       "neoforge": "AdvancementEvent.AdvancementProgressEvent",
       "side": "server",
       "cancellable": false,
@@ -3471,7 +3471,7 @@
     {
       "name": "player_arm_swing",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_arm_swing",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_arm_swing",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerAnimationEvent)",
       "side": "server",
       "mod_api": {
@@ -3481,7 +3481,7 @@
     {
       "name": "player_attack_cooldown_reset",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_attack_cooldown_reset",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_attack_cooldown_reset",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3491,7 +3491,7 @@
     {
       "name": "player_bed_enter",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_bed_enter",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_bed_enter",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerBedEnterEvent)",
       "side": "server",
       "cancellable": true,
@@ -3503,7 +3503,7 @@
     {
       "name": "player_bed_leave",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_bed_leave",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_bed_leave",
       "neoforge": "PlayerWakeUpEvent",
       "side": "server",
       "cancellable": false,
@@ -3514,7 +3514,7 @@
     {
       "name": "player_bucket_entity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_bucket_entity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_bucket_entity",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3524,7 +3524,7 @@
     {
       "name": "player_bundle_item_select",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_bundle_item_select",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_bundle_item_select",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerBundleItemSelect)",
       "side": "server",
       "mod_api": {
@@ -3534,7 +3534,7 @@
     {
       "name": "player_change_beacon_effect",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_change_beacon_effect",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_change_beacon_effect",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3544,7 +3544,7 @@
     {
       "name": "player_change_main_hand",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_change_main_hand",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_change_main_hand",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3554,7 +3554,7 @@
     {
       "name": "player_client_loaded_world",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_client_loaded_world",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_client_loaded_world",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerClientLoadedWorld)",
       "side": "server",
       "mod_api": {
@@ -3564,7 +3564,7 @@
     {
       "name": "player_deep_sleep",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_deep_sleep",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_deep_sleep",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3574,7 +3574,7 @@
     {
       "name": "player_edit_book",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_edit_book",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_edit_book",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerEditBookEvent)",
       "side": "server",
       "cancellable": true,
@@ -3586,7 +3586,7 @@
     {
       "name": "player_egg_throw",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_egg_throw",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_egg_throw",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3596,7 +3596,7 @@
     {
       "name": "player_elytra_boost",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_elytra_boost",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_elytra_boost",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3606,7 +3606,7 @@
     {
       "name": "player_exp_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_exp_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_exp_change",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerExpChangeEvent)",
       "side": "server",
       "cancellable": false,
@@ -3617,7 +3617,7 @@
     {
       "name": "player_exp_cooldown_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_exp_cooldown_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_exp_cooldown_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3627,7 +3627,7 @@
     {
       "name": "player_input",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_input",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_input",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerInputEvent)",
       "side": "server",
       "mod_api": {
@@ -3637,7 +3637,7 @@
     {
       "name": "player_item_cooldown",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_item_cooldown",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_item_cooldown",
       "neoforge": "none (NeoForge has no such event; Paper's PlayerItemCooldownEvent)",
       "side": "server",
       "cancellable": true,
@@ -3649,7 +3649,7 @@
     {
       "name": "player_item_held",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_item_held",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_item_held",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerItemHeldEvent)",
       "side": "server",
       "cancellable": true,
@@ -3661,7 +3661,7 @@
     {
       "name": "player_jump",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_jump",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_jump",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerJumpEvent)",
       "side": "server",
       "mod_api": {
@@ -3671,7 +3671,7 @@
     {
       "name": "player_kicked",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_kicked",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_kicked",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerKickEvent)",
       "side": "server",
       "mod_api": {
@@ -3681,7 +3681,7 @@
     {
       "name": "player_launch_projectile",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_launch_projectile",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_launch_projectile",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerLaunchProjectile)",
       "side": "server",
       "mod_api": {
@@ -3691,7 +3691,7 @@
     {
       "name": "player_level_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_level_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_level_change",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerLevelChangeEvent)",
       "side": "server",
       "mod_api": {
@@ -3701,7 +3701,7 @@
     {
       "name": "player_locale_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_locale_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_locale_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3711,7 +3711,7 @@
     {
       "name": "player_loom_pattern_select",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_loom_pattern_select",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_loom_pattern_select",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3721,7 +3721,7 @@
     {
       "name": "player_map_filled",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_map_filled",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_map_filled",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3731,7 +3731,7 @@
     {
       "name": "player_name_entity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_name_entity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_name_entity",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3741,7 +3741,7 @@
     {
       "name": "player_open_sign",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_open_sign",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_open_sign",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3751,7 +3751,7 @@
     {
       "name": "player_pick_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_pick_item",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_pick_item",
       "neoforge": "none (NeoForge has no such event; Paper's PlayerPickItemEvent)",
       "side": "server",
       "cancellable": true,
@@ -3763,7 +3763,7 @@
     {
       "name": "player_pickup_arrow",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_pickup_arrow",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_pickup_arrow",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3773,7 +3773,7 @@
     {
       "name": "player_portal",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_portal",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_portal",
       "neoforge": "EntityTravelToDimensionEvent",
       "side": "server",
       "cancellable": true,
@@ -3785,7 +3785,7 @@
     {
       "name": "player_ready_arrow",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_ready_arrow",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_ready_arrow",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerReadyArrow)",
       "side": "server",
       "mod_api": {
@@ -3795,7 +3795,7 @@
     {
       "name": "player_recipe_book_click",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_recipe_book_click",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_recipe_book_click",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3805,7 +3805,7 @@
     {
       "name": "player_recipe_book_settings_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_recipe_book_settings_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_recipe_book_settings_change",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerRecipeBookSettingsChange)",
       "side": "server",
       "mod_api": {
@@ -3815,7 +3815,7 @@
     {
       "name": "player_recipe_discovered",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_recipe_discovered",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_recipe_discovered",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerRecipeDiscoverEvent)",
       "side": "server",
       "cancellable": true,
@@ -3827,7 +3827,7 @@
     {
       "name": "player_riptide",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_riptide",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_riptide",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerRiptideEvent)",
       "side": "server",
       "mod_api": {
@@ -3837,7 +3837,7 @@
     {
       "name": "player_shear_entity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_shear_entity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_shear_entity",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerShearEntityEvent)",
       "side": "server",
       "cancellable": true,
@@ -3849,7 +3849,7 @@
     {
       "name": "player_shield_disable",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_shield_disable",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_shield_disable",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3859,7 +3859,7 @@
     {
       "name": "player_spawn_point_set",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_spawn_point_set",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_spawn_point_set",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerSpawnChangeEvent)",
       "side": "server",
       "cancellable": true,
@@ -3871,7 +3871,7 @@
     {
       "name": "player_stat_award",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_stat_award",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_stat_award",
       "neoforge": "StatAwardEvent",
       "side": "server",
       "cancellable": true,
@@ -3883,7 +3883,7 @@
     {
       "name": "player_stonecutter_recipe_select",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_stonecutter_recipe_select",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_stonecutter_recipe_select",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3893,7 +3893,7 @@
     {
       "name": "player_stop_spectating_entity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_stop_spectating_entity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_stop_spectating_entity",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3903,7 +3903,7 @@
     {
       "name": "player_stop_using_item",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_stop_using_item",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_stop_using_item",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerStopUsingItem)",
       "side": "server",
       "mod_api": {
@@ -3913,7 +3913,7 @@
     {
       "name": "player_swap_with_equipment_slot",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_swap_with_equipment_slot",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_swap_with_equipment_slot",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3923,7 +3923,7 @@
     {
       "name": "player_teleport_end_gateway",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_teleport_end_gateway",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_teleport_end_gateway",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -3935,7 +3935,7 @@
     {
       "name": "player_toggle_entity_age_lock",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_toggle_entity_age_lock",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_toggle_entity_age_lock",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3945,7 +3945,7 @@
     {
       "name": "player_toggle_sneak",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_toggle_sneak",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_toggle_sneak",
       "neoforge": "none (NeoForge has no such event; Bukkit's PlayerToggleSneakEvent)",
       "side": "server",
       "mod_api": {
@@ -3955,7 +3955,7 @@
     {
       "name": "player_trade",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_trade",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_trade",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3965,7 +3965,7 @@
     {
       "name": "player_unleash_entity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_unleash_entity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_unleash_entity",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3975,7 +3975,7 @@
     {
       "name": "player_velocity",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_velocity",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_player_velocity",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3985,7 +3985,7 @@
     {
       "name": "portal_create",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_portal_create",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_portal_create",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -3995,7 +3995,7 @@
     {
       "name": "potion_splash",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_potion_splash",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_potion_splash",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4005,7 +4005,7 @@
     {
       "name": "prepare_anvil",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_prepare_anvil",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_prepare_anvil",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4016,7 +4016,7 @@
     {
       "name": "prepare_grindstone",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_prepare_grindstone",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_prepare_grindstone",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4027,7 +4027,7 @@
     {
       "name": "prepare_hopper_transfer",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_prepare_hopper_transfer",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_prepare_hopper_transfer",
       "side": "server",
       "mod_api": {
         "contract": "listen"
@@ -4036,7 +4036,7 @@
     {
       "name": "prepare_item_craft",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_prepare_item_craft",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_prepare_item_craft",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4047,7 +4047,7 @@
     {
       "name": "prepare_item_enchant",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_prepare_item_enchant",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_prepare_item_enchant",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4057,7 +4057,7 @@
     {
       "name": "prepare_smithing",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_prepare_smithing",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_prepare_smithing",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4068,7 +4068,7 @@
     {
       "name": "projectile_launch",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_projectile_launch",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_projectile_launch",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4078,7 +4078,7 @@
     {
       "name": "raid_spawn_wave",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_raid_spawn_wave",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_raid_spawn_wave",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4088,7 +4088,7 @@
     {
       "name": "raid_state_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_raid_state_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_raid_state_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4098,7 +4098,7 @@
     {
       "name": "sculk_bloom",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_sculk_bloom",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_sculk_bloom",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4108,7 +4108,7 @@
     {
       "name": "sleep_finished_time",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_sleep_finished_time",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_sleep_finished_time",
       "neoforge": "SleepFinishedTimeEvent",
       "side": "server",
       "cancellable": false,
@@ -4119,7 +4119,7 @@
     {
       "name": "sponge_absorb",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_sponge_absorb",
+      "target": "cubeon_client::game::native_hooks::GameLevel<'_>::native_sponge_absorb",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4129,7 +4129,7 @@
     {
       "name": "tab_complete",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_tab_complete",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_tab_complete",
       "neoforge": "none (NeoForge has no generic tab completion event)",
       "side": "server",
       "mod_api": {
@@ -4140,7 +4140,7 @@
     {
       "name": "target_hit",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_target_hit",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_target_hit",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4150,7 +4150,7 @@
     {
       "name": "thunder_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_thunder_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_thunder_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -4162,7 +4162,7 @@
     {
       "name": "time_skip",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_time_skip",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_time_skip",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -4174,7 +4174,7 @@
     {
       "name": "trade_select",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_trade_select",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_trade_select",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4184,7 +4184,7 @@
     {
       "name": "trade_with_villager",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_trade_with_villager",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_trade_with_villager",
       "neoforge": "TradeWithVillagerEvent",
       "side": "server",
       "cancellable": false,
@@ -4195,7 +4195,7 @@
     {
       "name": "vault_change_state",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_vault_change_state",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_vault_change_state",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4205,7 +4205,7 @@
     {
       "name": "vault_loot",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_vault_loot",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_vault_loot",
       "neoforge": "none (NeoForge has no such event; Bukkit's BlockDispenseLoot)",
       "side": "server",
       "mod_api": {
@@ -4215,7 +4215,7 @@
     {
       "name": "weather_change",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_weather_change",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_weather_change",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "cancellable": true,
@@ -4227,7 +4227,7 @@
     {
       "name": "whitelist_state_update",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_whitelist_state_update",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_whitelist_state_update",
       "neoforge": "none (NeoForge has no such event; Bukkit's WhitelistToggleEvent)",
       "side": "server",
       "mod_api": {
@@ -4237,7 +4237,7 @@
     {
       "name": "world_border_bounds_change_finish",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_world_border_bounds_change_finish",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_world_border_bounds_change_finish",
       "neoforge": "none (NeoForge has no such event; Bukkit's WorldBorderBoundsChangeFinish)",
       "side": "server",
       "cancellable": false,
@@ -4248,7 +4248,7 @@
     {
       "name": "world_saved",
       "version": 1,
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_world_saved",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_world_saved",
       "neoforge": "none (NeoForge has no such event)",
       "side": "server",
       "mod_api": {
@@ -4258,7 +4258,7 @@
     {
       "name": "living_drown",
       "version": 1,
-      "target": "horizon_client_lib::breathing::native_living_drown",
+      "target": "cubeon_client_lib::breathing::native_living_drown",
       "neoforge": "LivingDrownEvent",
       "side": "server",
       "mod_api": {
@@ -4269,7 +4269,7 @@
     {
       "name": "living_fall",
       "version": 1,
-      "target": "horizon_client_lib::landing::native_living_fall",
+      "target": "cubeon_client_lib::landing::native_living_fall",
       "neoforge": "LivingFallEvent",
       "side": "both",
       "mod_api": {
@@ -4280,7 +4280,7 @@
     {
       "name": "living_heal",
       "version": 1,
-      "target": "horizon_client_lib::hunger::native_living_heal",
+      "target": "cubeon_client_lib::hunger::native_living_heal",
       "neoforge": "LivingHealEvent",
       "side": "both",
       "mod_api": {
@@ -4291,7 +4291,7 @@
     {
       "name": "living_jump",
       "version": 1,
-      "target": "horizon_client_lib::motion::native_living_jump",
+      "target": "cubeon_client_lib::motion::native_living_jump",
       "neoforge": "LivingEvent.LivingJumpEvent",
       "side": "both",
       "mod_api": {

@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "arrow_nock",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_arrow_nock",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_arrow_nock",
       "side": "both",
       "cancellable": true,
       "neoforge": "net.neoforged.neoforge.event.entity.player.ArrowNockEvent (NeoForge.EVENT_BUS, ICancellableEvent)",

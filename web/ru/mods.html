@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="robots" content="noindex, follow" />
 <title>Installing Minecraft mods in Cubeon - mods, resource packs, shaders</title>
 <meta name="description" content="How to find and install mods that fit your version and loader, what happens to dependencies, turning a mod off, adding a jar by hand, and what Check and repair fixes." />
 <meta property="og:title" content="Mods, resource packs and shaders in Cubeon" />
@@ -19,7 +19,7 @@
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -60,11 +60,9 @@
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/mods" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/mods" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/mods" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/mods" />
 <link rel="alternate" hreflang="x-default" href="https://www.ylet.online/mods" />
-<link rel="canonical" href="https://www.ylet.online/ru/mods" />
-<meta property="og:url" content="https://www.ylet.online/ru/mods" />
+<link rel="canonical" href="https://www.ylet.online/mods" />
+<meta property="og:url" content="https://www.ylet.online/mods" />
 <!-- /cubeon:seo -->
 </head>
 <body>
@@ -78,16 +76,15 @@
       <!-- cubeon:language -->
 <div class="lang-menu">
   <details>
-    <summary aria-label="Язык: Русский"><span aria-hidden="true">🌐</span> RU</summary>
-    <nav class="lang-list" aria-label="Язык">
-          <a href="/ru/mods" hreflang="en" lang="en">English</a>
+    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
+    <nav class="lang-list" aria-label="Language">
+          <a href="/mods" hreflang="en" lang="en" aria-current="true">English</a>
           <a href="/ar/mods" hreflang="ar" lang="ar">العربية</a>
-          <a href="/uk/mods" hreflang="uk" lang="uk">Українська</a>
-          <a href="/ru/mods" hreflang="ru" lang="ru" aria-current="true">Русский</a>
     </nav>
   </details>
 </div>
 <!-- /cubeon:language -->
+
       <a href="/ru">Home</a>
       <a href="/ru/download">Download</a>
       <a href="/ru/docs" aria-current="page">Docs</a>
@@ -114,6 +111,7 @@
         <div class="docs-nav-group">
           <span class="docs-nav-label">Guides</span>
           <a class="docs-nav-link" href="/ru/docs">All guides</a>
+          <a class="docs-nav-link" href="/ru/minecraft-launcher">Choosing a launcher</a>
           <a class="docs-nav-link" href="/ru/getting-started">Getting started</a>
           <a class="docs-nav-link" href="/ru/mods" aria-current="page">Mods &amp; content</a>
           <a class="docs-nav-link" href="/ru/modpacks">Modpacks</a>

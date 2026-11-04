@@ -115,7 +115,7 @@ class RustEngineTests(unittest.TestCase):
         bundle(runtime)
         resources = rust.resources_dir()
         resources.mkdir(parents=True)
-        (resources / "horizon-prepare.json").write_text("{}")
+        (resources / "cubeon-prepare.json").write_text("{}")
         with patch.object(rust, "_run", return_value=0), patch.object(rust.net, "get_json") as get:
             rust.install()
             get.assert_not_called()
@@ -125,6 +125,41 @@ class RustEngineTests(unittest.TestCase):
         rust.uninstall()
         self.assertEqual(rust.installed_entries(), [])
         self.assertTrue(world.exists())
+
+    def test_earlier_verified_preparer_stamp_installs_and_launches(self):
+        runtime = rust.runtime_dir()
+        bundle(runtime)
+        resources = rust.resources_dir()
+        resources.mkdir(parents=True)
+        (resources / "horizon-prepare.json").write_text('{"output_version":3}')
+        with patch.object(rust, "_run", return_value=0) as check, \
+                patch.object(rust.net, "get_json", side_effect=AssertionError("Ready beta must stay offline")):
+            rust.install()
+            self.assertFalse(rust.installed_entries()[0]["incomplete"])
+            command = rust.launch_command("Tester", 854, 480)
+        self.assertEqual(command[0], str(runtime / rust._exe("cubeon-rust")))
+        self.assertEqual(check.call_count, 2)
+        self.assertTrue(all("--check" in call.args[0] for call in check.call_args_list))
+
+    def test_successful_check_without_resource_stamp_never_marks_installed(self):
+        runtime = rust.runtime_dir()
+        bundle(runtime)
+        with patch.object(rust, "_run", return_value=0):
+            with self.assertRaisesRegex(rust.RustEngineError, "did not finish"):
+                rust.install()
+        self.assertFalse((rust.root() / "instance.json").exists())
+
+    def test_recognized_stamp_still_requires_native_resource_validation(self):
+        runtime = rust.runtime_dir()
+        bundle(runtime)
+        resources = rust.resources_dir()
+        resources.mkdir(parents=True)
+        (resources / "horizon-prepare.json").write_text('{}')
+        with patch.object(rust, "_run", return_value=0):
+            rust.install()
+        with patch.object(rust, "_run", side_effect=rust.RustEngineError("Resources failed validation")):
+            with self.assertRaisesRegex(rust.RustEngineError, "failed validation"):
+                rust.launch_command("Tester", 854, 480)
 
     def test_native_launch_skips_all_java_preparation(self):
         with contextlib.ExitStack() as stack:
@@ -182,10 +217,11 @@ class RustEngineTests(unittest.TestCase):
         def prepare(command, **kwargs):
             commands.append(command)
             if "--check" in command:
-                return 1
+                stage = Path(command[command.index("--output") + 1])
+                return 0 if (stage / "cubeon-prepare.json").is_file() else 1
             stage = Path(command[command.index("--output") + 1])
             stage.mkdir()
-            (stage / "horizon-prepare.json").write_text("{}")
+            (stage / "cubeon-prepare.json").write_text("{}")
             return 0
 
         with patch.object(Path, "home", return_value=self.home), \
@@ -201,7 +237,7 @@ class RustEngineTests(unittest.TestCase):
             rust.install()
         download_java.assert_not_called()
         download_server.assert_not_called()
-        command = commands[-1]
+        command = next(command for command in commands if "--prepare" in command)
         self.assertEqual(command[command.index("--java-home") + 1], str(java_home))
         self.assertFalse(rust.installed_entries()[0]["incomplete"])
 
@@ -258,10 +294,11 @@ class RustEngineTests(unittest.TestCase):
 
         def prepare(command, **kwargs):
             if "--check" in command:
-                return 1
+                stage = Path(command[command.index("--output") + 1])
+                return 0 if (stage / "cubeon-prepare.json").is_file() else 1
             stage = Path(command[command.index("--output") + 1])
             stage.mkdir()
-            (stage / "horizon-prepare.json").write_text("{}")
+            (stage / "cubeon-prepare.json").write_text("{}")
             return 0
 
         with patch.object(paths, "MINECRAFT_DIR", str(inputs)), \

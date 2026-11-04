@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<title>أفضل مشغّل Minecraft لإعداداتك؟ | دليل Cubeon</title>
+<meta name="description" content="اختر مشغّل Minecraft لإصدار Java والمودات واللعب الجماعي. قارن ميزات Cubeon ومتطلبات الحساب والأنظمة المدعومة والعوامل المؤثرة في معدل الإطارات." />
+<meta property="og:title" content="أفضل مشغّل Minecraft لإعداداتك؟ | دليل Cubeon" />
+<meta property="og:description" content="اختر مشغّل Minecraft لإصدار Java والمودات واللعب الجماعي. قارن ميزات Cubeon ومتطلبات الحساب والأنظمة المدعومة والعوامل المؤثرة في معدل الإطارات." />
+<meta property="og:site_name" content="Cubeon Launcher" />
+<meta property="og:type" content="article" />
+<meta property="og:image" content="https://www.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="مشغّل Cubeon معروض فوق عالم Minecraft: منتقي إصدار، واسم حساب، وزر تشغيل أخضر كبير." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
+<!-- cubeon:auto-language -->
+<script>
+(function () {
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
+  if (location.protocol === 'file:') return;
+  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
+  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
+  if (m) cur = m[1];
+  function search() {
+    var out = '', q;
+    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
+    return (out ? '?' + out : '') + location.hash;
+  }
+  function urlFor(code) {
+    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
+    if (rest === '/index.html') rest = '/';
+    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
+    return (code === 'en' ? '' : '/' + code) + rest + search();
+  }
+  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
+  var q = null;
+  try { q = new URLSearchParams(location.search); } catch (e) {}
+  if (q && q.get('lang') && names[q.get('lang')]) {
+    pref = q.get('lang');
+    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
+    location.replace(urlFor(pref));
+    return;
+  }
+  if (!pref) {
+    var list = navigator.languages || [navigator.language || ''];
+    for (var i = 0; i < list.length; i++) {
+      var code = String(list[i]).toLowerCase().split('-')[0];
+      if (names[code]) { pref = code; break; }
+    }
+  }
+  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
+})();
+</script>
+<!-- /cubeon:auto-language -->
+<link rel="stylesheet" href="/assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://www.ylet.online/ar/minecraft-launcher#webpage",
+      "url": "https://www.ylet.online/ar/minecraft-launcher",
+      "name": "أفضل مشغّل Minecraft لإعداداتك؟ | دليل Cubeon",
+      "description": "اختر مشغّل Minecraft لإصدار Java والمودات واللعب الجماعي. قارن ميزات Cubeon ومتطلبات الحساب والأنظمة المدعومة والعوامل المؤثرة في معدل الإطارات.",
+      "isPartOf": {
+        "@id": "https://www.ylet.online/#website"
+      },
+      "mainEntity": {
+        "@id": "https://www.ylet.online/ar/minecraft-launcher#guide"
+      },
+      "breadcrumb": {
+        "@id": "https://www.ylet.online/ar/minecraft-launcher#breadcrumb"
+      }
+    },
+    {
+      "@type": "Article",
+      "@id": "https://www.ylet.online/ar/minecraft-launcher#guide",
+      "headline": "اختيار أفضل مشغّل Minecraft",
+      "description": "اختر مشغّل Minecraft لإصدار Java والمودات واللعب الجماعي. قارن ميزات Cubeon ومتطلبات الحساب والأنظمة المدعومة والعوامل المؤثرة في معدل الإطارات.",
+      "mainEntityOfPage": {
+        "@id": "https://www.ylet.online/ar/minecraft-launcher#webpage"
+      },
+      "author": {
+        "@id": "https://www.ylet.online/#organization"
+      },
+      "publisher": {
+        "@id": "https://www.ylet.online/#organization"
+      },
+      "about": {
+        "@id": "https://www.ylet.online/#launcher"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://www.ylet.online/ar/minecraft-launcher#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "الرئيسية",
+          "item": "https://www.ylet.online/ar"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "الوثائق",
+          "item": "https://www.ylet.online/ar/docs"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "اختيار مشغّل",
+          "item": "https://www.ylet.online/ar/minecraft-launcher"
+        }
+      ]
+    }
+  ]
+}
+</script>
+<!-- cubeon:seo -->
+<link rel="alternate" hreflang="en" href="https://www.ylet.online/minecraft-launcher" />
+<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/minecraft-launcher" />
+<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/minecraft-launcher" />
+<link rel="canonical" href="https://www.ylet.online/ar/minecraft-launcher" />
+<meta property="og:url" content="https://www.ylet.online/ar/minecraft-launcher" />
+<!-- /cubeon:seo -->
+<link rel="stylesheet" href="/assets/rtl.css" />
+</head>
+<body>
+<a class="skip" href="#content">تخطَّ إلى المحتوى</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="/ar" aria-label="الصفحة الرئيسية لـ Cubeon"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="القائمة">&#9776;</button>
+    <nav class="nav-links" id="navSlots" aria-label="الرئيسي">
+      <!-- cubeon:language -->
+<div class="lang-menu">
+  <details>
+    <summary aria-label="اللغة: العربية"><span aria-hidden="true">🌐</span> AR</summary>
+    <nav class="lang-list" aria-label="اللغة">
+          <a href="/minecraft-launcher" hreflang="en" lang="en">English</a>
+          <a href="/ar/minecraft-launcher" hreflang="ar" lang="ar" aria-current="true">العربية</a>
+    </nav>
+  </details>
+</div>
+<!-- /cubeon:language -->
+
+      <a href="/ar">الرئيسية</a>
+      <a href="/ar/download">تنزيل</a>
+      <a href="/ar/docs" aria-current="page">الوثائق</a>
+      <a href="/ar/doctor">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="/ar/download">احصل على Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="/ar">الرئيسية</a> / <a href="/ar/docs">الأدلة</a> / اختيار مشغّل</p>
+      <h1>اختيار أفضل مشغّل Minecraft</h1>
+      <p class="lede">يعتمد أفضل مشغّل Minecraft لإعداداتك على إصدار لعبتك وحسابك والمودات وجهازك. يساعدك دليل Cubeon هذا على التحقق من تلك المتطلبات قبل التثبيت.</p>
+    </div>
+  </header>
+  <div class="docs-wrap">
+    <aside class="docs-sidebar" aria-label="التنقل في الأدلة">
+      <nav aria-label="أدلة الوثائق">
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">الأدلة</span>
+          <a class="docs-nav-link" href="/ar/docs">كل الأدلة</a>
+          <a class="docs-nav-link" href="/ar/minecraft-launcher" aria-current="page">اختيار مشغّل</a>
+          <a class="docs-nav-link" href="/ar/getting-started">البدء</a>
+          <a class="docs-nav-link" href="/ar/mods">المودات والمحتوى</a>
+          <a class="docs-nav-link" href="/ar/modpacks">حزم المودات</a>
+          <a class="docs-nav-link" href="/ar/multiplayer">اللعب معًا</a>
+          <a class="docs-nav-link" href="/ar/troubleshooting">التعطلات والإصلاحات</a>
+          <a class="docs-nav-link" href="/ar/files">الملفات والنسخ الاحتياطية</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">في هذه الصفحة</span>
+          <a class="docs-nav-link" href="#edition-account">إصدار اللعبة والحساب</a>
+          <a class="docs-nav-link" href="#requirements">مقارنة الميزات</a>
+          <a class="docs-nav-link" href="#mods">المودات وحزم المودات</a>
+          <a class="docs-nav-link" href="#fps">الأداء ومعدل الإطارات</a>
+          <a class="docs-nav-link" href="#checklist">قبل التنزيل</a>
+        </div>
+      </nav>
+    </aside>
+    <article class="docs-main">
+      <div class="docs-section" id="edition-account">
+        <h2>ابدأ بإصدار Minecraft وحسابك</h2>
+        <p>يثبّت مشغّل Minecraft اللعبة ويشغّلها ويختار الإصدارات ويضبط كيفية تشغيلها. تدير بعض المشغّلات أيضًا المودات وحزم المودات والنسخ المنفصلة. لا يتضمن المشغّل المجاني ترخيص Minecraft.</p>
+        <p><strong>Cubeon Launcher مشغّل Minecraft Java Edition مجاني ومفتوح المصدر لـ Windows وLinux وmacOS.</strong> يجمع محمّلات المودات المتوافقة والمودات وحزم المودات والسكنات والأصدقاء في تطبيق سطح مكتب واحد. اقرأ <a href="/ar/about">حقائق مشروع Cubeon الرسمية</a> لمعرفة ترخيص المصدر وملفات التعريف المدعومة.</p>
+        <p>تحقق من خادمك أولًا. يستخدم Cubeon ملفات تعريف محلية/غير متصلة ولا يوفّر تسجيل الدخول بحساب Microsoft. لا تقبل الخوادم التي تتطلب مصادقة Microsoft هذه الملفات. إذا كان تسجيل الدخول هذا أو إصدار Bedrock ضروريًا لك، فتحقق من <a href="https://www.minecraft.net/en-us/download">مشغّل Minecraft الرسمي</a> وحق حسابك في اللعبة.</p>
+      </div>
+      <hr class="docs-divider">
+      <div class="docs-section" id="requirements">
+        <h2>قارن الميزات التي ستستخدمها فعليًا</h2>
+        <p>استخدم هذه المتطلبات لتحديد ما إذا كان Cubeon يناسب أسلوب لعبك. دعم نظام التشغيل والمصادقة وتوافق المودات أهم من ترتيب عام يناسب الجميع.</p>
+        <div class="docs-table-wrap" role="region" tabindex="0" aria-label="مقارنة متطلبات مشغّل Minecraft">
+          <table class="docs-table">
+            <caption>متطلبات المشغّل ودعم Cubeon</caption>
+            <thead><tr><th scope="col">المتطلب</th><th scope="col">دعم Cubeon</th><th scope="col">ما يجب التحقق منه</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">إصدار اللعبة</th><td>Minecraft Java Edition؛ إصدار Bedrock غير مدعوم.</td><td>استخدم الإصدار الذي تلعبه أنت وأصدقاؤك في عالمكم.</td></tr>
+              <tr><th scope="row">حساب اللاعب</th><td>ملفات تعريف محلية/غير متصلة؛ تسجيل الدخول بحساب Microsoft غير متاح.</td><td><a href="/ar/multiplayer#offline">تحقق من قواعد مصادقة الخادم</a>.</td></tr>
+              <tr><th scope="row">نظام تشغيل سطح المكتب</th><td>تنزيلات Windows وLinux وmacOS.</td><td><a href="/ar/download">اختر الملف المناسب لنظامك</a> ونسخة Java متوافقة.</td></tr>
+              <tr><th scope="row">محمّلات المودات</th><td>نسخ Vanilla وFabric وQuilt وForge وNeoForge.</td><td>طابق محمّل المودات وإصدار Minecraft المطلوبين لكل مود.</td></tr>
+              <tr><th scope="row">حزم المودات</th><td>تصفح الحزم واستورد ملفات الحزم المدعومة.</td><td><a href="/ar/modpacks">تحقق من صيغة الحزمة ودليل التثبيت</a>.</td></tr>
+              <tr><th scope="row">العوالم والإعدادات</th><td>مجلدات لعبة لكل نسخة وأدوات نسخ احتياطي.</td><td><a href="/ar/files">تحقق من مواقع المجلدات وانسخ عوالمك احتياطيًا</a> قبل تغيير الإعدادات.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <hr class="docs-divider">
+      <div class="docs-section" id="mods">
+        <h2>اختيار مشغّل Minecraft للمودات وحزم المودات</h2>
+        <p>اسم محمّل المودات وحده لا يكفي. قد لا يعمل مود Fabric لإصدار معين من Minecraft مع إصدار آخر، ولا يمكن تثبيت نسخة Forge ببساطة داخل نسخة Fabric. ابدأ بالإصدار ومحمّل المودات اللذين يحددهما مؤلف المود أو الحزمة.</p>
+        <p>يمكن لـ Cubeon تثبيت محمّلات المودات المدعومة وتصفح المودات وحزم الموارد والشيدرز. تحتاج المودات إلى نسخ معدّلة متوافقة؛ وتقبل Vanilla حزم الموارد. تحتاج الشيدرز أيضًا إلى إعداد متوافق مثل Iris. يغطي <a href="/ar/mods">دليل المودات والشيدرز</a> التبعيات والتثبيت والإصلاح.</p>
+        <p>للحصول على حزمة كاملة، اتبع <a href="/ar/modpacks">دليل حزم المودات</a> واحتفظ بإصدار اللعبة الموصى به. تساعد النسخ المنفصلة على تنظيم الإعدادات، لكن المحتوى المشترك يظل بحاجة إلى فحوص التوافق. انسخ ملفات الحفظ احتياطيًا قبل تغيير إصدار لعبة عالمك أو حزمة موداته.</p>
+      </div>
+      <hr class="docs-divider">
+      <div class="docs-section" id="fps">
+        <h2>هل يحسّن مشغّل Minecraft معدل الإطارات؟</h2>
+        <p>يمكن للمشغّل ضبط Java والذاكرة ومودات الأداء المتوافقة. تظل بطاقة الرسومات والمعالج وتعريفات الرسومات والعالم ومسافة الرؤية والشيدرز والمودات المثبتة عوامل أساسية في النتيجة. لا يضمن اسم المشغّل معدل إطارات أعلى على كل جهاز.</p>
+        <p>يوفّر Cubeon إعدادات للذاكرة وتجهيزًا لمودات الأداء المتوافقة. ابدأ بـ <a href="/ar/getting-started#fps-boost">دليل تعزيز معدل الإطارات</a>. قد تؤدي زيادة RAM دون التحقق من الذاكرة المتاحة في الجهاز إلى أداء أسوأ.</p>
+        <p>عند مقارنة المشغّلات، ثبّت إصدار اللعبة والعالم والمودات وJava والذاكرة ومسافة الرؤية وإعدادات الرسومات وVSync وحد الإطارات. قيّم انتظام زمن الإطار إلى جانب متوسط معدل الإطارات. تعرض <a href="/ar/benchmarks">صفحة اختبارات أداء Cubeon</a> ظروف القياسات المنشورة وحدودها.</p>
+      </div>
+      <hr class="docs-divider">
+      <div class="docs-section" id="checklist">
+        <h2>قبل تنزيل Cubeon</h2>
+        <ol>
+          <li>تأكد أنك تلعب إصدار Java وأن خادمك يقبل ملفات التعريف المحلية/غير المتصلة.</li>
+          <li>اختر تنزيل Windows أو Linux أو macOS من صفحة التنزيل الرسمية.</li>
+          <li>تحقق من إصدار Minecraft ومحمّل المودات المطلوبين لموداتك أو حزمة موداتك.</li>
+          <li>انسخ العوالم التي تريد الاحتفاظ بها احتياطيًا قبل نقل الملفات أو تغيير إصدارات اللعبة.</li>
+          <li>اتبع دليل التشغيل الأول لإعداد Java والذاكرة، ثم اختبر إعداداتك بنفسك.</li>
+        </ol>
+        <p><a href="/ar/download">نزّل Cubeon Minecraft Launcher</a> واتبع <a href="/ar/getting-started">دليل التثبيت والتشغيل الأول</a>. إذا حدث خلل، استخدم <a href="/ar/troubleshooting">دليل استكشاف الأخطاء</a> أو <a href="/ar/doctor">Cubeon Doctor</a> مع تقرير الانهيار الفعلي.</p>
+      </div>
+    </article>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="/ar"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>مشغّل مجاني يجعل لعب Minecraft مع أصدقائك سهلاً - بلا حساب، وبلا خادم مستأجر، وبلا أي تعقيد.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="الصفحات">
+                <a href="/ar">الرئيسية</a>
+        <a href="/ar/download">تنزيل</a>
+        <a href="/ar/docs">الوثائق</a>
+        <a href="/ar/doctor">Doctor</a>
+      <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>الخصوصية &amp; القواعد</h4>
+      <nav class="foot-legal" aria-label="قانوني">
+        <a href="/ar/privacy">الخصوصية</a>
+        <a href="/ar/terms">الشروط</a>
+        <a href="/ar/refunds">الاسترداد</a>
+        <a href="/ar/cookies">ملفات تعريف الارتباط</a>
+        <a href="/ar/licenses">الشكر والتقدير</a>
+        <a href="/ar/privacy#delete">احذف بياناتي</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>Cubeon Launcher. للتواصل: <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon مشروع معجبين غير رسمي - غير تابع لـ Mojang أو Microsoft. وMinecraft علامة تجارية لـ Mojang AB. آخر تحديث للسياسات في 20 سبتمبر 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/site.js" defer></script>
+<script src="/assets/world.js" defer></script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

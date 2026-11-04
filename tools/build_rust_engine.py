@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 from cubeon.rust_engine import BUILD, VERSION, RELEASE_BASE, platform_tag
 
 SOURCE = ROOT / "native" / "cubeon-rust"
-PARITY = Path("mods/horizon/src/test/java/dev/horizonlab/parity")
+PARITY = Path("mods/cubeon/src/test/java/dev/cubeonlab/parity")
 
 
 def sha256(path):
@@ -42,7 +42,7 @@ def package(binary_dir, exporter_dir, destination):
         for name in ("research-lock.json", "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md"):
             shutil.copy2(SOURCE / name, stage)
         # Embedded fonts/icons and patched libraries retain their license texts.
-        license_roots = (SOURCE / "third_party", SOURCE / "crates/horizon-theme")
+        license_roots = (SOURCE / "third_party", SOURCE / "crates/cubeon-theme")
         for directory in license_roots:
             for file in directory.rglob("*"):
                 if file.is_file() and file.name.startswith(("LICENSE", "OFL-", "COPYING")):
@@ -51,7 +51,7 @@ def package(binary_dir, exporter_dir, destination):
                     shutil.copy2(file, target)
         shutil.copytree(SOURCE / PARITY, stage / PARITY)
         # key() fingerprints these original sources, even with shipped classes.
-        compiler = Path("crates/horizon-prepare/src/exporters.rs")
+        compiler = Path("crates/cubeon-prepare/src/exporters.rs")
         (stage / compiler).parent.mkdir(parents=True)
         shutil.copy2(SOURCE / compiler, stage / compiler)
         # Only original exporter classes; exclude temporary inputs/logs/caches.
@@ -61,7 +61,7 @@ def package(binary_dir, exporter_dir, destination):
             relative = source.relative_to(exporter_dir)
             if source.suffix == ".class":
                 if not str(relative).replace("\\", "/").startswith(
-                        ("client/dev/horizonlab/parity/", "server/dev/horizonlab/parity/")):
+                        ("client/dev/cubeonlab/parity/", "server/dev/cubeonlab/parity/")):
                     raise ValueError(f"Unexpected exporter class: {relative}")
             elif relative != Path("manifest.json"):
                 continue
@@ -103,8 +103,8 @@ def main():
     env = {**os.environ, "CUBEON_RUST_VERSION": BUILD}
     if not args.skip_build:
         subprocess.run(["cargo", "build", "--locked", "--manifest-path", str(SOURCE / "Cargo.toml"),
-                        "--profile", args.profile, "--jobs", str(args.jobs), "-p", "horizon-client",
-                        "--bin", "cubeon-rust", "-p", "horizon-prepare", "--bin", "cubeon-rust-prepare"],
+                        "--profile", args.profile, "--jobs", str(args.jobs), "-p", "cubeon-client",
+                        "--bin", "cubeon-rust", "-p", "cubeon-prepare", "--bin", "cubeon-rust-prepare"],
                        env=env, check=True)
     binaries = SOURCE / "target" / args.profile
     exporters = args.exporter_dir

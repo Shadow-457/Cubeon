@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="robots" content="noindex, follow" />
 <title>Getting started with Cubeon - install, first launch, versions</title>
 <meta name="description" content="Which Cubeon file to download, what the first launch asks for, how instances and Java work, and how to update the launcher." />
 <meta property="og:title" content="Getting started with Cubeon" />
@@ -19,7 +19,7 @@
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -60,11 +60,9 @@
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/getting-started" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/getting-started" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/getting-started" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/getting-started" />
 <link rel="alternate" hreflang="x-default" href="https://www.ylet.online/getting-started" />
-<link rel="canonical" href="https://www.ylet.online/uk/getting-started" />
-<meta property="og:url" content="https://www.ylet.online/uk/getting-started" />
+<link rel="canonical" href="https://www.ylet.online/getting-started" />
+<meta property="og:url" content="https://www.ylet.online/getting-started" />
 <!-- /cubeon:seo -->
 </head>
 <body>
@@ -78,16 +76,15 @@
       <!-- cubeon:language -->
 <div class="lang-menu">
   <details>
-    <summary aria-label="Мова: Українська"><span aria-hidden="true">🌐</span> UK</summary>
-    <nav class="lang-list" aria-label="Мова">
-          <a href="/uk/getting-started" hreflang="en" lang="en">English</a>
+    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
+    <nav class="lang-list" aria-label="Language">
+          <a href="/getting-started" hreflang="en" lang="en" aria-current="true">English</a>
           <a href="/ar/getting-started" hreflang="ar" lang="ar">العربية</a>
-          <a href="/uk/getting-started" hreflang="uk" lang="uk" aria-current="true">Українська</a>
-          <a href="/ru/getting-started" hreflang="ru" lang="ru">Русский</a>
     </nav>
   </details>
 </div>
 <!-- /cubeon:language -->
+
       <a href="/uk">Home</a>
       <a href="/uk/download">Download</a>
       <a href="/uk/docs" aria-current="page">Docs</a>
@@ -114,6 +111,7 @@
         <div class="docs-nav-group">
           <span class="docs-nav-label">Guides</span>
           <a class="docs-nav-link" href="/uk/docs">All guides</a>
+          <a class="docs-nav-link" href="/uk/minecraft-launcher">Choosing a launcher</a>
           <a class="docs-nav-link" href="/uk/getting-started" aria-current="page">Getting started</a>
           <a class="docs-nav-link" href="/uk/mods">Mods &amp; content</a>
           <a class="docs-nav-link" href="/uk/modpacks">Modpacks</a>

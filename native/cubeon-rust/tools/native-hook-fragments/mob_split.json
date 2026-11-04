@@ -2,7 +2,7 @@
   "hooks": [
     {
       "name": "mob_split",
-      "target": "horizon_client::game::native_hooks::Game<'_>::native_mob_split",
+      "target": "cubeon_client::game::native_hooks::Game<'_>::native_mob_split",
       "neoforge": "MobSplitEvent",
       "side": "server",
       "cancellable": true,

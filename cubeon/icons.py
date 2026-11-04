@@ -21,6 +21,8 @@ see src() below). Failure anywhere just degrades to the old behavior - a
 missing icon is cosmetic and must never surface as an error.
 """
 import base64
+import io
+from functools import lru_cache
 import os
 import threading
 from collections import OrderedDict
@@ -112,16 +114,71 @@ def peek_src(url):
         return cached[1] if cached else None
 
 
+@lru_cache(maxsize=64)
+def valid_source(source):
+    """Reject corrupt cached/embedded artwork before Flet gets its bytes."""
+    if not isinstance(source, str) or len(source) > 4 * 1024 * 1024:
+        return False
+    from PIL import Image
+    try:
+        encoded = source.split(',', 1)[1] if source.startswith('data:image/') else source
+        raw = base64.b64decode(encoded, validate=True)
+        with Image.open(io.BytesIO(raw)) as image:
+            if image.width * image.height > 4_194_304:
+                return False
+            image.load()
+        return True
+    except (OSError, ValueError, IndexError, Image.DecompressionBombError):
+        return False
+
+
 def load_source(url):
     """Resolve cached/downloaded artwork on a worker, without a second CDN fetch."""
     if not url:
         return None
-    prefetch(url)
+    path = _dest(url)
+    owned = False
     with _lock:
-        ready = _ready.get(_dest(url))
-    if ready:
+        ready = _ready.get(path)
+        if ready is None and not local_path(url):
+            _inflight.add(path)
+            _ready[path] = ready = threading.Event()
+            owned = True
+    if owned:
+        # IconLoader already owns a bounded worker: fetch here so its pooled
+        # session survives for the next image, without a second download thread.
+        from . import net
+        _download_icon(url, path, ready, net._do_get)
+    elif ready:
         ready.wait(12)
-    return src(url) if local_path(url) else None
+    source = src(url) if local_path(url) else None
+    return source if valid_source(source) else None
+
+
+def _download_icon(url, path, ready, get):
+    response = None
+    try:
+        if local_path(url):
+            return
+        response = get(url, headers=_HEADERS, timeout=(3, 7))
+        response.raise_for_status()
+        os.makedirs(ICON_DIR, exist_ok=True)
+        temporary = path + '.tmp'
+        with open(temporary, 'wb') as output:
+            output.write(response.content)
+        os.replace(temporary, path)
+    except Exception:
+        pass
+    finally:
+        if response is not None and callable(getattr(response, 'close', None)):
+            try:
+                response.close()
+            except Exception:
+                pass
+        with _lock:
+            _inflight.discard(path)
+            _ready.pop(path, None)
+            ready.set()
 
 
 def prefetch(url: str | None) -> None:
@@ -138,23 +195,7 @@ def prefetch(url: str | None) -> None:
         _ready[path] = ready = threading.Event()
 
     def _download():
-        try:
-            if local_path(url):
-                return
-            resp = requests.get(url, headers=_HEADERS, timeout=10)
-            resp.raise_for_status()
-            os.makedirs(ICON_DIR, exist_ok=True)
-            tmp = path + ".tmp"
-            with open(tmp, "wb") as f:
-                f.write(resp.content)
-            os.replace(tmp, path)
-        except Exception:
-            pass  # cosmetic: the row just falls back to the remote URL
-        finally:
-            with _lock:
-                _inflight.discard(path)
-                _ready.pop(path, None)
-                ready.set()
+        _download_icon(url, path, ready, requests.get)
 
     try:
         threading.Thread(target=_download, daemon=True).start()

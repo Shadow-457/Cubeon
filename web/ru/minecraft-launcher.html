@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, follow" />
+<title>Best Minecraft Launcher for Your Setup? | Cubeon Guide</title>
+<meta name="description" content="Choose a Minecraft launcher for Java Edition, mods and multiplayer. Compare Cubeon features, account requirements, platforms and what matters for FPS." />
+<meta property="og:title" content="Best Minecraft Launcher for Your Setup? | Cubeon Guide" />
+<meta property="og:description" content="Choose a Minecraft launcher for Java Edition, mods and multiplayer. Compare Cubeon features, account requirements, platforms and what matters for FPS." />
+<meta property="og:site_name" content="Cubeon Launcher" />
+<meta property="og:type" content="article" />
+<meta property="og:image" content="https://www.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="The Cubeon launcher shown over a Minecraft world: a version picker, an account name and a big green Play button." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
+<!-- cubeon:auto-language -->
+<script>
+(function () {
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
+  if (location.protocol === 'file:') return;
+  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
+  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
+  if (m) cur = m[1];
+  function search() {
+    var out = '', q;
+    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
+    return (out ? '?' + out : '') + location.hash;
+  }
+  function urlFor(code) {
+    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
+    if (rest === '/index.html') rest = '/';
+    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
+    return (code === 'en' ? '' : '/' + code) + rest + search();
+  }
+  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
+  var q = null;
+  try { q = new URLSearchParams(location.search); } catch (e) {}
+  if (q && q.get('lang') && names[q.get('lang')]) {
+    pref = q.get('lang');
+    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
+    location.replace(urlFor(pref));
+    return;
+  }
+  if (!pref) {
+    var list = navigator.languages || [navigator.language || ''];
+    for (var i = 0; i < list.length; i++) {
+      var code = String(list[i]).toLowerCase().split('-')[0];
+      if (names[code]) { pref = code; break; }
+    }
+  }
+  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
+})();
+</script>
+<!-- /cubeon:auto-language -->
+<link rel="stylesheet" href="/assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://www.ylet.online/minecraft-launcher#webpage",
+      "url": "https://www.ylet.online/minecraft-launcher",
+      "name": "Best Minecraft Launcher for Your Setup? | Cubeon Guide",
+      "description": "Choose a Minecraft launcher for Java Edition, mods and multiplayer. Compare Cubeon features, account requirements, platforms and what matters for FPS.",
+      "isPartOf": {
+        "@id": "https://www.ylet.online/#website"
+      },
+      "mainEntity": {
+        "@id": "https://www.ylet.online/minecraft-launcher#guide"
+      },
+      "breadcrumb": {
+        "@id": "https://www.ylet.online/minecraft-launcher#breadcrumb"
+      }
+    },
+    {
+      "@type": "Article",
+      "@id": "https://www.ylet.online/minecraft-launcher#guide",
+      "headline": "Choosing the best Minecraft launcher",
+      "description": "Choose a Minecraft launcher for Java Edition, mods and multiplayer. Compare Cubeon features, account requirements, platforms and what matters for FPS.",
+      "mainEntityOfPage": {
+        "@id": "https://www.ylet.online/minecraft-launcher#webpage"
+      },
+      "author": {
+        "@id": "https://www.ylet.online/#organization"
+      },
+      "publisher": {
+        "@id": "https://www.ylet.online/#organization"
+      },
+      "about": {
+        "@id": "https://www.ylet.online/#launcher"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://www.ylet.online/minecraft-launcher#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://www.ylet.online/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Docs",
+          "item": "https://www.ylet.online/docs"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "Choosing a launcher",
+          "item": "https://www.ylet.online/minecraft-launcher"
+        }
+      ]
+    }
+  ]
+}
+</script>
+<!-- cubeon:seo -->
+<link rel="alternate" hreflang="en" href="https://www.ylet.online/minecraft-launcher" />
+<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/minecraft-launcher" />
+<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/minecraft-launcher" />
+<link rel="canonical" href="https://www.ylet.online/minecraft-launcher" />
+<meta property="og:url" content="https://www.ylet.online/minecraft-launcher" />
+<!-- /cubeon:seo -->
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="/ru" aria-label="Cubeon home"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">&#9776;</button>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <!-- cubeon:language -->
+<div class="lang-menu">
+  <details>
+    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
+    <nav class="lang-list" aria-label="Language">
+          <a href="/minecraft-launcher" hreflang="en" lang="en" aria-current="true">English</a>
+          <a href="/ar/minecraft-launcher" hreflang="ar" lang="ar">العربية</a>
+    </nav>
+  </details>
+</div>
+<!-- /cubeon:language -->
+
+      <a href="/ru">Home</a>
+      <a href="/ru/download">Download</a>
+      <a href="/ru/docs" aria-current="page">Docs</a>
+      <a href="/ru/doctor">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="/ru/download">Get Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="/ru">Home</a> / <a href="/ru/docs">Docs</a> / Choosing a launcher</p>
+      <h1>Choosing the best Minecraft launcher</h1>
+      <p class="lede">The best Minecraft launcher for your setup depends on your game edition, account, mods and computer. This Cubeon guide helps you check those requirements before installing.</p>
+    </div>
+  </header>
+  <div class="docs-wrap">
+    <aside class="docs-sidebar" aria-label="Docs navigation">
+      <nav aria-label="Docs guides">
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">Guides</span>
+          <a class="docs-nav-link" href="/ru/docs">All guides</a>
+          <a class="docs-nav-link" href="/ru/minecraft-launcher" aria-current="page">Choosing a launcher</a>
+          <a class="docs-nav-link" href="/ru/getting-started">Getting started</a>
+          <a class="docs-nav-link" href="/ru/mods">Mods &amp; content</a>
+          <a class="docs-nav-link" href="/ru/modpacks">Modpacks</a>
+          <a class="docs-nav-link" href="/ru/multiplayer">Playing together</a>
+          <a class="docs-nav-link" href="/ru/troubleshooting">Crashes &amp; fixes</a>
+          <a class="docs-nav-link" href="/ru/files">Files &amp; backups</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">On this page</span>
+          <a class="docs-nav-link" href="#edition-account">Edition and account</a>
+          <a class="docs-nav-link" href="#requirements">Feature comparison</a>
+          <a class="docs-nav-link" href="#mods">Mods and modpacks</a>
+          <a class="docs-nav-link" href="#fps">Performance and FPS</a>
+          <a class="docs-nav-link" href="#checklist">Before you download</a>
+        </div>
+      </nav>
+    </aside>
+    <article class="docs-main">
+      <div class="docs-section" id="edition-account">
+        <h2>Start with your Minecraft edition and account</h2>
+        <p>A Minecraft launcher installs and starts the game, selects versions and configures how they run. Some launchers also manage mods, modpacks and separate instances. A free launcher does not include a Minecraft license.</p>
+        <p><strong>Cubeon Launcher is a free, open-source Minecraft Java Edition launcher for Windows, Linux and macOS.</strong> It brings compatible mod loaders, mods, modpacks, skins and friends into one desktop app. Read the <a href="/ru/about">official Cubeon project facts</a> for its source license and supported profiles.</p>
+        <p>Check your server first. Cubeon uses local/offline player profiles and does not provide Microsoft sign-in. Servers requiring Microsoft authentication cannot accept these profiles. If that sign-in or Bedrock Edition is essential, check the <a href="https://www.minecraft.net/en-us/download">official Minecraft launcher</a> and your account's game entitlement.</p>
+      </div>
+      <hr class="docs-divider">
+      <div class="docs-section" id="requirements">
+        <h2>Compare the features you will actually use</h2>
+        <p>Use these requirements to decide whether Cubeon fits your play style. Platform support, authentication and mod compatibility matter more than a universal ranking.</p>
+        <div class="docs-table-wrap" role="region" tabindex="0" aria-label="Minecraft launcher requirements comparison">
+          <table class="docs-table">
+            <caption>Launcher requirements and Cubeon support</caption>
+            <thead><tr><th scope="col">Requirement</th><th scope="col">Cubeon support</th><th scope="col">What to check</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Game edition</th><td>Minecraft Java Edition; Bedrock is not supported.</td><td>Use the edition your world and friends play.</td></tr>
+              <tr><th scope="row">Player account</th><td>Local/offline profiles; Microsoft sign-in is not available.</td><td><a href="/ru/multiplayer#offline">Check the server's authentication rules</a>.</td></tr>
+              <tr><th scope="row">Desktop platform</th><td>Windows, Linux and macOS downloads.</td><td><a href="/ru/download">Choose the file for your system</a> and compatible Java.</td></tr>
+              <tr><th scope="row">Mod loaders</th><td>Vanilla, Fabric, Quilt, Forge and NeoForge instances.</td><td>Match the loader and Minecraft version required by each mod.</td></tr>
+              <tr><th scope="row">Modpacks</th><td>Browse packs and import supported pack files.</td><td><a href="/ru/modpacks">Check the pack format and installation guide</a>.</td></tr>
+              <tr><th scope="row">Worlds and settings</th><td>Per-instance game folders and backup tools.</td><td><a href="/ru/files">Check folder locations and back up your worlds</a> before changing setups.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <hr class="docs-divider">
+      <div class="docs-section" id="mods">
+        <h2>Choosing a Minecraft launcher for mods and modpacks</h2>
+        <p>A loader's name alone is not enough. A Fabric mod for one Minecraft release may not work with another release, and a Forge build cannot simply be installed into a Fabric instance. Start with the version and loader listed by the mod or pack author.</p>
+        <p>Cubeon can install supported loaders and browse mods, resource packs and shaders. Mods need compatible modded instances; Vanilla accepts resource packs. Shaders also need a compatible setup such as Iris. The <a href="/ru/mods">mods and shaders guide</a> covers dependencies, installation and repair.</p>
+        <p>For a complete pack, follow the <a href="/ru/modpacks">modpack guide</a> and keep its recommended game version. Separate instances help organize setups, but shared content still needs compatibility checks. Back up saves before switching a world's game version or modpack.</p>
+      </div>
+      <hr class="docs-divider">
+      <div class="docs-section" id="fps">
+        <h2>Does a Minecraft launcher improve FPS?</h2>
+        <p>A launcher can configure Java, memory and compatible performance mods. Your GPU, CPU, graphics drivers, world, render distance, shaders and installed mods still determine much of the result. A launcher name cannot guarantee higher FPS on every computer.</p>
+        <p>Cubeon provides memory settings and compatible performance-mod setup. Start with the <a href="/ru/getting-started#fps-boost">FPS boost guide</a>. Increasing RAM without checking the computer's available memory can make performance worse.</p>
+        <p>When comparing launchers, keep the game version, world, mods, Java, memory, render distance, graphics settings, VSync and FPS limit the same. Include frame-time consistency as well as average FPS. The <a href="/ru/benchmarks">Cubeon benchmark page</a> gives the conditions and limits of its published measurements.</p>
+      </div>
+      <hr class="docs-divider">
+      <div class="docs-section" id="checklist">
+        <h2>Before you download Cubeon</h2>
+        <ol>
+          <li>Confirm you play Java Edition and your server accepts local/offline profiles.</li>
+          <li>Choose the download for Windows, Linux or macOS from the official download page.</li>
+          <li>Check the Minecraft version and loader required by your mods or modpack.</li>
+          <li>Back up worlds you want to keep before moving files or changing game versions.</li>
+          <li>Follow the first-launch guide for Java and memory settings, then test your own setup.</li>
+        </ol>
+        <p><a href="/ru/download">Download Cubeon Minecraft Launcher</a> and follow the <a href="/ru/getting-started">installation and first-launch guide</a>. If something fails, use <a href="/ru/troubleshooting">the troubleshooting guide</a> or <a href="/ru/doctor">Cubeon Doctor</a> with the actual crash report.</p>
+      </div>
+    </article>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="/ru"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="/ru">Home</a>
+        <a href="/ru/download">Download</a>
+        <a href="/ru/docs">Docs</a>
+        <a href="/ru/doctor">Doctor</a>
+      <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>Privacy &amp; rules</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="/ru/privacy">Privacy</a>
+        <a href="/ru/terms">Terms</a>
+        <a href="/ru/refunds">Refunds</a>
+        <a href="/ru/cookies">Cookies</a>
+        <a href="/ru/licenses">Credits</a>
+        <a href="/ru/privacy#delete">Delete my data</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>Cubeon Launcher. Contact <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/site.js" defer></script>
+<script src="/assets/world.js" defer></script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

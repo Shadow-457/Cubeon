@@ -93,7 +93,7 @@ class LauncherUpdates(unittest.TestCase):
                 self.assertFalse(thread.is_alive())
         callback.assert_not_called()
 
-    def test_actual_announcer_prompts_despite_saved_notice_and_ignores_closed_page(self):
+    def test_actual_announcer_remembers_skip_and_manual_check_can_reoffer(self):
         page = FakePage()
         active = threading.Event()
         active.set()
@@ -110,11 +110,31 @@ class LauncherUpdates(unittest.TestCase):
             self.assertEqual(len(page.shown), 1)
             self.assertIsNotNone(holder["value"])
             holder["value"].skip.on_click(None)
-            active.clear()
+            self.assertEqual(namespace['cfg'][updater.SKIPPED_VERSION_KEY], '2.0.0')
             announce(release())
             self.assertEqual(len(page.shown), 1)
+            announce(release(), manual=True)
+            self.assertEqual(len(page.shown), 2)
+            announce(release(), manual=True)
+            self.assertEqual(len(page.shown), 2)
+            active.clear()
+            announce(release())
+            self.assertEqual(len(page.shown), 2)
             download.assert_not_called()
-        namespace["core"].save_config.assert_not_called()
+        namespace["core"].save_config.assert_called_once()
+
+    def test_current_version_comparison_is_dynamic_and_same_or_older_never_prompts(self):
+        response = Mock()
+        page = FakePage()
+        with patch.object(updater, 'APP_VERSION', '2.0.0'), patch.object(updater.requests, 'get', return_value=response):
+            for version in ('2.0.0', '1.9.9', 'rust-26.3-beta.1', ''):
+                response.json.return_value = {'tag_name': version}
+                self.assertIsNone(updater.check_for_updates())
+                self.assertFalse(updater.should_prompt({}, version, manual=True))
+                self.assertIsNone(UpdatePrompt(page, release(version=version), busy=lambda: False, install=Mock()).open())
+            self.assertEqual(page.shown, [])
+            response.json.return_value = {'tag_name': 'v2.0.1'}
+            self.assertEqual(updater.check_for_updates()['version'], '2.0.1')
 
     def test_exit_handoff_starts_one_helper_even_if_exit_paths_race(self):
         namespace = {"_pending_app_update": {"job": {"fixture": True}},
@@ -141,7 +161,7 @@ class LauncherUpdates(unittest.TestCase):
             self.assertEqual(prompt.phase, "skipped")
             download.assert_not_called()
             install.assert_not_called()
-            # A later startup can offer the SAME version; saved OS notice is irrelevant.
+            # Standalone prompts have no config; main owns persistent dismissal.
             UpdatePrompt(FakePage(), release(), busy=lambda: False, install=install).open()
 
     def test_one_update_click_installs_and_failed_close_is_retryable(self):

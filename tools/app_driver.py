@@ -150,6 +150,13 @@ class Driver:
         return out
 
     def open_tab(self, key):
+        if key == 'modpacks':
+            if not self.open_tab('mods'):
+                return False
+            for control in every_control(self.page):
+                if getattr(control, 'data', None) == 'content-modpack':
+                    return self._fire_named(control, 'on_click', 'open_tab:modpacks')
+            return False
         for c in every_control(self.page):
             h = getattr(c, "on_click", None)
             d = getattr(h, "__defaults__", None)

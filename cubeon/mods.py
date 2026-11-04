@@ -1009,9 +1009,7 @@ def _safe_download_filename(raw_name: str | None) -> str:
 
 def add_mod_file(mc_version: str | None, loader: str | None, src_path: str,
                  version_id: str | None = None) -> None:
-    profile_dir = get_profile_dir(mc_version, loader, version_id)
-    fname = _safe_jar_filename(os.path.basename(src_path))
-    global_mod_cache.put_file(src_path, os.path.join(profile_dir, fname))
+    install_local_mod(src_path, mc_version, loader, version_id=version_id)
 
 
 def _open_folder(path: str) -> None:
@@ -1032,43 +1030,22 @@ def open_mods_folder(mc_version: str | None, loader: str | None,
 
 
 def install_local_mod(src_path: str, mc_version: str | None, loader: str | None,
-                      superseded_cb=None, version_id: str | None = None) -> str:
+                      superseded_cb=None, version_id: str | None = None, *, replace=False) -> str:
     """Installs a local .jar file into the (mc_version, loader) profile,
     the same destination download_mod() writes to. Used by the 'Install from
     file' button so the user can add a mod they already have on disk without
     going through Modrinth. The jar is stored once in the global mods store
     (a second profile wanting the same file links it, no copy) and the
     profile holds a link to it. Returns the filename it was stored as."""
-    if not src_path.lower().endswith(".jar"):
-        raise ValueError("That's not a .jar file.")
-    if not os.path.isfile(src_path):
-        raise ValueError("Couldn't find that file.")
-    require_mod_loader(mc_version, loader, "install a mod")
-    import zipfile
-    if not zipfile.is_zipfile(src_path):
-        raise ValueError("That mod is not a readable JAR archive.")
-
-    profile_dir = get_profile_dir(mc_version, loader, version_id)
-    filename = _safe_jar_filename(os.path.basename(src_path))
-    dest = os.path.join(profile_dir, filename)
-
-    # Avoid clobbering an existing mod with the same filename - add a
-    # short suffix instead of silently overwriting someone's install.
-    if os.path.exists(dest):
-        base, ext = os.path.splitext(filename)
-        filename = f"{base}_{uuid.uuid4().hex[:6]}{ext}"
-        dest = os.path.join(profile_dir, filename)
-
-    global_mod_cache.put_file(src_path, dest)
-    # No slug - this mod wasn't matched to a Modrinth project, so there's
-    # nothing meaningful to record in the sidecar file. An older build of the
-    # same mod can still be recognized by filename stem and is disabled (not
-    # deleted - a hand-added jar may be the only copy the user has).
-    _write_meta(profile_dir, filename, None)
-    moved = supersede_older_copies(profile_dir, filename)
+    from .local_mods import review_files, import_entry
+    entry = review_files([src_path], mc_version, loader, version_id=version_id)['entries'][0]
+    if entry['status'] == 'blocked':
+        raise ValueError(entry['detail'])
+    result = import_entry(entry, mc_version, loader, version_id=version_id, replace=replace)
+    moved = result.get('replaced', [])
     if moved and superseded_cb:
         superseded_cb(moved)
-    return filename
+    return result['filename']
 
 
 # ---------------------------------------------------------------------------
@@ -1091,38 +1068,8 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
     was actually selected on the Play tab."""
     require_loader_and_version(mc_version, loader, "sync mods to the game")
 
-    os.makedirs(MODS_DIR, exist_ok=True)
-    previously_synced = _read_synced_manifest()
-    for fname in os.listdir(MODS_DIR):
-        full = os.path.join(MODS_DIR, fname)
-        if not os.path.isfile(full) or not fname.endswith(".jar"):
-            continue
-        if fname in previously_synced:
-            # Ours: safe to remove and replace with this launch's profile.
-            try:
-                os.remove(full)
-            except FileNotFoundError:
-                pass
-            except PermissionError as ex:
-                # Windows keeps jars open while the game runs. Deleting one is
-                # not optional (it would let the old profile leak into this
-                # launch), so say exactly what to do instead of crashing with
-                # a raw PermissionError.
-                raise RuntimeError(
-                    "Another Minecraft window is using these mods - close it "
-                    "and try again") from ex
-        else:
-            # Not ours: the user dropped it in by hand. Keep it, out of the
-            # way, instead of wiping it on every launch.
-            _backup_user_jar(fname)
-
-    if loader not in MOD_CAPABLE_LOADERS:
-        # Vanilla (or an unrecognized loader) doesn't load mods - leave MODS_DIR
-        # empty, and record that we linked nothing.
-        write_json(os.path.join(MODS_DIR, _SYNC_MANIFEST), {"files": []})
-        return
-
-    profile_dir = get_profile_dir(mc_version, loader, version_id)
+    profile_dir = (get_profile_dir(mc_version, loader, version_id)
+                   if loader in MOD_CAPABLE_LOADERS else None)
 
     # One jar per mod, even if the profile holds several builds of it.
     #
@@ -1139,9 +1086,9 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
     # So: group the enabled jars by identity and link only the build Fabric
     # would have chosen anyway. Nothing in the profile is modified - a profile
     # is the user's data and this runs on every launch; the loser simply isn't
-    # copied into a folder that gets wiped and rebuilt each time regardless.
+    # staged into the game folder.
     chosen: dict = {}
-    for fname in sorted(os.listdir(profile_dir)):
+    for fname in sorted(os.listdir(profile_dir)) if profile_dir else ():
         if not fname.endswith(".jar"):  # skips *.jar.disabled and metadata
             continue
         # A profile entry whose link target is gone (store file deleted/moved,
@@ -1168,8 +1115,42 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
         else:
             chosen[("file", fname)] = fname
 
+    os.makedirs(MODS_DIR, exist_ok=True)
+    previously_synced = _read_synced_manifest()
+    wanted = set(chosen.values())
+    retained = set()
+    for fname in os.listdir(MODS_DIR):
+        full = os.path.join(MODS_DIR, fname)
+        if not fname.endswith(".jar") or not os.path.lexists(full):
+            continue
+        if not os.path.isfile(full) and not os.path.islink(full):
+            continue
+        if fname in previously_synced:
+            # Keep only this profile's exact file, never a filename/mtime guess.
+            # Unchanged relaunches avoid relinking jars and changing their ctime.
+            if fname in wanted:
+                try:
+                    if os.path.samefile(os.path.join(profile_dir, fname), full):
+                        retained.add(fname)
+                        continue
+                except OSError:
+                    pass
+            try:
+                os.remove(full)
+            except FileNotFoundError:
+                pass
+            except PermissionError as ex:
+                raise RuntimeError(
+                    "Another Minecraft window is using these mods - close it "
+                    "and try again") from ex
+        else:
+            _backup_user_jar(fname)
+
     synced: list[str] = []
     for fname in sorted(chosen.values()):
+        if fname in retained:
+            synced.append(fname)
+            continue
         src = os.path.join(profile_dir, fname)
         dst = os.path.join(MODS_DIR, fname)
         # Hard link first: profile and mods live on the same disk, so the game
@@ -1197,8 +1178,10 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
 
     # Remember exactly what we linked, so the NEXT launch can tell our jars
     # from files the user added by hand.
-    write_json(os.path.join(MODS_DIR, _SYNC_MANIFEST),
-               {"files": sorted(synced)})
+    if set(synced) != previously_synced or not os.path.isfile(
+            os.path.join(MODS_DIR, _SYNC_MANIFEST)):
+        write_json(os.path.join(MODS_DIR, _SYNC_MANIFEST),
+                   {"files": sorted(synced)})
 
 
 def copy_mods_between_profiles(
@@ -1977,6 +1960,7 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                     "depends": d.get("depends") or {},
                     "breaks": d.get("breaks") or {},
                     "loaders": ["fabric", "quilt"],
+                    "environment": d.get("environment"),
                     "provided": {identity.lower(): str(d.get("version") or "")
                                  for identity in d.get("provides", []) if isinstance(identity, str)},
                 }

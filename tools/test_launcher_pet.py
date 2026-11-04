@@ -111,8 +111,11 @@ class PetTests(unittest.TestCase):
             if pet.state == 'rest' and pet._rest_kind == 'button':
                 break
         self.assertEqual(pet._rest_kind, 'button')
-        pet.resize(1100, 740)
+        pet.resize(1200, 740)
         self.assertEqual(pet.y + SIZE, 740 - 287)
+        pet.resize(1100, 740)
+        self.assertEqual(pet._rest_kind, 'floor')
+        self.assertFalse(any(kind == 'button' for _, _, kind in pet.route))
         pet.resize(960, 600)
         self.assertEqual(pet._rest_kind, 'floor')
         self.assertEqual(pet.y, 600 - SIZE - 12)

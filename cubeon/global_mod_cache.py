@@ -20,8 +20,8 @@ Layout:
         before resolve straight to a store hit *before* any network request.
 
 The store sits at <game dir>/global_mods, deliberately OUTSIDE <game
-dir>/mods: the game folder's mods/ is wiped and rebuilt from the active
-profile at every launch, so the store must never be touched by that sync.
+dir>/mods: the game folder's mods/ is reconciled with the active profile
+at every launch, so the store must never be touched by that sync.
 
 SYMLINK ENGINE
     Placing a stored jar into a profile is a real OS symlink
@@ -158,6 +158,11 @@ def link_into_place(cached_path: str, dest_path: str) -> None:
 
     Logs which strategy succeeded so the user can tell whether their
     filesystem is doing symlinks, hardlinks, or copies."""
+    try:
+        if os.path.samefile(cached_path, dest_path):
+            return
+    except OSError:
+        pass  # Missing or stale destination: publish the verified store file.
     parent = os.path.dirname(os.path.abspath(dest_path))
     os.makedirs(parent, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".link-", dir=parent) as staging:

@@ -1,6 +1,14 @@
 """Russian (ru). Keys are the English source strings - see cubeon/lang/__init__.py."""
 
 TABLE = {
+    'Appearance': 'Оформление',
+    'Fix problems': 'Исправить проблемы',
+    'Theme and decorations': 'Тема и украшения',
+    'Upload profile picture': 'Загрузить фото профиля',
+    'Remove profile picture': 'Удалить фото профиля',
+    'Import mods': 'Импорт модов',
+    'Import packs': 'Импорт пакетов',
+    'Import shaders': 'Импорт шейдеров',
     'Choose icon': 'Выбрать значок',
     'Blocks': 'Блоки',
     'Mob heads': 'Головы мобов',

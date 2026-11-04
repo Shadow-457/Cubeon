@@ -13,7 +13,9 @@
     "SodiumLegacyDistanceMixin",
     "SodiumDistanceMixin",
     "AutoSprintMixin",
-    "ComboDamageMixin"
+    "ComboDamageMixin",
+    "CosmeticLayersAccessor",
+    "CosmeticElytraMixin"
   ],
   "injectors": {
     "defaultRequire": 0

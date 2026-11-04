@@ -2,7 +2,7 @@ name: Build Cubeon Rust beta artifacts
 
 on:
   push:
-    branches: [rust-beta-26.3]
+    branches: [main]
     paths:
       - 'native/cubeon-rust/**'
       - 'cubeon/rust_engine.py'
@@ -62,7 +62,7 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
           native/cubeon-rust/target/fast/cubeon-rust$suffix --launch-api > build/rust-engine/launch-api.json
           python -c 'import json; d=json.load(open("build/rust-engine/launch-api.json")); assert "session" not in str(d).lower(), d'
-          cargo test --locked --manifest-path native/cubeon-rust/Cargo.toml --profile fast --jobs 2 -p horizon-prepare -- --test-threads=2
+          cargo test --locked --manifest-path native/cubeon-rust/Cargo.toml --profile fast --jobs 2 -p cubeon-prepare -- --test-threads=2
       - uses: actions/upload-artifact@v4
         with:
           name: cubeon-rust-${{ matrix.platform }}

@@ -33,9 +33,14 @@ public final class CosmeticRenderLayer
 
     private final CosmeticAnimation.PosedQuad posed = new CosmeticAnimation.PosedQuad();
 
+    private boolean replacesElytra;
+
+    public void enableElytraReplacement() { replacesElytra = true; }
+
     @Override
     public void submit(PoseStack pose, SubmitNodeCollector collector, int light,
                        AvatarRenderState state, float limbAngle, float limbDistance) {
+        CosmeticElytra.begin(state);
         CosmeticView view = CosmeticPlayers.view(state.id, state.ageInTicks / 20.0f, state.isFallFlying);
         if (view == null) return;
         CosmeticCatalog.Catalog catalog = CosmeticCatalog.get();
@@ -89,5 +94,6 @@ public final class CosmeticRenderLayer
                 }
             }
         });
+        if (replacesElytra) CosmeticElytra.drawn(item);
     }
 }

@@ -7,7 +7,7 @@ from . import icons, thread_safe_ui
 
 
 class IconLoader:
-    def __init__(self, *, workers=4, limit=128, read=None):
+    def __init__(self, *, workers=8, limit=128, read=None):
         self.workers, self.limit = workers, limit
         self.read = read or icons.load_source
         self._lock = threading.Lock()

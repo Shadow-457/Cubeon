@@ -6,8 +6,7 @@ were a mix of checkboxes, switches, loose buttons and boxed panels, and the
 account strip sat above everything and ate the height.
 
 What it is now:
-- ONE rail of sections on the left (Account, Game, Performance, Display,
-  Seasonal, System, Doctor, Screenshots) and the active section on the right.
+- ONE rail of four sections (Account, Game, Performance, Appearance).
   Account is a section here, not a strip above the rail.
 - ONE row pattern everywhere: a title, at most one short grey line, and the
   control on the right. Rows live in a group card and are separated by hairline
@@ -33,17 +32,12 @@ from cubeon.theme import (
     RADIUS, RADIUS_LG, attach_hover, ROW_HOVER, ACCENT_TINT, TEXT_FAINT,
 )
 
-# (key, icon, label). Order = display order. The keys are unchanged so deep
-# links (the seasonal badge uses "seasonal") keep working; "account" is new.
+# Old deep-link keys are resolved to these four sections below.
 SECTIONS = [
     ("account", ft.Icons.PERSON_ROUNDED, "Account"),
     ("versions", ft.Icons.SPORTS_ESPORTS_ROUNDED, "Game"),
     ("memory", ft.Icons.MEMORY_ROUNDED, "Performance"),
-    ("display", ft.Icons.MONITOR_ROUNDED, "Display"),
-    ("seasonal", ft.Icons.PARK_ROUNDED, "Seasonal"),
-    ("system", ft.Icons.TUNE_ROUNDED, "System"),
-    ("doctor", ft.Icons.MEDICAL_SERVICES_ROUNDED, "Doctor"),
-    ("images", ft.Icons.PHOTO_LIBRARY_ROUNDED, "Screenshots"),
+    ("appearance", ft.Icons.PALETTE_ROUNDED, "Appearance"),
 ]
 
 # The rail's motion: the section tint fades and its icon lifts one step.
@@ -521,8 +515,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # Labels are translated at build time; the KEYS are not - deep links (the
     # seasonal badge uses "seasonal") key off them. A language change lands on
     # the next start, like the rest of the chrome.
-    sections = [(key, icon, i18n.t(label)) for key, icon, label in SECTIONS
-                if key != "account" or account_pane is not None]
+    sections = [(key, icon, i18n.t(label)) for key, icon, label in SECTIONS]
     active_section = {"value": sections[0][0]}
 
     def row(title, subtitle, control):
@@ -739,7 +732,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # SEASONAL
     # ======================================================================
     seasonal_pane = pane(
-        i18n.t("Seasonal"),
+        i18n.t("Theme and decorations"),
         block(i18n.t("Look"), group([
             row("Seasonal look",
                 "Colours that follow the season in your timezone",
@@ -1048,7 +1041,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             return
         if not callable(doctor_target):
             doctor_lock.release()
-            _doctor_set_status("The Doctor isn't available in this build")
+            _doctor_set_status("Problem checks aren't available in this build")
             return
         from cubeon.doctor_ui import start_doctor_worker
 
@@ -1124,7 +1117,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     ]))
 
     doctor_pane = pane(
-        i18n.t("Doctor"),
+        i18n.t("Fix problems"),
         rendering_recovery,
         ft.Text(
             "Checks launch settings, mods, resource packs, shaders, modpacks "
@@ -1154,17 +1147,40 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     images_pane = ft.Container(content=screenshot_gallery, height=620)
 
-    panes = {
-        "versions": versions_pane,
-        "memory": performance_pane,
-        "display": display_pane,
-        "seasonal": seasonal_pane,
-        "system": system_pane,
-        "doctor": doctor_pane,
-        "images": images_pane,
-    }
-    if account_section is not None:
-        panes["account"] = account_section
+    # Reuse the controls and callbacks; regrouping must not mount a control twice.
+    welcome, notifications, updates, files, backups, links = system_pane.controls[2:]
+    game_window, launcher_appearance = display_pane.controls[2:]
+    if account_section is None:
+        account_section = pane("Account")
+    account_section.controls.extend([updates, notifications, welcome, links])
+    versions_pane.controls.extend([game_window, files, backups])
+
+    def disclosure(label, content, *, data, opened=None):
+        content.visible = False
+        action = ft.TextButton(i18n.t(label), icon=ft.Icons.EXPAND_MORE_ROUNDED, data=data)
+        def toggle(_event=None):
+            with thread_safe_ui.TREE_LOCK:
+                content.visible = not content.visible
+                action.icon = ft.Icons.EXPAND_LESS_ROUNDED if content.visible else ft.Icons.EXPAND_MORE_ROUNDED
+                if content.visible and opened:
+                    opened()
+                thread_safe_ui.refresh(host)
+        action.on_click = toggle
+        host = ft.Column([action, content], spacing=8)
+        return host, action
+
+    doctor_pane.controls = doctor_pane.controls[2:]
+    fixes_group, fixes_button = disclosure('Fix problems', doctor_pane, data='settings-fix-problems')
+    screenshots_group, screenshots_button = disclosure(
+        'Screenshots', images_pane, data='settings-screenshots', opened=refresh_screenshot_gallery)
+    performance_pane.controls.append(fixes_group)
+    appearance_pane = pane('Appearance', launcher_appearance,
+                           block('Theme and decorations', ft.Column(seasonal_pane.controls[2:], spacing=16)),
+                           screenshots_group)
+    panes = {'account': account_section, 'versions': versions_pane,
+             'memory': performance_pane, 'appearance': appearance_pane}
+    aliases = {'display': 'appearance', 'seasonal': 'appearance', 'images': 'appearance',
+               'doctor': 'memory', 'system': 'account'}
     for key, p in panes.items():
         p.visible = (key == active_section["value"])
 
@@ -1174,11 +1190,15 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     rail_items = {}   # key -> the row Container, built once (see _rebuild_rail)
 
     def _select_section(key):
+        requested = key
+        key = aliases.get(key, key)
         if key not in panes:
             return
         active_section["value"] = key
-        if key == "images" and callable(refresh_screenshot_gallery):
-            refresh_screenshot_gallery()
+        if requested == 'images' and not images_pane.visible:
+            screenshots_button.on_click(None)
+        if requested == 'doctor' and not doctor_pane.visible:
+            fixes_button.on_click(None)
         for k, p in panes.items():
             p.visible = (k == key)
         _rebuild_rail()

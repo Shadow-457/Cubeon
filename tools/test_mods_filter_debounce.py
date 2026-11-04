@@ -89,7 +89,9 @@ def fake_mods():
 
 
 stubs = fz.install_safe_stubs()
-stubs.core.get_installed_versions = lambda: [{"id": "1.20.1", "type": "release"}]
+stubs.core.get_installed_versions = lambda: [{"id": "fabric-loader-0.16.9-1.20.1", "type": "release", 'loader': 'fabric'}]
+load_config = stubs.core.load_config
+stubs.core.load_config = lambda: dict(load_config(), last_version='fabric-loader-0.16.9-1.20.1')
 stubs.core.list_mods = lambda *a, **k: fake_mods()
 page = app_driver.DriverPage()
 stubs.app.run_sync(page)
@@ -179,7 +181,7 @@ check("clearing does not rebuild instantly", immediate == 0,
       f"{immediate} rebuild(s)")
 check("clearing repaints the unfiltered list once", after_window == 1,
       f"{after_window} rebuild(s)")
-check("the whole list is back (5 rows + Show all)", len(list_view.controls) == 6,
+check("the whole list is back within screen capacity", len(list_view.controls) == len(NAMES),
       f"{len(list_view.controls)} rows")
 
 print()

@@ -1,6 +1,14 @@
 """Spanish (es). Keys are the English source strings - see cubeon/lang/__init__.py."""
 
 TABLE = {
+    'Appearance': 'Apariencia',
+    'Fix problems': 'Solucionar problemas',
+    'Theme and decorations': 'Tema y decoración',
+    'Upload profile picture': 'Subir foto de perfil',
+    'Remove profile picture': 'Eliminar foto de perfil',
+    'Import mods': 'Importar mods',
+    'Import packs': 'Importar packs',
+    'Import shaders': 'Importar shaders',
     'Choose icon': 'Elegir icono',
     'Blocks': 'Bloques',
     'Mob heads': 'Cabezas de criaturas',

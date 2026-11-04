@@ -35,10 +35,15 @@ public final class CosmeticFeatureRenderer
 
     private final CosmeticAnimation.PosedQuad posed = new CosmeticAnimation.PosedQuad();
 
+    private boolean replacesElytra;
+
+    public void enableElytraReplacement() { replacesElytra = true; }
+
     @Override
     public void render(MatrixStack matrices, VertexConsumerProvider vertexConsumers,
                        int light, PlayerEntityRenderState state, float limbAngle,
                        float limbDistance) {
+        CosmeticElytra.begin(state);
         CosmeticView view = CosmeticPlayers.view(state.id, state.age / 20.0f, state.isGliding);
         if (view == null) return;
         draw(matrices, vertexConsumers, light, view);
@@ -99,5 +104,6 @@ public final class CosmeticFeatureRenderer
                         .normal(entry, posed.normalX, posed.normalY, posed.normalZ);
             }
         }
+        if (replacesElytra) CosmeticElytra.drawn(item);
     }
 }

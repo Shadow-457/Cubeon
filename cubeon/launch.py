@@ -1266,47 +1266,20 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                                                        version_id=version_id)
             if pruned and status_cb:
                 status_cb("Removed extra perf mods")
-            # The game is not running yet (the JVM starts further down), so
-            # options.txt can be edited safely. Deliberately NO Vsync/maxFps
-            # rewrite here (2026-10-24): forcing `enableVsync:false` +
-            # `maxFps:260` on every launch meant a player could never keep
-            # Vsync on, and on a fast machine that pegged six cores in a
-            # singleplayer world (582% CPU, 83 C package). A fresh install now
-            # keeps Minecraft's own defaults (Vsync ON, maxFps 120), and an
-            # existing options.txt is left exactly as the player set it.
+            # Boost is a reversible transition, not a settings lock. Once
+            # applied, later in-game edits survive every subsequent launch.
             from . import game_options
-            # Max FPS mode: the game's own speed-only graphics options.
-            # Same launch-path spot as the frame unlock - options.txt is not
-            # owned by a running JVM yet. Gated on the Play-menu FPS boost
-            # toggle; when the boost is OFF the SAME keys are written back to
-            # Minecraft's defaults instead, so an install that ran boosted
-            # actually looks vanilla again (a plain "do nothing" left the
-            # fast values baked in, which is what made the old Settings
-            # toggle feel useless on an installed instance).
-            if cfg.get("fps_boost_enabled", True):
-                maxed = game_options.apply_max_fps(
-                    game_options.options_path(game_dir))
-                if maxed["changed"] and status_cb:
-                    status_cb("FPS boost applied")
-            else:
-                restored = game_options.restore_vanilla_look(
-                    game_options.options_path(game_dir))
-                if restored["changed"] and status_cb:
-                    status_cb("Vanilla graphics restored")
-            # Sodium's own renderer options are the half of its settings that
-            # options.txt has no key for - they live in
-            # config/sodium-options.json, and unlike options.txt there is no
-            # "vanilla look" to restore (Sodium's compiled defaults ARE the fast
-            # values), so this only ever runs with the boost ON. Rewritten every
-            # boosted launch, so a config left by an older Sodium/Cubeon, or by
-            # an FPS guide that turned fog occlusion off, cannot keep the
-            # renderer doing work it does not have to.
+            graphics = game_options.sync_fps_boost(
+                bool(cfg.get("fps_boost_enabled", True)), game_options.options_path(game_dir))
+            if graphics["changed"] and status_cb:
+                status_cb("FPS boost applied" if cfg.get("fps_boost_enabled", True)
+                          else "Previous graphics restored")
             if cfg.get("fps_boost_enabled", True):
                 tuned = perf_mods.apply_max_fps_sodium(
-                    perf_mods.sodium_config_path(game_dir))
+                    perf_mods.sodium_config_path(game_dir), preserve_existing=True)
                 if tuned["changed"]:
                     logging.getLogger(__name__).info(
-                        "sodium options tuned: %s", tuned["detail"])
+                        "sodium options seeded: %s", tuned["detail"])
     except Exception:
         pass
 
