@@ -437,6 +437,9 @@ def game_dir_for(version_id: "str | None", *, create: bool = True) -> str:
     adoption, which would hand the player's world to an instance they never
     launched. Never raises: a launch must not die over a folder.
     """
+    if version_id == "cubeon-rust-26.3":
+        from .rust_engine import game_dir
+        return game_dir(create=create)
     if not version_id:
         return MINECRAFT_DIR
     slug = _instance_slug(version_id)

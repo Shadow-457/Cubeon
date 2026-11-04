@@ -1112,6 +1112,21 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     (returncode, last_lines) so a crash can be explained; a one-argument
     on_exit(returncode) is still accepted.
     """
+    from . import rust_engine
+    if rust_engine.is_instance(version_id):
+        from . import watchdog
+        if watchdog.stale_session() is not None:
+            raise RuntimeError("Minecraft is already running. Close it before starting another instance.")
+        command = rust_engine.launch_command(username, width, height)
+        if server_address:
+            address = str(server_address)
+            if server_port is not None:
+                address += ":" + str(int(server_port))
+            command.extend(["--quickPlayMultiplayer", address])
+        return _spawn_game(command, rust_engine.game_dir(), version_id, username,
+                           rust_engine.VERSION, "rust", status_cb=status_cb,
+                           log_cb=log_cb, on_exit=on_exit, stage_java=False,
+                           game_env=rust_engine.child_environment(username))
     from .versions import validate_launch_profile
     validate_launch_profile(version_id)
     from . import watchdog
@@ -1341,6 +1356,13 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     #
     # stdin is /dev/null for the same reason: an inherited terminal stdin
     # would make the game a background-job SIGTTIN casualty.
+    return _spawn_game(command, game_dir, version_id, username, mc_version,
+                       loader, status_cb=status_cb, log_cb=log_cb, on_exit=on_exit)
+
+
+def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
+                status_cb=None, log_cb=None, on_exit=None, stage_java=True, game_env=None):
+    """Shared detached process/log/liveness lifecycle for Java and native games."""
     session_id = uuid.uuid4().hex
     set_active_game_dir(game_dir)
 
@@ -1391,7 +1413,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     _game_env = {k: v for k, v in os.environ.items()
                  if k not in ("LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER",
                               "LIBGL_DRM_DEVICE", "CUBEON_GPU_RESTARTS")}
-    popen_kwargs["env"] = _game_env
+    popen_kwargs["env"] = game_env if game_env is not None else _game_env
 
     from . import watchdog
     # Launch-time checks are deliberately NON-INTERACTIVE and tiny.
@@ -1407,37 +1429,39 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # starts (a bare token in custom JVM flags, a deleted Java path). It
     # never prompts. The dependency-only Doctor gate below repairs required
     # mods separately, with bounded lookups and verified jars, before staging.
-    try:
-        from .doctor import run_doctor
-        report = run_doctor(mc_version, loader, auto_fix=True,
-                            check_online=False, version_id=version_id,
-                            include=("launch",))
-        fixed = len(report.get("fixed") or [])
-        if fixed and status_cb:
-            status_cb("Fixed the launch settings")
-    except Exception:
-        logging.getLogger(__name__).warning(
-            "launch config check failed", exc_info=True)
+    if stage_java:
+        try:
+            from .doctor import run_doctor
+            report = run_doctor(mc_version, loader, auto_fix=True,
+                                check_online=False, version_id=version_id,
+                                include=("launch",))
+            fixed = len(report.get("fixed") or [])
+            if fixed and status_cb:
+                status_cb("Fixed the launch settings")
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "launch config check failed", exc_info=True)
     try:
         with _spawn_lock:
             if watchdog.stale_session() is not None:
                 raise RuntimeError("Minecraft is already running. Close it before starting another instance.")
-            from .mod_dependencies import run_dependency_doctor
-            dependency_report = run_dependency_doctor(
-                mc_version, loader, version_id=version_id, status_cb=status_cb)
-            if dependency_report["unfixed"]:
-                details = "\n".join(
-                    f"{item['detail']}. {item['error']}"
-                    for item in dependency_report["unfixed"][:4])
-                raise RuntimeError("Doctor could not repair the required mods.\n" + details)
-            if dependency_report["fixed"] and status_cb:
-                status_cb("Doctor repaired and verified the required mods")
-            try:
-                from .content import sync_content_to_game
-                sync_content_to_game(mc_version, loader, version_id)
-            except Exception:
-                logging.getLogger(__name__).warning("content staging failed", exc_info=True)
-            sync_mods_to_game(mc_version, loader, version_id)
+            if stage_java:
+                from .mod_dependencies import run_dependency_doctor
+                dependency_report = run_dependency_doctor(
+                    mc_version, loader, version_id=version_id, status_cb=status_cb)
+                if dependency_report["unfixed"]:
+                    details = "\n".join(
+                        f"{item['detail']}. {item['error']}"
+                        for item in dependency_report["unfixed"][:4])
+                    raise RuntimeError("Doctor could not repair the required mods.\n" + details)
+                if dependency_report["fixed"] and status_cb:
+                    status_cb("Doctor repaired and verified the required mods")
+                try:
+                    from .content import sync_content_to_game
+                    sync_content_to_game(mc_version, loader, version_id)
+                except Exception:
+                    logging.getLogger(__name__).warning("content staging failed", exc_info=True)
+                sync_mods_to_game(mc_version, loader, version_id)
             process = subprocess.Popen(
                 command,
                 cwd=game_dir,

@@ -37,6 +37,7 @@ from .paths import CUBEON_HOME
 # the only thing a folder gives us, and it is what every other part of the
 # launcher keys off too (see versions.suggest_friendly_name).
 LOADER_LABELS = {
+    "rust": "Rust · Beta",
     "vanilla": "Vanilla",
     "fabric": "Fabric",
     "quilt": "Quilt",
@@ -67,6 +68,8 @@ def detect_loader(version_id: "str | None", folder: "str | None" = None) -> str:
     documents. Returns ``"vanilla"`` when nothing matches, which is what the
     rest of the launcher means by "no loader".
     """
+    if version_id == "cubeon-rust-26.3":
+        return "rust"
     hay = f"{version_id or ''} {folder or ''}".lower()
     for key in _TOKEN_ORDER:
         if re.search(rf"(?<![a-z]){re.escape(key)}(?![a-z])", hay):
@@ -267,6 +270,14 @@ def describe(version_id: str, meta: "dict | None" = None,
     from .versions import extract_mc_version
 
     meta = meta or {}
+    if version_id == "cubeon-rust-26.3":
+        return {"id": version_id, "base_version": "26.3", "engine": "rust",
+                "loader": "rust", "loader_label": "Rust · Beta",
+                "display_name": label or meta.get("display_name") or "26.3 (Rust · Beta)",
+                "folder": version_id, "incomplete": bool(meta.get("incomplete")),
+                "issue": meta.get("issue") or "", "mod_count": 0,
+                "last_played": last_played(version_id, play_store),
+                "profile": "", "is_instance": True}
     sidecar = {}
     try:
         from .mods import read_instance_meta
