@@ -24,15 +24,17 @@ MAX_FPS_KEY = "maxFps"
 #
 # Two of these were WRONG until 2026-10-14 (both verified against the real
 # 1.21.11 jar by tools/test_perf_mods.py's companion audit):
-#   * `graphicsMode` does not exist any more - it survives only in a legacy
-#     DataFixer, so writing it was a silent no-op and the "biggest lever" never
-#     fired. The live key is `graphicsPreset`.
+#   * Newer versions use `graphicsPreset`; earlier versions still use
+#     `graphicsMode` or `fancyGraphics`. Apply only the keys present in the
+#     selected instance's options, with that version's numeric/string codecs.
 #   * `particles:"0"` is ALL particles, not minimal: the value is an enum id
 #     (ALL=0, DECREASED=1, MINIMAL=2). Max FPS mode was *maximising* particles.
 MAX_FPS_OPTIONS = (
     # A STRING option - the value must be written QUOTED (see _set_options).
     ("graphicsPreset", '"fast"',
      "Fast graphics - the biggest lever after the renderer"),
+    ("graphicsMode", "0", "Fast graphics on earlier Minecraft versions"),
+    ("fancyGraphics", "false", "Fast graphics on legacy Minecraft versions"),
     # Minimise particles (id 2 = MINIMAL; 0 = ALL).
     ("particles", "2", "Minimal particles"),
     # Ambient occlusion (smooth lighting) - real terrain-shading and meshing
@@ -161,9 +163,19 @@ def apply_max_fps(path: str | None = None) -> dict:
 
     Never raises; returns the shared {"changed", "detail", "path"} shape.
     """
-    return _set_options(path or options_path(),
-                        {k: v for k, v, _ in MAX_FPS_OPTIONS},
-                        "max fps")
+    target = path or options_path()
+    try:
+        with open(target, encoding="utf-8", errors="replace") as source:
+            current = dict(line.rstrip("\r\n").split(":", 1) for line in source if ":" in line)
+    except OSError:
+        current = {}
+    wanted = {key: value for key, value, _ in MAX_FPS_OPTIONS
+              if key not in ("graphicsMode", "fancyGraphics") or key in current}
+    if current.get("ao", "").strip() in ("0", "1", "2"):
+        wanted["ao"] = "0"
+    if "renderClouds" in current and not current["renderClouds"].strip().startswith('"'):
+        wanted["renderClouds"] = "fast"
+    return _set_options(target, wanted, "max fps")
 
 
 def restore_vanilla_look(path: str | None = None) -> dict:
@@ -201,9 +213,6 @@ def sync_fps_boost(enabled: bool, path: str | None = None) -> dict:
         except (OSError, ValueError):
             result["detail"] = "boost backup is not readable; keeping game settings"
             return result
-        if saved and saved.get("enabled") is enabled:
-            result["detail"] = "boost already applied; keeping game settings"
-            return result
         if not enabled and saved is None:
             result["detail"] = "no previous boost settings to restore"
             return result
@@ -214,8 +223,24 @@ def sync_fps_boost(enabled: bool, path: str | None = None) -> dict:
         except OSError:
             result["detail"] = "no readable options.txt yet"
             return result
-        if enabled:
+        if saved and saved.get("enabled") is enabled:
+            # Adopt newly supported legacy graphics keys once, while keeping
+            # later player edits to already-managed settings.
+            additions = {key: value for key, value, _ in MAX_FPS_OPTIONS
+                         if enabled and key in ("graphicsMode", "fancyGraphics")
+                         and key in current and key not in saved["applied"]}
+            if not additions:
+                result["detail"] = "boost already applied; keeping game settings"
+                return result
+            saved["before"].update({key: current[key] for key in additions})
+            saved["applied"].update(additions)
+            wanted = additions
+        elif enabled:
             wanted = {key: value for key, value, _ in MAX_FPS_OPTIONS if key in current}
+            if current.get("ao", "").strip() in ("0", "1", "2"):
+                wanted["ao"] = "0"
+            if "renderClouds" in current and not current["renderClouds"].strip().startswith('"'):
+                wanted["renderClouds"] = "fast"
             if saved is None or saved.get("enabled") is False:
                 saved = {"schema": 1, "enabled": None,
                          "before": {key: current[key] for key in wanted}, "applied": wanted}

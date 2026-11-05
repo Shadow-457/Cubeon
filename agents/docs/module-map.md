@@ -25,7 +25,7 @@ substitute for current code.
 | Area | Modules |
 | --- | --- |
 | Paths and configuration | `cubeon/paths.py`, `config.py`, `atomicio.py` |
-| Game installation and launch | `versions.py`, `mod_loaders.py`, `launch.py`, `jre.py` |
+| Game installation and launch | `versions.py`, `mod_loaders.py`, `launch.py`, `jre.py`, `java_downloads.py` |
 | Native Rust beta | `rust_engine.py`; bundling in `tools/build_rust_engine.py` |
 | Instances | `instances.py`, `versions.py`, `content.py` |
 | Mods and packs | `mods.py`, `modpacks.py`, `global_mod_cache.py`, `content.py` |
@@ -297,10 +297,17 @@ keep builders consistent with the shared `THEME` contract.
   (`ui/versions.py`, in `page.overlay`) with a 2-column grid of bundled SVG block/mob icons,
   title + subtitle below. The pencil chooses from 20 blocks and 20 mob heads in the same panel;
   `cubeon/instance_icons.py` validates IDs and `cfg["instance_icons"]` persists them per instance.
+  A 32px upload icon in the existing Blocks/Mob heads row accepts PNG/JPG/WebP
+  for edits and New Instance setup. `main._upload_instance_icon` lazily reuses
+  one version-safe FilePicker; decoding/copying runs on a worker. Imported images
+  become transparent, uncropped 128px PNGs in `CUBEON_HOME/instance_icons`, identified
+  by `custom-<SHA256>` rather than source paths. Cached base64 sources work after
+  the original moves; missing stored images fall back to bundled icons. Cancelled
+  and stale panel completions cannot replace another instance's selection.
   `tools/gen_instance_icons.py` generates the 40 SVGs. Selection never changes when choosing an icon.
   Folder/Rename/Delete live on the Play card. "New instance" defaults to Fabric on every new flow
   and has three separate steps: loader →
-  compatible Minecraft version → block/mob icon. Back preserves choices; only final Download & Play
+  compatible Minecraft version → block/mob/custom icon. Back preserves choices; only final Download & Play
   commits through `main._create_new_instance`. The icon is saved to the resulting loader instance ID,
   never a sibling vanilla version. `mod_loaders.get_loader_minecraft_versions` caches support for 1h.
 - Legacy and loader support are separate gates: opting into Legacy includes old alpha/beta manifest
@@ -320,6 +327,22 @@ keep builders consistent with the shared `THEME` contract.
   opens after releasing the claim and retains that attempt's loader/icon choices. Use
   `resolve_mc_version` for renamed-instance Java/artwork, not a number parsed from its label.
   Healthy installed loaders do not require the online support catalogue to launch.
+- `jre.install_jre()` coalesces same-major installs and retains system-Java preference.
+  `java_downloads.py` resolves Temurin/Adoptium and Azul Zulu metadata in parallel
+  (one attempt, 3s connect/5s read per request), caching valid assets for 24h.
+  Only vendor SHA-256-bearing JREs are accepted; Azul excludes JavaFX/CRaC/CRS
+  and Linux musl builds. Routes include GitHub Releases, Azul CDN and matching
+  Temurin archives at NJU/Tsinghua; mirrors use Adoptium's checksum.
+  Up to four local 128 KiB transfer samples rank estimated download time; route
+  order caches for 30 minutes without IP/geolocation services. HTTPS redirects
+  must stay on the explicit host allowlist. Failures/very slow routes fall back;
+  `.downloads/<sha256>-<filename>[.part]` archives persist across retries and
+  same-artifact mirrors can resume them. Different vendors never share partial
+  bytes. Samples close their responses and reject HTML. Complete cached archives
+  are rehashed before reuse. Staged/final executables must run and report the exact
+  requested major; macOS `Contents/Home` wrappers are promoted correctly.
+  `test_java_downloads.py` covers selection, bounds, failover, cancellation,
+  resume isolation and installation coalescing.
 - `versions.version_folder` and `validate_launch_profile` guard install/launch/delete paths before
   mll or sanitizers write: reject traversal, external directory/canonical-file symlinks and unsafe,
   cyclic or overly deep `inheritsFrom`/`jar` references. The tolerant scan also rejects external
@@ -356,6 +379,21 @@ keep builders consistent with the shared `THEME` contract.
   Rail/content scroll independently. Existing `seasonal`, `images`, and
   `system` deep links select dedicated sections; `display` aliases Appearance.
   Preserve controls/config keys and refresh the gallery on entry.
+- Settings → Game → In game exposes independent `client_mod_enabled` and `csl_enabled`
+  switches, applied on the next launch; pack installation respects them too. CSL opt-out
+  renames active JARs to `.jar.disabled` and records only its own moves in the profile's
+  `.cubeon-csl-disabled.json`; opt-in preserves manual disables and existing newer CSL.
+  `manage_skin_mod` remains the separate hand-managed-source preference. Client opt-out
+  removes bundled/legacy/renamed client JARs; failed opt-outs block spawning rather than
+  loading the unwanted mod. Rust companion/appearance preparation honors both switches.
+  `tools/test_game_feature_switches.py` covers actual staging and reversible transitions.
+- Mods → Installed's Cubeon Client switch shares the live global `client_mod_enabled`
+  preference with Settings through `on_client_mod_change`; both repaint from cached
+  snapshots and roll back failed saves. It applies on the next launch, never renames
+  a JAR on the click path. Client/legacy/disabled copies share one displayed control;
+  original disk snapshots stay intact for Doctor/dependency checks. With no client
+  JAR, Installed retains an opt-in row for modded profiles. `test_mods_management_ui.py`
+  and `test_ui_smoke.py` cover the row, duplicates, opt-in and Settings synchronization.
 - The RAM slider updates `cfg["ram_mb"]` on every change so the next launch uses
   the displayed ceiling even without a release event. Disk saves happen on release
   or blur, tracked by `_ram_saved` so unchanged events skip writes and failed saves
@@ -394,6 +432,17 @@ keep builders consistent with the shared `THEME` contract.
   mounted and switching/filtering preserves cached snapshots and scoped repaints.
 - The online version list merges installed-only ids so opening "New instance" cannot drop an
   isolated/imported instance or move the selection.
+- `main._remember_instance_selection` saves the exact installed launch ID to
+  `cfg.last_version` when selection changes, without requiring Play. Close/page
+  teardown retries only changed selections; failed saves restore the previous
+  value for retry. Startup restores the selected installed instance, including
+  a legacy selection while other older catalogue entries remain gated.
+- `cubeonfriends.client_support_status` classifies client capability from the
+  cached bracket matrix, without JAR reads/hashes or consulting the enable switch.
+  `ui/versions.ClientSupportBadge` shows a small green check for supported
+  Fabric/Quilt versions (including 1.20/1.20.0), yellow for Rust 26.3 and Forge
+  1.8.9 beta, with hover details; other loaders/unsupported versions get no check.
+  Installed cards, new-version rows and Play reuse the same indicator.
 - Reserve the loader-status slot and keep hero labels single-line; a notice appearing must not change hero
   height. The banner uses an opacity-only 180 ms transition. Play calls
   `version_art.key_art_src()` synchronously for native bundled promotional covers:
@@ -543,6 +592,15 @@ keep builders consistent with the shared `THEME` contract.
   undeclared mixin/gameplay incompatibilities still need crash evidence. Performance
   installation also repairs kept profiles; Play defers that repair to its final gate.
   `test_mod_prelaunch_dependencies.py` and `test_mod_resolver.py` guard this.
+- Forge metadata selection includes legacy `mcmod.info` and manifest coremods
+  before falling back to another loader's descriptor. CSL Universal 15.1 has
+  `fabric.mod.json` **and** `FMLCorePlugin`, without Forge TOML: require the
+  manifest's actual plugin class, then use its Forge bootstrap identity rather
+  than Fabric constraints. Honor manifest continuations/main-section boundaries.
+  A legacy `mcversion` is a compile target, not a strict runtime predicate.
+  `test_forge189_client.py --download-csl` includes the real prelaunch Doctor
+  gate; `--native` additionally boots cached Forge with Java 8 in isolated Xvfb,
+  checks CSL hooks/client loading and cleans up the owned fixture without captures.
 - Dependency numeric versions are zero-padded (`1.1` equals `1.1.0`); semantic prereleases
   sort below releases, build metadata is ignored, and operator whitespace is accepted.
   Keep the non-semantic fallback. This prevents Doctor replacing valid Ingenium API for OldCannons.
@@ -587,6 +645,14 @@ keep builders consistent with the shared `THEME` contract.
   `MINECRAFT_DIR/mods_user_backup/`, never deleted. A missing/corrupt manifest means "the launcher owns
   nothing". A locked launcher jar raises the "Another Minecraft window is using these mods" error instead
   of being skipped.
+- Before mod staging, `mods.quarantine_misplaced_packs()` preserves stray resource/shader ZIPs
+  in `MINECRAFT_DIR/mods_user_backup`, without attaching them to the selected instance. Shared
+  instance `mods/` links expose leftovers to Quilt even when their private profile is empty.
+  Actual mod descriptors/classes and unidentified archives are preserved. Pack manifests and
+  overrides misfiling content under `mods/` route it to the owning content profile/store;
+  keyless `.jar` packs become `.zip` so content listing/staging can recognize them.
+  `test_launch_staging_io.py` covers the 18-pack warning fixture and safe backups;
+  `test_modpacks_cf_content.py` covers both download/override routing.
 - The pack-install Play guard fails CLOSED: if `pack_install_for_instance()` raises, `on_play_click` and
   `_begin_install_and_launch` refuse and start nothing. Do not restore `except Exception: pass` there.
 - The chat transcript is capped at `chat_tab._MAX_TRANSCRIPT` (400 controls, trimmed in one slice
@@ -638,8 +704,18 @@ keep builders consistent with the shared `THEME` contract.
   additions. This fixes More Culling returning after removal; use profile resolution,
   never a global blacklist. `test_perf_mod_removal.py` covers repeated Play/sync,
   isolated siblings, renamed manual jars, store links and explicit reinstalls.
-- The automatic performance suite now has five mods: Sodium, Lithium,
-  ImmediatelyFast, EntityCulling and FerriteCore. More Culling is excluded.
+- FPS Boost's automatic suite has five jobs: Sodium/Lithium on Fabric/Quilt,
+  Embeddium + Canary/Radium on Forge, and Sodium/Lithium with older
+  Embeddium/Radium fallbacks on NeoForge, plus ImmediatelyFast, EntityCulling
+  and FerriteCore. Queries require the exact Minecraft/native loader; curated
+  Quilt builds query Fabric. Existing renderer/logic ports, disabled JARs and
+  removals suppress competing additions. The client menu toggle is independent;
+  Boost OFF skips new mods and restores eligible graphics even with downloads off.
+  Renderer config seeds target the installed Sodium/Embeddium/Rubidium file.
+  Older options use graphicsMode/fancyGraphics, numeric AO and unquoted clouds;
+  old boost backups adopt newly supported graphics keys without replaying other
+  settings. `test_perf_loader_support.py` verifies all four launch paths, forks,
+  removals, legacy encodings and restore. More Culling is excluded.
   `.cubeon-moreculling-retirement.json` disables legacy Modrinth-managed copies
   once before sync, even with the client/suite toggles off; bytes and sidecars
   remain recoverable. Old sidecars cannot distinguish automatic from old browse
@@ -1409,6 +1485,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
 | Freelook / zoom | `test_freelook.py` (`--targets` needs mapped game JARs), `test_zoom.py`, full 24-version Gradle build |
 | Camera motion blur | `test_camera_blur.py --targets`, `test_camera_blur_lifecycle.py`, `test_camera_blur_gpu.py` (Linux EGL/PyOpenGL), full 24-version Gradle build |
+| Java downloads | `test_java_downloads.py`, `test_launch_fixes.py`, `test_net.py`, `test_forge189_client.py` |
 | Windows/startup | `test_winproc.py`, `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_source_runtime.py`, `test_startup_recovery.py`, `test_incident.py`, `test_wedge_watchdog.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py`, `test_forge189_client.py --targets --download-csl` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
@@ -1447,6 +1524,9 @@ requires retrying with normal system access, not changing unrelated app code.
   gallery with captions, alt text and full-size links; their image sitemap entries belong to `/docs`.
   `tools/prepare_docs_image_previews.py` creates small WebP previews from the redacted public assets.
   Public HTML, image URLs and the sitemap are shared by all visitors, with no Google-only responses.
+- Public product copy must not advertise built-in public tunnels or automatic internet world
+  sharing: these are no longer supported. Keep About, homepage FAQ/schema, multiplayer/help,
+  `/llms.txt`, README/user guide and website translation catalogues consistent with this limit.
 - `/about` is the official Cubeon product facts page; homepage/AboutPage schema share
   `https://www.ylet.online/#launcher` and the official GitHub source identity. The sitemap has
   20 canonical English public pages plus Arabic variants. `tools/submit_website_indexnow.py` previews by default; `--submit` checks the
@@ -1464,6 +1544,10 @@ requires retrying with normal system access, not changing unrelated app code.
   and breadcrumb IDs. Translation builds add new non-error `PAGES` entries to the sitemap; IndexNow
   accepts canonical locale URLs and maps `/ar` to `ar/index.html`. The homepage uses a preloaded
   WebP Play screenshot with PNG fallback; regenerate with `tools/prepare_website_hero.py` after PNG edits.
+  Keep homepage/gallery image dimensions aligned with the source across locales,
+  and regenerate the docs preview with `tools/prepare_docs_image_previews.py`.
+  `tools/make_og_card.py` uses Pillow to fit the complete current Play screenshot
+  into `web/assets/og.png` at 1200×630 on a dark background, without new captures.
   Docs `.docs-main` grid items require `min-width:0` so comparison tables scroll inside their
   wrapper on mobile instead of widening the article and sidebar beyond the viewport.
 - Website page counts use **Vercel Web Analytics** (cookieless, no personal data, visitor hash

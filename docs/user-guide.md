@@ -40,8 +40,9 @@ If you are running the source rather than a release, follow
 4. Review memory and Java settings if needed, then select **Download & Play**.
 
 In **Instances**, use the small pencil on a card to choose its icon. The same
-panel offers **20 blocks** and **20 mob heads**; your selection is saved per
-instance. Clicking the card itself still selects the instance. Play shows the
+panel offers **20 blocks** and **20 mob heads**. The small upload icon beside
+those choices adds your own PNG, JPG, WebP or animated GIF. Your selection is saved per
+instance, including during New Instance setup. Clicking the card itself still selects the instance. Play shows the
 loader as a compact tag beside the version.
 
 The first launch downloads missing game components and can take longer.
@@ -49,6 +50,12 @@ Selecting an existing instance restores its version and loader. Your render and
 simulation distances stay saved for that instance. FPS boost applies performance
 defaults once, then preserves later video changes. Turning it off restores previous
 graphics settings where you have not changed the boosted values yourself.
+Boost works independently of the Cubeon Client switch on Fabric, Quilt, Forge
+and NeoForge. It installs compatible performance mods when builds exist for
+that Minecraft version: Forge uses Embeddium and Canary/Radium, while NeoForge
+prefers Sodium and Lithium. Existing alternatives and disabled/removed mods
+are respected. Turning Boost off stops new additions and restores eligible
+graphics settings; installed mods remain manageable under Mods → Installed.
 With Discord desktop running, Rich Presence shows the Minecraft version and
 loader you are playing, for example “Playing Minecraft 1.21.11 (Fabric)”.
 
@@ -180,6 +187,10 @@ compatibility choices sit under **Filters**. Compact tiles show artwork, name,
 author, download count and installed status; click a tile for its description
 and versions. **Install** adds the matching build. Modpacks create their own
 instances and do not need to match the selected Minecraft version.
+If Quilt reports resource or shader ZIPs under `<mods>`, Cubeon moves those
+misplaced packs to the game folder's `mods_user_backup/` on the next launch.
+To use one in an instance, select that instance and use **Import packs** or
+**Import shaders** in the matching content selector.
 Search pages adjust their card count to the available window space. Larger
 windows show more results at once; paging keeps additional results available.
 
@@ -297,16 +308,25 @@ messages as **hello ×4** within ten seconds. Different senders, intervening
 messages and server changes start a new stack. This is always enabled and
 changes only the displayed lines; original message history and signatures remain.
 
-Local server hosting runs on your computer. Shared access depends on the
-server and tunnel being available, and may be affected by firewall or
-network settings.
+Local server hosting runs on your computer. Built-in public tunnels and
+automatic internet world sharing are no longer supported. Players outside
+your local network need a separately configured, reachable server address.
 
 ## Launcher settings
 
 Settings has four sections: **Account** for your profile, updates and notifications;
 **Game** for versions, game window, files and backups; **Performance** for memory,
-Java and **Fix problems**; and **Appearance** for language, window style, seasonal
+Java; and **Appearance** for language, window style, seasonal
 decorations and screenshots.
+
+**Settings → Game → In game** has separate **Cubeon Client** and
+**CustomSkinLoader (CSL)** switches. Turn either off to stop its in-game features
+on the next launch. CSL controls skins and capes; Cubeon Client controls the
+Cubeon menu and HUD. Choices save immediately and also apply to modpack installs.
+Turn CSL back on to restore the copy disabled by this setting.
+You can also switch **Cubeon Client** on or off in **Mods → Installed**.
+It shares the Settings preference for all instances and stays available after
+the client has been disabled.
 
 In **Settings → Appearance → Launcher**, open **Language** and search by native name,
 English name, or language code. Select a language, then click the **Restart** button

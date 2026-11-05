@@ -7,9 +7,9 @@ big ask for a launcher whose whole pitch is "it just works", and the Fabric
 installer case was worse - it EXECUTES a jar, so it died with a raw
 WinError 2 under the download button.
 
-So: when a version is about to be installed and no Java new enough exists,
-the launcher OFFERS to download a Temurin JRE (Eclipse Adoptium, the same
-build everyone installs by hand) into ~/.cubeon_launcher/runtimes/<major>/.
+When a version is about to be installed and no compatible Java exists,
+the launcher offers a verified Temurin or Azul Zulu JRE through a locally
+measured download route into ~/.cubeon_launcher/runtimes/<major>/.
 The user is asked first, and declining leaves everything as it was.
 
 Design notes that matter:
@@ -18,16 +18,16 @@ Design notes that matter:
     them after Settings -> PATH -> JAVA_HOME -> the mll scan have all failed
     to produce something new enough, so installing one never changes what a
     user who already has Java is running.
-  - **One per major, and only the ones we use.** 1.18-1.20.4 needs 17,
-    1.20.5+ needs 21, 26.1+ needs 25 (see launch.required_java_major), so at
-    most three downloads, each the smallest sufficient one - a too-new Java
+  - **One per major, and only the ones we use.** We support 8, 16, 17, 21
+    and 25 (see launch.required_java_major), each the smallest sufficient one - a too-new Java
     can itself break old Minecraft.
-  - **Verified and atomic.** The archive is checked against Adoptium's own
+  - **Verified and atomic.** The archive is checked against its vendor's
     sha256 before anything is unpacked, unpacked into a `.part` folder, and
     only then moved into place, so an interrupted download can never leave a
     half-extracted runtime that later reports itself as usable.
-  - **A JRE, not a JDK.** Minecraft only ever runs the game; it never
-    compiles. A JRE is roughly a third of the download.
+  - **A JRE, not a JDK.** Minecraft only runs the game; it never compiles.
+  - **Retry without starting over.** java_downloads keeps partial archives
+    by checksum; vendor changes cannot append different bytes to them.
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ import shutil
 import stat
 import sys
 import tarfile
-import tempfile
+import threading
 import zipfile
 
 from .paths import RUNTIMES_DIR
@@ -51,6 +51,7 @@ ADOPTIUM_API = "https://api.adoptium.net/v3"
 # would happily serve: these are exactly the ones launch.required_java_major
 # hands out, so the user can never end up with a runtime Cubeon will not use.
 SUPPORTED_MAJORS = (8, 16, 17, 21, 25)
+_INSTALL_LOCKS = {major: threading.Lock() for major in SUPPORTED_MAJORS}
 
 
 class JreError(RuntimeError):
@@ -135,7 +136,7 @@ def _fetch_asset(major: int) -> dict:
     params.update(_platform_params())
     try:
         data = net.get_json(f"{ADOPTIUM_API}/assets/latest/{int(major)}/hotspot",
-                            params=params)
+                            params=params, timeout=(3, 5), attempts=1)
     except Exception as ex:
         raise JreError(
             f"Couldn't reach Adoptium to download Java {major} "
@@ -158,7 +159,7 @@ def _fetch_asset(major: int) -> dict:
         raise JreError("Adoptium's reply had no download link for this build.")
     return {"link": link, "name": package.get("name") or "temurin-jre",
             "sha256": checksum.strip().lower(),
-            "size": int(package.get("size") or 0)}
+            "size": int(package.get("size") or 0), "provider": "Eclipse Temurin"}
 
 
 def _extract(archive: str, dest: str) -> str:
@@ -203,7 +204,9 @@ def _extract(archive: str, dest: str) -> str:
                if os.path.isdir(os.path.join(dest, e))]
     if not entries:
         raise JreError("The downloaded archive was empty or unexpected.")
-    return entries[0] if len(entries) == 1 else dest
+    home = entries[0] if len(entries) == 1 else dest
+    mac_home = os.path.join(home, "Contents", "Home")
+    return mac_home if os.path.isfile(os.path.join(dest, mac_home, "bin", _java_binary())) else home
 
 
 def _probe_version(java_path: str) -> int | None:
@@ -245,7 +248,16 @@ def _probe_version(java_path: str) -> int | None:
 
 
 def install_jre(major: int, progress_cb=None, status_cb=None) -> str:
-    """Downloads and installs a managed Temurin JRE for `major`.
+    """Coalesce installs of the same verified managed Java major."""
+    major = int(major)
+    if major not in SUPPORTED_MAJORS:
+        raise JreError(f"Cubeon doesn't ship a Java {major} runtime.")
+    with _INSTALL_LOCKS[major]:
+        return _install_jre(major, progress_cb, status_cb)
+
+
+def _install_jre(major: int, progress_cb=None, status_cb=None) -> str:
+    """Downloads and installs a managed JRE through the best available route.
 
     progress_cb(done, total) / status_cb(text) are the same shapes the
     version installer already uses, so the existing progress row can carry
@@ -254,7 +266,7 @@ def install_jre(major: int, progress_cb=None, status_cb=None) -> str:
     Returns the path to the new `java` executable. Idempotent: an already
     installed runtime is returned without touching the network.
     """
-    from . import net
+    from . import java_downloads
     major = int(major)
     if major not in SUPPORTED_MAJORS:
         raise JreError(f"Cubeon doesn't ship a Java {major} runtime.")
@@ -266,8 +278,11 @@ def install_jre(major: int, progress_cb=None, status_cb=None) -> str:
         if status_cb:
             status_cb(text)
 
-    _status(f"Looking up Java {major}")
-    asset = _fetch_asset(major)
+    _status(f"Choosing a Java {major} download route")
+    try:
+        assets = java_downloads.candidates(major, _platform_params(), lambda: _fetch_asset(major))
+    except Exception as error:
+        raise JreError(f"Couldn't find a verified Java {major} download. {error}") from error
 
     final_dir = runtime_dir(major)
     os.makedirs(RUNTIMES_DIR, exist_ok=True)
@@ -278,86 +293,73 @@ def install_jre(major: int, progress_cb=None, status_cb=None) -> str:
     shutil.rmtree(part_dir, ignore_errors=True)
     shutil.rmtree(staged_dir, ignore_errors=True)
     try:
-        with tempfile.TemporaryDirectory(dir=RUNTIMES_DIR) as tmp:
-            archive = os.path.join(tmp, asset["name"])
-            megabytes = asset["size"] // (1024 * 1024)
-            _status(f"Downloading Java {major}"
-                    + (f" ({megabytes} MB)" if megabytes else ""))
+        archive = java_downloads.download(assets, os.path.join(RUNTIMES_DIR, ".downloads"),
+                                         major, progress_cb, _status)
+        _status(f"Unpacking Java {major}")
+        home = _extract(archive, part_dir)
+        java = os.path.join(part_dir, home, "bin", _java_binary())
+        if not os.path.isfile(java):
+            raise JreError("The downloaded Java didn't contain a java "
+                           "executable. Nothing was installed.")
+        # Zip payloads can arrive without the exec bit that tar preserves.
+        try:
+            os.chmod(java, os.stat(java).st_mode
+                     | stat.S_IXUSR | stat.S_IXGRP)
+        except OSError:
+            pass
 
-            def _on_progress(done, total):
-                if progress_cb:
-                    progress_cb(done, total or asset["size"] or 1)
+        # The binary must actually RUN before anything is moved into
+        # place. A hash-valid download can still unpack short (disk full,
+        # antivirus, interrupted move) and leave a bin/java that exists
+        # but cannot start; probing here keeps that from ever becoming
+        # the installed runtime.
+        _status(f"Verifying Java {major}")
+        probed = _probe_version(java)
+        if probed is None:
+            raise JreError(
+                f"The downloaded Java {major} could not be started - the "
+                f"download or unpack was damaged. Nothing was installed; "
+                f"try again, or install Java yourself.")
+        if probed != major:
+            raise JreError(
+                f"The downloaded runtime reports Java {probed}, not "
+                f"Java {major}. Nothing was installed.")
 
-            net.download_to(
-                archive, asset["link"],
-                expected_hash=("sha256", asset["sha256"]) if asset["sha256"] else None,
-                progress_cb=_on_progress)
-
-            _status(f"Unpacking Java {major}")
-            home = _extract(archive, part_dir)
-            java = os.path.join(part_dir, home, "bin", _java_binary())
-            if not os.path.isfile(java):
-                raise JreError("The downloaded Java didn't contain a java "
-                               "executable. Nothing was installed.")
-            # Zip payloads can arrive without the exec bit that tar preserves.
+        # Promote the JRE home itself to the final name. The archive wraps
+        # it in a versioned folder ("jdk-17.0.20.1+1-jre"), and
+        # managed_java() looks for runtimes/<major>/bin/java - so moving
+        # only part_dir would leave the runtime one level too deep and it
+        # would read as not installed even though it is. Move the home out
+        # first, then drop whatever the archive left around it.
+        staged = staged_dir
+        shutil.rmtree(staged, ignore_errors=True)
+        os.replace(os.path.join(part_dir, home), staged)
+        # Replace a leftover from an earlier crashed attempt first;
+        # os.replace cannot overwrite a non-empty directory. The old
+        # folder is moved aside rather than deleted outright, and only
+        # removed once the new runtime is in place - so a failure mid
+        # swap can never leave the machine with NO runtime where it had
+        # one (the leftover is restored on the error path below).
+        had_old = os.path.isdir(final_dir)
+        old_dir = final_dir + ".old"
+        if had_old:
+            shutil.rmtree(old_dir, ignore_errors=True)
             try:
-                os.chmod(java, os.stat(java).st_mode
-                         | stat.S_IXUSR | stat.S_IXGRP)
+                os.replace(final_dir, old_dir)
             except OSError:
-                pass
-
-            # The binary must actually RUN before anything is moved into
-            # place. A hash-valid download can still unpack short (disk full,
-            # antivirus, interrupted move) and leave a bin/java that exists
-            # but cannot start; probing here keeps that from ever becoming
-            # the installed runtime.
-            _status(f"Verifying Java {major}")
-            probed = _probe_version(java)
-            if probed is None:
-                raise JreError(
-                    f"The downloaded Java {major} could not be started - the "
-                    f"download or unpack was damaged. Nothing was installed; "
-                    f"try again, or install Java yourself.")
-            if probed != major:
-                raise JreError(
-                    f"The downloaded runtime reports Java {probed}, not "
-                    f"Java {major}. Nothing was installed.")
-
-            # Promote the JRE home itself to the final name. The archive wraps
-            # it in a versioned folder ("jdk-17.0.20.1+1-jre"), and
-            # managed_java() looks for runtimes/<major>/bin/java - so moving
-            # only part_dir would leave the runtime one level too deep and it
-            # would read as not installed even though it is. Move the home out
-            # first, then drop whatever the archive left around it.
-            staged = staged_dir
-            shutil.rmtree(staged, ignore_errors=True)
-            os.replace(os.path.join(part_dir, home), staged)
-            # Replace a leftover from an earlier crashed attempt first;
-            # os.replace cannot overwrite a non-empty directory. The old
-            # folder is moved aside rather than deleted outright, and only
-            # removed once the new runtime is in place - so a failure mid
-            # swap can never leave the machine with NO runtime where it had
-            # one (the leftover is restored on the error path below).
-            had_old = os.path.isdir(final_dir)
-            old_dir = final_dir + ".old"
-            if had_old:
-                shutil.rmtree(old_dir, ignore_errors=True)
+                old_dir = None
+        try:
+            os.replace(staged, final_dir)
+        except OSError:
+            if old_dir and not os.path.isdir(final_dir):
                 try:
-                    os.replace(final_dir, old_dir)
+                    os.replace(old_dir, final_dir)
                 except OSError:
-                    old_dir = None
-            try:
-                os.replace(staged, final_dir)
-            except OSError:
-                if old_dir and not os.path.isdir(final_dir):
-                    try:
-                        os.replace(old_dir, final_dir)
-                    except OSError:
-                        pass
-                raise
-            shutil.rmtree(part_dir, ignore_errors=True)
-            if old_dir:
-                shutil.rmtree(old_dir, ignore_errors=True)
+                    pass
+            raise
+        shutil.rmtree(part_dir, ignore_errors=True)
+        if old_dir:
+            shutil.rmtree(old_dir, ignore_errors=True)
     except JreError:
         shutil.rmtree(part_dir, ignore_errors=True)
         shutil.rmtree(staged_dir, ignore_errors=True)

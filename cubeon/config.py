@@ -138,9 +138,11 @@ DEFAULT_CONFIG = {
     # Let Cubeon install CustomSkinLoader and register its own skin/cape
     # sources with it. Without that mod, offline players see Steve/Alex and no
     # Cubeon cape - so this is on by default and making the user install it by
-    # hand is not an option. Turning it off is the supported opt-out; see
-    # cubeon/csl.py for exactly what it stops doing.
+    # hand is not an option. False leaves existing CSL sources hand-managed;
+    # csl_enabled below controls whether the mod itself can load.
     "manage_skin_mod": True,
+    # Explicit runtime switch, independent of hand-managed CSL sources.
+    "csl_enabled": True,
     # Inject the Cubeon Client in-game mod (Friends button/screen) into
     # Fabric/Quilt profiles at launch. Turning this off launches a clean
     # install with no Cubeon mod at all - the launcher itself keeps working.
@@ -148,31 +150,21 @@ DEFAULT_CONFIG = {
     # that removes the whole Friends backend; this is the user's per-launch
     # choice about the jar.
     "client_mod_enabled": True,
-    # With the Cubeon Client on, also make sure the client performance mods
+    # With FPS Boost on, also make sure compatible performance mods
     # that actually raise frame rate (Sodium, Lithium, ImmediatelyFast,
     # EntityCulling and FerriteCore - fetched from Modrinth like any other mod)
     # are present in the Fabric/Quilt profile. It does NOT touch Vsync/maxFps:
     # those are the player's frame pacing, and a fresh install keeps
     # Minecraft's own defaults (Vsync ON). See cubeon/game_options.py.
-    # The Cubeon Client itself is a social mod and draws nothing expensive;
-    # this is what turns "activate Cubeon Client" into a real FPS win.
-    # Turning it off skips automatic additions/options tuning. The one-time
-    # retirement of legacy managed More Culling still runs before Play.
+    # Native ports cover Forge/NeoForge; Quilt uses compatible Fabric builds.
+    # Independent of the Cubeon Client menu/HUD switch. Turning this off
+    # skips automatic mod additions; the FPS Boost graphics transition still runs.
+    # Legacy managed More Culling retirement still runs before Play.
     "perf_mods_enabled": True,
-    # FPS boost (the Play-menu toggle): with the perf mods on, also set
-    # Minecraft's own speed-only graphics options (Fast graphics, minimal
-    # particles, no entity shadows, trimmed entity distance, biome blend 0,
-    # chunk writes off the render thread - see cubeon/game_options.py
-    # MAX_FPS_OPTIONS). Since 2026-10-18 it also LOWERS the distance levers
-    # the frame rate actually lives on - renderDistance 6, simulationDistance
-    # 5, mipmapLevels 2, 2D clouds - because a side-by-side run showed the
-    # gap against FastClient was exactly those (it ships the same preset plus
-    # distance 6, Cubeon shipped 8). OFF actively RESTORES Minecraft's
-    # defaults for every one of those keys at every launch
-    # (restore_vanilla_look), render distance included, so an install that ran
-    # boosted goes back to fancy/shadowed vanilla looks and vanilla view
-    # distance. Renamed from max_fps_enabled (2026-10-15); the old key is
-    # migrated in load_config.
+    # Play's FPS Boost controls compatible mod additions and per-instance
+    # graphics transitions. Apply once, preserve later in-game edits, and
+    # restore only unchanged boost values on OFF. Distances, VSync and FPS
+    # caps stay player-owned. The old max_fps_enabled key is migrated below.
     "fps_boost_enabled": True,
     # How much the launcher animates: "full" (hover lifts, press dips, list
     # cascades, shimmering loading rows, the breathing bloom behind the Play

@@ -19,6 +19,7 @@ import logging
 import os
 import sys
 import tempfile
+from unittest.mock import patch
 import zipfile
 
 sys.path[:0] = [os.path.dirname(__file__),
@@ -81,6 +82,8 @@ def main():
 
     import cubeon.csl as csl
     import cubeon.cubeonfriends as friends
+    import cubeon.config as config
+    real_skin_setup = csl.ensure_ready
 
     def boom(*a, **k):
         raise RuntimeError("injection backend exploded")
@@ -140,6 +143,28 @@ def main():
           str(messages))
     check("the pack was still recorded as installed",
           meta is not None and meta.get("name") == "Client Mods", str(meta))
+
+    def download_packed_csl(dest, urls, hashes=None, **kwargs):
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with zipfile.ZipFile(dest, "w") as zf:
+            # CSL in a pack can have an opaque name. Its descriptor must
+            # still identify it when Settings disables skins.
+            zf.writestr("fabric.mod.json", json.dumps({"id": "customskinloader", "version": "1.0"}))
+
+    for client_on, skin_on in ((False, False), (True, False), (False, True), (True, True)):
+        choice = {"client_mod_enabled": client_on, "csl_enabled": skin_on}
+        with patch.object(config, "load_config", return_value=choice), \
+                patch.object(modpacks, "_download_to", side_effect=download_packed_csl), \
+                patch.object(csl, "ensure_ready", wraps=real_skin_setup) as skin_setup, \
+                patch.object(csl, "install", side_effect=AssertionError("Unexpected skin download")) as skin_download, \
+                patch.object(friends, "ensure_installed", return_value=True) as client_setup:
+            installed = modpacks._install_from_zip(archive)
+            active = [m for m in mods.list_mods("1.20.1", "fabric", installed["version_id"])
+                      if m["enabled"] and m["filename"] == "a.jar"]
+            check(f"pack client={client_on}, CSL={skin_on} honors independent choices",
+                  bool(active) == skin_on and bool(client_setup.call_count) == client_on
+                  and skin_setup.call_args.kwargs["manage"] == skin_on
+                  and skin_download.call_count == 0)
 
     print()
     print(f"{passed} passed, {failed} failed")

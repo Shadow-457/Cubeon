@@ -12,7 +12,7 @@ real profile:
   - a clean profile gets the whole suite, in order;
   - one/both already present (by slug, display name, project id or filename)
     -> kept, never re-downloaded (a duplicate Sodium is a crash, not a boost);
-  - only Fabric/Quilt get anything; vanilla/Forge is a clean no-op;
+  - Fabric/Quilt/Forge/NeoForge use loader-compatible builds; vanilla is a no-op;
   - every failure (no build, download error) is reported, never raised;
   - options.txt: graphics keys are rewritten atomically and idempotently,
     enableVsync/maxFps are never read or written.
@@ -115,8 +115,14 @@ check("sodium detected from filename only",
 check("sodium not downloaded", "sodium" not in [c[1] for c in calls],
       f"got {calls!r}")
 
-print("\n4. non-Fabric loaders are a no-op")
-for loader in ("forge", "neoforge", "vanilla", None):
+print("\n4. Forge and NeoForge use loader-specific performance ports")
+for loader, expected in (("forge", ["embeddium", "canary", *ALL_SLUGS[2:]]),
+                         ("neoforge", ALL_SLUGS)):
+    calls = _wire([])
+    report = perf.ensure_installed("1.21.11", loader, repair_dependencies=False)
+    check(f"{loader!r}: compatible suite requested", report["installed"] == expected,
+          f"got {report!r}")
+for loader in ("vanilla", None):
     calls = _wire([])
     report = perf.ensure_installed("1.21.11", loader)
     check(f"{loader!r}: nothing installed",
@@ -659,18 +665,16 @@ with tempfile.TemporaryDirectory() as tmp:
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _launch_src = open(os.path.join(_REPO, "cubeon", "launch.py"), encoding="utf-8").read()
 check("launch seeds Sodium while preserving existing options",
-      'if cfg.get("fps_boost_enabled", True):\n'
-      "                tuned = perf_mods.apply_max_fps_sodium(\n"
-      "                    perf_mods.sodium_config_path(game_dir), preserve_existing=True)" in _launch_src,
-      "expected the call directly under the fps_boost_enabled check")
+      "perf_mods.seed_renderer_options(mc_version, loader, version_id, game_dir)" in _launch_src,
+      "expected the installed renderer's instance config to be seeded")
 check("it is not in the FPS-boost-OFF branch",
-      _launch_src.index("tuned = perf_mods.apply_max_fps_sodium(")
-      > _launch_src.index("graphics = game_options.sync_fps_boost("),
+      _launch_src.index("perf_mods.seed_renderer_options(")
+      > _launch_src.index('if boost_enabled and cfg.get("perf_mods_enabled", True):'),
       "Sodium's defaults are already the fast values - OFF must not rewrite it")
 # Configs are per instance now (paths.INSTANCES_GAME_DIR): the repair must
 # write the folder this launch is actually using, not the shared root.
 check("it tunes the instance's own Sodium config",
-      "perf_mods.sodium_config_path(game_dir)" in _launch_src,
+      "perf_mods.seed_renderer_options(mc_version, loader, version_id, game_dir)" in _launch_src,
       "expected the per-instance game dir to be passed through")
 
 print(f"\n{_passed} passed, {_failed} failed")

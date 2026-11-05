@@ -70,7 +70,7 @@ def issues(selected, runtime, mc_version, loader):
             try:
                 with zipfile.ZipFile(choice.path) as archive:
                     malformed = any(path in archive.namelist() for path in (
-                        "fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml"))
+                        "fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml", "mcmod.info"))
             except (OSError, zipfile.BadZipFile):
                 malformed = True
             if malformed:

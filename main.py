@@ -259,7 +259,7 @@ from cubeon.features import friends_enabled  # Development vs. public (no-Friend
 from ui.chat_tab import build_chat_tab  # Chat tab: friends list, requests, encrypted chat
 from ui.screenshot_gallery import build_screenshot_gallery_tab
 from ui.versions import (  # Play tab version management: picker + side panel
-    VersionBanner, VersionPicker,
+    VersionBanner, VersionPicker, ClientSupportBadge,
 )
 from ui.window_chrome import (  # Windows-only custom frame widgets (policy: cubeon/winchrome.py)
     build_window_controls, set_maximized_glyph,
@@ -3382,6 +3382,18 @@ async def main(page: ft.Page):
             ft.dropdown.Option(key=version_id, text=f"{name}  {mark}")]
         thread_safe_ui.refresh(version_dropdown)
 
+    def _remember_instance_selection(version_id):
+        """Remember the exact installed instance, even without pressing Play."""
+        if not version_id or version_id not in state["installed"] or cfg.get("last_version") == version_id:
+            return
+        previous = cfg.get("last_version")
+        cfg["last_version"] = version_id
+        try:
+            core.save_config(cfg)
+        except Exception:
+            cfg["last_version"] = previous  # Allow a later selection/close to retry.
+            logging.getLogger(__name__).warning("couldn't remember the selected instance", exc_info=True)
+
     def _pick_version(key, loader=None):
         """Select an installed instance, or download a new one with `loader`.
 
@@ -3515,11 +3527,66 @@ async def main(page: ft.Page):
         if state.get("pending_instance_icon") == choice:
             state["pending_instance_icon"] = None
 
+    instance_icon_picker = None
+
+    def _upload_instance_icon(on_selected):
+        nonlocal instance_icon_picker
+        from cubeon import instance_icons
+
+        def failed(error):
+            with thread_safe_ui.TREE_LOCK:
+                show_snack(f"Couldn't import the icon: {error}")
+                on_selected(None)
+
+        def picked(files):
+            if not files:
+                on_selected(None)
+                return
+            path = getattr(files[0], 'path', None)
+            if not path:
+                failed(ValueError('Choose an image saved on this computer.'))
+                return
+
+            def work():
+                try:
+                    icon_id = instance_icons.import_image(path)
+                except Exception as error:
+                    failed(error)
+                    return
+                with thread_safe_ui.TREE_LOCK:
+                    on_selected(icon_id)
+
+            try:
+                threading.Thread(target=work, daemon=True, name='instance-icon-import').start()
+            except Exception as error:
+                failed(error)
+
+        try:
+            if instance_icon_picker is None:
+                instance_icon_picker = ft.FilePicker()
+                services = getattr(page, '_services', None)
+                if instance_icon_picker not in getattr(services, '_services', ()):
+                    register = getattr(services, 'register_service', None) or getattr(page, 'register_service', None)
+                    if callable(register):
+                        register(instance_icon_picker)
+                    elif instance_icon_picker not in page.overlay:
+                        page.overlay.append(instance_icon_picker)
+            instance_icon_picker.on_result = lambda e: picked(e.files)
+            run_file_picker(
+                page, instance_icon_picker, on_files=picked, on_error=failed,
+                dialog_title='Choose an instance icon', allow_multiple=False,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=['png', 'jpg', 'jpeg', 'webp', 'gif'],
+            )
+        except Exception as error:
+            failed(error)
+
     picker = VersionPicker(
         page,
         get_selected=lambda: version_dropdown.value,
         get_icon=_instance_icon,
         on_set_icon=_save_instance_icon,
+        on_upload_icon=_upload_instance_icon,
         label_for=_dropdown_label,
         on_pick=_pick_version,
         on_create=_create_new_instance,
@@ -4180,6 +4247,7 @@ async def main(page: ft.Page):
         picker.sync_label()   # the compact button mirrors the real dropdown
         version_id = version_dropdown.value
         state["selected_version"] = version_id  # keep Mods/Servers tabs in sync with the dropdown
+        _remember_instance_selection(version_id)
         _sync_engine_navigation()
         # A pending loader install is armed against one specific version. If
         # the user switches versions, that arm no longer applies - clear it so
@@ -4327,15 +4395,16 @@ async def main(page: ft.Page):
         _refresh_pack_index()  # keep the version+loader -> pack-name map current
 
         if not online:
-            # Offline mode: only installed versions. Legacy (below 1.20)
-            # entries stay hidden until the user opts in via the Legacy
-            # button - same rule as the online list.
+            # Offline mode: only installed versions. Keep the selected
+            # installed instance, including a saved legacy selection;
+            # other legacy entries still require the Legacy preference.
             _labels = cfg.get("version_labels") or {}
             options = []
             entries = []
             for v in installed:
                 vid = v["id"]
-                if not state.get("legacy_ok") and _is_legacy_version(vid):
+                if (not state.get("legacy_ok") and _is_legacy_version(vid)
+                        and vid != state.get("selected_version")):
                     continue
                 # The dropdown option keeps the plain "name ⚠/●" text (other
                 # code mirrors it onto the button label); the picker gets the
@@ -4425,14 +4494,15 @@ async def main(page: ft.Page):
         versions = _available_versions
 
         # Build options: show installed versions with a "●" marker. Legacy
-        # (below 1.20) entries are skipped unless the user opted in. The
+        # entries are skipped unless opted in or already selected/installed. The
         # picker additionally gets the loader / snapshot / release-date tags.
         _labels = cfg.get("version_labels") or {}
         options = []
         entries = []
         for v in versions:
             vid = v["id"]
-            if not state.get("legacy_ok") and _is_legacy_version(vid):
+            if (not state.get("legacy_ok") and _is_legacy_version(vid)
+                    and not (vid in state["installed"] and vid == state.get("selected_version"))):
                 continue
             is_installed = vid in state["installed"]
             tag = "  ●" if is_installed else ""
@@ -4475,7 +4545,8 @@ async def main(page: ft.Page):
             vid = v.get("id")
             if not vid or vid in listed:
                 continue
-            if not state.get("legacy_ok") and _is_legacy_version(vid):
+            if (not state.get("legacy_ok") and _is_legacy_version(vid)
+                    and vid != state.get("selected_version")):
                 continue
             info = instance_info.describe(vid, v, _labels.get(vid),
                                           with_mods=False, play_store={})
@@ -4727,8 +4798,8 @@ async def main(page: ft.Page):
                    f"was found on this computer.")
         approx = "50-100 MB" if required >= 17 else "around 40 MB"
         body = (f"{why}\n\n"
-                f"Cubeon can download a Java {required} runtime from Eclipse "
-                f"Adoptium ({approx}) and keep it alongside the launcher. It "
+                f"Cubeon can download a verified Java {required} runtime from "
+                f"Eclipse Adoptium or Azul ({approx}) and keep it alongside the launcher. It "
                 f"won't touch any Java you already have installed.")
 
         def _install(dlg):
@@ -6195,6 +6266,7 @@ async def main(page: ft.Page):
         bgcolor=ACCENT_TINT, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
     )
+    hero_client_support = ClientSupportBadge()
 
     # -----------------------------------------------------------------
     # VERSION ART - the Play tab's visual identity.
@@ -6273,6 +6345,8 @@ async def main(page: ft.Page):
             state.get("mod_loader") or "vanilla", "Vanilla")
         if rust_engine.is_instance(vid):
             hero_loader_chip_text.value = "Rust · Beta"
+        hero_client_support.set_version(
+            vid, "rust" if rust_engine.is_instance(vid) else state.get("mod_loader") or "vanilla")
         fps_boost_tile.visible = not rust_engine.is_instance(vid)
         _refresh_hero_banner(vid)
         # Plain ft.Text controls only repaint when updated. The selection path
@@ -6281,7 +6355,7 @@ async def main(page: ft.Page):
         # unrelated full repaint - the user saw it only after switching to
         # another tab and back. One control-level patch each.
         for _painted in (hero_title, hero_version_text,
-                         hero_loader_chip_text, version_issue_text, fps_boost_tile):
+                         hero_loader_chip_text, hero_client_support, version_issue_text, fps_boost_tile):
             thread_safe_ui.refresh(_painted)
 
     # Now assemble the actual Play tab UI. Hierarchy is deliberate:
@@ -6353,7 +6427,7 @@ async def main(page: ft.Page):
                 [
                     ft.Row([hero_title], spacing=0),
                     ft.Row(
-                        [hero_loader_chip, pack_name_badge,
+                        [hero_loader_chip, hero_client_support, pack_name_badge,
                          hero_version_text],
                         spacing=12,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -6542,6 +6616,7 @@ async def main(page: ft.Page):
             section_label=section_label,
             switch_loader=_switch_loader_for_mods,
             modpacks_content=modpacks_tab, on_modpacks_open=open_modpacks,
+            on_client_mod_change=_set_client_mod_enabled,
             **THEME,
         )
         mods_tab.content = content
@@ -6924,22 +6999,46 @@ async def main(page: ft.Page):
         core.save_config(cfg)
         set_status("Settings saved")
 
-    # The in-game Cubeon Client mod (Friends button, in-game menu) is injected
-    # into Fabric/Quilt profiles at launch. This is the user's off switch:
-    # unchecking launches a clean mod setup (the launcher itself is unaffected).
+    # Client and skin-loader switches save independently; launch preparation
+    # applies each preference before staging the active instance's mods.
     client_mod_cb = ft.Switch(
         value=bool(cfg.get("client_mod_enabled", True)),
-        active_color=ACCENT, scale=0.85,
+        active_color=ACCENT, scale=0.85, data="cubeon-client-enabled",
     )
+    csl_cb = ft.Switch(value=bool(cfg.get("csl_enabled", True)),
+                       active_color=ACCENT, scale=0.85, data="csl-enabled")
 
-    def on_client_mod_change(e):
-        cfg["client_mod_enabled"] = bool(client_mod_cb.value)
-        core.save_config(cfg)
-        set_status("Cubeon Client mod " +
-                   ("will install at launch" if client_mod_cb.value
-                    else "disabled - launches clean"))
+    def _game_feature_change(key, control, label):
+        def changed(e):
+            with thread_safe_ui.TREE_LOCK:
+                existed, previous = key in cfg, cfg.get(key, True)
+                cfg[key] = bool(control.value)
+                try:
+                    core.save_config(cfg)
+                except Exception:
+                    if existed:
+                        cfg[key] = previous
+                    else:
+                        cfg.pop(key, None)
+                    control.value = previous
+                    set_status(f"Could not save {label} settings")
+                    saved = False
+                else:
+                    set_status(f"{label} {'enabled' if control.value else 'disabled'}. Applies on the next launch.")
+                    saved = True
+                thread_safe_ui.refresh(control)
+                if key == 'client_mod_enabled' and mods_tab.content is not None:
+                    mods_tab.content.refresh_client_preference()
+                return saved
+        return changed
 
-    client_mod_cb.on_change = on_client_mod_change
+    client_mod_cb.on_change = _game_feature_change("client_mod_enabled", client_mod_cb, "Cubeon Client")
+    csl_cb.on_change = _game_feature_change("csl_enabled", csl_cb, "CustomSkinLoader")
+
+    def _set_client_mod_enabled(enabled):
+        with thread_safe_ui.TREE_LOCK:
+            client_mod_cb.value = bool(enabled)
+            return client_mod_cb.on_change(None)
 
     # Glass background: translucent window so the desktop shows through
     # faintly. Restart-to-apply (the window alpha is set once at startup).
@@ -7857,7 +7956,7 @@ async def main(page: ft.Page):
         set_status=set_status,
         save_width_height_java=save_settings,
         browse_online_row=browse_online_row, legacy_btn=legacy_btn,
-        legacy_note=legacy_note, client_mod_cb=client_mod_cb,
+        legacy_note=legacy_note, client_mod_cb=client_mod_cb, csl_cb=csl_cb,
         glass_cb=glass_cb, tidy_btn=tidy_btn,
         custom_chrome_cb=custom_chrome_cb,
         ram_slider=ram_slider, ram_range_row=ram_range_row,
@@ -8912,6 +9011,7 @@ async def main(page: ft.Page):
             elif ev == "blur":
                 _season_animator_pause(True)
             if ev in ("close", "hide", "disconnect"):
+                _remember_instance_selection(version_dropdown.value)
                 # Flet 0.86 reality check: on this build the native X button
                 # tears the window down WITHOUT delivering a "close" event to
                 # Python (only programmatic window.close() does, and only
@@ -9003,6 +9103,7 @@ async def main(page: ft.Page):
     # _window_gone_finish if ft.run() never comes back, and otherwise the
     # session loop does it (which is what keeps "Restart to apply" working).
     def _on_page_gone(_e):
+        _remember_instance_selection(version_dropdown.value)
         if friends_service is not None:
             friends_service.set_notice_handler(None)
         cubeon_toast.uninstall(page)

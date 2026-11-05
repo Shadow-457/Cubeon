@@ -6,6 +6,7 @@
 
 - Also called Cubeon Minecraft Launcher. Cubeon is a separate project from the similarly named Cubion launcher.
 - Manages Minecraft Java versions, instances, mods, modpacks, skins, cosmetics, friends and local servers.
+- Built-in public tunnels and automatic internet world sharing are no longer supported. Local servers need separately configured network access for remote players.
 - Supports Vanilla, Fabric, Quilt, Forge and NeoForge instances. Mods must match the Minecraft version and loader.
 - Uses local/offline player profiles. Microsoft account sign-in is not available; servers requiring Microsoft authentication cannot accept these profiles.
 - Does not launch Minecraft Bedrock Edition. Cubeon is an independent fan project, not affiliated with Mojang or Microsoft.

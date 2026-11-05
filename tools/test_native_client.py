@@ -76,6 +76,13 @@ def main():
         cfg["client_mod_enabled"] = False
         with patch("cubeon.skins.sync_local_skin_to_csl"), patch("cubeon.capes.sync_local_cape_to_csl"), patch("cubeon.cosmetics.sync_to_game"):
             assert native_client.prepare(cfg, temp, "Fixture")["CUBEON_CLIENT_ENABLED"] == "0"
+            assert json.loads(appearance_path.read_text())["enabled"] is True
+            cfg.update(client_mod_enabled=True, csl_enabled=False)
+            assert native_client.prepare(cfg, temp, "Fixture")["CUBEON_CLIENT_ENABLED"] == "1"
+            assert json.loads(appearance_path.read_text())["enabled"] is False
+            cfg["client_mod_enabled"] = False
+            assert native_client.prepare(cfg, temp, "Fixture")["CUBEON_CLIENT_ENABLED"] == "0"
+            assert json.loads(appearance_path.read_text())["enabled"] is False
         appearance_path.write_text(json.dumps(appearance))
         assert not (directory / "mods").exists()
         if not args.compiled:

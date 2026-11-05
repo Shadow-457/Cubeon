@@ -141,6 +141,27 @@ def _cfg(content_type: str) -> dict:
         raise ValueError(f"Unknown content type: {content_type!r}") from None
 
 
+def archive_content_type(path: str) -> str | None:
+    """Identify a misplaced pack without treating an unfamiliar mod as content."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+    except (OSError, ValueError, zipfile.BadZipFile):
+        return None
+    markers = {"fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml",
+               "META-INF/neoforge.mods.toml", "mcmod.info"}
+    if len(names) > 100_000 or any(name in markers or name.endswith(".class") for name in names):
+        return None
+    wrapper = packformat._wrapper_dir(names)
+    relative = [name[len(wrapper) + 1:] if wrapper and name.startswith(wrapper + "/")
+                else name for name in names]
+    if any(name.startswith("shaders/") for name in relative):
+        return "shader"
+    if "pack.mcmeta" in relative:
+        return "resourcepack"
+    return None
+
+
 def content_dir(content_type: str) -> str:
     """The shared game folder this content type installs into, created on
     demand so a fresh install (or a user who wiped .minecraft) never hits a

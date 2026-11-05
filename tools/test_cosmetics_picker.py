@@ -128,6 +128,41 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertEqual(cards, self.cards())
         self.assertEqual(self.page.update_calls, 0)
 
+    def test_grid_resize_fits_cards_without_rebuilding_or_rendering(self):
+        self.tab('Back')
+        self.apply('Apply Ember Wings (Small)')
+        cards = self.cards()
+        images = [c for c in fz.walk(self.root) if isinstance(c, ft.Image)]
+        grid = next(c for c in fz.walk(self.root) if isinstance(c, ft.Row)
+                    and cards[0] in c.controls)
+        jobs = len(self.jobs)
+        for width in (280, 620, 180, 900):
+            grid.on_size_change(SimpleNamespace(control=grid, width=width))
+            self.assertEqual(cards, self.cards())
+            self.assertEqual(images, [c for c in fz.walk(self.root) if isinstance(c, ft.Image)])
+            self.assertTrue(all(0 < c.width <= min(164, width) for c in cards))
+            columns = max(1, int((width + 12) / 144))
+            self.assertLessEqual(columns * cards[0].width + (columns - 1) * 12, width)
+        self.assertEqual(self.cfg['active_back_item'], 'back_ember_wings_small')
+        self.assertEqual(len(self.jobs), jobs)
+        self.assertEqual(self.raster.call_count, 0)
+        self.assertEqual(self.page.update_calls, 0)
+
+    def test_compact_layout_keeps_preview_small_and_uses_parent_scroll(self):
+        layout = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-layout')
+        model = next(c for c in fz.walk(self.root) if c.data == 'appearance-model')
+        viewport = next(c for c in fz.walk(self.root) if isinstance(c, ft.Container)
+                        and isinstance(c.content, ft.GestureDetector))
+        image = model.controls[1]
+        for width in (640, 980, 380):
+            layout.on_size_change(SimpleNamespace(width=width))
+            viewport.on_size_change(SimpleNamespace(width=width if width < 760 else 300))
+            self.assertIs(model.controls[1], image)
+            self.assertLessEqual(model.width, 176 if width < 760 else 320)
+        self.assertFalse(any(getattr(c, 'scroll', None) == ft.ScrollMode.AUTO
+                             for c in fz.walk(self.root)))
+        self.assertEqual(self.page.update_calls, 0)
+
 
 if __name__ == '__main__':
     unittest.main()

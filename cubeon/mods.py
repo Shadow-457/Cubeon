@@ -105,7 +105,7 @@ def _write_copy_receipts(directory, marker, receipts):
 
 
 def _backup_user_jar(fname: str) -> None:
-    """Move a jar Cubeon did not put in mods/ to mods_user_backup/.
+    """Move an unowned archive out of mods/ to mods_user_backup/.
 
     Never delete it: it may be the user's only copy. A same-named backup from
     an earlier run gets a numeric suffix rather than being overwritten.
@@ -113,13 +113,31 @@ def _backup_user_jar(fname: str) -> None:
     backup_dir = os.path.join(MINECRAFT_DIR, "mods_user_backup")
     os.makedirs(backup_dir, exist_ok=True)
     dest = os.path.join(backup_dir, fname)
-    if os.path.exists(dest):
+    if os.path.lexists(dest):
         stem, ext = os.path.splitext(fname)
         n = 1
-        while os.path.exists(dest):
+        while os.path.lexists(dest):
             dest = os.path.join(backup_dir, f"{stem}.{n}{ext}")
             n += 1
     os.replace(os.path.join(MODS_DIR, fname), dest)
+
+
+def quarantine_misplaced_packs() -> list[str]:
+    """Retain stray packs outside shared mods, without adopting them into a new instance."""
+    from .content import archive_content_type
+    moved = []
+    if not os.path.isdir(MODS_DIR):
+        return moved
+    for name in sorted(os.listdir(MODS_DIR)):
+        full = os.path.join(MODS_DIR, name)
+        if (name.startswith(".") or not name.lower().endswith(".zip")
+                or not os.path.isfile(full) or archive_content_type(full) is None):
+            continue
+        _backup_user_jar(name)
+        moved.append(name)
+    if moved:
+        logging.getLogger(__name__).info("Moved %d misplaced packs from mods to mods_user_backup", len(moved))
+    return moved
 
 
 
@@ -1134,6 +1152,9 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
             chosen[("file", fname)] = fname
 
     os.makedirs(MODS_DIR, exist_ok=True)
+    # Quilt warns about ZIPs even though the mod JAR staging loop ignores
+    # them. Old shared-folder packs must not follow every selected instance.
+    quarantine_misplaced_packs()
     previously_synced = _read_synced_manifest()
     from .file_safety import copy_source_stamp, copied_entry_matches, copied_entry_receipt
     previous_copies = _read_copy_receipts(MODS_DIR, _SYNC_MANIFEST)
@@ -1993,16 +2014,55 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                 return payload
             names = set(z.namelist())
             preferred = {
-                "forge": ("META-INF/mods.toml",),
+                "forge": ("META-INF/mods.toml", "mcmod.info"),
                 "neoforge": ("META-INF/neoforge.mods.toml", "META-INF/mods.toml"),
                 "quilt": ("quilt.mod.json", "fabric.mod.json"),
                 "fabric": ("fabric.mod.json",),
             }.get(loader, ())
             descriptor = next((name for name in preferred if name in names), None)
+            # Legacy Forge loads coremods from the main manifest, including
+            # universal bootstraps that also have a Fabric descriptor. Those
+            # Fabric dependency rules do not describe Forge's entry point.
+            if descriptor is None and loader == "forge" and "META-INF/MANIFEST.MF" in names:
+                manifest = descriptor_bytes("META-INF/MANIFEST.MF").decode("utf-8", "replace")
+                manifest = re.sub(r"\r?\n ", "", manifest)
+                attributes = {}
+                for line in manifest.splitlines():
+                    if not line:
+                        break  # Per-file sections cannot declare a coremod.
+                    key, separator, value = line.partition(":")
+                    if separator:
+                        attributes[key.lower()] = value.strip()
+                plugin = attributes.get("fmlcoreplugin", "")
+                if re.fullmatch(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*", plugin) \
+                        and plugin.replace(".", "/") + ".class" in names:
+                    title = attributes.get("implementation-title") or plugin
+                    identity = attributes.get("automatic-module-name") or title
+                    return {
+                        "id": re.sub(r"[^a-z0-9_-]+", "-", identity.lower()).strip("-"),
+                        "name": title,
+                        "version": attributes.get("implementation-version", ""),
+                        "depends": {}, "breaks": {}, "loaders": ["forge"],
+                    }
             if descriptor is None:
                 descriptor = next((name for name in ("fabric.mod.json", "quilt.mod.json",
                                   "META-INF/neoforge.mods.toml", "META-INF/mods.toml")
                                   if name in names), None)
+            if descriptor == "mcmod.info":
+                data = json.loads(descriptor_bytes(descriptor).decode("utf-8", "replace"))
+                declared = data if isinstance(data, list) else data.get("modList")
+                if not declared or not all(isinstance(entry, dict) and entry.get("modid") for entry in declared):
+                    raise ValueError("Invalid legacy Forge mod descriptor")
+                def legacy_identity(entry):
+                    # mcversion records the compile target, not a runtime
+                    # version predicate; do not turn it into a strict
+                    # Minecraft requirement for adjacent compatible patches.
+                    return {"id": entry["modid"], "name": entry.get("name") or entry["modid"],
+                            "version": str(entry.get("version") or ""),
+                            "depends": {}, "breaks": {}, "loaders": ["forge"]}
+                return dict(legacy_identity(declared[0]),
+                            provided={entry["modid"].lower(): str(entry.get("version") or "") for entry in declared},
+                            _secondary_descriptors=[legacy_identity(entry) for entry in declared[1:]])
             if descriptor == "fabric.mod.json":
                 d = json.loads(descriptor_bytes("fabric.mod.json").decode("utf-8", "replace"))
                 if not isinstance(d.get("depends") or {}, dict) or not isinstance(d.get("breaks") or {}, dict):

@@ -59,7 +59,7 @@
     "open-ended ('>=26.3') so a 26.x released after this launcher still works.",
     "",
     "Fabric builds below 1.20 are deliberately absent: these sources use modern",
-    "APIs. Forge 1.8.9 has a separate Java 8/SRG port in forge-1.8.9, built by",
+    "APIs. Forge 1.8.9 has a separate Java 8/SRG port in mod/forge189, built by",
     "tools/build_forge189_client.py and routed separately by cubeonfriends.py."
   ],
   "mod_version": "1.0.0",

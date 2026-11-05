@@ -35,7 +35,7 @@ Windows, and macOS.
 - Browse mods and modpacks, with instance-specific mods, resource packs, and shaders.
 - Preview skins and capes in 3D, and manage a local cosmetics library.
 - Track playtime and compare activity in the Stats tab.
-- Manage local servers and share access through tunnels.
+- Manage local Minecraft servers.
 
 <p align="center">
   <img src="web/assets/cubeon-cosmetics.png" width="1100" alt="Cubeon shoulder companion and back cosmetics rendered on a Minecraft player.">

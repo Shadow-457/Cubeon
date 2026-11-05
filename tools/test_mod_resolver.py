@@ -240,6 +240,60 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(report["unfixed"], [], report)
         self.assertTrue(self.profile.joinpath("a-1.jar").exists())
 
+    def test_universal_forge_bootstrap_ignores_fabric_entrypoint_requirements(self):
+        path = self.profile / "universal.jar"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("fabric.mod.json", json.dumps(dict(id="bootstrap", version="15.1",
+                              depends={"fabricloader": ">=0.16", "java": ">=21"})))
+            archive.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\r\n"
+                              "Automatic-Module-Name: bootstrap\r\nImplementation-Version: 15.1\r\n"
+                              "FMLCorePlugin: example.\r\n LoadingPlugin\r\n\r\n")
+            archive.writestr("example/LoadingPlugin.class", b"fixture")
+        before = path.read_bytes()
+        with patch.object(mods, "get_mod_download", side_effect=AssertionError("Clean Forge profile requested network")):
+            report = deps.run_dependency_doctor("1.8.9", "forge", version_id=self.instance,
+                                                runtime_versions={"java": 8})
+        self.assertEqual(report, {"checked": 1, "fixed": [], "unfixed": []})
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(mods.read_mod_metadata(str(path), "fabric")["depends"]["fabricloader"], ">=0.16")
+
+    def test_forge_bootstrap_requires_the_manifest_plugin_class(self):
+        for manifest in ("Manifest-Version: 1.0\nFMLCorePlugin: example.Missing\n\n",
+                         "Manifest-Version: 1.0\n\nName: example/Plugin.class\nFMLCorePlugin: example.Plugin\n"):
+            with self.subTest(manifest=manifest):
+                path = self.profile / "fabric-only.jar"
+                with zipfile.ZipFile(path, "w") as archive:
+                    archive.writestr("fabric.mod.json", json.dumps(dict(id="fabric-only", version="1")))
+                    archive.writestr("META-INF/MANIFEST.MF", manifest)
+                    archive.writestr("example/Plugin.class", b"fixture")
+                report = deps.run_dependency_doctor("1.8.9", "forge", version_id=self.instance,
+                                                    check_online=False, auto_fix=False)
+                self.assertTrue(report["unfixed"])
+                self.assertEqual(report["unfixed"][0]["kind"], "incompatible")
+
+    def test_legacy_forge_modlist_identity_and_compile_target(self):
+        for wrapped in (False, True):
+            with self.subTest(wrapped=wrapped):
+                path = self.profile / "legacy.jar"
+                entries = [dict(modid="legacy", name="Legacy", version="1", mcversion="1.8"),
+                           dict(modid="bundled", version="2")]
+                with zipfile.ZipFile(path, "w") as archive:
+                    archive.writestr("mcmod.info", json.dumps({"modList": entries} if wrapped else entries))
+                    archive.writestr("fabric.mod.json", json.dumps(dict(id="wrong-entrypoint", version="1")))
+                metadata, provided = mods._doctor_metadata(str(path), "forge")
+                self.assertEqual(metadata["id"], "legacy")
+                self.assertEqual(provided["bundled"], "2")
+                report = deps.run_dependency_doctor("1.8.9", "forge", version_id=self.instance, check_online=False)
+                self.assertEqual(report["unfixed"], [])
+
+    def test_malformed_legacy_descriptor_is_reported(self):
+        path = self.profile / "broken-legacy.jar"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("mcmod.info", "invalid JSON")
+        report = deps.run_dependency_doctor("1.8.9", "forge", version_id=self.instance,
+                                            check_online=False, auto_fix=False)
+        self.assertEqual(report["unfixed"][0]["kind"], "unreadable")
+
     def test_corrupt_jar_is_reported_instead_of_ignored(self):
         self.profile.joinpath("broken.jar").write_bytes(b"not a zip")
         report = self.run_doctor(check_online=False)

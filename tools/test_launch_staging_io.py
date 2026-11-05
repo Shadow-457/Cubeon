@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[1])]
 import _sandbox_home
@@ -21,6 +22,7 @@ class CopyStaging(unittest.TestCase):
         self.game = self.root / 'game'
         self.profile.mkdir(); self.game.mkdir()
         self.patches = [patch.object(mods, 'MODS_DIR', str(self.game)),
+                        patch.object(mods, 'MINECRAFT_DIR', str(self.root)),
                         patch.object(mods, 'get_profile_dir', return_value=str(self.profile)),
                         patch.object(mods, 'mod_identity', side_effect=lambda d, n: ('', '', n)),
                         patch.object(mods.os, 'link', side_effect=OSError('link unavailable'))]
@@ -67,6 +69,58 @@ class CopyStaging(unittest.TestCase):
         self.sync()
         self.assertFalse((self.game / 'mod.jar').exists())
         self.assertEqual(mods._read_copy_receipts(str(self.game), mods._SYNC_MANIFEST), {})
+
+    def test_quilt_warning_packs_are_backed_up_without_adopting_them_into_selected_profile(self):
+        originals = {}
+        for count in range(18):
+            path = self.game / f'pack-{count}.zip'
+            with zipfile.ZipFile(path, 'w') as archive:
+                archive.writestr('pack.mcmeta' if count < 15 else 'shaders/program.fsh', '{}')
+            originals[path.name] = path.read_bytes()
+        (self.profile / 'selected.jar').write_bytes(b'current instance')
+        self.sync()
+        backup = self.root / 'mods_user_backup'
+        self.assertEqual(originals, {p.name: p.read_bytes() for p in backup.iterdir()})
+        self.assertEqual(list(self.game.glob('*.zip')), [])
+        self.assertEqual([p.name for p in self.profile.iterdir()], ['selected.jar'])
+        self.sync()
+        self.assertEqual(originals, {p.name: p.read_bytes() for p in backup.iterdir()})
+
+    def test_unknown_or_real_mod_archives_are_preserved(self):
+        unknown = self.game / 'unknown.zip'; unknown.write_bytes(b'unreadable')
+        for name, entries in [('mod.zip', ['fabric.mod.json', 'pack.mcmeta']),
+                              ('coremod.zip', ['example/Core.class', 'pack.mcmeta']),
+                              ('other.zip', ['readme.txt'])]:
+            with zipfile.ZipFile(self.game / name, 'w') as archive:
+                for entry in entries:
+                    archive.writestr(entry, '{}')
+        self.sync()
+        self.assertEqual(len(list(self.game.glob('*.zip'))), 4)
+        self.assertFalse((self.root / 'mods_user_backup').exists())
+
+    def test_backup_collision_and_store_link_preserve_originals(self):
+        backup = self.root / 'mods_user_backup'; backup.mkdir()
+        (backup / 'pack.zip').symlink_to('missing-target')
+        source = self.profile / 'pack.zip'
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('shaders/program.fsh', 'keep')
+        staged = self.game / 'pack.zip'; staged.symlink_to(source)
+        original = source.read_bytes()
+        self.sync()
+        self.assertTrue((backup / 'pack.zip').is_symlink())
+        self.assertEqual((backup / 'pack.1.zip').read_bytes(), original)
+        self.assertEqual(source.read_bytes(), original)
+        self.assertFalse(staged.exists())
+
+    def test_failed_pack_backup_preserves_source_and_stops_staging(self):
+        source = self.game / 'pack.zip'
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('pack.mcmeta', '{}')
+        original = source.read_bytes()
+        with patch.object(mods.os, 'replace', side_effect=PermissionError('file locked')):
+            with self.assertRaises(PermissionError):
+                self.sync()
+        self.assertEqual(source.read_bytes(), original)
 
     def test_optional_copy_cache_failure_keeps_successfully_staged_mods(self):
         source = self.profile / 'mod.jar'; source.write_bytes(b'original')

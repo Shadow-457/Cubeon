@@ -84,15 +84,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     section_label,
                     BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                     TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
-                    switch_loader=None, modpacks_content=None, on_modpacks_open=None):
+                    switch_loader=None, modpacks_content=None, on_modpacks_open=None,
+                    on_client_mod_change=None):
     """
     Builds the Mods tab's root control (a Flet Column) and returns it along
     with a couple of functions main.py needs to call from other tabs.
 
     Args:
         page: The Flet page instance - needed to trigger page.update() from callbacks.
-        cfg: The launcher configuration dictionary (unused directly here, kept
-             for symmetry with the other tab builders and future settings).
+        cfg: The live launcher configuration; managed Client switches share
+             its preference with Settings rather than toggling a staged JAR.
         state: The shared mutable state dict from main.py. This module reads
                state["selected_mc_version"] and state["mod_loader"] - it never
                sets them, since those belong to the Play tab's version/loader
@@ -400,6 +401,45 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     def _cached_installed(kind=None):
         return installed_snapshots.get(_installed_target(kind), [])
 
+    def _is_client_mod(m):
+        name = str(m.get('filename') or '').lower()
+        return (name.startswith(('cubeon-client', 'cubeon-friends'))
+                or m.get('slug') in ('cubeon-client', 'cubeon-friends'))
+
+    def _installed_display_count():
+        items = _cached_installed()
+        backups = max(0, sum(_is_client_mod(m) for m in items) - 1) if _is_mod() else 0
+        return len(items) - backups
+
+    def _change_client_enabled(enabled):
+        with thread_safe_ui.TREE_LOCK:
+            try:
+                if on_client_mod_change is not None:
+                    if on_client_mod_change(enabled) is False:
+                        raise RuntimeError('Could not save Cubeon Client settings')
+                else:
+                    existed, previous = 'client_mod_enabled' in cfg, cfg.get('client_mod_enabled', True)
+                    cfg['client_mod_enabled'] = bool(enabled)
+                    try:
+                        core.save_config(cfg)
+                    except Exception:
+                        if existed:
+                            cfg['client_mod_enabled'] = previous
+                        else:
+                            cfg.pop('client_mod_enabled', None)
+                        raise
+            except Exception as error:
+                _set_installed_status(f"Could not save Cubeon Client settings: {error}")
+            else:
+                _set_installed_status(f"Cubeon Client {'enabled' if enabled else 'disabled'}. "
+                                      'Applies to all instances on the next launch.')
+            _render_installed_snapshot(_cached_installed())
+
+    def _mod_status(m):
+        if _is_client_mod(m):
+            return f"{'Enabled' if m['enabled'] else 'Disabled'} · Next launch · All instances"
+        return f"{m['size_kb']:,.0f} KB  ·  {'Enabled' if m['enabled'] else 'Disabled'}"
+
     def _read_installed_snapshot(target):
         kind, mc, loader, version = target
         mods = core.list_mods(mc, loader, version_id=version) if kind in ('mod', 'shader') else None
@@ -463,6 +503,29 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         resource packs / shaders come from their per-instance content profile.
         Applies the filter from the installed_filter_field.
         """
+        # Client availability is a persisted preference, applied at launch.
+        # Keep disk snapshots intact for Doctor and dependency checks.
+        if _is_mod():
+            clients = [m for m in all_mods if _is_client_mod(m)]
+            client = next((m for m in clients if m.get('enabled')), clients[0] if clients else None)
+            displayed, client_added = [], False
+            for m in all_mods:
+                if _is_client_mod(m):
+                    # A launch can reinstall the current JAR beside an older
+                    # .jar.disabled backup. They share one managed preference,
+                    # so expose one switch while preserving every disk entry.
+                    if not client_added:
+                        displayed.append(dict(client, display_name='Cubeon Client',
+                                              enabled=bool(cfg.get('client_mod_enabled', True)), protected=True))
+                        client_added = True
+                else:
+                    displayed.append(m)
+            all_mods = displayed
+        client_preference_switch.value = bool(cfg.get('client_mod_enabled', True))
+        client_preference_row.visible = (_is_mod() and bool(state.get('selected_mc_version'))
+                                         and state.get('mod_loader') in core.MOD_CAPABLE_LOADERS
+                                         and not any(_is_client_mod(m) for m in all_mods))
+        thread_safe_ui.refresh(client_preference_row)
         names = [m.get('filename', '').removesuffix('.disabled') for m in all_mods]
         from collections import Counter
         installed_collisions.clear()
@@ -763,8 +826,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 labels = row.content.controls[1].controls
                 labels[0].value = m["display_name"]
                 labels[0].color = TEXT if m["enabled"] else TEXT_DIM
-                labels[1].value = f"{m['size_kb']:,.0f} KB  ·  {'Enabled' if m['enabled'] else 'Disabled'}"
-                if not m.get("protected"):
+                labels[1].value = _mod_status(m)
+                if not m.get("protected") or _is_client_mod(m):
                     row.content.controls[2].value = m["enabled"]
                 row.on_click = (
                     (lambda event, metadata=metadata: open_mod_detail(metadata))
@@ -843,6 +906,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         def on_toggle(e):
             if row_target != _installed_target():
                 return
+            if _is_client_mod(m):
+                _change_client_enabled(not m['enabled'])
+                return
             if m.get("protected"):
                 return  # Cubeon-managed mod - core would refuse anyway
             def action():
@@ -876,18 +942,19 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                         color=TEXT if m["enabled"] else TEXT_DIM,
                                         weight=ft.FontWeight.W_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 ft.Text(
-                                    f"{m['size_kb']:,.0f} KB  ·  {'Enabled' if m['enabled'] else 'Disabled'}",
+                                    _mod_status(m),
                                     size=11.5, color=TEXT_DIM, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                                 ),
                             ],
                             spacing=4, expand=True,
                         ),
-                        # Protected mods (CustomSkinLoader, Cubeon Friends)
-                        # get a lock instead of the toggle/delete controls -
-                        # same treatment the server tab gives its managed
-                        # plugins. They're re-installed at launch anyway, so
-                        # removing them only ever broke skins or Friends.
+                        # Client uses its persisted global preference. Other
+                        # managed mods retain their lock and deletion guard.
                         *(
+                            [animated_switch(value=m['enabled'], active_color=ACCENT,
+                                             on_change=on_toggle, scale=0.85,
+                                             tooltip='Enable or disable Cubeon Client for all instances on the next launch')]
+                            if _is_client_mod(m) else
                             [ft.Container(
                                 content=ft.Row([
                                     ft.Icon(ft.Icons.LOCK_ROUNDED, size=14, color=TEXT_DIM),
@@ -2767,6 +2834,21 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         expand=True,
     )
 
+    # Keep opt-in available after an OFF launch removes the managed client
+    # JAR, or before the first launch has installed it.
+    client_preference_switch = animated_switch(
+        value=bool(cfg.get('client_mod_enabled', True)), active_color=ACCENT, scale=0.85,
+        on_change=lambda e: _change_client_enabled(bool(client_preference_switch.value)),
+        tooltip='Enable or disable Cubeon Client for all instances on the next launch',
+    )
+    client_preference_switch.data = 'installed-cubeon-client-enabled'
+    client_preference_row = ft.Row([
+        ft.Column([ft.Text('Cubeon Client', color=TEXT, size=13.5, weight=ft.FontWeight.W_600),
+                   ft.Text('Applies to all instances on the next launch.', color=TEXT_DIM, size=11.5)],
+                  spacing=4, expand=True),
+        client_preference_switch,
+    ], visible=False, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
     installed_pane = ft.Column(
         [
             # One header row: title on the left, then the repair action, the
@@ -2779,6 +2861,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             repair_details,
             installed_status,
+            client_preference_row,
             installed_filter_field,
             mods_list_view,
         ],
@@ -2790,7 +2873,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     view_segment_row = ft.Row(spacing=8)
 
     def _build_view_segment():
-        update_view_action(view_segment_row, active_view['value'], len(_cached_installed()),
+        update_view_action(view_segment_row, active_view['value'], _installed_display_count(),
                            on_view_change, data='mods-installed-toggle', color=TEXT_DIM)
 
     def on_view_change(new_view):
@@ -2918,6 +3001,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                           *([modpacks_content] if modpacks_content is not None else [])],
                          spacing=16, expand=True)
     mods_tab.select_content_type = on_content_type_change
+    def refresh_client_preference():
+        with thread_safe_ui.TREE_LOCK:
+            _render_installed_snapshot(_cached_installed(), loading=_installed_target() not in installed_snapshots)
+    mods_tab.refresh_client_preference = refresh_client_preference
 
     mods_list_view.on_capacity_change = lambda capacity: _render_installed_snapshot(_cached_installed())
 

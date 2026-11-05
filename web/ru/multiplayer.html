@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, follow" />
 <title>Playing Minecraft with friends in Cubeon - servers, joining, fixes</title>
-<meta name="description" content="Add friends by name, host a free server from your own PC, hand out the address, and fix the usual reasons someone cannot join - whitelist, version, mods, firewall." />
+<meta name="description" content="Add Cubeon friends, join Minecraft servers, manage local hosting, and troubleshoot version, mod, whitelist and network problems. Built-in public tunnels are no longer supported." />
 <meta property="og:title" content="Playing together in Cubeon" />
-<meta property="og:description" content="Friends by name, a free server on your own PC, and a checklist for every way a join can fail." />
+<meta property="og:description" content="Friends and chat, local Minecraft servers, and help with joining, profiles, mods and network problems." />
 <meta property="og:site_name" content="Cubeon Launcher" />
 <meta property="og:type" content="article" />
 <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
@@ -101,8 +101,8 @@
     <div class="wrap">
       <p class="crumbs"><a href="/ru">Home</a> / <a href="/ru/docs">Docs</a> / Playing together</p>
       <h1>Playing together</h1>
-      <p class="lede">Add friends by name, open a server from your own computer, and give people an address they can type. This page also has the list to work through when someone cannot get in.</p>
-      <p class="updated">Updated 28 October 2026</p>
+      <p class="lede">Add friends by name, join Minecraft servers, and manage a local server. This page also explains what to check when someone cannot get in.</p>
+      <p class="updated">Updated 5 November 2026</p>
     </div>
   </header>
 
@@ -152,18 +152,18 @@
 
       <div class="docs-section" id="host">
         <h2>Hosting a world</h2>
-        <p>Cubeon can run a real Minecraft server on your own computer and give it a public address, so your friends do not need to change anything on their end and nobody pays for hosting.</p>
+        <p>Cubeon can run a local Minecraft server on your own computer. Built-in public tunnels and automatic internet world sharing are no longer supported. Players outside your local network need a separately configured, reachable server address.</p>
         <ol>
           <li>Open <strong>Servers</strong> and pick the Minecraft version to host.</li>
           <li>Press <strong>Install</strong> for that version if it is not there yet.</li>
-          <li>Start it. Once it is up, the tab shows the <strong>public address</strong> - copy that and send it to your friends.</li>
+          <li>Start it and wait for the console to confirm the server is ready. Connect locally using the server's configured port; players on the same network use the host computer's local IP address and port.</li>
           <li>Optionally set a <strong>join password</strong>. Anyone without it does not get in, even with the address.</li>
         </ol>
         <p>Three things to know before you promise anyone a game:</p>
         <ul>
           <li><strong>Your computer is the server.</strong> It has to stay on and awake, and Cubeon (or at least the server) has to keep running. A sleeping laptop is a dead server.</li>
           <li><strong>First start is slow.</strong> The server generates its world before it accepts players.</li>
-          <li><strong>The tunnel can be blocked.</strong> Some networks and firewalls interrupt the shared address. If it never comes up, try a different network, or ask on the <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a> with what the console says.</li>
+          <li><strong>The server must be reachable.</strong> Check the server address, port and firewall rules. A local IP address only works on the same network.</li>
         </ul>
         <p><strong>Console</strong>, <strong>Plugins</strong> and <strong>Settings</strong> sit under the server tab. Settings is where RAM lives - the default is fine for a few friends; raise it if the server is struggling, not by default.</p>
       </div>
@@ -172,7 +172,7 @@
 
       <div class="docs-section" id="join">
         <h2>Joining a server</h2>
-        <p>In Minecraft, open <strong>Multiplayer</strong> &gt; <strong>Add Server</strong>, paste the address, and join. The address from Cubeon already includes the port, so paste the whole thing rather than splitting it up.</p>
+        <p>In Minecraft, open <strong>Multiplayer</strong> &gt; <strong>Add Server</strong>, paste the address supplied by the server owner, and join. Include the port if the owner provided one.</p>
         <p>If the address came with a join password, you will be asked for it on the way in.</p>
         <p>To join, <strong>three</strong> things have to line up:</p>
         <ul>
@@ -209,11 +209,11 @@
               <tr><td>You are not white-listed on this server</td><td>The name is not on the server's list</td><td>Owner adds the exact name in Servers, then restarts</td></tr>
               <tr><td>Outdated client / Outdated server</td><td>Minecraft versions differ</td><td>Both sides move to the same version</td></tr>
               <tr><td>Incompatible client</td><td>Loader or required mods differ</td><td>Match the loader and the server's mod list</td></tr>
-              <tr><td>Unknown host</td><td>The address is wrong, or no longer live</td><td>Re-paste it from Servers; the tunnel address changes if the server is restarted</td></tr>
-              <tr><td>Connection timed out / Connection refused</td><td>Server is off, still starting, or the owner's PC is asleep</td><td>Ask the owner to start it and wait for the address</td></tr>
+              <tr><td>Unknown host</td><td>The address is wrong, or no longer live</td><td>Confirm the current address and spelling with the server owner</td></tr>
+              <tr><td>Connection timed out / Connection refused</td><td>Server is off, still starting, unreachable, or the owner's PC is asleep</td><td>Ask the owner to check the server, address, port and firewall</td></tr>
               <tr><td>Failed to verify username / Invalid session</td><td>The server requires a real Microsoft account</td><td>See <a href="#offline">offline names</a> - this one you cannot fix from the client</td></tr>
               <tr><td>Connection drops a second after joining</td><td>Whitelist, a mod mismatch, or a server crash</td><td>Check the server console - it names the reason</td></tr>
-              <tr><td>It hangs on "Connecting to the server"</td><td>The tunnel or your network is blocking it</td><td>Retry, try another network, ask in Discord</td></tr>
+              <tr><td>It hangs on "Connecting to the server"</td><td>The server address or network route is unreachable</td><td>Check the address, port and firewall with the owner; local addresses require the same network</td></tr>
             </tbody>
           </table>
         </div>

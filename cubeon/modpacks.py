@@ -482,36 +482,23 @@ def _safe_relpath(base_dir: str, rel_path: str) -> str:
     return dest_abs
 
 
-# Mod jars carry one of these files; a resource pack carries `pack.mcmeta`.
-# The keyless CurseForge path names every entry `mods/<fileID>.jar` because the
-# real name is behind a redirect, so a pack's resource packs/shaders land in
-# mods/ unless their contents are checked after download.
-_MOD_JAR_MARKERS = ("fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml",
-                    "META-INF/neoforge.mods.toml", "mcmod.info")
-
-
 def _relocate_non_mod_jar(dest: str, mc_version: str, loader: str,
                           version_id: str | None) -> bool:
-    """Move a downloaded `mods/*.jar` that is really a resource pack into this
-    instance's resourcepacks folder. Returns True when it moved.
+    """Publish a pack misfiled under mods into its owning instance's content.
 
-    Only packs are moved: a jar with no mod metadata AND no `pack.mcmeta` is
-    left where the manifest put it (an unfamiliar mod is worse to move than to
-    leave), and an unreadable archive is left alone too.
+    Keyless CurseForge downloads may call packs `.jar`; content requires `.zip`.
+    Unidentified archives and actual mods stay where the manifest put them.
     """
-    try:
-        with zipfile.ZipFile(dest) as zf:
-            names = set(zf.namelist())
-    except (OSError, zipfile.BadZipFile):
+    from . import content
+    content_type = content.archive_content_type(dest)
+    if content_type is None:
         return False
-    if any(marker in names for marker in _MOD_JAR_MARKERS):
-        return False
-    if "pack.mcmeta" not in names:
-        return False
-    target = os.path.join(
-        content_profile_dir("resourcepack", mc_version, loader, version_id),
-        os.path.basename(dest))
-    os.replace(dest, target)
+    name = os.path.basename(dest)
+    if name.lower().endswith(".jar"):
+        name = name[:-4] + ".zip"
+    stored = content._store_entry(content_type, dest, human_name=name)
+    content.link_into_profile(content_type, stored, mc_version, loader, version_id)
+    os.remove(dest)  # Retire only after publication succeeded.
     return True
 
 
@@ -530,7 +517,7 @@ def _host_allowed(url: str) -> bool:
 
 def _dest_is_mod(rel_path: str) -> bool:
     p = rel_path.replace("\\", "/").lstrip("/").lower()
-    return p.startswith("mods/") and p.endswith(".jar")
+    return p.startswith("mods/") and p.endswith((".jar", ".zip"))
 
 
 # A pack's bundled resource packs / shaders are per-INSTANCE (see
@@ -798,8 +785,16 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
                 shutil.copyfileobj(src, out)
             if _dest_is_mod(rel):
                 staged = os.path.join(tmpdir, os.path.basename(dest))
-                global_mod_cache.put_file(payload, staged)
-                os.replace(staged, dest)
+                if rel.lower().endswith(".zip"):
+                    os.replace(payload, staged)
+                else:
+                    global_mod_cache.put_file(payload, staged)
+                if _relocate_non_mod_jar(staged, mc_version, loader, version_id):
+                    override_mods -= 1
+                    if written is not None:
+                        written.discard(os.path.basename(rel))
+                else:
+                    os.replace(staged, dest)
             else:
                 if content_dest is None and os.path.exists(dest):
                     # options.txt/servers.dat are the player's own keybinds,
@@ -1127,7 +1122,8 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 path = entry.get("path", "")
                 dest = _safe_relpath(profile_dir, os.path.basename(path))
                 urls = entry.get("downloads") or []
-                _download_to(dest, urls, entry.get("hashes"), use_global_cache=True)
+                _download_to(dest, urls, entry.get("hashes"),
+                             use_global_cache=dest.lower().endswith(".jar"))
                 # A CF keyless entry is named mods/<fileID>.jar whether it is a
                 # mod, a resource pack or a shader pack. Asking the jar itself
                 # keeps a content zip out of the loader's mods folder (which
@@ -1225,9 +1221,15 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         #    synced from, so skins and the Friends button silently vanished.
         #    Doing it here at install time, with the loader the pack actually
         #    declared, is what makes injection deterministic.
+        from .config import load_config
+        feature_cfg = load_config()
         try:
             from . import csl as _csl
-            _csl.ensure_ready(mc_version, loader_id, status_cb=status_cb,
+            skin_enabled = bool(feature_cfg.get("csl_enabled", True))
+            _csl.set_enabled(mc_version, loader_id, skin_enabled, version_id=version_id)
+            _csl.ensure_ready(mc_version, loader_id,
+                              manage=skin_enabled and bool(feature_cfg.get("manage_skin_mod", True)),
+                              status_cb=status_cb,
                               version_id=version_id)
         except Exception:
             # Best-effort: a skins problem must never fail the install, but a
@@ -1239,14 +1241,18 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         try:
             from .mods import get_profile_dir as _get_profile_dir
             from . import cubeonfriends as _friends_mod
+            from .features import friends_enabled
+            client_enabled = friends_enabled() and feature_cfg.get("client_mod_enabled", True)
+            if not client_enabled:
+                _friends_mod.remove_installed(profile_dir, strict=True)
             _friends_ok = _friends_mod.ensure_installed(
                 mc_version, loader_id,
-                _get_profile_dir(mc_version, loader_id, version_id))
-            if loader_id not in ("fabric", "quilt"):
+                _get_profile_dir(mc_version, loader_id, version_id)) if client_enabled else False
+            if client_enabled and loader_id not in ("fabric", "quilt"):
                 # The Friends mod is Fabric-only (see mod/brackets.json).
                 # Saying so beats a silently missing game-menu button.
                 status_cb("Friends button needs Fabric/Quilt - not available in this pack")
-            elif not _friends_ok:
+            elif client_enabled and not _friends_ok:
                 # Fabric/Quilt pack but no jar was built for this bracket -
                 # the in-game button will be missing. Say so instead of silence.
                 status_cb("Cubeon Friends mod not built for Minecraft "

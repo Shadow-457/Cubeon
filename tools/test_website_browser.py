@@ -3,11 +3,14 @@ import os
 from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, expect
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
+    with Image.open(ROOT / 'web/assets/cubeon-play.png') as original:
+        play_size = list(original.size)
     captures = ROOT / 'archive/ui-captures'
     captures.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
@@ -71,12 +74,12 @@ def main():
                 assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, path, 'horizontal overflow')
                 assert page.locator('h1').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1'), (width, path, 'heading clipped')
                 if path.startswith('/?'):
-                    assert page.locator('.hero .shot img').evaluate('''async (img) => {
+                    assert page.locator('.hero .shot img').evaluate('''async (img, size) => {
                         await img.decode();
                         return img.currentSrc.endsWith('/assets/cubeon-play.webp') &&
-                            img.naturalWidth === 1268 && img.naturalHeight === 724 &&
-                            img.width / img.height > 1.7;
-                    }'''), (width, 'WebP hero failed to load')
+                            img.naturalWidth === size[0] && img.naturalHeight === size[1] &&
+                            Math.abs(img.width / img.height - size[0] / size[1]) < 0.01;
+                    }''', play_size), (width, 'WebP hero failed to load')
                     expect(page.locator('.sign .lede')).to_contain_text('Minecraft Java Edition launcher')
                     expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://www.ylet.online/')
                     expect(page.locator('.sign .pane.on .btn')).to_be_visible()

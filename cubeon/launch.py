@@ -1159,6 +1159,11 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         # Resolved FIRST because the per-game-dir writes below (cosmetics)
         # must land in the folder this launch will actually read.
         game_dir = game_dir_for(version_id)
+        skin_enabled = bool(cfg.get("csl_enabled", True))
+        try:
+            csl.set_enabled(mc_version, loader, skin_enabled, version_id=version_id)
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            raise RuntimeError("Couldn't apply the CustomSkinLoader setting. Close Minecraft and retry Play.") from error
 
         # Offline skins are keyed by username, so the file CSL looks for is
         # <USERNAME>.png. Re-syncing here covers any path that changed the
@@ -1190,11 +1195,11 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         try:
             skin_setup = csl.ensure_ready(
                 mc_version, loader,
-                manage=bool(cfg.get("manage_skin_mod", True)),
+                manage=skin_enabled and bool(cfg.get("manage_skin_mod", True)),
                 status_cb=status_cb,
                 version_id=version_id,
             ) or {}
-            if (cfg.get("manage_skin_mod", True) and loader in MOD_CAPABLE_LOADERS
+            if (skin_enabled and cfg.get("manage_skin_mod", True) and loader in MOD_CAPABLE_LOADERS
                     and not skin_setup.get("installed")):
                 logging.getLogger(__name__).warning("skin loader setup: %s",
                                                      skin_setup.get("detail") or "not installed")
@@ -1205,17 +1210,22 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # Ship the in-game Cubeon Client mod into the Fabric profile so the
     # Friends button exists in Minecraft's game menu. Best-effort, always
     # before the mods sync so a fresh drop is live this launch.
-    try:
-        from .features import friends_enabled
-        from .mods import get_profile_dir
-        from . import cubeonfriends
-        _profile_dir = get_profile_dir(mc_version, loader, version_id)
-        if not friends_enabled() or not (cfg or {}).get("client_mod_enabled", True):
+    from .features import friends_enabled
+    from .mods import get_profile_dir
+    from . import cubeonfriends
+    client_enabled = friends_enabled() and (cfg or {}).get("client_mod_enabled", True)
+    if not client_enabled:
+        try:
             # Off: either a public build (no Friends backend at all) or the
             # user's Settings toggle. Both must also REMOVE any jar a
             # previous run left behind - a stale copy would still load.
-            cubeonfriends.remove_installed(_profile_dir)
-        else:
+            cubeonfriends.remove_installed(
+                get_profile_dir(mc_version, loader, version_id), strict=True)
+        except OSError as error:
+            raise RuntimeError("Couldn't disable Cubeon Client. Close Minecraft and retry Play.") from error
+    else:
+        try:
+            _profile_dir = get_profile_dir(mc_version, loader, version_id)
             friends_ok = cubeonfriends.ensure_installed(mc_version, loader,
                                            _profile_dir)
             if not friends_ok and status_cb and loader in ("fabric", "quilt"):
@@ -1237,8 +1247,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                 except Exception:
                     logging.getLogger(__name__).warning(
                         "Fabric API setup failed", exc_info=True)
-    except Exception:
-        logging.getLogger(__name__).warning("friends mod setup failed", exc_info=True)
+        except Exception:
+            logging.getLogger(__name__).warning("friends mod setup failed", exc_info=True)
 
     # Each install plays in its OWN game folder (worlds, configs, options.txt),
     # with the shared staging folders linked into it - see
@@ -1263,44 +1273,35 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         if disabled_culling and status_cb:
             status_cb("More Culling disabled for compatibility; kept in Mods as Disabled")
 
-    # The Cubeon Client is a social mod and draws almost nothing; the actual
-    # frame-rate win comes from the client performance mod suite (Sodium,
-    # Lithium, ImmediatelyFast, EntityCulling, FerriteCore) fetched here
-    # for the same profile. Tied to the client toggle
-    # (there is no separate switch in Settings - the user asked for that gone;
-    # `perf_mods_enabled` remains a config-only opt-out), and always before
-    # the mods sync so a jar fetched right now is live this launch.
-    try:
-        if (cfg is not None and cfg.get("client_mod_enabled", True)
-                and cfg.get("perf_mods_enabled", True)):
-            from . import perf_mods
-            report = perf_mods.ensure_installed(mc_version, loader,
-                                                status_cb=status_cb,
-                                                version_id=version_id,
-                                                repair_dependencies=False)
-            if report["installed"] and status_cb:
-                status_cb("FPS boost installed")
-            # Clean up the four previously retired automatic performance mods.
-            pruned = perf_mods.prune_retired_perf_mods(mc_version, loader,
-                                                       version_id=version_id)
-            if pruned and status_cb:
-                status_cb("Removed extra perf mods")
-            # Boost is a reversible transition, not a settings lock. Once
-            # applied, later in-game edits survive every subsequent launch.
-            from . import game_options
-            graphics = game_options.sync_fps_boost(
-                bool(cfg.get("fps_boost_enabled", True)), game_options.options_path(game_dir))
+    # FPS Boost is independent of the optional Cubeon menu/HUD. Graphics
+    # transitions run even without a compatible performance-mod build.
+    if cfg is not None:
+        from . import game_options
+        boost_enabled = bool(cfg.get("fps_boost_enabled", True))
+        try:
+            graphics = game_options.sync_fps_boost(boost_enabled, game_options.options_path(game_dir))
             if graphics["changed"] and status_cb:
-                status_cb("FPS boost applied" if cfg.get("fps_boost_enabled", True)
-                          else "Previous graphics restored")
-            if cfg.get("fps_boost_enabled", True):
-                tuned = perf_mods.apply_max_fps_sodium(
-                    perf_mods.sodium_config_path(game_dir), preserve_existing=True)
-                if tuned["changed"]:
-                    logging.getLogger(__name__).info(
-                        "sodium options seeded: %s", tuned["detail"])
-    except Exception:
-        pass
+                status_cb("FPS boost applied" if boost_enabled else "Previous graphics restored")
+        except Exception:
+            logging.getLogger(__name__).warning("FPS boost graphics setup failed", exc_info=True)
+        if boost_enabled and cfg.get("perf_mods_enabled", True):
+            from . import perf_mods
+            try:
+                report = perf_mods.ensure_installed(
+                    mc_version, loader, status_cb=status_cb, version_id=version_id,
+                    repair_dependencies=False)
+                if report["installed"] and status_cb:
+                    status_cb("FPS boost installed")
+                if report["failed"]:
+                    logging.getLogger(__name__).info("Performance setup: %s", report["detail"])
+                pruned = perf_mods.prune_retired_perf_mods(mc_version, loader, version_id=version_id)
+                if pruned and status_cb:
+                    status_cb("Removed extra perf mods")
+                for tuned in perf_mods.seed_renderer_options(mc_version, loader, version_id, game_dir):
+                    if tuned["changed"]:
+                        logging.getLogger(__name__).info("renderer options seeded: %s", tuned["detail"])
+            except Exception:
+                logging.getLogger(__name__).warning("FPS boost mod setup failed", exc_info=True)
 
     # EntityCulling ships with a whitelist that can hold a null/empty entry in
     # a legacy config, which crashes the game on its first tick (see

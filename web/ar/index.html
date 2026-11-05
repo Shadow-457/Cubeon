@@ -252,7 +252,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
           "name": "كيف ألعب مع الأصدقاء؟",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "أضف أصدقاءك باسمهم في Cubeon ويحتفظ المشغّل بالمحادثة، ويعرض من متصل وما يلعبه. ولمشاركة عالم فعلي، افتح الخوادم، وثبّت خادماً للإصدار الذي اخترته، ووزّع العنوان العام المجاني الذي يمنحك إياه - عيّن كلمة مرور للانضمام فلن يدخل إلا من تخبره. لا خادم تستأجره، ولا شيء تغيّره على حاسوب أي أحد."
+            "text": "أضف أصدقاءك باسمهم في Cubeon، وسيحتفظ المشغّل بالمحادثة ويعرض المتصلين وما يلعبونه. للعب معًا، انضموا إلى خادم Minecraft نفسه باستخدام العنوان الذي يقدّمه مالكه. استخدموا إصدار Minecraft والمودات المطلوبة للخادم، وتأكدوا من أنه يقبل ملفات التعريف المحلية أو غير المتصلة."
           }
         },
         {
@@ -324,7 +324,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
           "name": "صديق لا يستطيع الدخول، أو لا أجده",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "لا يوجد اسم الصديق إلا بعد أن يفتح Cubeon مرة واحدة على الأقل، فاطلب منه تشغيله أولاً. وإذا لم يتمكن أحد من الانضمام إلى خادم تشغّله، فتحقق من العنوان وكلمة المرور في قسم الخوادم، وتأكد من أنكما على إصدار Minecraft نفسه وأحدث نسخة من Cubeon."
+            "text": "لا يظهر اسم صديقك حتى يفتح Cubeon مرة واحدة على الأقل، لذا اطلب منه تشغيله أولًا. إذا تعذّر على شخص الانضمام إلى خادم، فتأكد من العنوان مع مالكه ومن إمكانية الوصول إليه، واستخدم إصدار Minecraft والمودات وملف التعريف الذي يتطلبه الخادم."
           }
         },
         {
@@ -392,7 +392,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
         <div class="shot">
           <picture>
             <source srcset="/assets/cubeon-play.webp" type="image/webp" />
-            <img src="/assets/cubeon-play.png" width="1268" height="724" fetchpriority="high" decoding="async" alt="نافذة مشغّل Cubeon: ملف تعريف Minecraft، ومنتقي إصدار، وصف مُحمّل مودات، وزر تشغيل أخضر كبير." />
+            <img src="/assets/cubeon-play.png" width="1308" height="795" fetchpriority="high" decoding="async" alt="نافذة مشغّل Cubeon: ملف تعريف Minecraft، ومنتقي إصدار، وصف مُحمّل مودات، وزر تشغيل أخضر كبير." />
           </picture>
         </div>
         <div class="rock" aria-hidden="true"></div>
@@ -462,7 +462,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       </div>
       <div class="fact rise">
         <span class="dot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></span>
-        <div><b>مصمّم للأصدقاء</b><span>أضف أصدقاءك باسمهم في Cubeon وأبقِ المحادثة داخل المشغّل - بلا خادم مستأجر.</span></div>
+        <div><b>مصمّم للأصدقاء</b><span>أضف أصدقاءك باسمهم في Cubeon واحتفظ بالمحادثة في المشغّل.</span></div>
       </div>
       <div class="fact rise">
         <span class="dot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></span>
@@ -526,7 +526,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
     <div class="steps">
       <div class="step rise"><span class="num">1</span><h3>نزّله</h3><p>اختر مثبّت Windows أو AppImage لـ Linux أو حزمة تطبيق macOS. توجد خيارات المنصات في <a href="/ar/download">صفحة التنزيل</a>.</p></div>
       <div class="step rise"><span class="num">2</span><h3>اكتب اسماً</h3><p>من ثلاثة إلى ستة عشر حرفاً. لا يوجد حساب ولا بريد إلكتروني ولا كلمة مرور تختارها.</p></div>
-      <div class="step rise"><span class="num">3</span><h3>أضف أصدقاءك</h3><p>اكتب اسمهم في Cubeon داخل المشغّل وسيظهرون في قائمتك مع ما يلعبونه. لا خادم تستأجره ولا شيء تعيد توجيهه.</p></div>
+      <div class="step rise"><span class="num">3</span><h3>أضف أصدقاءك</h3><p>اكتب اسمهم في Cubeon داخل المشغّل ليظهروا في قائمتك مع معلومات عمّا يلعبونه.</p></div>
     </div>
     <div class="note tip rise">
       <b>لا شيء مخفي في التنزيل</b>
@@ -555,7 +555,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       <div class="q" id="choosing-minecraft-launcher"><button class="q-a" type="button" aria-expanded="false">هل Cubeon أفضل مشغّل Minecraft لإعداداتي؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>يناسبك Cubeon إذا أردت مشغّلًا مجانيًا مفتوح المصدر لإصدار Java مع محمّلات مودات متوافقة ومودات وحزم مودات وسكنات وأصدقاء على Windows أو Linux أو macOS. يستخدم ملفات تعريف محلية/غير متصلة، ولا يوفّر تسجيل الدخول بحساب Microsoft أو تشغيل إصدار Bedrock. يعتمد الخيار الأفضل على إصدار لعبتك ومتطلبات الخادم والمودات؛ استخدم <a href="/ar/minecraft-launcher">دليل مشغّل Minecraft</a> للتحقق من احتياجاتك قبل التنزيل.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">هل هو مجاني حقاً؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>نعم. كل الميزات تعمل دون دفع ولا توجد إعلانات. واللعب مع أصدقائك لن يكون خلف جدار دفع أبداً.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">هل أحتاج إلى حساب Minecraft؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>يستخدم Cubeon ملفات تعريف لاعبين محلية/دون اتصال: اختر اسماً من ثلاثة إلى ستة عشر حرفاً. ولا يوفّر تسجيل الدخول بحساب Microsoft. الخوادم التي تتطلب مصادقة Microsoft لا يمكنها قبول ملفات التعريف هذه؛ راجع <a href="/ar/multiplayer#offline">دليل اللعب الجماعي</a>.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">كيف ألعب مع الأصدقاء؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>أضف أصدقاءك باسمهم في Cubeon ويحتفظ المشغّل بالمحادثة، ويعرض من متصل وما يلعبه. ولمشاركة عالم فعلي، افتح <strong>الخوادم</strong>، وثبّت خادماً للإصدار الذي اخترته، ووزّع العنوان العام المجاني الذي يمنحك إياه - عيّن كلمة مرور للانضمام فلن يدخل إلا من تخبره. لا خادم تستأجره، ولا شيء تغيّره على حاسوب أي أحد.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">كيف ألعب مع الأصدقاء؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>أضف أصدقاءك باسمهم في Cubeon، وسيحتفظ المشغّل بالمحادثة ويعرض المتصلين وما يلعبونه. للعب معًا، انضموا إلى خادم Minecraft نفسه باستخدام العنوان الذي يقدّمه مالكه. استخدموا إصدار Minecraft والمودات المطلوبة للخادم، وتأكدوا من أنه يقبل ملفات التعريف المحلية أو غير المتصلة.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">هل هو سريع؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>قِسنا ذلك بدل الادّعاء به. على الحاسوب نفسه وبإصدار Minecraft نفسه، بلغ متوسط Cubeon داخل اللعبة <strong>206 إطار/ثانية</strong> مقابل 152 لـ FastClient و119 لـ SKLauncher - وكان أسوأ ثانية لديه 102 إطار/ثانية، بينما هبط الآخران إلى 37 و33. تتضمن <a href="/ar/benchmarks" style="color:var(--grass-dark);text-decoration:underline">صفحة المقارنات</a> كل رقم والمخططات والتحفظات التي تُضعف المقارنة.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">هل يمكنني إحضار موداتي أو حزم موداتي؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>نعم. افتح الإعدادات واذهب إلى استيراد ووجّهه إلى المجلد الذي توجد فيه موداتك. يسرد Cubeon كل ما يجده - المودات وحزم الموارد وحزم الشيدر وحزم المودات والعوالم - ويثبّت ما تختاره للإصدار الذي اخترته.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">ماذا يحتاج حاسوبي؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>تتوفر نسخ جاهزة لـ Windows 10 و11 وLinux 64-بت وmacOS. اختر الملف المناسب لنظامك من <a href="/ar/download">صفحة التنزيل</a>؛ كما تتوفر حزم تطبيق macOS في <a href="https://github.com/Shadow-457/Cubeon/releases/latest">أحدث إصدار مستقر</a>. ويحتاج Minecraft نفسه إلى Java وتعريفات رسومات متوافقة.</p></div></div></div>
@@ -568,7 +568,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       <div class="q"><button class="q-a" type="button" aria-expanded="false">أي ملف يجب أن أنزّل؟<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows: مثبّت Setup.exe. Linux: AppImage أو مثبّت Linux أو حزمة Debian/Ubuntu. macOS: حزمة التطبيق من <a href="https://github.com/Shadow-457/Cubeon/releases/latest">إصدار GitHub المستقر</a>. نزّل من الموقع أو المستودع الرسمي فقط.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">اللعبة لا تبدأ<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>يحتاج Minecraft إلى Java. يستخدم Cubeon نسخة Java يجدها على حاسوبك إذا كانت حديثة بما يكفي، ويعرض تنزيل نسخة مجانية لك إن لم تكن كذلك - لذا لا شيء تثبّته عادةً. وإذا فشل التشغيل رغم ذلك، ثبّت Java مجاناً من <a href="https://adoptium.net" target="_blank" rel="noopener" style="color:var(--grass-dark);text-decoration:underline">adoptium.net</a> وحاول مجدداً.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">حاسوبي يحذّرني من الملف<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>قد تُطلق التطبيقات المستقلة غير الموقّعة تحذير Windows SmartScreen أو macOS Gatekeeper. تحقق من أن الملف جاء من هذا الموقع أو من <a href="https://github.com/Shadow-457/Cubeon/releases">إصدارات GitHub الرسمية</a>، واقرأ <a href="/ar/help">مساعدة المنصة</a> بشأن التحذير الذي تراه.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">صديق لا يستطيع الدخول، أو لا أجده<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>لا يوجد اسم الصديق إلا بعد أن يفتح Cubeon مرة واحدة على الأقل، فاطلب منه تشغيله أولاً. وإذا لم يتمكن أحد من الانضمام إلى خادم تشغّله، فتحقق من العنوان وكلمة المرور في قسم الخوادم، وتأكد من أنكما على إصدار Minecraft نفسه وأحدث نسخة من Cubeon.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">صديق لا يستطيع الدخول، أو لا أجده<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>لا يظهر اسم صديقك حتى يفتح Cubeon مرة واحدة على الأقل، لذا اطلب منه تشغيله أولًا. إذا تعذّر على شخص الانضمام إلى خادم، فتأكد من العنوان مع مالكه ومن إمكانية الوصول إليه، واستخدم إصدار Minecraft والمودات وملف التعريف الذي يتطلبه الخادم.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">شيء آخر تماماً<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>راسل <a href="mailto:hamza.457.shahbaz@gmail.com" style="color:var(--grass-dark);text-decoration:underline">hamza.457.shahbaz@gmail.com</a> واذكر ما كنت تفعله. وإرفاق السجل الصغير في مجلد <strong>.cubeon_launcher</strong> يجعل الإصلاح أسرع بكثير.</p></div></div></div>
     </div>
   </div>

@@ -43,6 +43,11 @@ isolated test home. Forge 1.8.9 gameplay and installation require exact Java 8;
 this version is available with Legacy disabled. Native Rust build/package steps
 are in [Rust integration](../development/horizon-integration-plan.md).
 
+On Linux, `python tools/test_forge189_client.py --download-csl --native` also
+verifies Java 8 startup, CSL skin hooks and Cubeon Client loading without
+screenshots. It needs an installed Forge 1.8.9 profile, Java 8 and Xvfb;
+use `--java8` and `--forge-version` for alternate cached runtime/profile paths.
+
 ## Linux
 
 ```bash

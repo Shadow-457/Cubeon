@@ -1236,6 +1236,44 @@ check("launch path honors the off-switch (and removes stale jars)",
       "client_mod_enabled" in _launch_src,
       "launch.py must read cfg['client_mod_enabled']")
 
+# Drive both real controls wired by main, including failed saves. The
+# preference must stay shared even while the Installed pane has no client JAR.
+import inspect as _inspect
+from unittest.mock import patch as _patch
+_client_settings = next((c for c in walk(page.controls[0])
+                         if getattr(c, 'data', None) == 'cubeon-client-enabled'), None)
+_client_installed = next((c for c in walk(page.controls[0])
+                          if getattr(c, 'data', None) == 'installed-cubeon-client-enabled'), None)
+check("Mods Installed exposes the client preference", _client_installed is not None)
+if _client_settings is not None and _client_installed is not None:
+    _client_cfg = _inspect.getclosurevars(_client_settings.on_change).nonlocals['cfg']
+    _client_original = _client_cfg.get('client_mod_enabled', True)
+    _client_key_existed = 'client_mod_enabled' in _client_cfg
+    _client_saves = []
+    with _patch.object(core, 'save_config', side_effect=lambda value: _client_saves.append(dict(value))):
+        _client_installed.value = False
+        _client_installed.on_change(None)
+        check("Installed disables the same live preference and Settings control",
+              _client_cfg['client_mod_enabled'] is False and not _client_settings.value
+              and _client_saves[-1]['client_mod_enabled'] is False)
+        _client_settings.value = True
+        _client_settings.on_change(None)
+        check("Settings re-enables the Installed control without a file scan",
+              _client_cfg['client_mod_enabled'] is True and _client_installed.value
+              and _client_saves[-1]['client_mod_enabled'] is True)
+    with _patch.object(core, 'save_config', side_effect=OSError('fixture disk full')):
+        _client_installed.value = False
+        _client_installed.on_change(None)
+        check("failed Installed save rolls back both Client switches",
+              _client_cfg['client_mod_enabled'] is True
+              and _client_settings.value and _client_installed.value)
+    if _client_key_existed:
+        _client_cfg['client_mod_enabled'] = _client_original
+    else:
+        _client_cfg.pop('client_mod_enabled', None)
+    _client_settings.value = _client_original
+    _client_installed.value = _client_original
+
 # --- the version picker's search must not mutate the live dropdown ------------
 # The old filter rewrote version_dropdown.options (and could reassign .value +
 # call on_version_selected) on every keystroke, so typing in the picker's
@@ -1598,6 +1636,8 @@ try:
         # close/geometry contract, so the collaborator just has to exist.
         "_season_animator_pause": lambda paused: None,
         "_window_closer": types.SimpleNamespace(mark_closed=lambda: None),
+        "version_dropdown": types.SimpleNamespace(value='fixture-instance'),
+        "_remember_instance_selection": lambda version: None,
     }
     _window_probe = _ui_functions(_main_src, ["_on_window_event"], _window_scope,
                                  "_geometry_timer = None")
@@ -2447,6 +2487,34 @@ check("the Linux build mounts the Custom title bar row",
       sys.platform.startswith("linux")
       and any("custom title bar" in t for t in _settings_text),
       "the toggle is retained inside the Settings tab")
+
+_game_switches = {c.data: c for root in page.controls for c in walk(root)
+                  if isinstance(c, ft.Switch)
+                  and getattr(c, "data", None) in ("cubeon-client-enabled", "csl-enabled")}
+check("Settings has explicit independent Cubeon Client and CSL switches",
+      len(_game_switches) == 2
+      and "cubeon client" in _settings_text and "customskinloader (csl)" in _settings_text)
+if len(_game_switches) == 2:
+    from unittest.mock import patch
+    _feature_saves = []
+    _feature_originals = {key: switch.value for key, switch in _game_switches.items()}
+    with patch.object(core, "save_config", side_effect=lambda value: _feature_saves.append(dict(value))):
+        for switch in _game_switches.values():
+            switch.value = False
+            switch.on_change(None)
+    check("turning both features off persists both preferences",
+          len(_feature_saves) == 2 and _feature_saves[-1]["client_mod_enabled"] is False
+          and _feature_saves[-1]["csl_enabled"] is False)
+    with patch.object(core, "save_config", side_effect=OSError("disk full")):
+        for switch in _game_switches.values():
+            switch.value = True
+            switch.on_change(None)
+    check("failed preference saves restore the displayed switches",
+          all(switch.value is False for switch in _game_switches.values()))
+    with patch.object(core, "save_config"):
+        for key, switch in _game_switches.items():
+            switch.value = _feature_originals[key]
+            switch.on_change(None)
 
 print(f"\n{passed} passed, {failed} failed")
 print("Smoke test complete: " + ("FAIL" if failed else "PASS"))

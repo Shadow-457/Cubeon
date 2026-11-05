@@ -134,24 +134,55 @@ def main():
                  "downloads": ["https://cdn.modrinth.com/data/x/222.jar"]},
                 {"path": "mods/333.jar", "hashes": {},
                  "downloads": ["https://cdn.modrinth.com/data/x/333.jar"]},
+                {"path": "mods/444.jar", "hashes": {},
+                 "downloads": ["https://cdn.modrinth.com/data/x/444.jar"]},
+                {"path": "mods/555.zip", "hashes": {},
+                 "downloads": ["https://cdn.modrinth.com/data/x/555.zip"]},
+                {"path": "mods/666.zip", "hashes": {},
+                 "downloads": ["https://cdn.modrinth.com/data/x/666.zip"]},
             ],
         }))
+        for name, entry in (("override-shader.zip", "shaders/program.fsh"),
+                            ("override-resource.zip", "pack.mcmeta")):
+            import io
+            payload = io.BytesIO()
+            with zipfile.ZipFile(payload, "w") as inner:
+                inner.writestr(entry, "{}")
+            zf.writestr("overrides/mods/" + name, payload.getvalue())
 
     payloads = {
         "111.jar": ["fabric.mod.json"],          # a real mod
         "222.jar": ["pack.mcmeta", "assets/x"],  # really a resource pack
         "333.jar": ["some/unknown/file.txt"],    # unknown: leave it alone
+        "444.jar": ["shaders/program.fsh"],      # keyless shader archive
+        "555.zip": ["shaders/program.fsh"],
+        "666.zip": ["pack.mcmeta", "assets/x"],
     }
     meta = install_pack(scratch, archive, payloads)
     profile = os.path.join(modpacks.PROFILES_DIR, meta["profile"])
     check("the resource pack moved out of mods/",
-          os.path.isfile(os.path.join(profile, "resourcepacks", "222.jar"))
+          os.path.isfile(os.path.join(profile, "resourcepacks", "222.zip"))
           and not os.path.exists(os.path.join(profile, "222.jar")),
           str(sorted(os.listdir(profile))))
     check("the real mod stayed in the profile",
           os.path.isfile(os.path.join(profile, "111.jar")))
     check("an unidentified jar is not moved",
           os.path.isfile(os.path.join(profile, "333.jar")))
+    check("keyless shader JARs become readable shader ZIPs",
+          os.path.isfile(os.path.join(profile, "shaderpacks", "444.zip"))
+          and not os.path.exists(os.path.join(profile, "444.jar")))
+    check("misfiled manifest ZIPs belong to the owning content profile",
+          os.path.isfile(os.path.join(profile, "shaderpacks", "555.zip"))
+          and os.path.isfile(os.path.join(profile, "resourcepacks", "666.zip")))
+    check("misfiled override ZIPs belong to the owning content profile",
+          os.path.isfile(os.path.join(profile, "shaderpacks", "override-shader.zip"))
+          and os.path.isfile(os.path.join(profile, "resourcepacks", "override-resource.zip")))
+    from cubeon import content
+    packs = content.list_content("resourcepack", "1.20.1", loader="fabric", version_id=meta["version_id"])
+    shaders = content.list_content("shader", "1.20.1", loader="fabric", version_id=meta["version_id"])
+    check("relocated content is visible to the pack and shader browser",
+          {p["filename"] for p in packs} >= {"222.zip", "666.zip", "override-resource.zip"}
+          and {p["filename"] for p in shaders} >= {"444.zip", "555.zip", "override-shader.zip"})
     check("the pack is listed normally",
           meta.get("name") == "Content Pack", str(meta))
 

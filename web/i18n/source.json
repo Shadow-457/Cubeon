@@ -176,6 +176,38 @@
    "parts": []
   },
   {
+   "key": "<span>Bench</span><span class=\"nav-beta\">Beta</span>",
+   "kind": "text",
+   "pages": [
+    "index",
+    "about",
+    "benchmarks",
+    "cookies",
+    "cosmetics",
+    "doctor",
+    "download",
+    "files",
+    "getting-started",
+    "help",
+    "licenses",
+    "minecraft-launcher",
+    "modpacks",
+    "mods",
+    "multiplayer",
+    "privacy",
+    "refunds",
+    "terms",
+    "troubleshooting",
+    "403",
+    "404",
+    "429",
+    "500",
+    "502",
+    "503"
+   ],
+   "parts": []
+  },
+  {
    "key": "Doctor",
    "kind": "text",
    "pages": [
@@ -459,7 +491,7 @@
    "parts": []
   },
   {
-   "key": "Add friends by their Cubeon name and keep the conversation in the launcher - no rented server.",
+   "key": "Add friends by their Cubeon name and keep the conversation in the launcher.",
    "kind": "text",
    "pages": [
     "index"
@@ -658,7 +690,7 @@
    "parts": []
   },
   {
-   "key": "Type their Cubeon name in the launcher and they show up in your list, with what they're playing. No server to rent, nothing to forward.",
+   "key": "Type their Cubeon name in the launcher and they show up in your list, with what they're playing.",
    "kind": "text",
    "pages": [
     "index"
@@ -824,7 +856,7 @@
    "parts": []
   },
   {
-   "key": "Add friends by their Cubeon name and the launcher keeps the conversation, showing who's online and what they're playing. To share an actual world, open <strong>Servers</strong>, install a server for the version you picked and hand out the free public address it gives you - set a join password and only the people you tell can get in. No server to rent, nothing to change on anyone's computer.",
+   "key": "Add friends by their Cubeon name and the launcher keeps the conversation, showing who's online and what they're playing. To play together, join the same Minecraft server using the address supplied by its owner. Match the server's Minecraft version and required mods, and check that it accepts local/offline profiles.",
    "kind": "text",
    "pages": [
     "index"
@@ -979,7 +1011,7 @@
    "parts": []
   },
   {
-   "key": "A friend's name only exists once they've opened Cubeon at least once, so ask them to run it first. If someone can't join a server you're running, check the address and password from the Servers section, and make sure you're both on the same Minecraft version and the newest Cubeon.",
+   "key": "A friend's name only exists once they've opened Cubeon at least once, so ask them to run it first. If someone can't join a server, confirm the address with its owner, check that the server is reachable, and match its Minecraft version, required mods and profile requirements.",
    "kind": "text",
    "pages": [
     "index"
@@ -1788,6 +1820,38 @@
    "parts": []
   },
   {
+   "key": "Cubeon Bench texture editor (Beta)",
+   "kind": "attr",
+   "pages": [
+    "index",
+    "about",
+    "benchmarks",
+    "cookies",
+    "cosmetics",
+    "doctor",
+    "download",
+    "files",
+    "getting-started",
+    "help",
+    "licenses",
+    "minecraft-launcher",
+    "modpacks",
+    "mods",
+    "multiplayer",
+    "privacy",
+    "refunds",
+    "terms",
+    "troubleshooting",
+    "403",
+    "404",
+    "429",
+    "500",
+    "502",
+    "503"
+   ],
+   "parts": []
+  },
+  {
    "key": "The Cubeon launcher window: a Minecraft profile, a version picker, a mod loader row and a big green Play button.",
    "kind": "attr",
    "pages": [
@@ -1988,14 +2052,6 @@
   },
   {
    "key": "How do I play with friends?",
-   "kind": "jsonld",
-   "pages": [
-    "index"
-   ],
-   "parts": []
-  },
-  {
-   "key": "Add friends by their Cubeon name and the launcher keeps the conversation, showing who's online and what they're playing. To share an actual world, open Servers, install a server for the version you picked and hand out the free public address it gives you - set a join password and only the people you tell can get in. No server to rent, nothing to change on anyone's computer.",
    "kind": "jsonld",
    "pages": [
     "index"
@@ -2319,7 +2375,7 @@
    "parts": []
   },
   {
-   "key": "Friends features include launcher chat and presence. Local server tools can share a world through a public tunnel. Local player profiles cannot join servers that require Microsoft authentication. Read <a href=\"multiplayer.html#offline\">the multiplayer profile limitations</a> before choosing a server.",
+   "key": "Friends features include launcher chat and presence. Local player profiles cannot join servers that require Microsoft authentication. Read <a href=\"multiplayer.html#offline\">the multiplayer profile limitations</a> before choosing a server.",
    "kind": "text",
    "pages": [
     "about"
@@ -3321,7 +3377,6 @@
     "getting-started",
     "modpacks",
     "mods",
-    "multiplayer",
     "troubleshooting"
    ],
    "parts": []
@@ -6679,7 +6734,7 @@
    "parts": []
   },
   {
-   "key": "To share an actual world, open <strong>Servers</strong>, install a server for the version you picked, and hand out the free public address it gives you. Set a join password and only the people you tell can get in. Nobody has to change anything on their computer, and nobody has to pay for a server.",
+   "key": "To play together, join the same Minecraft server using the address supplied by its owner. Match the server's Minecraft version and required mods, and check that it accepts local/offline profiles. The <a href=\"multiplayer.html\">multiplayer guide</a> covers local hosting and connection problems.",
    "kind": "text",
    "pages": [
     "help"
@@ -6759,7 +6814,7 @@
    "parts": []
   },
   {
-   "key": "Check you gave them the exact address from <strong>Servers</strong>, and the join password if you set one. They should be on the newest Cubeon - if in doubt, download the latest from the <a href=\"download.html\">download page</a> - and on the same Minecraft version as the server.",
+   "key": "Confirm the address with the server owner, check that the server is running and reachable from your network, and match its Minecraft version and required mods. Check any whitelist or password and whether the server accepts local/offline profiles.",
    "kind": "text",
    "pages": [
     "help"
@@ -8595,7 +8650,15 @@
    "parts": []
   },
   {
-   "key": "Add friends by name, open a server from your own computer, and give people an address they can type. This page also has the list to work through when someone cannot get in.",
+   "key": "Add friends by name, join Minecraft servers, and manage a local server. This page also explains what to check when someone cannot get in.",
+   "kind": "text",
+   "pages": [
+    "multiplayer"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Updated 5 November 2026",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -8676,7 +8739,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon can run a real Minecraft server on your own computer and give it a public address, so your friends do not need to change anything on their end and nobody pays for hosting.",
+   "key": "Cubeon can run a local Minecraft server on your own computer. Built-in public tunnels and automatic internet world sharing are no longer supported. Players outside your local network need a separately configured, reachable server address.",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -8700,7 +8763,7 @@
    "parts": []
   },
   {
-   "key": "Start it. Once it is up, the tab shows the <strong>public address</strong> - copy that and send it to your friends.",
+   "key": "Start it and wait for the console to confirm the server is ready. Connect locally using the server's configured port; players on the same network use the host computer's local IP address and port.",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -8740,7 +8803,7 @@
    "parts": []
   },
   {
-   "key": "<strong>The tunnel can be blocked.</strong> Some networks and firewalls interrupt the shared address. If it never comes up, try a different network, or ask on the <a href=\"https://discord.gg/DTbG8P3Ru9\" target=\"_blank\" rel=\"noopener\">Discord</a> with what the console says.",
+   "key": "<strong>The server must be reachable.</strong> Check the server address, port and firewall rules. A local IP address only works on the same network.",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -8756,7 +8819,7 @@
    "parts": []
   },
   {
-   "key": "In Minecraft, open <strong>Multiplayer</strong> &gt; <strong>Add Server</strong>, paste the address, and join. The address from Cubeon already includes the port, so paste the whole thing rather than splitting it up.",
+   "key": "In Minecraft, open <strong>Multiplayer</strong> &gt; <strong>Add Server</strong>, paste the address supplied by the server owner, and join. Include the port if the owner provided one.",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -8956,7 +9019,7 @@
    "parts": []
   },
   {
-   "key": "Re-paste it from Servers; the tunnel address changes if the server is restarted",
+   "key": "Confirm the current address and spelling with the server owner",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -8972,7 +9035,7 @@
    "parts": []
   },
   {
-   "key": "Server is off, still starting, or the owner's PC is asleep",
+   "key": "Server is off, still starting, unreachable, or the owner's PC is asleep",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -8980,7 +9043,7 @@
    "parts": []
   },
   {
-   "key": "Ask the owner to start it and wait for the address",
+   "key": "Ask the owner to check the server, address, port and firewall",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -9044,7 +9107,7 @@
    "parts": []
   },
   {
-   "key": "The tunnel or your network is blocking it",
+   "key": "The server address or network route is unreachable",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -9052,7 +9115,7 @@
    "parts": []
   },
   {
-   "key": "Retry, try another network, ask in Discord",
+   "key": "Check the address, port and firewall with the owner; local addresses require the same network",
    "kind": "text",
    "pages": [
     "multiplayer"
@@ -9148,7 +9211,7 @@
    "parts": []
   },
   {
-   "key": "Add friends by name, host a free server from your own PC, hand out the address, and fix the usual reasons someone cannot join - whitelist, version, mods, firewall.",
+   "key": "Add Cubeon friends, join Minecraft servers, manage local hosting, and troubleshoot version, mod, whitelist and network problems. Built-in public tunnels are no longer supported.",
    "kind": "attr",
    "pages": [
     "multiplayer"
@@ -9164,7 +9227,7 @@
    "parts": []
   },
   {
-   "key": "Friends by name, a free server on your own PC, and a checklist for every way a join can fail.",
+   "key": "Friends and chat, local Minecraft servers, and help with joining, profiles, mods and network problems.",
    "kind": "attr",
    "pages": [
     "multiplayer"

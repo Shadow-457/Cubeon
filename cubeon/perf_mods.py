@@ -1,45 +1,19 @@
-"""
-Client performance add-on for the Cubeon Client.
+"""Optional performance-mod setup for the Play menu's FPS Boost.
 
-The Cubeon Client itself is a social mod: it draws a small name badge and opens
-the Friends screen. It is deliberately cheap, which also means it does not make
-Minecraft render any faster - so "activate Cubeon Client" would otherwise get
-the button and nothing else. This module closes that gap by installing **Sodium**
-(Modrinth `sodium`) into the same (mc_version, loader) profile.
+Five jobs: terrain rendering, game logic, immediate rendering, entity culling
+and memory use. Fabric/Quilt use Sodium/Lithium; Forge uses Embeddium and
+Canary/Radium; NeoForge prefers Sodium/Lithium with compatible older ports.
+Every candidate must publish an exact Minecraft-version/native-loader build.
+Quilt can use the curated Fabric builds. Existing renderer/logic alternatives,
+disabled JARs and profile removal preferences prevent competing additions.
 
-**Five mods.** Sodium alone was the 2026-10-05 answer ("no more
-mods"), but the user then asked for "twice as much FPS as any launcher", which
-Sodium alone cannot deliver - its win is the terrain/entity renderer, and the
-rest of the frame budget lives elsewhere. The suite is therefore the proven
-companion set, each with a distinct job and measured gains on top of Sodium:
+More Culling stays retired from automatic installs. Legacy managed copies are
+disabled once; explicit installs, pack content and required dependencies stay.
+ThreadTweak, BadOptimizations, Krypton and Dynamic FPS stay retired.
 
-  - Sodium            terrain/entity renderer (the big one)
-  - Lithium           game logic (tick loop, physics, block entities)
-  - ImmediatelyFast   HUD/text/entity immediate-mode rendering
-  - Entity Culling    skips drawing entities/blocks the camera can't see
-  - FerriteCore       memory footprint (smaller heap -> shorter GC pauses)
-
-More Culling is retired from automatic installs after repeated incompatibility
-reports. Legacy launcher-managed copies are disabled once, with their bytes
-preserved; explicit installs, pack content and required dependencies stay usable.
-
-ThreadTweak, BadOptimizations, Krypton and Dynamic FPS stay retired: measured
-to add little on this stack and each is more third-party crash surface. This
-list is again user-directed ("I need twice as much FPS, more fps please") -
-narrowing it back is fine, widening it further needs the user's say-so.
-
-Sodium is fetched from Modrinth exactly like a mod the user picked themselves:
-matched to the profile's Minecraft version and loader, stored in the profile
-folder, and skipped when it is already present (including a manual install).
-The launcher's normal mod sync then carries it into the game.
-
-`prune_retired_perf_mods()` removes the eight retired mods from a profile that
-already has them, so an existing install stops loading the pile instead of
-waiting for the user to delete eight jars by hand.
-
-Performance downloads are best-effort. Required dependencies are checked from
-the actual installed jars, including old profiles; Play refuses a known missing
-dependency after automatic repair fails, instead of spawning a guaranteed crash.
+Downloads are bounded and best-effort. Final prelaunch Doctor verifies the
+installed dependency graph; no published build means no invented compatibility.
+Graphics transitions are independent of the client menu and of mod downloads.
 """
 import json
 import os
@@ -62,7 +36,33 @@ PERF_MODS = (
     ("ferrite-core", "uXXizFIs", "FerriteCore"),
 )
 _MORE_CULLING = ("moreculling", "51shyZVL", "More Culling")
-_KNOWN_PERF_MODS = PERF_MODS + (_MORE_CULLING,)
+_EMBEDDIUM = ("embeddium", "sk9rgfiA", "Embeddium")
+_CANARY = ("canary", "qa2H4BS9", "Canary")
+_RADIUM = ("radium", "2gvRmQXx", "Radium")
+# Existing renderers satisfy the same job; never add a competing renderer.
+_RENDERERS = frozenset({"sodium", "embeddium", "rubidium", "optifine"})
+_LOGIC_MODS = frozenset({"lithium", "canary", "radium"})
+_KNOWN_PERF_MODS = PERF_MODS + (_MORE_CULLING, _EMBEDDIUM, _CANARY, _RADIUM,
+                              ("rubidium", "", "Rubidium"), ("optifine", "", "OptiFine"))
+
+
+def _suite_candidates(loader):
+    """Five performance jobs, with ports queried only for their actual loader."""
+    if loader == "forge":
+        first = ((_EMBEDDIUM,), (_CANARY, _RADIUM))
+    elif loader == "neoforge":
+        first = ((PERF_MODS[0], _EMBEDDIUM), (PERF_MODS[1], _RADIUM))
+    else:
+        first = ((PERF_MODS[0],), (PERF_MODS[1],))
+    return first + tuple((entry,) for entry in PERF_MODS[2:])
+
+
+def _equivalents(slug):
+    if slug in _RENDERERS:
+        return _RENDERERS
+    if slug in _LOGIC_MODS:
+        return _LOGIC_MODS
+    return frozenset({slug})
 
 # The perf mods the suite used to install (2026-10-05 - 2026-10-14), kept here
 # so an existing profile can be cleaned up (see prune_retired_perf_mods). Do
@@ -90,6 +90,9 @@ def _matching_slugs(mod: dict) -> set[str]:
     identities = {str(mod.get(key) or "").lower()
                   for key in ("slug", "display_name", "project_id", "id", "name")}
     identities.add(name_stem(mod.get("filename") or ""))
+    if str(mod.get("filename") or "").lower().startswith(("optifine_", "optifine-")):
+        identities.add("optifine")
+    identities.discard("")
     return {slug for slug, project_id, label in _KNOWN_PERF_MODS
             if identities & {slug, project_id.lower(), label.lower(),
                              label.lower().replace(" ", "")}}
@@ -461,7 +464,13 @@ def _present(mc_version: str | None, loader: str | None,
     except Exception:
         return found
     for mod in mods:
-        found.update(_matching_slugs(mod))
+        matches = _matching_slugs(mod)
+        if not matches and mod.get("filename"):
+            descriptor = read_mod_metadata(os.path.join(
+                resolve_profile_dir(mc_version, loader, version_id), mod["filename"]), loader)
+            if descriptor:
+                matches = _matching_slugs(descriptor)
+        found.update(matches)
     return found
 
 
@@ -470,7 +479,18 @@ def is_installed(mc_version: str | None, loader: str | None,
     """True when every performance mod is already in the profile."""
     if not mc_version or loader not in MOD_CAPABLE_LOADERS:
         return False
-    return _present(mc_version, loader, version_id) >= set(PERF_MOD_SLUGS)
+    present = _present(mc_version, loader, version_id)
+    return all(present & _equivalents(choices[0][0]) for choices in _suite_candidates(loader))
+
+
+def seed_renderer_options(mc_version, loader, version_id, game_dir):
+    """Seed the installed renderer's config, preserving player workarounds."""
+    reports = []
+    for renderer in sorted(_present(mc_version, loader, version_id) &
+                           {"sodium", "embeddium", "rubidium"}):
+        reports.append(apply_max_fps_sodium(
+            os.path.join(game_dir, "config", renderer + "-options.json"), preserve_existing=True))
+    return reports
 
 
 def prune_retired_perf_mods(mc_version: str | None, loader: str | None,
@@ -519,62 +539,68 @@ def ensure_installed(mc_version: str | None, loader: str | None,
     if not mc_version:
         result["detail"] = "no Minecraft version selected"
         return result
-    if loader not in ("fabric", "quilt"):
-        # These mods ship as Fabric mods; Forge/NeoForge/vanilla have no
-        # compatible build to fetch, so there is nothing to pretend about.
-        result["detail"] = "performance mods need a Fabric or Quilt profile"
+    if loader not in MOD_CAPABLE_LOADERS:
+        result["detail"] = "performance mods need a modded profile"
         return result
 
     retired = retire_legacy_more_culling(mc_version, loader, version_id)
     present = _present(mc_version, loader, version_id)
-    result["kept"] = sorted(present - set(PERF_MOD_SLUGS))
+    suite = _suite_candidates(loader)
+    relevant = set().union(*(_equivalents(choices[0][0]) for choices in suite))
+    result["kept"] = sorted(present - relevant)
     try:
         removed = _read_removals(resolve_profile_dir(mc_version, loader, version_id))
     except (OSError, ValueError) as error:
-        result["failed"] = [slug for slug in PERF_MOD_SLUGS if slug not in present]
+        result["failed"] = [choices[0][0] for choices in suite
+                            if not present & _equivalents(choices[0][0])]
         result["detail"] = f"Couldn't read performance-mod removal preferences: {error}"
         return result
-    result["skipped"] = sorted(removed - set(PERF_MOD_SLUGS) - present)
+    result["skipped"] = sorted(removed - relevant - present)
     # Once a lookup fails at the connection level the route is down, and every
     # remaining mod would pay the same timeout again before Minecraft starts
     # (measured 3 s x 6 on a blackholed network). The answer for the rest of
     # this launch is already known; the next launch retries. A server that
     # *answered* (HTTP error) is not a dead route and does not trip this.
     network_down = False
-    for slug, project_id, label in PERF_MODS:
-        if slug in present:
-            result["kept"].append(slug)
+    for choices in suite:
+        primary = choices[0][0]
+        equivalent = _equivalents(primary)
+        if present & equivalent:
+            result["kept"].extend(sorted(present & equivalent))
             continue
-        if slug in removed:
-            result["skipped"].append(slug)
+        if removed & equivalent:
+            result["skipped"].extend(sorted(removed & equivalent))
             continue
         if network_down:
-            result["failed"].append(slug)
+            result["failed"].append(primary)
             continue
-        try:
-            file_info = get_mod_download(
-                slug, mc_version=mc_version, loader=loader,
-                timeout=LAUNCH_LOOKUP_TIMEOUT, attempts=LAUNCH_LOOKUP_ATTEMPTS,
-            )
-            if not file_info:
-                result["failed"].append(slug)
-                continue
-            if status_cb:
-                status_cb(f"Installing {label}")
-            download_mod(
-                file_info["url"], file_info["filename"],
-                slug=slug, project_id=project_id,
-                mc_version=mc_version, loader=loader,
-                hashes=file_info.get("hashes"), version_id=version_id,
-            )
-            result["installed"].append(slug)
-        except Exception as ex:
-            # Network, disk, a version with no build - all the same answer:
-            # the boost is smaller, the game still launches.
-            if isinstance(ex, net.DownloadError) and \
-                    not isinstance(ex, net.HTTPStatusError):
-                network_down = True
-            result["failed"].append(slug)
+        installed = False
+        for slug, project_id, label in choices:
+            try:
+                file_info = get_mod_download(
+                    slug, mc_version=mc_version, loader="fabric" if loader == "quilt" else loader,
+                    timeout=LAUNCH_LOOKUP_TIMEOUT, attempts=LAUNCH_LOOKUP_ATTEMPTS,
+                )
+                if not file_info:
+                    continue
+                if status_cb:
+                    status_cb(f"Installing {label}")
+                download_mod(
+                    file_info["url"], file_info["filename"],
+                    slug=slug, project_id=project_id,
+                    mc_version=mc_version, loader=loader,
+                    hashes=file_info.get("hashes"), version_id=version_id,
+                )
+                result["installed"].append(slug)
+                installed = True
+            except Exception as ex:
+                if isinstance(ex, net.DownloadError) and not isinstance(ex, net.HTTPStatusError):
+                    network_down = True
+            # Fallback ports are for missing builds, never for replacing a
+            # failed download or a partially installed renderer.
+            break
+        if not installed:
+            result["failed"].append(primary)
 
     parts = []
     if retired:

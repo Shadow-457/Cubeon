@@ -28,6 +28,7 @@ class ManagementUI(unittest.TestCase):
         self.state = {'selected_mc_version': '1.21.11', 'mod_loader': 'fabric'}
         self.dropdown = ft.Dropdown(value='instance-A')
         self.items = []
+        self.cfg = {}
         self.core.list_mods = lambda *a, **k: []
         self.core.list_content = lambda *a, **k: [dict(m) for m in self.items]
         self.patches = [patch('threading.Thread', QueuedThread), patch('cubeon.theme._toggle_pop'), patch.object(icons, 'prefetch'),
@@ -35,7 +36,7 @@ class ManagementUI(unittest.TestCase):
         for p in self.patches: p.start(); self.addCleanup(p.stop)
         QueuedThread.jobs.clear()
         root, self.refresh, load, browse = build_mods_tab(
-            self.page, {}, self.state, self.dropdown, section_label=section_label, **THEME)
+            self.page, self.cfg, self.state, self.dropdown, section_label=section_label, **THEME)
         self.root = root
         self.fns = functions(self.refresh, load, browse, *[getattr(c, 'on_click', None) for c in fz.walk(root)])
         self.active = env(self.fns['_ct'])['active_content']
@@ -46,6 +47,132 @@ class ManagementUI(unittest.TestCase):
         self.items[:] = [{'filename': 'test.zip', 'display_name': 'Test', 'size_kb': 1, 'enabled': True}]
         self.refresh()
         return self.scope['mods_list_view'].controls[0]
+
+    def client_row(self, name='cubeon-client-1.jar'):
+        self.active['type'] = 'mod'
+        self.core.list_mods = lambda *a, **k: [{'filename': name, 'display_name': 'Cubeon Client',
+                                             'size_kb': 10, 'enabled': True, 'protected': True}]
+        self.refresh()
+        return self.scope['mods_list_view'].controls[0]
+
+    def test_client_current_and_legacy_rows_save_preference_without_toggling_jar(self):
+        for name in ('cubeon-client-1.jar', 'cubeon-friends-1.jar'):
+            with self.subTest(name=name):
+                self.cfg.clear()
+                row = self.client_row(name)
+                switch = row.content.controls[2]
+                self.assertIsInstance(switch, ft.Switch)
+                self.assertEqual(len(row.content.controls), 3)  # no delete action
+                with patch.object(self.core, 'save_config') as save, patch.object(self.core, 'toggle_mod') as toggle:
+                    switch.value = False
+                    switch.on_change(None)
+                    save.assert_called_once_with(self.cfg)
+                    toggle.assert_not_called()
+                self.assertFalse(self.cfg['client_mod_enabled'])
+                self.assertFalse(switch.value)
+                self.assertIn('Next launch', row.content.controls[1].controls[1].value)
+                self.assertTrue(self.fns['_cached_installed']()[0]['enabled'])
+                self.refresh()
+                self.assertIs(self.scope['mods_list_view'].controls[0], row)
+                self.assertFalse(switch.value)
+                with patch.object(self.core, 'save_config'):
+                    switch.value = True
+                    switch.on_change(None)
+                self.assertTrue(self.cfg['client_mod_enabled'])
+
+    def test_client_failed_save_rolls_back_switch_and_remains_retryable(self):
+        row = self.client_row()
+        switch = row.content.controls[2]
+        with patch.object(self.core, 'save_config', side_effect=OSError('disk full')):
+            switch.value = False
+            switch.on_change(None)
+        self.assertNotIn('client_mod_enabled', self.cfg)
+        self.assertTrue(switch.value)
+        self.assertIn('disk full', env(self.fns['_set_installed_status'])['installed_status'].value)
+        with patch.object(self.core, 'save_config'):
+            switch.value = False
+            switch.on_change(None)
+        self.assertFalse(switch.value)
+
+    def test_client_active_disabled_and_legacy_copies_show_one_switch(self):
+        self.core.list_mods = lambda *a, **k: [
+            {'filename': name, 'display_name': name.removesuffix('.disabled').removesuffix('.jar'),
+             'size_kb': 10, 'enabled': not name.endswith('.disabled'), 'protected': True}
+            for name in ('cubeon-friends-old.jar.disabled', 'cubeon-client-1.jar.disabled', 'cubeon-client-1.jar')]
+        self.refresh()
+        rows = self.scope['mods_list_view'].controls
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].content.controls[1].controls[0].value, 'Cubeon Client')
+        self.assertEqual(len(self.fns['_cached_installed']()), 3)
+        self.assertFalse(self.scope['client_preference_row'].visible)
+        switch = rows[0].content.controls[2]
+        with patch.object(self.core, 'save_config'):
+            switch.value = False
+            switch.on_change(None)
+        self.assertFalse(switch.value)
+        self.assertIs(self.scope['mods_list_view'].controls[0], rows[0])
+        self.assertEqual(len(self.fns['_cached_installed']()), 3)
+
+    def test_client_opt_in_stays_available_after_jar_is_removed_and_across_views(self):
+        self.cfg['client_mod_enabled'] = False
+        self.refresh()
+        fallback = self.scope['client_preference_row']
+        switch = self.scope['client_preference_switch']
+        self.assertTrue(fallback.visible)
+        self.assertFalse(switch.value)
+        self.root.select_content_type('resourcepack')
+        self.assertFalse(fallback.visible)
+        self.root.select_content_type('mod')
+        self.assertTrue(fallback.visible)
+        with patch.object(self.core, 'save_config'):
+            switch.value = True
+            switch.on_change(None)
+        self.assertTrue(self.cfg['client_mod_enabled'])
+        self.assertTrue(fallback.visible)
+        self.assertTrue(switch.value)
+
+    def test_client_switch_uses_shared_settings_callback_and_ignores_stale_instance_row(self):
+        settings = ft.Switch(value=True)
+        calls = []
+        def changed(enabled):
+            calls.append(enabled)
+            self.cfg['client_mod_enabled'] = enabled
+            settings.value = enabled
+            return True
+        root, refresh, *_ = build_mods_tab(self.page, self.cfg, self.state, self.dropdown,
+                                         section_label=section_label, on_client_mod_change=changed, **THEME)
+        self.core.list_mods = lambda *a, **k: [{'filename': 'cubeon-client-1.jar', 'display_name': 'Client',
+                                             'size_kb': 10, 'enabled': True, 'protected': True}]
+        refresh()
+        scope = env(functions(refresh)['_render_installed_snapshot'])
+        switch = scope['mods_list_view'].controls[0].content.controls[2]
+        with patch.object(self.core, 'save_config') as save:
+            switch.value = False
+            switch.on_change(None)
+            save.assert_not_called()  # main owns persistence when wired
+        self.assertFalse(settings.value)
+        self.assertEqual(calls, [False])
+        self.cfg['client_mod_enabled'] = True
+        root.refresh_client_preference()
+        self.assertTrue(switch.value)
+        self.dropdown.value = 'instance-B'
+        switch.on_change(None)
+        self.assertEqual(calls, [False])
+
+    def test_other_managed_mods_keep_lock_and_regular_mods_keep_disk_switch(self):
+        self.core.list_mods = lambda *a, **k: [
+            {'filename': 'CustomSkinLoader.jar', 'display_name': 'CSL', 'size_kb': 10,
+             'enabled': True, 'protected': True},
+            {'filename': 'other.jar', 'display_name': 'Other', 'size_kb': 10, 'enabled': True}]
+        self.refresh()
+        rows = self.scope['mods_list_view'].controls
+        self.assertFalse(any(isinstance(c, ft.Switch) for c in fz.walk(rows[0])))
+        switch = rows[1].content.controls[2]
+        with patch.object(self.core, 'toggle_mod') as toggle, patch.object(self.core, 'save_config') as save:
+            switch.on_change(None)
+            QueuedThread.jobs.pop()()
+            toggle.assert_called_once_with('1.21.11', 'fabric', 'other.jar', version_id='instance-A')
+            save.assert_not_called()
 
     def test_content_selectors_keep_instance_and_update_import_and_search_labels(self):
         selector = next(c for c in fz.walk(self.root) if getattr(c, 'data', None) == 'content-resourcepack')

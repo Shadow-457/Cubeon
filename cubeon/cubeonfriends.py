@@ -144,6 +144,22 @@ def pick_bracket(mc_version: str | None) -> dict | None:
     return None
 
 
+def client_support_status(mc_version: str | None, loader: str | None) -> str | None:
+    """Version capability for UI labels, independent of the client's toggle.
+
+    Use the shipped bracket matrix without reading or hashing any mod JARs.
+    The native and legacy Forge ports are beta implementations.
+    """
+    if mc_version == "cubeon-rust-26.3":
+        loader = "rust"
+    version = parse_mc_version(mc_version)
+    if (loader == "rust" and version == (26, 3, 0)) or (loader == "forge" and version == (1, 8, 9)):
+        return "beta"
+    if loader in ("fabric", "quilt") and pick_bracket(mc_version) is not None:
+        return "supported"
+    return None
+
+
 def jar_name(bracket: dict) -> str:
     pattern = _matrix().get("jar_name", "cubeon-client-{version}+mc{key}.jar")
     return (pattern
@@ -262,7 +278,7 @@ def find_jar(mc_version: str | None, loader: str | None = None) -> str | None:
     return path
 
 
-def _remove_other_jars(profile_dir: str, keep: str | None) -> None:
+def _remove_other_jars(profile_dir: str, keep: str | None, *, strict=False) -> None:
     """Deletes every Cubeon Client jar in the profile except `keep`."""
     for pattern in (JAR_GLOB, *LEGACY_JAR_GLOBS):
         for path in glob.glob(os.path.join(profile_dir, pattern)):
@@ -271,14 +287,25 @@ def _remove_other_jars(profile_dir: str, keep: str | None) -> None:
             try:
                 os.remove(path)
             except OSError:
-                pass
+                if strict:
+                    raise
 
 
-def remove_installed(profile_dir: str | None) -> None:
-    """Remove Cubeon Client jars from a profile for a no-Friends build."""
+def remove_installed(profile_dir: str | None, *, strict=False) -> None:
+    """Remove Cubeon Client JARs; strict opt-out also finds renamed copies."""
     if not profile_dir:
         return
-    _remove_other_jars(profile_dir, None)
+    _remove_other_jars(profile_dir, None, strict=strict)
+    if strict and os.path.isdir(profile_dir):
+        from .mods import read_mod_metadata
+        for name in os.listdir(profile_dir):
+            if not name.endswith(".jar"):
+                continue
+            path = os.path.join(profile_dir, name)
+            metadata = read_mod_metadata(path) or {}
+            identity = str(metadata.get("id") or "").lower().replace("-", "").replace("_", "")
+            if identity in ("cubeonclient", "cubeonfriends"):
+                os.remove(path)
 
 def ensure_installed(mc_version: str | None, loader: str | None,
                      profile_dir: str | None = None) -> bool:

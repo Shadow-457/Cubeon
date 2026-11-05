@@ -11,7 +11,7 @@ of it the same descriptor dict.
     panel that lists installed instances with a configurable block/mob icon,
     and can switch to a
     three-step "New instance" setup: loader, Minecraft version, icon. Rows are
-    tagged with the loader, a snapshot badge and (online) the release date;
+    tagged with the loader, client support, a snapshot badge and (online) the release date;
     a "Latest release" shortcut jumps straight to the current release.
 
 The panel is deliberately NOT a dialog: a dialog dims the whole launcher and
@@ -30,11 +30,12 @@ from cubeon import i18n
 from cubeon.theme import (
     RADIUS, RADIUS_LG, ACCENT, ACCENT_TINT, TEXT, TEXT_DIM,
     TEXT_FAINT, SURFACE, SURFACE_HI, BORDER, DANGER,
-    FONT_MONO, FONT_DISPLAY, section_label,
+    FONT_MONO, FONT_DISPLAY, WARNING, section_label,
 )
 from cubeon import instances as instance_info
 from cubeon import thread_safe_ui
 from cubeon import instance_icons
+from cubeon.cubeonfriends import client_support_status
 
 BANNER_FADE_MS = 180
 
@@ -89,6 +90,27 @@ def _group_header(text):
                         padding=ft.padding.Padding.only(left=4, top=8, bottom=4))
 
 
+class ClientSupportBadge(ft.Container):
+    """Small capability check for installed cards, downloads and Play."""
+
+    def __init__(self, version=None, loader=None):
+        super().__init__(
+            content=ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=16),
+            width=18, height=20,
+            alignment=ft.Alignment.CENTER,
+            visible=False,
+        )
+        self.set_version(version, loader)
+
+    def set_version(self, version, loader):
+        status = client_support_status(version, loader)
+        self.visible = status is not None
+        self.data = "cubeon-client-" + (status or "unsupported")
+        self.content.color = WARNING if status == "beta" else ACCENT
+        self.tooltip = ("Cubeon Client supported · Beta" if status == "beta"
+                        else "Cubeon Client supported")
+
+
 def format_release(value) -> str:
     """A short, sortable-looking date for the picker's right column.
 
@@ -140,7 +162,7 @@ class VersionPicker:
     def __init__(self, page, *, get_selected, label_for, on_pick, on_browse_online,
                  get_instances=None, get_pack_name=None, on_open=None,
                  loaders=None, instance_exists=None, get_icon=None, on_set_icon=None,
-                 get_supported_versions=None, on_create=None):
+                 get_supported_versions=None, on_create=None, on_upload_icon=None):
         self.page = page
         self.get_selected = get_selected
         self.label_for = label_for or (lambda _v: None)
@@ -152,6 +174,7 @@ class VersionPicker:
         self.instance_exists = instance_exists
         self.get_icon = get_icon or (lambda _v: None)
         self.on_set_icon = on_set_icon
+        self.on_upload_icon = on_upload_icon
         self.get_supported_versions = get_supported_versions
         self.on_create = on_create
         self._new_step = 1
@@ -315,9 +338,17 @@ class VersionPicker:
 
         self.title = ft.Text("Instances", size=22, color=TEXT,
                              font_family=FONT_DISPLAY, expand=True)
+        self.custom_icon_preview = ft.Image(src='', width=28, height=28, fit=ft.BoxFit.CONTAIN,
+                                           tooltip='Custom icon', visible=False)
+        self.icon_upload = ft.IconButton(
+            icon=ft.Icons.UPLOAD_ROUNDED, icon_size=16, icon_color=TEXT_DIM,
+            width=32, height=32, tooltip='Upload custom icon', data='instance-icon-upload',
+            on_click=lambda e: self._upload_icon(), visible=callable(on_upload_icon),
+        )
         self.icon_categories = ft.Row([
             ft.TextButton(i18n.t('Blocks'), on_click=lambda e: self._change_icon_category('block')),
             ft.TextButton(i18n.t('Mob heads'), on_click=lambda e: self._change_icon_category('mob')),
+            ft.Container(expand=True), self.custom_icon_preview, self.icon_upload,
         ], visible=False, spacing=8)
         self.subtitle = ft.Text(
             "Switch, rename, or remove an installed instance.",
@@ -466,7 +497,7 @@ class VersionPicker:
                                           or self._offline or self._support_error))
         elif icons:
             self.title.value = i18n.t('Choose icon')
-            self.subtitle.value = 'Pick a block or mob head for this instance.'
+            self.subtitle.value = 'Pick a block, mob head or custom image.'
         else:
             self.title.value = 'Instances'
             self.subtitle.value = 'Switch instances or choose their icons.'
@@ -729,9 +760,11 @@ class VersionPicker:
     def _choose_icon(self, icon_id):
         if self._mode == "new" and self._new_step == 3:
             if instance_icons.valid(icon_id):
-                self._new_icon = icon_id
-                self._render_icons()
-                thread_safe_ui.refresh(self.list)
+                with thread_safe_ui.TREE_LOCK:
+                    self._new_icon = icon_id
+                    self._render_icons()
+                    thread_safe_ui.refresh(self.list)
+                    thread_safe_ui.refresh(self.icon_categories)
             return
         if not instance_icons.valid(icon_id) or not self._icon_version:
             return
@@ -741,8 +774,35 @@ class VersionPicker:
             self._back()
         thread_safe_ui.refresh(self.panel)
 
+    def _icon_target(self):
+        return (self._mode, self._icon_version, self._new_step, self._new_version, self._install_loader)
+
+    def _upload_icon(self):
+        if (not callable(self.on_upload_icon) or self.icon_upload.disabled or not self.is_open()
+                or not (self._mode == 'icons' or self._mode == 'new' and self._new_step == 3)):
+            return
+        with thread_safe_ui.TREE_LOCK:
+            target = self._icon_target()
+            self.icon_upload.disabled = True
+            thread_safe_ui.refresh(self.icon_upload)
+
+        def finished(icon_id):
+            with thread_safe_ui.TREE_LOCK:
+                self.icon_upload.disabled = False
+                thread_safe_ui.refresh(self.icon_upload)
+                if icon_id and self.is_open() and target == self._icon_target():
+                    self._choose_icon(icon_id)
+
+        try:
+            self.on_upload_icon(finished)
+        except Exception:
+            finished(None)
+            raise
+
     def _render_icons(self):
         current = self._new_icon if self._mode == "new" else self.get_icon(self._icon_version)
+        self.custom_icon_preview.visible = instance_icons.is_custom(current)
+        self.custom_icon_preview.src = instance_icons.source(current) if self.custom_icon_preview.visible else ''
         for button, category in zip(self.icon_categories.controls, ('block', 'mob')):
             active = category == self._icon_category
             button.style = ft.ButtonStyle(color=ACCENT if active else TEXT_DIM,
@@ -855,9 +915,12 @@ class VersionPicker:
                                     spacing=8,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 ),
-                                ft.Text(subtitle, size=11, color=TEXT_DIM,
-                                        max_lines=1,
-                                        overflow=ft.TextOverflow.ELLIPSIS),
+                                ft.Row([
+                                    ft.Text(subtitle, size=11, color=TEXT_DIM,
+                                            max_lines=1, expand=True,
+                                            overflow=ft.TextOverflow.ELLIPSIS),
+                                    ClientSupportBadge(base or vid, loader),
+                                ], spacing=6),
                                 ft.Row(
                                     [ft.Text("  \u00b7  ".join(meta_bits),
                                              size=10.5, color=TEXT_FAINT,
@@ -936,19 +999,21 @@ class VersionPicker:
         date = format_release(entry.get("release_time"))
         tail = [ft.Text(date, size=10.5, color=TEXT_FAINT,
                         font_family=FONT_MONO)] if date else []
-        return ft.Container(
-            content=ft.Row(
+        header = ft.Row(
                 [
                     ft.Icon(ft.Icons.CHECK_ROUNDED if selected else ft.Icons.CIRCLE,
                             size=12, color=ACCENT if selected else "transparent"),
                     ft.Text(text, size=13, expand=True,
                             color=TEXT if selected else TEXT_DIM,
                             weight=ft.FontWeight.W_600 if selected else ft.FontWeight.W_400),
+                    ClientSupportBadge(entry.get("id"), self._install_loader),
                     *chips,
                     *tail,
                 ],
                 spacing=8,
-            ),
+            )
+        return ft.Container(
+            content=header,
             bgcolor=ACCENT_TINT if selected else None,
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
@@ -1045,4 +1110,4 @@ class VersionPicker:
                 pass
 
 
-__all__ = ["VersionBanner", "VersionPicker", "format_release"]
+__all__ = ["VersionBanner", "VersionPicker", "ClientSupportBadge", "format_release"]

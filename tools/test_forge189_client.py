@@ -5,9 +5,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from unittest.mock import patch
 
@@ -93,12 +95,74 @@ public class ForgeTargets {
 '''
 
 
+def check_native(args, temp, profile):
+    """Boot real Forge/CSL/client in an isolated virtual display, without captures."""
+    from cubeon import launch
+    assert shutil.which("Xvfb"), "Native check needs Xvfb"
+    assert launch.java_major_version(str(args.java8)) == 8, "Native check needs Java 8"
+    game = Path(temp) / "game"
+    (game / "mods").mkdir(parents=True)
+    for source in Path(profile).glob("*.jar"):
+        shutil.copy2(source, game / "mods" / source.name)
+    (game / "options.txt").write_text("fullscreen:false\nrenderDistance:2\nmaxFps:30\n")
+    options = {"username": "ForgeProbe", "uuid": "0123456789abcdef0123456789abcdef", "token": "0",
+               "executablePath": str(args.java8.resolve()), "gameDirectory": str(game),
+               "customResolution": True, "resolutionWidth": "640", "resolutionHeight": "480",
+               "jvmArguments": ["-Xmx1G", "-Xms256M", "-Duser.home=" + temp]}
+    command = launch.mll.command.get_minecraft_command(args.forge_version, str(args.minecraft_dir), options)
+    output = ROOT / "build/forge-1.8.9"
+    output.mkdir(parents=True, exist_ok=True)
+    log_path = output / "native-forge.log"
+    display = subprocess.Popen(["Xvfb", "-displayfd", "1", "-screen", "0", "800x600x24"],
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    process = None
+    try:
+        number = display.stdout.readline().strip()
+        assert number.isdigit(), "Virtual display did not start"
+        env = dict(os.environ, DISPLAY=":" + number, HOME=temp, USERPROFILE=temp)
+        for key in ("LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "CUBEON_GPU_RESTARTS"):
+            env.pop(key, None)
+        with log_path.open("w") as log:
+            process = subprocess.Popen(command, cwd=game, env=env, stdout=log,
+                                       stderr=subprocess.STDOUT, start_new_session=True)
+            deadline = time.monotonic() + 120
+            while True:
+                assert process.poll() is None, log_path.read_text(errors="replace")[-10000:]
+                assert time.monotonic() < deadline, log_path.read_text(errors="replace")[-10000:]
+                content = log_path.read_text(errors="replace")
+                loaded = content.rfind("Forge Mod Loader has successfully loaded")
+                if loaded >= 0 and content.rfind("Created:") > loaded \
+                        and "Transformed Forge v1 target net/minecraft/client/resources/SkinManager" in content \
+                        and "FMLFileResourcePack:Cubeon Client" in content:
+                    break
+                time.sleep(.25)
+            time.sleep(1)
+            assert process.poll() is None, log_path.read_text(errors="replace")[-10000:]
+        print("Real Forge 1.8.9 Java 8 startup, CSL skin hooks and Cubeon Client loading passed; no captures.")
+    finally:
+        if process is not None and process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=10)
+        display.terminate()
+        display.wait(timeout=10)
+        display.stdout.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--targets", action="store_true")
     parser.add_argument("--download-csl", action="store_true", help="Verify the public CSL download and isolated Forge staging")
+    parser.add_argument("--native", action="store_true", help="With --download-csl: verify actual Java 8 startup without captures")
+    parser.add_argument("--java8", type=Path, default=PLAYER_HOME / ".cubeon_launcher/runtimes/8/bin/java")
+    parser.add_argument("--forge-version", default="1.8.9-forge-11.15.1.2318-1.8.9")
     parser.add_argument("--minecraft-dir", type=Path, default=PLAYER_HOME / ".cubeon_minecraft")
     args = parser.parse_args()
+    if args.native and not args.download_csl:
+        parser.error("--native requires --download-csl")
     with zipfile.ZipFile(JAR) as archive:
         names = archive.namelist()
         assert len(names) == len(set(names))
@@ -148,11 +212,20 @@ def main():
         assert cubeonfriends.find_jar("1.8.9", "fabric") is None
         assert cubeonfriends.find_jar("1.8.9", "neoforge") is None
         if args.download_csl:
-            from cubeon import csl
+            from cubeon import csl, mod_dependencies, mods
             result = csl.ensure_ready("1.8.9", "forge", version_id="1.8.9-forge-check")
             assert result["installed"], result
             assert csl.is_installed("1.8.9", "forge", "1.8.9-forge-check")
+            active = mods.get_profile_dir("1.8.9", "forge", "1.8.9-forge-check")
+            assert cubeonfriends.ensure_installed("1.8.9", "forge", active)
+            with patch.object(mods, "get_mod_download", side_effect=AssertionError("Clean Forge profile requested network")):
+                report = mod_dependencies.run_dependency_doctor(
+                    "1.8.9", "forge", version_id="1.8.9-forge-check", runtime_versions={"java": 8})
+            assert report == {"checked": 2, "fixed": [], "unfixed": []}, report
             print("Forge 1.8.9 CSL download and staging:", result["detail"])
+            print("Real CSL universal bootstrap and Cubeon Client passed the prelaunch Doctor gate.")
+            if args.native:
+                check_native(args, temp, active)
         if args.targets:
             work = ROOT / "build/forge-1.8.9"
             # FML remaps Forge's own Notch descriptors to SRG at runtime too.

@@ -18,7 +18,7 @@ def prepare(cfg: dict, game_dir: str, username: str) -> dict[str, str]:
     directory.mkdir(parents=True, exist_ok=True)
     appearance = {
         "schema": 1,
-        "enabled": bool(cfg.get("manage_skin_mod", True)),
+        "enabled": bool(cfg.get("csl_enabled", True) and cfg.get("manage_skin_mod", True)),
         "username": username,
         "localSkinDir": paths.CSL_LOCAL_SKINS_DIR,
         "localCapeDir": paths.CSL_LOCAL_CAPES_DIR,

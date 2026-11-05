@@ -228,20 +228,112 @@ def is_registered() -> bool:
 
 def is_installed(mc_version: str | None, loader: str | None,
                  version_id: str | None = None) -> bool:
-    """Whether the CSL jar is in this instance's mod profile.
+    """Whether an enabled CSL jar is in this instance's mod profile.
 
-    Matches on the recorded Modrinth slug or the filename, so a jar the user
+    Matches on the recorded Modrinth slug, filename or descriptor, so a jar the user
     dropped in by hand still counts - re-downloading over someone's manual
     install would be rude and would double-load the mod.
     """
     if not mc_version or loader not in MOD_CAPABLE_LOADERS:
         return False
+    from .mods import resolve_profile_dir
+    directory = resolve_profile_dir(mc_version, loader, version_id)
     for mod in list_mods(mc_version, loader, version_id=version_id):
-        slug = (mod.get("slug") or "").lower()
-        name = (mod.get("display_name") or "").lower()
-        if CSL_MODRINTH_SLUG in slug or CSL_MODRINTH_SLUG in name:
+        if not mod.get("enabled", True):
+            continue
+        if _is_csl(mod, directory, loader):
             return True
     return False
+
+
+def _is_csl(mod, directory, loader):
+    """Recognize managed, hand-installed and renamed CSL JARs."""
+    slug = (mod.get("slug") or "").lower()
+    name = (mod.get("display_name") or mod.get("filename") or "").lower()
+    if CSL_MODRINTH_SLUG in slug or CSL_MODRINTH_SLUG in name:
+        return True
+    from .mods import read_mod_metadata
+    metadata = read_mod_metadata(os.path.join(directory, mod["filename"]), loader) or {}
+    return str(metadata.get("id") or "").lower().replace("-", "").replace("_", "") == CSL_MODRINTH_SLUG
+
+
+def set_enabled(mc_version: str | None, loader: str | None, enabled: bool, *,
+                version_id: str | None = None) -> int:
+    """Keep CSL opt-out JARs as backups and restore only those backups on opt-in."""
+    if not mc_version or loader not in MOD_CAPABLE_LOADERS:
+        return 0
+    from .mods import get_profile_dir
+    from .atomicio import write_json
+    from .file_safety import entry_name
+    directory = get_profile_dir(mc_version, loader, version_id)
+    marker = os.path.join(directory, ".cubeon-csl-disabled.json")
+    try:
+        with open(marker, encoding="utf-8") as source:
+            previous = json.load(source)["jars"]
+    except FileNotFoundError:
+        previous = []
+    if not isinstance(previous, list):
+        raise ValueError("CustomSkinLoader opt-out record is unreadable")
+    if enabled and not previous:
+        return 0
+    originals, backups = set(), set()
+    for entry in previous:
+        if not isinstance(entry, dict):
+            raise ValueError("CustomSkinLoader opt-out record contains an invalid path")
+        for key, suffix in (("enabled", ".jar"), ("disabled", ".jar.disabled")):
+            entry_name(entry.get(key), extensions=(suffix,))
+        if entry["enabled"] in originals or entry["disabled"] in backups:
+            raise ValueError("CustomSkinLoader opt-out record contains duplicate paths")
+        originals.add(entry["enabled"])
+        backups.add(entry["disabled"])
+    selected, moves = [], []
+    if enabled:
+        # A pack update or manual installation may have supplied a new CSL
+        # while this setting was off. Keep the older backups disabled rather
+        # than restoring them alongside the new active copy.
+        for entry in (previous if not is_installed(mc_version, loader, version_id) else []):
+            original = os.path.join(directory, entry["enabled"])
+            backup = os.path.join(directory, entry["disabled"])
+            if (os.path.isfile(backup) and not os.path.lexists(original)
+                    and _is_csl({"filename": entry["disabled"]}, directory, loader)):
+                selected.append((backup, original))
+        remaining = []
+    else:
+        remaining = [entry for entry in previous
+                     if os.path.isfile(os.path.join(directory, entry["disabled"]))]
+        reserved = {entry["disabled"] for entry in remaining}
+        for mod in list_mods(mc_version, loader, version_id=version_id):
+            if not mod.get("enabled", True):
+                continue
+            name = mod["filename"]
+            if not _is_csl(mod, directory, loader):
+                continue
+            backup, suffix = name + ".disabled", 1
+            while backup in reserved or os.path.lexists(os.path.join(directory, backup)):
+                backup = name.removesuffix(".jar") + f".cubeon-off-{suffix}.jar.disabled"
+                suffix += 1
+            reserved.add(backup)
+            # If the same filename was reinstalled while off, preserve its
+            # older backup but restore only the latest copy on opt-in.
+            remaining = [entry for entry in remaining if entry["enabled"] != name]
+            remaining.append(dict(enabled=name, disabled=backup))
+            selected.append((os.path.join(directory, name), os.path.join(directory, backup)))
+    if not selected and remaining == previous:
+        return 0
+    try:
+        if not enabled:
+            write_json(marker, dict(jars=remaining))
+        for source, target in selected:
+            os.replace(source, target)
+            moves.append((source, target))
+        if enabled:
+            write_json(marker, dict(jars=remaining))
+    except Exception:
+        for source, target in reversed(moves):
+            os.replace(target, source)
+        write_json(marker, dict(jars=previous))
+        raise
+    return len(moves)
 
 
 # ---------------------------------------------------------------------------
