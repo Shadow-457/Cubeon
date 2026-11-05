@@ -60,9 +60,8 @@ into the first one's permanently - one folder cannot describe two instances -
 and two packs shipping a file at the same relative path silently overwrote each
 other. Mods never had that problem because they are staged from the profile at
 launch, so packs now use the identical store + profile-link + launch-sync
-pattern. Configs still live in the shared game folder: that keeps a pack's
-world/saves sitting next to everything else, and splitting configs per instance
-is a much larger change with its own trade-offs.
+pattern. Configs and worlds also live in each instance's game folder; only
+immutable downloads and launch staging stores are shared.
 
 SECURITY
 
@@ -92,7 +91,7 @@ requests = LazyModule("requests")
 log = logging.getLogger(__name__)
 
 from .paths import (APP_NAME, MINECRAFT_DIR, PROFILES_DIR, MOD_META_SUFFIX,
-                   modrinth_headers, user_agent)
+                   INSTANCE_META_FILENAME, modrinth_headers, user_agent)
 from .versions import install_version, get_installed_versions
 from .mod_loaders import install_mod_loader, find_installed_loader_version, MOD_CAPABLE_LOADERS
 from .mods import (get_profile_dir, modrinth_search_index, rank_search_hits,
@@ -142,6 +141,7 @@ ALLOWED_DOWNLOAD_DOMAINS = (
 # A single pack pulling more than this many files, or a single override bigger
 # than this, is treated as malformed/hostile rather than processed blindly.
 MAX_FILES = 5000
+MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 MAX_OVERRIDE_BYTES = 512 * 1024 * 1024  # 512 MB - generous, but not unbounded
 
 # Pack overrides that describe the player's own setup rather than the pack.
@@ -377,6 +377,8 @@ def _notify_install_listeners() -> None:
 
 def _read_index(zf: zipfile.ZipFile) -> dict:
     try:
+        if zf.getinfo("modrinth.index.json").file_size > MAX_MANIFEST_BYTES:
+            raise ModpackError("The modpack manifest is implausibly large; refusing it.")
         raw = zf.read("modrinth.index.json")
     except KeyError:
         raise ModpackError(
@@ -425,14 +427,24 @@ def parse_dependencies(index: dict) -> tuple[str, str, str | None]:
     if not isinstance(deps, dict):
         deps = {}
     mc_version = deps.get("minecraft")
-    if not mc_version:
+    if not isinstance(mc_version, str) or not mc_version:
         raise ModpackError("The modpack doesn't say which Minecraft version it needs.")
+    from .file_safety import entry_name
+    try:
+        entry_name(mc_version)
+    except ValueError as ex:
+        raise ModpackError("The modpack declares an invalid Minecraft version.") from ex
+    declared_loaders = [key for key in LOADER_DEP_KEYS if key in deps]
+    if len(declared_loaders) > 1:
+        raise ModpackError("The modpack declares multiple mod loaders; it must select one.")
 
     loader_id, loader_version = "vanilla", None
     for key, cubeon_loader in LOADER_DEP_KEYS.items():
         if key in deps:
             loader_id = cubeon_loader
             loader_version = deps.get(key)
+            if not isinstance(loader_version, str) or not loader_version.strip():
+                raise ModpackError("The modpack doesn't say which loader build it needs.")
             break
     else:
         unrecognized = [k for k in deps if k not in _NON_LOADER_DEP_KEYS and k not in LOADER_DEP_KEYS]
@@ -451,7 +463,8 @@ def summarize(index: dict) -> dict:
     mc_version, loader_id, loader_version = parse_dependencies(index)
     # Entries that are not objects cannot describe a file; one bad element
     # must not turn the whole manifest into an AttributeError.
-    files = [f for f in (index.get("files") or []) if isinstance(f, dict)]
+    raw_files = index.get("files")
+    files = [f for f in raw_files if isinstance(f, dict)] if isinstance(raw_files, list) else []
     mod_files = [f for f in files if _wanted_on_client(f) and _dest_is_mod(f.get("path", ""))]
     return {
         "name": index.get("name") or "Modpack",
@@ -479,6 +492,12 @@ def _safe_relpath(base_dir: str, rel_path: str) -> str:
     dest_abs = os.path.abspath(dest)
     if dest_abs != base_abs and not dest_abs.startswith(base_abs + os.sep):
         raise ModpackError(f"Refusing to write outside the install folder: {rel_path!r}")
+    # A leaf link is replaced atomically, but a linked parent would direct
+    # extraction into another instance or an immutable global store.
+    parent = os.path.realpath(os.path.dirname(dest_abs))
+    base_real = os.path.realpath(base_abs)
+    if dest_abs == base_abs or (parent != base_real and not parent.startswith(base_real + os.sep)):
+        raise ModpackError(f"Refusing to write through a linked folder: {rel_path!r}")
     return dest_abs
 
 
@@ -516,6 +535,8 @@ def _host_allowed(url: str) -> bool:
 
 
 def _dest_is_mod(rel_path: str) -> bool:
+    if not isinstance(rel_path, str):
+        return False
     p = rel_path.replace("\\", "/").lstrip("/").lower()
     return p.startswith("mods/") and p.endswith((".jar", ".zip"))
 
@@ -656,7 +677,7 @@ def _stream_download(dest_path: str, urls: list[str], hashes: dict | None, progr
     gate caps how many files of a pack fetch at once."""
     hashes = hashes or {}
     algo, expected = None, None
-    for a in ("sha512", "sha1"):
+    for a in ("sha512", "sha256", "sha1"):
         if hashes.get(a):
             algo, expected = a, hashes[a].lower()
             break
@@ -670,27 +691,13 @@ def _stream_download(dest_path: str, urls: list[str], hashes: dict | None, progr
 
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
-    # The size is known from a HEAD probe before a single byte is written:
-    # refuse early on a nearly-full drive instead of dying halfway. A probe
-    # that fails is NOT fatal - the download itself still gets to try.
-    for url in candidates[:2]:
-        try:
-            probe = requests.head(url, headers=_DL_HEADERS, timeout=10,
-                                  allow_redirects=True)
-            total = int(probe.headers.get("content-length", 0))
-            if total:
-                from .paths import ensure_disk_space
-                ensure_disk_space(os.path.dirname(dest_path), total, "mod download")
-                break
-        except (requests.RequestException, RuntimeError, ValueError) as ex:
-            log.debug("size probe for %s skipped: %s", url, ex.__class__.__name__)
-
     last_err = None
     for url in candidates:
         expected_pair = (algo, expected) if algo and expected else None
         try:
             net.download_to(dest_path, url, headers=_DL_HEADERS, timeout=30,
-                            expected_hash=expected_pair, progress_cb=progress_cb)
+                            expected_hash=expected_pair, progress_cb=progress_cb,
+                            url_validator=_host_allowed)
             return
         except net.DownloadError as ex:
             last_err = ex
@@ -709,8 +716,21 @@ def _download_to(dest_path: str, urls: list[str], hashes: dict | None, progress_
 
     def fetch_fn(tmp_path):
         _stream_download(tmp_path, urls, hashes, progress_cb)
+        try:
+            with zipfile.ZipFile(tmp_path) as archive:
+                if not archive.infolist():
+                    raise ModpackError(f"The pack mod {os.path.basename(dest_path)} is an empty archive.")
+                # Keyless CurseForge has no published hash. Check every entry
+                # so an HTML error page or truncated ZIP cannot become a mod.
+                if not hashes and archive.testzip() is not None:
+                    raise zipfile.BadZipFile("content checksum failed")
+        except (zipfile.BadZipFile, EOFError) as ex:
+            raise ModpackError(f"The pack mod {os.path.basename(dest_path)} is not a readable archive. Try downloading again.") from ex
 
-    global_mod_cache.get_or_fetch(dest_path, fetch_fn, hashes)
+    try:
+        global_mod_cache.get_or_fetch(dest_path, fetch_fn, hashes)
+    except ValueError as ex:
+        raise ModpackError(f"Couldn't verify pack mod {os.path.basename(dest_path)}: {ex}") from ex
 
 
 # ---------------------------------------------------------------------------
@@ -719,6 +739,44 @@ def _download_to(dest_path: str, urls: list[str], hashes: dict | None, progress_
 
 def _noop(*_a, **_k):
     pass
+
+
+def _install_files(index: dict) -> list[dict]:
+    """Validate the complete client list before installing or hiding a marker."""
+    files = index.get("files", [])
+    if not isinstance(files, list) or len(files) > MAX_FILES:
+        raise ModpackError("The modpack has an invalid file list.")
+    destinations = set()
+    for entry in files:
+        if not isinstance(entry, dict):
+            raise ModpackError("The modpack contains a malformed file entry; it cannot be installed completely.")
+        if not _wanted_on_client(entry):
+            continue
+        path = entry.get("path")
+        if (not isinstance(path, str) or not path
+                or path.startswith(("/", "\\"))
+                or any(part in ("", ".", "..") or ":" in part or "\x00" in part
+                       for part in path.replace("\\", "/").split("/"))):
+            raise ModpackError(f"The modpack contains an invalid file path: {path!r}")
+        urls = entry.get("downloads")
+        if not isinstance(urls, list) or not any(_host_allowed(url) for url in urls):
+            raise ModpackError(f"No trusted download is available for {path}.")
+        hashes = entry.get("hashes", {})
+        if not isinstance(hashes, dict):
+            raise ModpackError(f"The modpack has invalid content hashes for {path}.")
+        for algo, length in (("sha1", 40), ("sha256", 64), ("sha512", 128)):
+            digest = hashes.get(algo)
+            if digest is not None and (not isinstance(digest, str)
+                    or not re.fullmatch(rf"[0-9a-fA-F]{{{length}}}", digest)):
+                raise ModpackError(f"The modpack has an invalid {algo} hash for {path}.")
+        # mods/*.jar are flattened into the profile, including nested paths.
+        key = ("mods/" + os.path.basename(path.replace("\\", "/"))) if _dest_is_mod(path) else path.replace("\\", "/")
+        key = key.casefold()
+        if key in destinations:
+            raise ModpackError(f"Multiple pack files would overwrite {path}.")
+        destinations.add(key)
+        entry["path"] = path.replace("\\", "/")
+    return files
 
 
 def _pack_game_dir(version_id: "str | None") -> str:
@@ -751,9 +809,12 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
     pack_game_dir = _pack_game_dir(version_id)
     override_mods = 0
     kept_user_files = 0
+    written_game_files = set()
     backed_up = 0
     backup_root: "str | None" = None
-    for info in zf.infolist():
+    # Client-specific overrides win even if the ZIP lists them first.
+    for info in sorted(zf.infolist(), key=lambda member:
+                       member.filename.replace("\\", "/").startswith("client-overrides/")):
         if info.is_dir():
             continue
         name = info.filename.replace("\\", "/")
@@ -801,7 +862,8 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
                     # video settings and server list for this instance; a
                     # pack replacing them silently changes the game they
                     # already tuned.
-                    if os.path.basename(dest).lower() in _USER_SETTINGS_FILES:
+                    if (os.path.basename(dest).lower() in _USER_SETTINGS_FILES
+                            and dest not in written_game_files):
                         kept_user_files += 1
                         continue
                     if backup_root is None:
@@ -815,6 +877,8 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
                     shutil.copy2(dest, backup)
                     backed_up += 1
                 os.replace(payload, dest)
+                if content_dest is None:
+                    written_game_files.add(dest)
     if override_mods:
         status_cb(f"Copied {override_mods} bundled mod(s) and pack config")
     if kept_user_files or backed_up:
@@ -892,7 +956,7 @@ def _drop_pack_marker_backup() -> None:
 
 def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None,
                            icon_url: str | None = None,
-                           source_id: str | None = None) -> dict:
+                           source_id: str | None = None, transaction=None) -> dict:
     progress_cb = progress_cb or _noop
     status_cb = status_cb or _noop
     max_cb = max_cb or _noop
@@ -904,13 +968,10 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
 
     with zf:
         index = _read_index(zf)
+        files = _install_files(index)
         info = summarize(index)
         mc_version = info["mc_version"]
         loader_id = info["loader"]
-
-        files = [f for f in (index.get("files") or []) if isinstance(f, dict)]
-        if len(files) > MAX_FILES:
-            raise ModpackError("This pack lists an implausible number of files; refusing it.")
 
         # A previous install of THIS pack (an update/reinstall) keeps its own
         # instance/profile instead of spawning another copy or merging into
@@ -993,8 +1054,14 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 if isinstance(_old_meta, dict):
                     old_pack_jars = [str(n) for n in (_old_meta.get("jars") or [])
                                      if isinstance(n, str)]
-            except (OSError, json.JSONDecodeError):
+            except (OSError, ValueError):
                 old_pack_jars = []
+            if transaction:
+                transaction.capture(marker_dir)
+                if version_id:
+                    version_folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+                    transaction.capture(os.path.join(version_folder, version_id + ".json"))
+                    transaction.capture(os.path.join(version_folder, INSTANCE_META_FILENAME))
             _hide_pack_marker(os.path.join(marker_dir, MODPACK_META_FILENAME))
 
         # 1) Minecraft version
@@ -1034,6 +1101,14 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 name=info["name"], pack={"name": info["name"],
                                          "pack_version": info["pack_version"]})
 
+        if transaction:
+            version_folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+            if version_id != loader_version_id and version_id not in versions_before:
+                transaction.capture(version_folder, created=True)
+            else:
+                transaction.capture(os.path.join(version_folder, version_id + ".json"))
+                transaction.capture(os.path.join(version_folder, INSTANCE_META_FILENAME))
+
         # A pack update can change the required loader build. Refresh only
         # its launch JSON, retaining its id, profile and user content.
         if version_id != loader_version_id:
@@ -1069,15 +1144,40 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         recorded_source = source_id or previous_meta.get("source_id")
         if recorded_source:
             instance_meta["source_id"] = recorded_source
-        source = previous_meta.get("source_version_id")
-        if not source and loader_version_id != version_id:
-            source = loader_version_id
+        source = loader_version_id if loader_version_id != version_id else None
         if source and source != version_id:
             instance_meta["source_version_id"] = source
         if built_from:
             instance_meta["built_from"] = built_from
-        write_instance_meta(version_id, instance_meta)
+        if not write_instance_meta(version_id, instance_meta):
+            raise ModpackError("Couldn't save the modpack's instance profile. Try installing again.")
         profile_dir = get_profile_dir(mc_version, loader_id, version_id)
+
+        from .paths import ensure_disk_space
+        required_bytes = sum(int(f["fileSize"]) for f in files
+                             if _wanted_on_client(f) and isinstance(f.get("fileSize"), (int, float))
+                             and 0 < f["fileSize"] < 1 << 50)
+        required_bytes += sum(member.file_size for member in zf.infolist()
+                              if member.filename.startswith(("overrides/", "client-overrides/")))
+        ensure_disk_space(profile_dir, required_bytes, "modpack install")
+
+        if transaction:
+            transaction.capture(profile_dir)
+            game_dir = _pack_game_dir(version_id)
+            game_paths = [f.get("path", "") for f in files if _wanted_on_client(f)]
+            for member in zf.infolist():
+                name = member.filename.replace("\\", "/")
+                if not member.is_dir():
+                    for prefix in ("overrides/", "client-overrides/"):
+                        if name.startswith(prefix):
+                            game_paths.append(name[len(prefix):])
+                            break
+            for path in game_paths:
+                if path and not _dest_is_mod(path) and not _content_type_for(path):
+                    destination = _safe_relpath(game_dir, path)
+                    if os.path.isdir(destination) and not os.path.islink(destination):
+                        raise ModpackError(f"A pack file would replace an existing folder: {path}")
+                    transaction.capture(destination)
 
         # The claim now knows the exact instance it is writing, so the Play
         # button can lock this clone (and only this clone) for the rest of the
@@ -1210,8 +1310,10 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 continue
             try:
                 os.remove(os.path.join(profile_dir, _old_name))
-            except OSError:
+            except FileNotFoundError:
                 pass
+            except OSError as ex:
+                raise ModpackError(f"Couldn't remove an obsolete pack mod ({_old_name}): {ex}") from ex
 
         # 7) Cubeon's own client mods into THIS pack's profile, using the
         #    PACK's loader. Injection used to happen only at launch, where it
@@ -1417,16 +1519,27 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
         if max_cb:
             max_cb(value)
 
+    from .pack_transaction import PackTransaction
+    transaction = None
+    preserve_recovery = False
     try:
+        transaction = PackTransaction()
         return _install_from_zip_body(zip_path, progress_cb=_progress,
                                       status_cb=_status, max_cb=_maximum,
-                                      icon_url=icon_url, source_id=source_id)
+                                      icon_url=icon_url, source_id=source_id,
+                                      transaction=transaction)
     except BaseException:
-        # A failed/cancelled UPDATE must leave the previous, working pack
-        # listed and playable: put its hidden _modpack.json back.
         _restore_pack_marker()
+        try:
+            if transaction:
+                transaction.rollback()
+        except OSError as ex:
+            preserve_recovery = True
+            raise ModpackError(str(ex)) from ex
         raise
     finally:
+        if transaction and not preserve_recovery:
+            transaction.close()
         _unmark_pack_install(mc_version, loader)
 
 
@@ -1546,21 +1659,16 @@ def _cf_files_keyless(entries: list[dict], status_cb=None) -> list[dict]:
     CF's keyless download redirect. No API key, no metadata lookup, and - unlike
     the keyed path - no hash to verify, since only the API knows the real SHA-1.
 
-    Malformed or un-downloadable entries are COUNTED and reported, never
-    silently dropped: a pack that installs with missing mods and no warning is
-    indistinguishable from a working one until it crashes."""
+    Refuse missing ids/hosts rather than reporting an incomplete pack installed."""
     mr_files = []
-    skipped = 0
     for e in entries:
         pid = e.get("projectID") if isinstance(e, dict) else None
         fid = e.get("fileID") if isinstance(e, dict) else None
         if not pid or not fid:
-            skipped += 1
-            continue
+            raise ModpackError("A CurseForge pack file has no usable project/file id.")
         url = _cf_download_url(pid, fid)
         if not _host_allowed(url):
-            skipped += 1
-            continue
+            raise ModpackError(f"CurseForge file {fid} has no trusted download.")
         size = e.get("fileSize")
         mr_files.append({
             # The real jar name lives behind the redirect, so the fileID is used
@@ -1572,12 +1680,6 @@ def _cf_files_keyless(entries: list[dict], status_cb=None) -> list[dict]:
             "downloads": [url],
             "fileSize": size if isinstance(size, (int, float)) else 0,
         })
-    if skipped:
-        logging.getLogger(__name__).warning(
-            "CurseForge: skipped %d pack file(s) with no usable id or host",
-            skipped)
-        if status_cb:
-            status_cb(f"Skipped {skipped} pack file(s) CurseForge couldn't provide")
     return mr_files
 
 
@@ -1634,48 +1736,58 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
     Every mod file's real URL and SHA-1 come from CurseForge's own API - the
     manifest only carries numeric ids. Returns the parsed mrpack index dict."""
     with zipfile.ZipFile(zip_path) as zf:
-        manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+        try:
+            if zf.getinfo("manifest.json").file_size > MAX_MANIFEST_BYTES:
+                raise ModpackError("The CurseForge manifest is implausibly large; refusing it.")
+            manifest = json.loads(zf.read("manifest.json"))
+        except (KeyError, ValueError) as ex:
+            raise ModpackError("The CurseForge modpack manifest is corrupted.") from ex
+        if not isinstance(manifest, dict):
+            raise ModpackError("The CurseForge modpack manifest is corrupted.")
         if manifest.get("manifestType") not in (None, "minecraftModpack"):
             raise ModpackError("That CurseForge pack has an unexpected manifest type.")
         mc = manifest.get("minecraft") or {}
+        if not isinstance(mc, dict):
+            raise ModpackError("The CurseForge modpack has invalid Minecraft settings.")
         mc_version = mc.get("version")
         if not mc_version:
             raise ModpackError("That CurseForge pack doesn't declare a Minecraft version.")
-        raw_entries = [f for f in (manifest.get("files") or []) if isinstance(f, dict)]
-        entries = [f for f in raw_entries if f.get("projectID") and f.get("fileID")]
-        if len(entries) != len(raw_entries):
-            dropped = len(raw_entries) - len(entries)
-            logging.getLogger(__name__).warning(
-                "CurseForge: manifest has %d entries without a project/file id",
-                dropped)
-            status_cb(f"Skipped {dropped} malformed pack entries")
+        entries = manifest.get("files", [])
+        if not isinstance(entries, list) or len(entries) > MAX_FILES:
+            raise ModpackError("The CurseForge modpack has an invalid file list.")
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ModpackError("The CurseForge modpack contains a malformed file entry.")
+            for key in ("projectID", "fileID"):
+                value = entry.get(key)
+                if isinstance(value, bool) or not str(value or "").isdigit() or int(value) <= 0:
+                    raise ModpackError(f"A CurseForge pack file has an invalid {key}; it cannot be installed completely.")
         if curseforge_enabled():
             status_cb(f"Resolving {len(entries)} mods from CurseForge...")
             by_key = {}
-            mr_files = []
             try:
                 rows = _cf_batch_files(entries)
-            except requests.RequestException as exc:
+            except (requests.RequestException, ModpackError, ValueError) as exc:
                 # The metadata API being down or picky must not sink the whole
                 # install: the keyless redirect can still fetch every file.
                 logging.getLogger(__name__).warning(
                     "CurseForge batch lookup failed (%s); using keyless downloads", exc)
                 status_cb("CurseForge lookup failed - using direct downloads instead...")
-                rows = None
-            if rows is None:
-                mr_files = _cf_files_keyless(entries, status_cb)
                 rows = []
-            for row in rows:
-                by_key[(row.get("modId"), row.get("id"))] = row
-            # Missing metadata rows are skipped (not fatal): the pack stays
-            # installable minus a broken/removed file, matching the CF launcher's
-            # own tolerance of removed files.
-            for e in (entries if by_key or not mr_files else ()):
+            for row in (rows or []):
+                if isinstance(row, dict):
+                    by_key[(row.get("modId"), row.get("id"))] = row
+            mr_files = []
+            for e in entries:
                 meta = by_key.get((int(e["projectID"]), int(e["fileID"])))
                 if not meta:
+                    # Metadata can be partial; the manifest's exact file id
+                    # still resolves through CurseForge's direct endpoint.
+                    mr_files.extend(_cf_files_keyless([e], status_cb))
                     continue
                 url = meta.get("downloadUrl") or _cf_download_url(e["projectID"], e["fileID"])
                 if not _host_allowed(url):
+                    mr_files.extend(_cf_files_keyless([e], status_cb))
                     continue
                 sha1 = _cf_sha1(meta)
                 mr_files.append({
@@ -1706,15 +1818,17 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
         # a CF *Fabric* pack converted into a pack declaring no loader at all -
         # it installed as vanilla and none of its mods ever loaded. The loader
         # flagged `primary` wins when a manifest lists more than one.
-        for loader in sorted((mc.get("modLoaders") or []),
+        loaders = mc.get("modLoaders") or []
+        if not isinstance(loaders, list) or any(not isinstance(l, dict) for l in loaders):
+            raise ModpackError("The CurseForge pack has invalid loader settings.")
+        for loader in sorted(loaders,
                              key=lambda l: not (isinstance(l, dict) and l.get("primary"))):
-            if not isinstance(loader, dict):
-                continue
             name, _, ver = str(loader.get("id") or "").partition("-")
             dep_key = LOADER_TO_DEP_KEY.get(name.strip().lower())
             if dep_key and ver:
                 dependencies[dep_key] = ver
                 break
+            raise ModpackError(f"This CurseForge pack needs an unsupported loader: {loader.get('id')!r}.")
         index = {
             "formatVersion": 1,
             "game": "minecraft",
@@ -1729,12 +1843,17 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
             # installer expects. Members are re-added individually so no
             # dotted/absolute name inside the source zip can escape - the
             # installer's own traversal checks re-verify every path anyway.
-            overrides_root = (manifest.get("overrides") or "overrides").strip("/") + "/"
+            overrides = manifest.get("overrides") or "overrides"
+            if not isinstance(overrides, str):
+                raise ModpackError("The CurseForge pack has an invalid overrides folder.")
+            overrides_root = overrides.strip("/") + "/"
             for info in zf.infolist():
                 name = info.filename.replace("\\", "/")
                 if name.startswith(overrides_root) and not info.is_dir():
                     rel = name[len(overrides_root):]
                     if rel and not rel.startswith("/") and ".." not in rel.split("/"):
+                        if info.file_size > MAX_OVERRIDE_BYTES:
+                            raise ModpackError(f"An override file is implausibly large ({rel}); refusing it.")
                         out.writestr(f"overrides/{rel}", zf.read(info.filename))
         return index
 

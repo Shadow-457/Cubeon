@@ -1286,7 +1286,7 @@ def copy_mods_between_profiles(
 # Modrinth requires a distinctive User-Agent on every request.
 # ---------------------------------------------------------------------------
 
-def get_recommended_mods(mc_version: str | None = None, loader: str = "fabric",
+def get_recommended_mods(mc_version: str | None = None, loader: str | None = "fabric",
                           category: str | None = None, limit: int = 100,
                           offset: int = 0) -> list[dict]:
     """One page of popular mods, scoped to the selected version/loader.

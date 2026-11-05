@@ -154,13 +154,39 @@ class LaunchMemoryTests(unittest.TestCase):
         switch.value = False
         with patch.object(config, 'save_config'):
             switch.on_change(None)
-        self.assertTrue(slider.disabled)
+        self.assertFalse(slider.disabled)
         self.assertIn('profile or Java', status.value)
         switch.value = True
         with patch.object(config, 'save_config', side_effect=OSError('full disk')):
             switch.on_change(None)
-        self.assertTrue(slider.disabled)
+        self.assertFalse(slider.disabled)
         self.assertIn('profile or Java', status.value)
+
+    def test_saved_java_opt_out_keeps_ram_draggable_without_changing_overrides(self):
+        cfg = {'ram_mb': 2048, 'default_jvm_flags_enabled': False,
+               'custom_jvm_flags': '-Xmx3G'}
+        slider = ft.Slider(value=2048, disabled=True,
+                           on_change=lambda e: cfg.update(ram_mb=int(slider.value)))
+        finished = Mock()
+        slider.on_change_end = finished
+        slider.on_blur = finished
+        status = ft.Text('')
+        _java_defaults_panel(ram_slider=slider,
+            custom_jvm_field=ft.TextField(value=cfg['custom_jvm_flags']),
+            cfg=cfg, memory_status=status,
+            **{key: getattr(theme, key) for key in
+               ('BORDER', 'ACCENT', 'ACCENT_TINT', 'TEXT', 'TEXT_DIM', 'TEXT_FAINT', 'FONT_MONO')})
+        self.assertFalse(slider.disabled)
+        slider.value = 4096
+        slider.on_change(None)
+        slider.on_change_end(None)
+        slider.on_blur(None)
+        self.assertEqual(cfg['ram_mb'], 4096)
+        self.assertFalse(cfg['default_jvm_flags_enabled'])
+        self.assertEqual(cfg['custom_jvm_flags'], '-Xmx3G')
+        self.assertEqual(finished.call_count, 2)
+        self.assertIn('-Xmx3G', status.value)
+        self.assertIn('overrides the RAM slider', status.value)
 
     def test_slider_change_updates_launch_before_release_and_saves_on_blur(self):
         source = ast.parse((Path(__file__).resolve().parents[1] / 'main.py').read_text())
@@ -175,22 +201,28 @@ class LaunchMemoryTests(unittest.TestCase):
         slider = ft.Slider(min=1024, max=8192, value=2048)
         cfg = {'ram_mb': 2048}
         save = Mock()
+        refreshed = []
+        auto_update = Mock()
         namespace = dict(cfg=cfg, ram_slider=slider, ram_label=ft.Text(),
                          ram_warning=ft.Text(), _ram_color=lambda value: theme.ACCENT,
                          _update_ram_warning=lambda value: None,
+                         ft=SimpleNamespace(context=SimpleNamespace(disable_auto_update=auto_update)),
                          thread_safe_ui=SimpleNamespace(TREE_LOCK=__import__('threading').RLock(),
-                                                        refresh=lambda control: None),
+                                                        refresh=refreshed.append),
                          core=SimpleNamespace(save_config=save))
         exec(compile(ast.Module(body=nodes, type_ignores=[]), 'RAM handlers', 'exec'), namespace)
         slider.value = 4096
         namespace['on_ram_change'](None)
         self.assertEqual(cfg['ram_mb'], 4096)
+        self.assertNotIn(slider, refreshed)
+        auto_update.assert_called_once()
         save.assert_not_called()
         self.profile('pack', ['-Xmx2G', '-cp', '${classpath}'])
         argv = launch.build_launch_command('pack', 'Alex', cfg['ram_mb'], 854, 480)
         self.assertIn('-Xmx4096M', argv[:argv.index('game.Main')])
         self.assertNotIn('-Xmx2G', argv[:argv.index('game.Main')])
         namespace['on_ram_change_end'](None)
+        self.assertIn(slider, refreshed)
         namespace['on_ram_change_end'](None)
         save.assert_called_once_with(cfg)
         slider.value = 5120

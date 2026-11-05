@@ -6870,6 +6870,7 @@ async def main(page: ft.Page):
         active_color=_ram_color(cfg["ram_mb"]), inactive_color=SURFACE_HI,
         thumb_color=_ram_color(cfg["ram_mb"]),
         label="{value} MB",
+        interaction=ft.SliderInteraction.TAP_AND_SLIDE,
     )
     ram_range_row = ft.Row(
         [
@@ -6906,17 +6907,15 @@ async def main(page: ft.Page):
         Launch reads cfg, so it must match the displayed value even if a
         keyboard change or interrupted drag has not delivered change_end.
         Disk persistence stays deferred to release or focus loss.
-        The repaint is control-level, not page.update(): a full-tree diff on
-        every tick is the other half of the jank - only three controls change.
+        Keep the native thumb moving without sending its value back mid-drag.
+        Only the readout/warning repaint; colors update once on release.
         """
-        value = int(ram_slider.value)
-        cfg["ram_mb"] = value
-        color = _ram_color(value)
-        ram_slider.active_color = color
-        ram_slider.thumb_color = color
-        ram_label.value = f"{value} MB maximum"
-        _update_ram_warning(value)
-        thread_safe_ui.refresh(ram_slider)
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            value = int(ram_slider.value)
+            cfg["ram_mb"] = value
+            ram_label.value = f"{value} MB maximum"
+            _update_ram_warning(value)
         thread_safe_ui.refresh(ram_label)
         thread_safe_ui.refresh(ram_warning)
 
@@ -6927,8 +6926,14 @@ async def main(page: ft.Page):
         instead of an exception escaping a UI handler, which Flet swallows -
         leaving the user staring at a slider that "didn't stick".
         """
+        ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
+            on_ram_change(e)
             value = int(ram_slider.value)
+            color = _ram_color(value)
+            ram_slider.active_color = color
+            ram_slider.thumb_color = color
+            thread_safe_ui.refresh(ram_slider)
             if _ram_saved["value"] == value:
                 return  # nothing changed (e.g. a stray change_end after load)
             cfg["ram_mb"] = value

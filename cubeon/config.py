@@ -245,10 +245,9 @@ DEFAULT_CONFIG = {
     # timezone at startup (autumn/spring/winter/summer templates). The palette
     # is bound at import time, so changing this needs a relaunch - the Settings
     # pane says so, and offers to do it. Turning it off just keeps the normal
-    # green identity. ON BY DEFAULT (2026-10-23 user ask): the seasonal look is
-    # the launcher's identity now, and a first run should wear it rather than
-    # looking like every other green launcher. Extras can be disabled below.
-    "seasonal_theme": True,
+    # green identity. New installs start with this off; onboarding lets the
+    # user opt in. Saved choices override this default in load_config.
+    "seasonal_theme": False,
     # "auto" = follow the detected season. A season name overrides the guess,
     # for the two cases detection can't win: a user who disagrees with it, and
     # the tropics/equator, where "autumn" is a fiction either way. The Settings

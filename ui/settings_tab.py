@@ -296,9 +296,10 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
     chevron = ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT_DIM)
     summary = ft.Text("", size=11.5, color=TEXT_FAINT)
     open_state = {"v": False}
+    # Advanced Java choices affect launch precedence, not pointer interaction.
+    ram_slider.disabled = False
 
     def _sync_memory():
-        ram_slider.disabled = not bool(enabled.value)
         if memory_status is not None:
             report = launch.memory_limit_report(
                 int(ram_slider.value or 0),
@@ -314,9 +315,8 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
                         mb=int(report["ram_mb"]), gb=f'{report["ram_mb"] / 1024:g}')
             else:
                 memory_status.value = i18n.t(
-                    "Cubeon's default Java flags are off. The profile or Java chooses the memory limit.")
+                    "Saved RAM applies when default Java flags are on. Otherwise the profile or Java chooses the memory limit.")
             thread_safe_ui.refresh(memory_status)
-        thread_safe_ui.refresh(ram_slider)
 
     def _rebuild():
         """Re-read the live settings and repaint the list."""
@@ -442,7 +442,25 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
     for control in (ram_slider, custom_jvm_field):
         previous = control.on_change
 
-        def changed(event, previous=previous):
+        def changed(event, previous=previous, is_ram=control is ram_slider):
+            if is_ram:
+                ft.context.disable_auto_update()
+            with thread_safe_ui.TREE_LOCK:
+                if callable(previous):
+                    previous(event)
+                if open_state["v"] and not is_ram:
+                    _rebuild()
+                else:
+                    _sync_memory()
+
+        control.on_change = changed
+
+    # Expanded JVM details rebuild on release, never for every drag tick.
+    for event_name in ("on_change_end", "on_blur"):
+        previous = getattr(ram_slider, event_name)
+
+        def finished(event, previous=previous):
+            ft.context.disable_auto_update()
             with thread_safe_ui.TREE_LOCK:
                 if callable(previous):
                     previous(event)
@@ -451,7 +469,7 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
                 else:
                     _sync_memory()
 
-        control.on_change = changed
+        setattr(ram_slider, event_name, finished)
 
     _sync_memory()
     return ft.Container(

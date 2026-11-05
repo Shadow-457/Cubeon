@@ -1,4 +1,4 @@
-"""Keyless CurseForge entries are checked and bad ones are reported (8.7).
+"""Keyless CurseForge entries are complete and misplaced packs are relocated.
 
 Two problems in `_cf_files_keyless` / the mod download step:
 
@@ -10,7 +10,7 @@ Two problems in `_cf_files_keyless` / the mod download step:
    landed in the loader's mods folder. Forge/Fabric then error on launch.
 
 Locked-in behaviour:
-  * malformed entries and disallowed hosts are counted and reported, never a
+  * malformed entries and disallowed hosts refuse incomplete installation, never a
     raw exception;
   * a downloaded jar with no mod metadata but with `pack.mcmeta` is moved to the
     instance's resourcepacks folder; a real mod (or an unknown/unreadable jar)
@@ -96,7 +96,7 @@ def install_pack(scratch, archive, payloads):
 
 
 def main():
-    # --- 1. malformed / disallowed entries are counted ----------------------
+    # --- 1. missing files must not become a successful partial install -----
     statuses = []
     entries = [
         {"projectID": 111, "fileID": 222},
@@ -104,20 +104,25 @@ def main():
         {"fileID": 444},
         "not a dict",
     ]
-    files = modpacks._cf_files_keyless(entries, statuses.append)
-    check("a malformed entry does not raise", len(files) == 1, str(files))
+    raised = None
+    try:
+        modpacks._cf_files_keyless(entries, statuses.append)
+    except modpacks.ModpackError as ex:
+        raised = ex
+    check("malformed required entries refuse a partial install", raised is not None)
+    files = modpacks._cf_files_keyless(entries[:1], statuses.append)
     check("only the well-formed entry becomes a file",
           [f["path"] for f in files] == ["mods/222.jar"], str(files))
-    check("the skipped count is reported to the user",
-          any("Skipped 3" in s for s in statuses), str(statuses))
 
-    # A host the installer will not fetch from is counted too, not silent.
+    # A missing trusted download also refuses installation.
     statuses.clear()
     with patch.object(modpacks, "_host_allowed", return_value=False):
-        files = modpacks._cf_files_keyless(entries[:1], statuses.append)
-    check("a disallowed host is skipped and reported",
-          files == [] and any("Skipped 1" in s for s in statuses),
-          f"{files} {statuses}")
+        raised = None
+        try:
+            modpacks._cf_files_keyless(entries[:1], statuses.append)
+        except modpacks.ModpackError as ex:
+            raised = ex
+    check("a disallowed host refuses the incomplete install", raised is not None)
 
     # --- 2. a resource pack listed as a mod is relocated --------------------
     scratch = tempfile.mkdtemp(prefix="cubeon-cf-content-")

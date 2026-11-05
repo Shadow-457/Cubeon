@@ -567,7 +567,7 @@ SUITES = [
     "test_source_runtime.py", "test_startup_recovery.py",
     "test_invites.py",
     "test_modpacks.py", "test_mod_store.py", "test_launch_staging_io.py", "test_net.py", "test_java_downloads.py",
-    "test_modpacks_cf_content.py", "test_modpack_client_mods_errors.py",
+    "test_modpacks_cf_content.py", "test_modpack_client_mods_errors.py", "test_modpack_integrity.py",
     "test_content_management_audit.py", "test_mods_management_ui.py", "test_local_mod_import.py",
     "test_fuzz.py", "test_production.py", "test_content_instance.py",
     "test_version_integrity.py", "test_local_api_gate.py",

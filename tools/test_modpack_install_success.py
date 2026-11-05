@@ -71,7 +71,9 @@ stubs.app.run_sync(page)
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 driver.open_tab("modpacks")
 
-found = find_functions(list(page.overlay), "_end_install_ok")
+# Modern Flet registers FilePicker as a service; the import button retains
+# the install closure in the actual tab tree rather than page.overlay.
+found = find_functions(list(fz.every_control(page)), "_end_install_ok")
 check("found the install-finished handler", bool(found))
 end_ok = found[0]
 scope = inspect.getclosurevars(end_ok).nonlocals
@@ -80,9 +82,10 @@ busy = scope["busy"]
 preparing = scope["preparing"]
 refresh_packs = scope["refresh_installed_packs"]
 render_page = scope["_render_page"]
-render_rows = inspect.getclosurevars(refresh_packs).nonlocals["_render_installed_rows"]
+apply_packs = inspect.getclosurevars(refresh_packs).nonlocals["_apply_installed_packs"]
+render_rows = inspect.getclosurevars(apply_packs).nonlocals["_render_installed_rows"]
 installed_view = inspect.getclosurevars(render_rows).nonlocals["installed_view"]
-active_view = inspect.getclosurevars(refresh_packs).nonlocals["active_view"]
+active_view = inspect.getclosurevars(apply_packs).nonlocals["active_view"]
 results_view = inspect.getclosurevars(render_page).nonlocals["results_view"]
 
 # The Installed rows are built lazily (only while that pane is shown), so put

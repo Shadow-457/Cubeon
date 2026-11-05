@@ -118,8 +118,13 @@ class FlagsTests(unittest.TestCase):
         self.assertTrue(rows.visible)
         self.assertIn('-Xmx2048M', [c.content.controls[0].value for c in rows.controls])
         slider.value = 4096
-        slider.on_change(None)
+        old_rows = tuple(rows.controls)
+        with patch.object(launch, 'default_jvm_flags_report', wraps=launch.default_jvm_flags_report) as report:
+            slider.on_change(None)
+            report.assert_not_called()
+            self.assertEqual(tuple(rows.controls), old_rows)
         self.assertTrue(saved)
+        slider.on_change_end(None)
         self.assertIn('-Xmx4096M', [c.content.controls[0].value for c in rows.controls])
         custom.value = '-XX:+UseZGC'
         custom.on_change(None)

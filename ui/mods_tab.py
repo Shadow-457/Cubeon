@@ -2388,16 +2388,18 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def _browse_page_prev(e=None):
         ft.context.disable_auto_update()
-        if browse_state["page"] > 0:
-            browse_state["page"] -= 1
-            _render_browse_page()
+        with thread_safe_ui.TREE_LOCK:
+            if browse_state["page"] > 0:
+                browse_state["page"] -= 1
+                _render_browse_page()
 
     def _browse_page_next(e=None):
         ft.context.disable_auto_update()
-        total_pages = max(1, browse_state["total_pages"])
-        if browse_state["page"] < total_pages - 1:
-            browse_state["page"] += 1
-            _render_browse_page()
+        with thread_safe_ui.TREE_LOCK:
+            total_pages = max(1, browse_state["total_pages"])
+            if browse_state["page"] < total_pages - 1:
+                browse_state["page"] += 1
+                _render_browse_page()
 
     browse_pager_prev.on_click = _browse_page_prev
     browse_pager_next.on_click = _browse_page_next

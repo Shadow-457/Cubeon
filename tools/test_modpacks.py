@@ -92,8 +92,16 @@ def _net_seam(url, headers=None, params=None, stream=True, timeout=None,
 
 # --- build a synthetic .mrpack --------------------------------------------
 
+def fixture_mod():
+    import io
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr(zipfile.ZipInfo("fabric.mod.json"), json.dumps({"id": "sodium", "version": "1.0"}))
+    return stream.getvalue()
+
+
 def build_mrpack(path):
-    mod_bytes = b"FAKE SODIUM JAR CONTENT"
+    mod_bytes = fixture_mod()
     mod_url = "https://cdn.modrinth.com/data/AABBCC/versions/x/sodium.jar"
     _BLOBS[mod_url] = mod_bytes
 
@@ -225,7 +233,7 @@ def main():
     sodium = os.path.join(profile_dir, "sodium.jar")
     check("route: declared mod -> profile", os.path.isfile(sodium))
     check("route: declared mod content intact",
-          os.path.isfile(sodium) and open(sodium, "rb").read() == b"FAKE SODIUM JAR CONTENT")
+          os.path.isfile(sodium) and open(sodium, "rb").read() == fixture_mod())
     check("route: server-only mod SKIPPED",
           not os.path.isfile(os.path.join(profile_dir, "server-only.jar")))
     content_pack = os.path.join(modpacks.content_profile_dir(

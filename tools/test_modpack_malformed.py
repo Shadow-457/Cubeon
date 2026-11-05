@@ -8,7 +8,8 @@ assumed to be objects and `env` to be a dict, so one bad element (or
 
 Locked-in behaviour:
   * a non-object index is a `ModpackError`;
-  * non-object `files` entries are ignored (the rest still installs);
+  * summaries tolerate non-object entries, but installation refuses an
+    incomplete manifest before writing game files;
   * a non-object `env` is treated as `{}` (client-required);
   * a non-object `dependencies` becomes `{}` so the readable "doesn't say
     which Minecraft version" error is shown instead of AttributeError.
@@ -105,7 +106,7 @@ def main():
           isinstance(ex, modpacks.ModpackError)
           and "Minecraft version" in str(ex), repr(ex))
 
-    # --- 4. a real install ignores the bad entry --------------------------
+    # --- 4. a real install refuses an incomplete manifest -----------------
     game_dir = os.path.join(scratch, "minecraft")
     profiles_dir = os.path.join(scratch, "profiles")
     modpacks.MINECRAFT_DIR = game_dir
@@ -159,13 +160,11 @@ def main():
     archive = manifest_zip(os.path.join(scratch, "badentries.mrpack"),
                            json.dumps(good_index))
     ex = error_of(lambda: modpacks._install_from_zip(archive))
-    check("the pack still installs despite the junk entries", ex is None,
+    check("a pack with junk entries is refused with a readable error",
+          isinstance(ex, modpacks.ModpackError),
           repr(ex))
-    if ex is None:
-        profile = os.path.join(profiles_dir, "1.20.1-fabric")
-        check("the valid mod was downloaded",
-              os.path.isfile(os.path.join(profile, "good.jar")),
-              str(os.listdir(profile)) if os.path.isdir(profile) else "?")
+    check("an incomplete manifest writes no installed version",
+          not os.listdir(os.path.join(game_dir, "versions")))
 
     print()
     print(f"{passed} passed, {failed} failed")

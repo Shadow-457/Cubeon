@@ -110,6 +110,9 @@ keep builders consistent with the shared `THEME` contract.
   inherited Flet/Java children together, not the OS. Use taskset for verified CPU affinity:
   AllowedCPUs alone did not restrict this user's scope. CPU/RAM caps do not emulate Intel iGPU
   throughput; FPS certification requires the actual target GPU.
+- New configs default `seasonal_theme=False`, so first startup uses green and onboarding's
+  seasonal switch starts off. Onboarding/replay reads the saved choice; preserve explicit
+  enabled preferences and existing command-line/environment palette overrides.
 - `SeasonalAnimator` (one daemon ticker, `TICK = 0.12`) has `pause()`/`resume()` backed by a
   `threading.Condition`; `main._on_window_event` pauses on `minimize`/`hide`/`blur` and resumes on
   `restore`/`show`/`focus`. Do not implement this with a `threading.Event` and `event.wait()` while it
@@ -402,6 +405,10 @@ keep builders consistent with the shared `THEME` contract.
   the displayed ceiling even without a release event. Disk saves happen on release
   or blur, tracked by `_ram_saved` so unchanged events skip writes and failed saves
   remain retryable. `test_launch_memory.py` verifies a 4 GB change over a 2 GB profile.
+  RAM stays editable when default Java flags are off; `memory_limit_report` explains
+  whether slider, custom flags or profile controls the actual heap. Drag handlers
+  disable Flet auto-update and repaint only readouts, never the slider itself.
+  Release/blur updates thumb colors, saves once and refreshes expanded JVM details.
 - Mods is the single sidebar content destination, with visible neutral icon/text
   selectors for Mods, Modpacks, Resource Packs and Shaders. `build_mods_tab` embeds
   the retained Modpacks host; old `switch_tab("modpacks")` links select it inside Mods,
@@ -412,6 +419,11 @@ keep builders consistent with the shared `THEME` contract.
   width events set column count and aspect ratio to preserve 96 px tile height.
   Browse requests use a stable 24-item page size; viewport events only change
   tile layout and cached installed-row capacity, never restart catalogue reads.
+  Default Mods browse uses popular Modrinth search with version/loader facets and
+  real offset paging, through `get_recommended_mods`; the old six-slug constant stays
+  exported for facade compatibility but no longer limits browse results. Fetch only
+  the requested page, retain cached cards, and disable Flet's automatic whole-page
+  update on content-selector/pager events; explicit paints remain scoped and locked.
   Mods retains up to 12 browse sessions keyed by query/type/instance/filter;
   type switches restore queries, filters, view and cached rows. Hidden completions
   populate their own session and cannot paint another type. Modpacks coalesces
@@ -698,8 +710,12 @@ keep builders consistent with the shared `THEME` contract.
   it; `_install_from_zip` restores it on any failure/cancel and a successful install deletes the
   `.bak`. Never delete the marker up front again: that is what made a failed update "uninstall" a
   working pack. Marker backups are keyed by thread id.
-- A failed pack download must leave the working pack's jars alone (8.1's prune runs only after the new
-  set is on disk), and the restored marker keeps the old `jars` list so a retry can prune.
+- `pack_transaction.PackTransaction` wraps public pack installs: it snapshots profile entries
+  without following store links, targeted game files (never the whole saves folder), and launch JSON/
+  instance sidecars. Download, cancellation, pruning or marker-write failures restore the previous
+  bytes and metadata and retire a newly created pack clone; rollback failures keep recovery copies
+  and name their directory. Shared immutable downloads remain reusable. Restoring just the marker
+  is insufficient when an update replaced a same-named jar or changed the loader build.
 - Marker reads must catch `(OSError, ValueError)` (invalid UTF-8 is a `ValueError`, not a
   `JSONDecodeError`) and skip non-dict JSON. The marker is written with `atomicio.write_json`; a
   failed write raises `ModpackError` - never report an unlisted pack as installed.
@@ -775,9 +791,20 @@ keep builders consistent with the shared `THEME` contract.
 - Pack identity: `_modpack.json` and the instance sidecar carry `source_id` (`modrinth:<id>` /
   `curseforge:<id>`); `_find_installed_pack(..., source_id=)` requires equality when both sides have
   one. Never go back to name-only matching (two different packs can share a display name).
-- `_read_index` must reject a non-object JSON body with `ModpackError`; `files` entries are filtered
-  to dicts and a non-dict `env`/`dependencies` is treated as empty. Malformed packs must never leak
-  `AttributeError` into the install worker.
+- `_read_index` rejects non-object/oversized manifests; summaries tolerate junk entries, but
+  `_install_files` refuses malformed client files, hashes, download lists and colliding flattened
+  mod names before writes. Backslash paths normalize to `/`; linked parent folders are refused.
+  A non-dict `env`/`dependencies` is treated as empty. Manifest sizes replace per-file HEAD probes
+  for disk checks; the downloader validates every redirect and supports SHA-512/SHA-256/SHA-1.
+  Downloaded JARs must have readable ZIP metadata, with full CRC checks for keyless unhashed files.
+- CurseForge metadata may be partial or rejected: each missing/unsafe row falls back to its exact
+  manifest project/file download endpoint. Missing ids or downloads fail the install rather than
+  silently omitting mods; unknown primary loaders never become vanilla. Client overrides apply
+  after general overrides regardless of archive order, while existing player options stay intact.
+  `tools/test_modpack_integrity.py` covers rollback bytes, loader updates, incomplete metadata,
+  corrupt downloads, cancellation, disk errors and systems without symlink support.
+  Native pack probes must match `launch_game`'s `cwd=game_dir`; `--gameDir` alone does not
+  constrain mods that resolve their configuration relative to the process working directory.
 - Pack install's CSL/Friends injection is best-effort but NOT silent: a failure logs
   `log.warning(..., exc_info=True)` and emits a `status_cb` line; the install still succeeds.
 - `_extract_overrides` must KEEP existing `options*.txt`/`servers.dat` in the shared game folder and
