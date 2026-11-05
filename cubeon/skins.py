@@ -76,75 +76,20 @@ _VALID_SKIN_SIZES = {(64, 64), (64, 32)}
 
 # --- Base-skin composition ---------------------------------------------------
 # The sheet that should currently be in-game: the active custom skin, or a
-# built-in Steve-style default so an otherwise-vanilla player still gets the
+# bundled Steve default so an otherwise-vanilla player still gets the
 # shared Cubeon cape via CSL. (This used to live in cubeon/cosmetics.py and
 # bake a pixel hat on top; hats were removed - 2026-09-16.)
 
-def _rgba(img, x, y, color):
-    img.putpixel((x, y), color)
-
-
-def _rect(img, x0, y0, x1, y1, color):
-    for yy in range(y0, y1):
-        for xx in range(x0, x1):
-            img.putpixel((xx, yy), color)
+# Match capes.py's asset resolution in source and PyInstaller builds.
+_DEFAULT_STEVE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "assets", "skins", "steve.png")
 
 
 def default_base_skin() -> Image.Image:
-    """A built-in Steve-style 64x64 skin. Only the head really matters for
-    the avatar/face crops, but CSL expects a whole valid sheet, so the body
-    is filled in too."""
-    s = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    skin = (200, 144, 108, 255)
-    skin_shade = (180, 131, 107, 255)
-    hair = (59, 42, 26, 255)
-    shirt, shirt_shade = (15, 169, 169, 255), (12, 143, 143, 255)
-    jeans, shoes = (58, 75, 168, 255), (86, 86, 86, 255)
-    white, iris = (255, 255, 255, 255), (82, 61, 137, 255)
-
-    # Head - base faces.
-    _rect(s, 8, 8, 16, 16, skin)        # face
-    _rect(s, 0, 8, 8, 16, skin)         # right
-    _rect(s, 16, 8, 24, 16, skin)       # left
-    _rect(s, 24, 8, 32, 16, skin)       # back
-    _rect(s, 16, 0, 24, 8, skin_shade)  # chin/underside
-    # Hair: top of the head plus a fringe around the upper sides.
-    _rect(s, 8, 0, 16, 8, hair)
-    for hx in (0, 16, 24):              # right / left / back side faces
-        _rect(s, hx, 8, hx + 8, 11, hair)
-    _rect(s, 24, 8, 32, 13, hair)       # back of the head is mostly hair
-    # Face: eyes with the classic white-outside/purple-inside layout, nose, mouth.
-    _rgba(s, 9, 11, white); _rgba(s, 10, 11, iris)
-    _rgba(s, 13, 11, iris); _rgba(s, 14, 11, white)
-    _rect(s, 11, 12, 13, 13, skin_shade)
-    _rect(s, 11, 13, 13, 14, (126, 79, 61, 255))
-
-    for origin_x, origin_y, width, height, depth, color in (
-        (16, 16, 8, 12, 4, shirt), (40, 16, 4, 12, 4, skin),
-        (32, 48, 4, 12, 4, skin), (0, 16, 4, 12, 4, jeans), (16, 48, 4, 12, 4, jeans),
-    ):
-        _rect(s, origin_x + depth, origin_y, origin_x + depth + width, origin_y + depth, color)
-        _rect(s, origin_x + depth + width, origin_y,
-              origin_x + 2 * width + depth, origin_y + depth, color)
-        _rect(s, origin_x, origin_y + depth,
-              origin_x + 2 * (width + depth), origin_y + depth + height, color)
-        if color == skin:
-            _rect(s, origin_x, origin_y + depth,
-                  origin_x + 2 * (width + depth), origin_y + depth + 4, shirt)
-        elif color == jeans:
-            _rect(s, origin_x, origin_y + depth + height - 3,
-                  origin_x + 2 * (width + depth), origin_y + depth + height, shoes)
-
-    _rect(s, 20, 20, 28, 32, shirt)
-    _rect(s, 20, 20, 28, 21, shirt_shade)
-    for ax, ay in ((44, 20), (36, 52)):
-        _rect(s, ax, ay, ax + 4, ay + 12, skin)
-        _rect(s, ax, ay, ax + 4, ay + 4, shirt)
-        _rect(s, ax, ay + 10, ax + 4, ay + 12, skin_shade)   # hands
-    for lx, ly in ((4, 20), (20, 52)):
-        _rect(s, lx, ly, lx + 4, ly + 12, jeans)
-        _rect(s, lx, ly + 9, lx + 4, ly + 12, shoes)         # shoes
-    return s
+    """Minecraft's bundled classic-arm Steve texture, as an independent sheet."""
+    with Image.open(_DEFAULT_STEVE_PATH) as sheet:
+        return sheet.convert("RGBA")
 
 
 def _base_skin_for(cfg) -> Image.Image:

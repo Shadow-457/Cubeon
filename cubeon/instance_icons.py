@@ -64,11 +64,11 @@ def import_image(path):
                     # black pixels and the square's clear padding stay distinct.
                     indexed = square.convert('RGB').quantize(colors=255)
                     indexed.putpalette(indexed.getpalette()[:765] + [0, 0, 0])
-                    indexed.paste(255, square.getchannel('A').point(lambda alpha: 255 if alpha < 128 else 0))
+                    indexed.paste(255, mask=square.getchannel('A').point(lambda alpha: 255 if alpha < 128 else 0))
                     frames.append(indexed)
                     durations.append(frame.info.get('duration', 100))
                 frames[0].save(output, 'GIF', save_all=True, append_images=frames[1:],
-                               duration=durations, disposal=2, transparency=255, optimize=False,
+                               duration=durations, disposal=2, transparency=255, background=255, optimize=False,
                                **({'loop': loop} if loop is not None else {}))
                 extension = '.gif'
             else:

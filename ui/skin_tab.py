@@ -39,6 +39,7 @@ import launcher_core as core
 # which ft.Image.src resolves against the app's assets_dir, so it shows up
 # whenever no custom cape is selected instead of leaving the box blank.
 DEFAULT_CAPE_PREVIEW_SRC = "capes/cubeon_cape_preview.png"
+DEFAULT_SKIN_PREVIEW_SRC = "skins/steve-preview.png"
 
 
 # Preview bytes are immutable once written, so base64-encoding them once and
@@ -88,7 +89,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # =====================================================================
 
     appearance = AppearancePreview(cfg, assets_dir, page=page)
-    skin_preview_name = ft.Text("Default Minecraft skin", size=13, color=TEXT)
+    skin_preview_name = ft.Text("Steve · Default skin", size=13, color=TEXT)
 
     def _refresh_status(control):
         with thread_safe_ui.TREE_LOCK:
@@ -159,10 +160,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             return
         render_preview_for(filename)
         if filename is None:
-            # Clearing the skin is the "None" card: offline Minecraft falls
-            # back to its own default model (Steve or Alex), which is exactly
-            # what the preview now shows.
-            skin_preview_name.value = "Default Minecraft skin"
+            # Clearing the custom skin selects the bundled classic Steve sheet.
+            skin_preview_name.value = "Steve · Default skin"
             upload_status.value = ""
         else:
             entry = next((s for s in core.list_custom_skins()
@@ -182,7 +181,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             if cfg.get("active_skin") == filename:
                 core.set_active_skin(cfg, None)
                 render_preview_for(None)
-                skin_preview_name.value = "Default Minecraft skin"
+                skin_preview_name.value = "Steve · Default skin"
             core.delete_custom_skin(filename)
             core.forget_file("skin", filename)
         except Exception as ex:
@@ -424,11 +423,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         skins = core.list_custom_skins()
         skin_cards.clear()
         skins_list_col.controls.clear()
-        # "None" is a real choice, not a missing feature: it clears the custom
-        # skin so offline Minecraft shows its own default model (Steve/Alex).
+        # Default Steve is a real choice; it clears the active custom skin.
         skins_list_col.controls.append(_owned_card(
-            icon=ft.Icons.BLOCK_ROUNDED,
-            label="None",
+            src=DEFAULT_SKIN_PREVIEW_SRC,
+            label="Steve",
             sublabel="Default Minecraft skin",
             active=not cfg.get("active_skin"),
             on_use=lambda e: set_active(None),

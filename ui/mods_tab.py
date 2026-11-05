@@ -1291,7 +1291,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         [browse_pager_prev, browse_pager_label, browse_pager_next],
         alignment=ft.MainAxisAlignment.CENTER, spacing=4, visible=False,
     )
-    browse_title_text = ft.Text("Recommended", size=12,
+    browse_title_text = ft.Text("Popular", size=12,
                                  color=TEXT_DIM, font_family=FONT_MONO)
     search_scope = {"compatible": True}
     browse_scope_text = ft.Text("", size=11.5, color=TEXT_DIM)
@@ -1419,6 +1419,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         _refresh_browse_scope()
 
     def on_content_type_change(new_type):
+        ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
             if selected_content['value'] == new_type:
                 return
@@ -1548,13 +1549,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         return mod_search_field.value.strip()
 
     def _browse_is_paged() -> bool:
-        """Whether offset paging makes sense for what's showing. Mods with no
-        search and no category use the curated slug list, which ignores
-        offset, so that view pages client-side over the one small fetch;
-        everything else (searches, category browse, packs/shaders popularity)
-        pages by fetching one offset at a time."""
-        return not (_is_mod() and not _browse_query()
-                    and not active_category["value"])
+        """Every catalogue, including popular Mods, fetches one page at a time."""
+        return True
 
     def _browse_fetch(page_num: int, key=None):
         """One page of results for the CURRENT browse key. Runs on a worker
@@ -1662,10 +1658,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     def load_recommended_mods():
         """
         Fetches the first page of items for the current version+category and
-        displays them in the browse section. For mods this is the curated
-        all-rounder picks (or the top mods in a category); for resource packs
-        / shaders it's the most popular of that type, so switching categories
-        changes what's shown.
+        displays them in the browse section. All types use popular results
+        (or the top results in a category), one page at a time.
         """
         with thread_safe_ui.TREE_LOCK:
             nonlocal browse_state
@@ -1675,7 +1669,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             cat = active_category["value"]
             if content_type == "mod":
                 cat_label = dict(core.MOD_CATEGORIES).get(cat, "")
-                default_title = "RECOMMENDED"
+                default_title = "POPULAR"
             else:
                 cat_label = dict(core.category_choices(_ct())).get(cat, "")
                 default_title = "POPULAR"
@@ -1729,7 +1723,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         token = browse_state["token"]
 
         if not browse_state["paged"]:
-            # Curated mod list: one small fetch, sliced locally page by page.
+            # Legacy non-paged sessions slice their cached results locally.
             all_items = browse_state["pages"].get(0)
             if all_items is None:
                 _show_browse_loading()
@@ -2393,11 +2387,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 thread_safe_ui.refresh(detail_body)
 
     def _browse_page_prev(e=None):
+        ft.context.disable_auto_update()
         if browse_state["page"] > 0:
             browse_state["page"] -= 1
             _render_browse_page()
 
     def _browse_page_next(e=None):
+        ft.context.disable_auto_update()
         total_pages = max(1, browse_state["total_pages"])
         if browse_state["page"] < total_pages - 1:
             browse_state["page"] += 1

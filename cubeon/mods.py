@@ -206,9 +206,8 @@ def rank_search_hits(hits: list[dict], query: "str | None" = None) -> list[dict]
     return ranked
 
 
-# Curated, well-known mods shown by default before the user searches
-# anything - a mix of performance and quality-of-life picks that work well
-# together and are safe defaults for almost any modpack.
+# Kept for callers importing the legacy curated picks through launcher_core.
+# Default browsing now uses the paged popular catalogue instead.
 RECOMMENDED_MOD_SLUGS = ["sodium", "iris", "lithium", "modmenu", "fabric-api", "customskinloader"]
 
 # Curated categories shown as quick filters in the Mods tab. (id, label) -
@@ -1290,49 +1289,14 @@ def copy_mods_between_profiles(
 def get_recommended_mods(mc_version: str | None = None, loader: str = "fabric",
                           category: str | None = None, limit: int = 100,
                           offset: int = 0) -> list[dict]:
-    """Fetches mods to show before any search. With no category picked, this
-    is the small curated set of popular all-rounder mods. With a category
-    picked, it instead searches Modrinth for the top mods in that category
-    (scoped to the current version+loader) so switching categories actually
-    changes what's shown, sorted by relevance/downloads.
+    """One page of popular mods, scoped to the selected version/loader.
 
-    The category path is a normal Modrinth search, so it honors limit/offset:
-    the UI asks for ONE page at a time (offset = page * page_size) instead of
-    pulling 100 hits up front just to slice them locally. The curated no-
-    category set is tiny (a handful of slugs) and ignores offset/limit."""
-    if category:
-        return search_mods("", mc_version=mc_version, loader=loader,
-                            categories=[category], limit=limit, offset=offset)
-
-    cache_key = {"mc_version": mc_version, "loader": loader, "category": category, "slugs": RECOMMENDED_MOD_SLUGS}
-
-    def _fetch() -> list[dict]:
-        projects = net.get_json(
-            f"{MODRINTH_API}/projects", params={"ids": json.dumps(RECOMMENDED_MOD_SLUGS)},
-            headers=modrinth_headers(), timeout=10,
-        )
-
-        # Preserve curated order rather than whatever order the API returns
-        by_slug = {p.get("slug"): p for p in projects}
-        results = []
-        for slug in RECOMMENDED_MOD_SLUGS:
-            p = by_slug.get(slug)
-            if not p:
-                continue
-            results.append({
-                "project_id": p.get("id"),
-                "slug": p.get("slug"),
-                "title": p.get("title"),
-                "description": p.get("description"),
-                "icon_url": p.get("icon_url"),
-                "downloads": p.get("downloads", 0),
-                "author": None,
-            })
-        return results
-
-    # Curated picks change about as often as Modrinth's front page: a day of
-    # freshness, stale-while-revalidate after that, stale forever offline.
-    return local_cache.cached_call("recommended_mods", cache_key, _fetch, max_age=86400)
+    Use the same cached Modrinth search as category browsing, including its
+    limit and offset, instead of the former six-project curated list.
+    """
+    return search_mods("", mc_version=mc_version, loader=loader,
+                       categories=[category] if category else None,
+                       limit=limit, offset=offset)
 
 
 def _mod_search_queries(query: str) -> list[str]:

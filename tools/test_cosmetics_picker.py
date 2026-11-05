@@ -128,6 +128,18 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertEqual(cards, self.cards())
         self.assertEqual(self.page.update_calls, 0)
 
+    def test_default_steve_card_has_real_art_and_clears_custom_skin(self):
+        image = next(c for c in fz.walk(self.root) if isinstance(c, ft.Image)
+                     and c.src == skin_ui.DEFAULT_SKIN_PREVIEW_SRC)
+        self.assertTrue(image.visible)
+        self.apply('Apply steve')
+        self.assertEqual(self.cfg['active_skin'], 'steve.png')
+        self.apply('Apply Steve (Default Minecraft skin)')
+        self.assertIsNone(self.cfg['active_skin'])
+        self.assertIn('steve · default skin', fz.subtree_text(self.root))
+        self.assertIn(image, list(fz.walk(self.root)))
+        self.assertEqual(self.page.update_calls, 0)
+
     def test_grid_resize_fits_cards_without_rebuilding_or_rendering(self):
         self.tab('Back')
         self.apply('Apply Ember Wings (Small)')

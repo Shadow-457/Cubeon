@@ -321,6 +321,44 @@ class ManagementUI(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(QueuedThread.jobs, [])
 
+    def test_popular_mods_load_one_page_at_a_time_and_reuse_rows_on_switch(self):
+        calls = []
+        def popular(**kw):
+            calls.append(kw)
+            return [{'project_id': f"mod-{kw['offset'] + i}",
+                     'title': f"Mod {kw['offset'] + i}", 'downloads': 1}
+                    for i in range(kw['limit'])]
+        self.core.get_recommended_mods = popular
+        self.fns['load_recommended_mods']()
+        self.assertEqual(calls, [])
+        self.assertEqual(len(QueuedThread.jobs), 1)
+        QueuedThread.jobs.pop(0)()
+        view = env(self.fns['_render_browse_page'])['browse_results_view']
+        self.assertEqual(len(view.controls), 24)
+        first_rows = tuple(view.controls)
+        self.assertTrue(view.build_controls_on_demand)
+        self.assertEqual([(c['limit'], c['offset']) for c in calls], [(24, 0)])
+        self.assertEqual(QueuedThread.jobs, [])
+
+        with patch.object(ft.context, 'disable_auto_update') as disable_auto_update:
+            self.fns['_browse_page_next']()
+            disable_auto_update.assert_called_once()
+        self.assertEqual(tuple(view.controls), first_rows)
+        self.assertEqual(len(QueuedThread.jobs), 1)
+        QueuedThread.jobs.pop(0)()
+        second_rows = tuple(view.controls)
+        self.assertEqual([(c['limit'], c['offset']) for c in calls], [(24, 0), (24, 24)])
+        self.assertEqual(QueuedThread.jobs, [])
+        with patch.object(ft.context, 'disable_auto_update') as disable_auto_update:
+            self.root.select_content_type('resourcepack')
+            self.root.select_content_type('mod')
+            self.assertEqual(tuple(view.controls), second_rows)
+            self.fns['_browse_page_prev']()
+            self.assertEqual(disable_auto_update.call_count, 3)
+        self.assertEqual(tuple(view.controls), first_rows)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.page.update_calls, 0)
+
     def test_titles_appear_before_installed_file_scan_and_survive_scan_failure(self):
         project = {'project_id': 'immediate', 'title': 'Immediate title'}
         self.core.get_recommended_mods = lambda **kw: [project]

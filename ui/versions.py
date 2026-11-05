@@ -41,22 +41,30 @@ BANNER_FADE_MS = 180
 
 
 class VersionBanner:
-    """Cross-fade only the backdrop, leaving the Play card's controls mounted."""
+    """Retain both image layers; fade only when the artwork source changes.
+
+    Flet 0.86's AnimatedSwitcher assigns its child a UniqueKey on every
+    rebuild, so unrelated overlay changes can restart the background fade.
+    """
 
     def __init__(self, source="titleimg.jpg"):
-        self.source = source
-        self.control = ft.AnimatedSwitcher(
-            content=self._frame(source),
-            transition=ft.AnimatedSwitcherTransition.FADE,
-            duration=BANNER_FADE_MS, reverse_duration=BANNER_FADE_MS,
-            switch_in_curve=ft.AnimationCurve.EASE_IN_OUT,
-            switch_out_curve=ft.AnimationCurve.EASE_IN_OUT,
-            expand=True, data="play-banner",
+        self.source = source or "titleimg.jpg"
+        self._active = 0
+        self._frames = [self._frame(self.source), self._frame(self.source, fade_layer=True)]
+        self.control = ft.Stack(
+            self._frames, fit=ft.StackFit.EXPAND, expand=True, data="play-banner",
         )
 
     @staticmethod
-    def _frame(source):
-        return ft.Container(image=ft.DecorationImage(src=source, fit=ft.BoxFit.COVER))
+    def _frame(source, *, fade_layer=False):
+        return ft.Image(
+            src=source, fit=ft.BoxFit.COVER, gapless_playback=True,
+            left=0, top=0, right=0, bottom=0,
+            key="play-banner-fade" if fade_layer else "play-banner-base",
+            opacity=0 if fade_layer else 1,
+            animate_opacity=ft.Animation(BANNER_FADE_MS, ft.AnimationCurve.EASE_IN_OUT)
+            if fade_layer else None,
+        )
 
     def set_source(self, source):
         source = source or "titleimg.jpg"
@@ -64,7 +72,11 @@ class VersionBanner:
             if source == self.source:
                 return False
             self.source = source
-            self.control.content = self._frame(source)
+            self._active = 1 - self._active
+            self._frames[self._active].src = source
+            # The lower image stays opaque: fading the top layer in/out
+            # gives a cross-fade without a blank or dark intermediate frame.
+            self._frames[1].opacity = self._active
         thread_safe_ui.refresh(self.control)
         return True
 
@@ -602,11 +614,18 @@ class VersionPicker:
             # If the panel was reopened inside the fade window, the scrim is
             # legitimately visible again - hiding it would leave an open panel
             # with no dim and no click-catcher.
-            if self.panel.right != -self.PANEL_W:
-                return
             try:
-                self.scrim.visible = False
-                thread_safe_ui.refresh(self.scrim)
+                with thread_safe_ui.TREE_LOCK:
+                    if self.panel.right != -self.PANEL_W:
+                        return
+                    self.scrim.visible = False
+                    # Retire animated icons after the close animation; the
+                    # mounted panel keeps its existing slide choreography.
+                    self.list.visible = False
+                    self.icon_categories.visible = False
+                    thread_safe_ui.refresh(self.scrim)
+                    thread_safe_ui.refresh(self.list)
+                    thread_safe_ui.refresh(self.icon_categories)
             except Exception:
                 pass  # a late scrim hide must never surface as an error
 

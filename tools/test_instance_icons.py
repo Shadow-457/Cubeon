@@ -38,6 +38,73 @@ class InstanceIconsTests(unittest.TestCase):
         Image.new('RGBA', (240, 120), (20, 180, 80, 120)).save(path)
         return path
 
+    def gif(self, *, loop=0):
+        from PIL import Image
+        path = self.root / 'animated.gif'
+        first = Image.new('RGBA', (64, 32))
+        first.paste((0, 0, 0, 255), (8, 8, 16, 16))
+        second = Image.new('RGBA', (64, 32))
+        second.paste((255, 0, 0, 255), (40, 8, 48, 16))
+        first.save(path, save_all=True, append_images=[second], duration=[80, 170],
+                   disposal=2, **({'loop': loop} if loop is not None else {}))
+        return path
+
+    def test_gif_retains_animation_timing_loop_and_transparency_after_original_moves(self):
+        from PIL import Image
+        for loop in (0, 3, None):
+            with self.subTest(loop=loop):
+                path = self.gif(loop=loop)
+                original = path.read_bytes()
+                key = instance_icons.import_image(path)
+                self.assertEqual(instance_icons.import_image(path), key)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertTrue((instance_icons.CUSTOM_DIR / (key + '.gif')).is_file())
+                path.unlink()
+                with Image.open(io.BytesIO(base64.b64decode(instance_icons.source(key)))) as icon:
+                    self.assertEqual(icon.format, 'GIF')
+                    self.assertEqual(icon.size, (128, 128))
+                    self.assertEqual(icon.n_frames, 2)
+                    self.assertEqual(icon.info.get('loop'), loop)
+                    self.assertEqual(icon.info['duration'], 80)
+                    first = icon.convert('RGBA')
+                    self.assertEqual(first.getpixel((44, 60)), (0, 0, 0, 255))
+                    self.assertEqual(first.getpixel((0, 0))[3], 0)
+                    icon.seek(1)
+                    self.assertEqual(icon.info['duration'], 170)
+                    second = icon.convert('RGBA')
+                    self.assertEqual(second.getpixel((76, 60)), (255, 0, 0, 255))
+                    self.assertEqual(second.getpixel((44, 60))[3], 0)
+
+    def test_gif_display_uses_animated_bytes_and_import_limits_do_not_replace_existing_icon(self):
+        key = instance_icons.import_image(self.gif())
+        picture = instance_icons.source(key)
+        p = VersionPicker(app_driver.DriverPage(), get_selected=lambda: 'instance', label_for=lambda v: v,
+                          on_pick=lambda *a: None, on_browse_online=lambda: None, get_icon=lambda v: key)
+        row, _, _ = p._installed_row({'id': 'instance', 'loader': 'fabric'}, False)
+        self.assertTrue(any(getattr(c, 'src', None) == picture for c in walk(row)))
+        p._mode, p._new_icon = 'new', key
+        p._render_icons()
+        self.assertEqual(p.custom_icon_preview.src, picture)
+        retired = []
+        with patch.object(thread_safe_ui, 'refresh'), patch.object(
+                threading, 'Timer', side_effect=lambda delay, fn: types.SimpleNamespace(
+                    daemon=False, start=lambda: retired.append(fn))):
+            p.open()
+            p._mode, p._new_step = 'new', 3
+            p._apply_mode()
+            p._render_icons()
+            p.close()
+            retired.pop()()
+            self.assertFalse(p.list.visible)
+            self.assertFalse(p.icon_categories.visible)
+            p.open()
+            self.assertTrue(p.list.visible)
+        with patch.object(instance_icons, '_MAX_STORED_BYTES', 1):
+            with self.assertRaisesRegex(ValueError, 'shorter or simpler GIF'):
+                instance_icons.import_image(self.gif(loop=4))
+        self.assertEqual(instance_icons.source(key), picture)
+        self.assertEqual(len(list(instance_icons.CUSTOM_DIR.iterdir())), 1)
+
     def test_custom_image_is_portable_small_deduplicated_and_keeps_transparency(self):
         from PIL import Image
         path = self.image()

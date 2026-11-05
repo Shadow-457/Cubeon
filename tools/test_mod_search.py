@@ -93,6 +93,23 @@ class ModSearchTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(self.calls[0][1]["index"], "downloads")
 
+    def test_popular_mods_fill_pages_keep_filters_and_reuse_cached_results(self):
+        self.routes['', 0] = [hit(f'first-{i}') for i in range(24)]
+        self.routes['', 24] = [hit(f'second-{i}') for i in range(24)]
+        first = mods.get_recommended_mods('1.21.11', 'fabric', limit=24)
+        second = mods.get_recommended_mods('1.21.11', 'fabric', limit=24, offset=24)
+        self.assertEqual(len(first), 24)
+        self.assertEqual(len(second), 24)
+        self.assertNotEqual(first[0]['project_id'], second[0]['project_id'])
+        self.assertEqual(mods.get_recommended_mods('1.21.11', 'fabric', limit=24), first)
+        self.assertEqual(len(self.calls), 2)
+        for offset, (url, params) in zip((0, 24), self.calls):
+            self.assertTrue(url.endswith('/search'))
+            self.assertEqual((params['limit'], params['offset'], params['index']),
+                             ('24', str(offset), 'downloads'))
+            self.assertEqual(json.loads(params['facets']), [
+                ['project_type:mod'], ['categories:fabric'], ['versions:1.21.11']])
+
     def test_no_matches_are_bounded_and_do_not_start_new_search_on_later_pages(self):
         self.assertEqual(mods.search_mods("armor durability warner"), [])
         self.assertEqual(len(self.calls), 3)

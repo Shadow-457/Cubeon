@@ -297,13 +297,17 @@ keep builders consistent with the shared `THEME` contract.
   (`ui/versions.py`, in `page.overlay`) with a 2-column grid of bundled SVG block/mob icons,
   title + subtitle below. The pencil chooses from 20 blocks and 20 mob heads in the same panel;
   `cubeon/instance_icons.py` validates IDs and `cfg["instance_icons"]` persists them per instance.
-  A 32px upload icon in the existing Blocks/Mob heads row accepts PNG/JPG/WebP
+  A 32px upload icon in the existing Blocks/Mob heads row accepts PNG/JPG/WebP/GIF
   for edits and New Instance setup. `main._upload_instance_icon` lazily reuses
   one version-safe FilePicker; decoding/copying runs on a worker. Imported images
-  become transparent, uncropped 128px PNGs in `CUBEON_HOME/instance_icons`, identified
+  become transparent, uncropped 128px PNGs or animated GIFs in `CUBEON_HOME/instance_icons`, identified
   by `custom-<SHA256>` rather than source paths. Cached base64 sources work after
   the original moves; missing stored images fall back to bundled icons. Cancelled
   and stale panel completions cannot replace another instance's selection.
+  GIF normalization retains composited frames, durations, transparency and loop count;
+  imports are bounded to 500 frames/64M source pixels/2MB output. The base64 cache
+  has 32 entries. The existing close-fade timer hides the icon list/category row
+  after closing so animated icons retire while the panel's slide host stays mounted.
   `tools/gen_instance_icons.py` generates the 40 SVGs. Selection never changes when choosing an icon.
   Folder/Rename/Delete live on the Play card. "New instance" defaults to Fabric on every new flow
   and has three separate steps: loader →
@@ -444,7 +448,13 @@ keep builders consistent with the shared `THEME` contract.
   1.8.9 beta, with hover details; other loaders/unsupported versions get no check.
   Installed cards, new-version rows and Play reuse the same indicator.
 - Reserve the loader-status slot and keep hero labels single-line; a notice appearing must not change hero
-  height. The banner uses an opacity-only 180 ms transition. Play calls
+  height. The banner uses two retained, keyed, gapless `ft.Image` layers and
+  an opacity-only 180 ms transition, changed only for a new artwork source.
+  Do not restore `AnimatedSwitcher` here: Flet 0.86 creates a fresh child
+  `UniqueKey` on every rebuild, replaying its fade during sidebar/overlay updates.
+  `test_version_art_cache.py` checks repeated picker cycles send no banner patches;
+  the isolated native sidebar probe compared 12 unchanged artwork frames.
+  Play calls
   `version_art.key_art_src()` synchronously for native bundled promotional covers:
   22 covers include 1.12–1.19 updates, separate Caves & Cliffs parts, 1.20/1.21
   game drops and 26.1/26.2/26.3. Patch boundaries select the right drop (e.g.
@@ -991,6 +1001,11 @@ keep builders consistent with the shared `THEME` contract.
 
 - `ui/skin_tab.py` currently exposes only Skin, Cape, Pets (shoulder) and Back; Face, Head,
   Waist, Wrist and Trails panes are hidden without removing catalogue slots or saved selections.
+- Cosmetics category tabs sit above the preview/picker. Below 760 px of section width,
+  the preview stacks above the library and its viewport callback caps the model to 176 px wide.
+  Card grids fit their own measured width while retaining images/selections; the parent Profile
+  column owns scrolling. Do not restore fixed-height inner scroll regions or let the shared
+  preview's size callback override the compact cap. `test_cosmetics_picker.py` covers resizing.
 - The right picker retains cosmetic/skin/cape cards and image controls on apply,
   Back filtering and pane returns. Apply uses scoped `thread_safe_ui.refresh`
   (one argument per call), updates equipped state and preserves card order;
@@ -1132,7 +1147,11 @@ keep builders consistent with the shared `THEME` contract.
   `client.player.getId()`; peers resolve the state's native entity id through the active world.
   `displayName` is null for our own player in F5 and must never gate cosmetics or name a peer lookup.
   `tools/test_cosmetic_renderers.py` runs every affected renderer with hidden/decorated labels.
-- Skin/Cape "None" is local: skin None writes the built-in Steve sheet to LocalSkin (beats a published
+- The default skin is the unmodified Minecraft classic-arm Steve texture in `assets/skins/steve.png`
+  (1.20.1 `textures/entity/player/wide/steve.png`). `skins.default_base_skin()` returns a fresh RGBA
+  copy shared by the 3D preview and CSL fallback; do not restore a hand-drawn approximation.
+  The default card uses `assets/skins/steve-preview.png`, rendered from that same sheet.
+- Skin's default Steve choice/Cape "None" are local: skin None writes the bundled Steve sheet to LocalSkin (beats a published
   Worker skin); cape None writes a transparent LocalSkin cape (`hide_cubeon_cape`). Friends keep theirs.
 - The default cape is mirrored atomically from `assets/capes/cubeon_cape.png` into LocalSkin for this
   player; it no longer needs a successful remote lookup once the local provider is active. Preserve

@@ -73,15 +73,22 @@ with tempfile.TemporaryDirectory() as directory, patch.object(icons, "ICON_DIR",
 banner = VersionBanner()
 with patch.object(thread_safe_ui, "refresh") as repaint:
     switcher = banner.control
-    initial_frame = switcher.content
-    check("the banner uses a short fade, not zoom or rotation", switcher.transition == ft.AnimatedSwitcherTransition.FADE and switcher.duration == BANNER_FADE_MS == 180)
+    initial_frames = tuple(switcher.controls)
+    check("the banner uses retained images and a short opacity fade",
+          isinstance(switcher, ft.Stack) and initial_frames[1].animate_opacity.duration == BANNER_FADE_MS == 180
+          and all(frame.gapless_playback and frame.rotate is None and frame.scale is None for frame in initial_frames))
     check("a new banner paints once", banner.set_source("next.jpg") and repaint.call_count == 1)
-    next_frame = switcher.content
-    check("the banner host stays mounted while its background changes", banner.control is switcher and next_frame is not initial_frame and next_frame.image.fit == ft.BoxFit.COVER)
-    check("repeated banner refreshes do not replay the fade", not banner.set_source("next.jpg") and switcher.content is next_frame and repaint.call_count == 1)
+    check("the banner host and both images stay mounted while its background changes",
+          banner.control is switcher and tuple(switcher.controls) == initial_frames
+          and initial_frames[1].src == 'next.jpg' and initial_frames[1].opacity == 1
+          and all(frame.fit == ft.BoxFit.COVER for frame in initial_frames))
+    check("repeated banner refreshes do not replay the fade", not banner.set_source("next.jpg")
+          and tuple(switcher.controls) == initial_frames and repaint.call_count == 1)
     motion.set_level("reduced")
     banner.set_source("calm.jpg")
-    check("reduced motion keeps only the permitted opacity transition", switcher.transition == ft.AnimatedSwitcherTransition.FADE and switcher.scale is None and switcher.offset is None)
+    check("reduced motion keeps only the permitted opacity transition",
+          initial_frames[1].animate_opacity.duration == 180 and switcher.scale is None and switcher.offset is None
+          and initial_frames[0].src == 'calm.jpg' and initial_frames[1].opacity == 0)
     motion.set_level("full")
     banner.set_source(None)
     check("missing banner art falls back safely", banner.source == "titleimg.jpg")

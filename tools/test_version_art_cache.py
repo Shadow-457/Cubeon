@@ -31,7 +31,15 @@ import inspect
 import os
 import sys
 import tempfile
+import threading
 import time
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import msgpack
+from flet.controls.base_control import BaseControl
+from flet.controls.object_patch import ObjectPatch
+from flet.messaging.protocol import configure_encode_object_for_msgpack
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,7 +53,7 @@ _sandbox_home.isolate()
 import app_driver                                           # noqa: E402
 import _fuzz_common as fz                                   # noqa: E402
 from _fuzz_common import every_control, walk                # noqa: E402
-from cubeon import theme, version_art                       # noqa: E402
+from cubeon import theme, thread_safe_ui, version_art        # noqa: E402
 
 passed = 0
 failed = 0
@@ -154,8 +162,8 @@ page = app_driver.DriverPage()
 stubs.app.run_sync(page)
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 driver.open_tab("play")
-check("the Play banner mounts a native fade host", any(
-    type(control).__name__ == "AnimatedSwitcher" and control.data == "play-banner"
+check("the Play banner mounts a retained image fade host", any(
+    type(control).__name__ == "Stack" and control.data == "play-banner"
     for control in every_control(page)))
 
 
@@ -180,6 +188,29 @@ if picker_btn:
         picker_btn[0].on_click).nonlocals["self"]
     driver._fire_named(picker_btn[0], "on_click", "open version panel")
 panel = picker_model.panel if picker_model else None
+
+banner_host = next(c for c in every_control(page) if c.data == 'play-banner')
+banner_frames = tuple(banner_host.controls)
+banner_state = tuple((frame.src, frame.opacity) for frame in banner_frames)
+encode = configure_encode_object_for_msgpack(BaseControl)
+initial, _, _ = ObjectPatch.from_diff(None, banner_host, BaseControl)
+msgpack.packb(initial.to_message(), default=encode)
+painted, timers = [], []
+with patch.object(thread_safe_ui, 'refresh', side_effect=painted.append), patch.object(
+        threading, 'Timer', side_effect=lambda delay, fn: SimpleNamespace(
+            daemon=False, start=lambda: timers.append(fn))):
+    for cycle in range(3):
+        picker_model.close()
+        timers.pop()()
+        picker_model.open()
+        changes, added, removed = ObjectPatch.from_diff(banner_host, banner_host, BaseControl)
+        wire = msgpack.packb(changes.to_message(), default=encode)
+        check(f"sidebar cycle {cycle + 1} retains both background images and fade state",
+              tuple(banner_host.controls) == banner_frames
+              and tuple((frame.src, frame.opacity) for frame in banner_frames) == banner_state)
+        check(f"sidebar cycle {cycle + 1} sends no background image/remount patch",
+              not added and not removed and b'src' not in wire
+              and banner_host not in painted and not any(frame in painted for frame in banner_frames))
 
 
 def find_panel_rows():
@@ -215,6 +246,10 @@ check("exactly one card starts selected", len(selected_before) == 1,
 target = next(vid for vid in rows if vid not in selected_before)
 
 driver._fire_named(rows[target], "on_click", "panel card select")
+check("changing the selected version keeps the same two image controls",
+      tuple(banner_host.controls) == banner_frames)
+check("changing the selected version updates its promotional artwork",
+      banner_frames[1 if banner_frames[1].opacity == 1 else 0].src == version_art.key_art_src(target))
 check("selecting a card closes the panel",
       picker_model is not None and not picker_model.is_open())
 driver._fire_named(picker_btn[0], "on_click", "reopen version panel")
