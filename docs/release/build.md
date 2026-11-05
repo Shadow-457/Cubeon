@@ -30,6 +30,19 @@ Current jar assembly needs Gradle and JDK 25 or newer. The script reads
 `mod/brackets.json` and verifies the bracket-specific contents. A Java stub
 compile test is not equivalent to rebuilding these jars.
 
+Forge 1.8.9 uses a separate Java 8/SRG companion build:
+
+```bash
+python tools/build_forge189_client.py
+python tools/test_forge189_client.py --targets --download-csl
+```
+
+The target check needs cached Minecraft/Forge inputs and checks the transformed
+runtime hooks. The CSL check installs the compatible published release in an
+isolated test home. Forge 1.8.9 gameplay and installation require exact Java 8;
+this version is available with Legacy disabled. Native Rust build/package steps
+are in [Rust integration](../development/horizon-integration-plan.md).
+
 ## Linux
 
 ```bash

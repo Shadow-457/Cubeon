@@ -179,6 +179,14 @@ def required_java_major(version_id: str) -> int:
     return 8
 
 
+def exact_java_major(version_id: str) -> int | None:
+    """Legacy Forge's LaunchWrapper needs Java 8's URLClassLoader runtime."""
+    from .cubeonfriends import parse_mc_version
+    if parse_mc_version(version_id) == (1, 8, 9) and re.search(r"(?:^|-)forge(?:-|$)", version_id.lower()):
+        return 8
+    return None
+
+
 def java_major_version(java_path: str) -> int | None:
     """Major version of a Java executable, or None if it can't be probed."""
     executable = shutil.which(java_path) or java_path
@@ -231,6 +239,7 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
     plain `find_java()` so a too-old Java still surfaces Minecraft's own
     (clearer) error rather than silently failing to launch."""
     required = required_java_major(version_id)
+    exact = exact_java_major(version_id)
     candidates: list[str] = []
     if java_path:
         candidates.append(_normalize_java_path(java_path))
@@ -273,7 +282,7 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
         # Pick the *lowest* Java that still satisfies the requirement, not the
         # highest: a too-new Java can itself break old Minecraft (removed
         # modules, Nashorn, etc.), so "just enough" is the safe choice.
-        if maj >= required and maj < best_major:
+        if maj >= required and (exact is None or maj == exact) and maj < best_major:
             best, best_major = c, maj
     if best:
         return best
@@ -1015,7 +1024,8 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         candidate = _normalize_java_path(java_path)
         if os.path.isfile(candidate) or shutil.which(candidate):
             major = java_major_version(candidate)
-            if major is None or major >= required_java_major(version_id):
+            exact = exact_java_major(version_id)
+            if (major is None or major >= required_java_major(version_id)) and (exact is None or major == exact):
                 java = candidate
     if java is None:
         try:
@@ -1023,6 +1033,8 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         except Exception:
             java = find_java()
     if java:
+        if exact_java_major(version_id) == 8 and java_major_version(java) != 8:
+            raise RuntimeError("Forge 1.8.9 requires Java 8. Install Java 8 from the launcher's Java download prompt and try again.")
         options["executablePath"] = java
 
     try:
@@ -1407,8 +1419,8 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
     # A launch must never wait on a question. This config pass
     # repairs launcher-owned settings that make Java die before Minecraft
     # starts (a bare token in custom JVM flags, a deleted Java path). It
-    # never prompts. The dependency-only Doctor gate below repairs required
-    # mods separately, with bounded lookups and verified jars, before staging.
+    # never prompts. The Doctor gate below resolves declared dependencies and
+    # version conflicts together, verifying staged jars before any replacement.
     if stage_java:
         try:
             from .doctor import run_doctor
@@ -1428,14 +1440,15 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
             if stage_java:
                 from .mod_dependencies import run_dependency_doctor
                 dependency_report = run_dependency_doctor(
-                    mc_version, loader, version_id=version_id, status_cb=status_cb)
+                    mc_version, loader, version_id=version_id, status_cb=status_cb,
+                    runtime_versions={"java": java_major_version(command[0]) if command else None})
                 if dependency_report["unfixed"]:
                     details = "\n".join(
                         f"{item['detail']}. {item['error']}"
                         for item in dependency_report["unfixed"][:4])
-                    raise RuntimeError("Doctor could not repair the required mods.\n" + details)
+                    raise RuntimeError("Doctor could not find a compatible mod set.\n" + details)
                 if dependency_report["fixed"] and status_cb:
-                    status_cb("Doctor repaired and verified the required mods")
+                    status_cb("Doctor repaired and verified the mod versions")
                 try:
                     from .content import sync_content_to_game
                     sync_content_to_game(mc_version, loader, version_id)

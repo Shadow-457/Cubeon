@@ -237,6 +237,10 @@ impl Game<'_> {
     /// Nothing here is a key — the caller drops control characters. `Err` when
     /// no text box of the screen takes them.
     pub(super) fn type_chars_into_screen(&mut self, text: &str) -> Result<()> {
+        if self.screen == Screen::Friends && self.companion.open {
+            self.cubeon_chars(text);
+            return Ok(());
+        }
         if self.book.is_some() {
             self.book_type(text);
             return Ok(());
@@ -619,11 +623,24 @@ impl Game<'_> {
                 {
                     return ok();
                 }
+                // Companion shortcuts are physical keys, independent of game mappings.
+                if self.companion.enabled && self.title.is_none()
+                    && matches!(physical, KeyCode::ShiftRight | KeyCode::KeyB | KeyCode::KeyC | KeyCode::AltLeft)
+                    && matches!(self.screen, Screen::Playing | Screen::Paused | Screen::Friends) {
+                    if action == "up" {self.physical_keys.remove(&physical);}
+                    else {self.physical_keys.insert(physical);}
+                    self.cubeon_key(physical, action != "up", action == "repeat");
+                    if action == "tap" {
+                        self.physical_keys.remove(&physical);
+                        self.cubeon_key(physical, false, false);
+                    }
+                    return ok();
+                }
                 // Text screens consume raw presses; releases follow key binds.
                 let typing = matches!(
                     self.screen,
                     Screen::Chat | Screen::Options | Screen::CommandBlock | Screen::BlockEditor
-                );
+                ) || (self.screen == Screen::Friends && self.companion.open);
                 let key = if typing && arg(2)? != "up" {
                     key
                 } else {

@@ -30,7 +30,7 @@ substitute for current code.
 | Instances | `instances.py`, `versions.py`, `content.py` |
 | Mods and packs | `mods.py`, `modpacks.py`, `global_mod_cache.py`, `content.py` |
 | Reviewed local mod imports | `local_mods.py`, `ui/local_mod_import.py` |
-| Content compatibility | `packformat.py`, `doctor.py`, `mod_dependencies.py`, `content.py` |
+| Content compatibility | `packformat.py`, `doctor.py`, `mod_dependencies.py`, `mod_resolver.py`, `content.py` |
 | Download infrastructure | `net.py`, `global_mod_cache.py`, `local_cache.py` |
 | Friends ownership | `friends_service.py`, `friends.py`, `e2ee.py` |
 | Mod bridge | `local_api.py`, `cubeonfriends.py`, `mod/brackets.json` |
@@ -174,7 +174,8 @@ keep builders consistent with the shared `THEME` contract.
   resolved assets after installing toasts, clear on teardown. Uses Windows winsound, macOS afplay,
   or Linux paplay/aplay when available; subprocess playback is bounded to 2s. No added dependency,
   network or polling. `tools/test_ui_sounds.py` verifies defaults and concurrency bounds.
-- `cubeon/render_compat.py` implements explicit Doctor → Rendering Apply/Restore,
+- `cubeon/render_compat.py` implements the opt-in rendering Apply/Restore helper
+  (its former Settings → Fix problems entry is removed),
   scoped to the selected instance (`game_dir_for(..., create=False)`). It bypasses
   EntityCulling entity/block/tick culling and ImmediatelyFast enhanced batching only
   for existing known config keys. Originals are backed up before changes; restore
@@ -350,8 +351,9 @@ keep builders consistent with the shared `THEME` contract.
   compatibility callback opens its Account section without showing an overlay.
   Mount the Settings controls only in `tabs`, never also in `account_card`.
 - Settings separates Account, Game, Performance, Appearance, Theme and decorations,
-  Notifications, Files and backups, Launcher, Fix problems, and Screenshots.
-  Rail/content scroll independently. Existing `seasonal`, `doctor`, `images`, and
+  Notifications, Files and backups, Launcher, and Screenshots. Fix problems is removed;
+  launch checks and the crash report's full Doctor are independent of Settings.
+  Rail/content scroll independently. Existing `seasonal`, `images`, and
   `system` deep links select dedicated sections; `display` aliases Appearance.
   Preserve controls/config keys and refresh the gallery on entry.
 - The RAM slider updates `cfg["ram_mb"]` on every change so the next launch uses
@@ -393,11 +395,17 @@ keep builders consistent with the shared `THEME` contract.
 - The online version list merges installed-only ids so opening "New instance" cannot drop an
   isolated/imported instance or move the selection.
 - Reserve the loader-status slot and keep hero labels single-line; a notice appearing must not change hero
-  height. Late artwork must never replace a newer selection (the banner is an opacity-only 180 ms
-  transition).
-  Artwork watcher/inflight bookkeeping has its own lock; release it before UI callbacks. Selection
-  identity and delayed source application share `TREE_LOCK`. Native screenshots need image-decode
-  settling time: the tour's early capture can be flat while a later capture shows the existing art.
+  height. The banner uses an opacity-only 180 ms transition. Play calls
+  `version_art.key_art_src()` synchronously for native bundled promotional covers:
+  22 covers include 1.12–1.19 updates, separate Caves & Cliffs parts, 1.20/1.21
+  game drops and 26.1/26.2/26.3. Patch boundaries select the right drop (e.g.
+  1.21.4 → The Garden Awakens, 1.21.9 → The Copper Age); legacy/unknown IDs
+  share official Java Edition art. Sources/dimensions/version ranges are in
+  `assets/version-art/README.md`; `sources.json` records exact wallpaper ZIP
+  members. WebP assets are never enlarged and desktop wallpapers cap at
+  1920×1080. Do not reintroduce
+  patch-note thumbnails/wiki gameplay images, network watchers or repeated base64
+  transfers into the hero. Legacy feed/cache APIs remain for other callers.
 - Vanilla accepts resource packs, not mods or shader packs. Other loaders are valid when compatible;
   shaders also require Iris/Oculus-style support.
 - Rust beta uses the **existing Play Instances/version panel**, New instance →
@@ -405,6 +413,13 @@ keep builders consistent with the shared `THEME` contract.
   no additional sidebar destination. `cubeon/rust_engine.py` owns canonical
   `cubeon-rust-26.3`; native dispatch precedes Java preflight, profile validation,
   JAR staging and legacy world adoption, while sharing launch claims/logs/Quit.
+- Exact 1.8.9 is available with Legacy disabled; adjacent older releases remain
+  gated. Forge 1.8.9 routes the separate Java 8/SRG companion JAR and compatible
+  CSL (verified Universal 15.1). Both Forge installation and gameplay require
+  exact Java 8; preflight must pass the Forge identity to `jre.java_status`.
+  `tools/build_forge189_client.py` rebuilds the bundled JAR;
+  `test_forge189_client.py --targets --download-csl` checks real SRG members,
+  transformed hooks and isolated CSL download/staging.
 - Native builds/resources/inputs/worlds live under `CUBEON_HOME/rust/`; removal
   clears the installation marker and preserves worlds/settings. Runtime/archive
   hashes and resources are checked before launch; cheap installed scans do not hash
@@ -431,9 +446,22 @@ keep builders consistent with the shared `THEME` contract.
   Do not change normal Java game's minimum-version selection to satisfy exporters.
 - Native local identity uses Cubeon's stable UUID for the owner's memory connection
   across name changes, without changing remote offline server/guest identity rules.
-  Account/session/services/telemetry are disabled; required world simulation stays.
+  Upstream account/session/services/telemetry are disabled; required world simulation stays.
   Selected Rust disables Server navigation/setup/start/restart; Java selection
   restores it. Preserve a running Java server and its stop path.
+- Native appearance (`cubeon/native_client.py`, renderer `cubeon_skins.rs`)
+  reads CSL-compatible local mirrors before public Cubeon skins/capes, honors
+  slim models, transparent hidden capes and skin-management opt-out; it cannot
+  execute Java CSL. Native companion `game/companion.rs`/`companion_hud.rs`
+  shares `config/cubeon-client-hud.json`, with Right Shift/pause-menu access,
+  HUD editor, C zoom, Left Alt camera-only freelook and B emotes. Shortcuts wait
+  for world loading to finish. `companion.open` distinguishes the client from
+  the existing `Screen::Friends` sharing UI; preserve both routes. Friends/chat/
+  emotes use the authenticated Cubeon loopback bridge and client opt-out disables
+  its worker. Full native cosmetic geometry and camera blur remain unsupported.
+  `test_native_client.py --compiled` checks actual appearance/bridge workers;
+  `test_rust_engine_native.py --companion` drives offscreen controls and world
+  save/reopen without screenshots, waiting for loaded terrain before menus.
 - `tools/build_rust_engine.py` packages both executables, compiled original exporters,
   source fingerprints and license notices, never Mojang JARs/assets/generated data.
   Source checkouts reuse verified `build/rust-engine/<platform>` bundles, including
@@ -499,14 +527,22 @@ keep builders consistent with the shared `THEME` contract.
   totals; full progress/repair details stay in tooltips. Dependency batches explicitly advance after
   successful cached files too. `tools/test_content_install_feedback.py` exercises the real callbacks.
 - Launch checks never prompt: the config pass uses `include=("launch",)` / `check_online=False`;
-  `mod_dependencies.run_dependency_doctor` then repairs actual Fabric/Quilt JAR requirements under
-  `_spawn_lock`, before sync/spawn, using the selected `version_id`. Clean profiles make no network calls;
-  repairs use one bounded attempt, stop network probing after connection failure, and cap work at 16 repairs
-  / a 60s scheduling/transfer budget (socket timeouts can finish later). Nested providers count; all requesters'
-  version constraints must hold. Downloads are staged/hash-checked and actual JAR metadata validated before
-  replacement; old dependency JARs remain as backups with rollback on swap failure. Missing dependencies
-  stop Play with a named retryable error, never disable the requester. Performance installation also repairs
-  kept profiles; Play defers that repair to its final gate. `test_mod_prelaunch_dependencies.py` guards this.
+  `mod_dependencies.run_dependency_doctor` delegates to `mod_resolver.Resolver` under
+  `_spawn_lock`, before sync/spawn, using the selected `version_id` and actual Java major.
+  Fabric/Quilt/Forge/NeoForge checks use actual root/nested/secondary descriptors,
+  required ranges, explicit breaks and known runtime versions. Clean profiles make no
+  network calls. Bounded graph search retains every enabled root identity and may jointly
+  update/downgrade requesters and dependencies, reuse disabled copies offline, or back up
+  duplicate roots. It caps search at 96 states, 8 alternate candidates/project, 16 staged
+  downloads and a shared 60s deadline; one attempt per call and no more network probes
+  after connection failure. Staged hashes and the entire actual graph must pass before
+  launch; originals are backed up and swaps/sidecars roll back on failure. Profile changes
+  during initial scan/search/publication and newly introduced duplicate roots reject the
+  repair. Reports are saved to `<profile>/.cubeon-auto-doctor.json` only for affected
+  profiles. Unresolved declared conflicts stop Play with named retryable errors;
+  undeclared mixin/gameplay incompatibilities still need crash evidence. Performance
+  installation also repairs kept profiles; Play defers that repair to its final gate.
+  `test_mod_prelaunch_dependencies.py` and `test_mod_resolver.py` guard this.
 - Dependency numeric versions are zero-padded (`1.1` equals `1.1.0`); semantic prereleases
   sort below releases, build metadata is ignored, and operator whitespace is accepted.
   Keep the non-semantic fallback. This prevents Doctor replacing valid Ingenium API for OldCannons.
@@ -518,7 +554,7 @@ keep builders consistent with the shared `THEME` contract.
   incomplete scan must never say "No problems found". Verified jars skip online checks; unavailable
   verification is one advisory, never a per-mod disable. The incompatible check is LOCAL (the jar's own
   `fabric.mod.json`), so a missing Modrinth release disables nothing.
-- Full-Doctor entry points: Settings → Performance → Fix problems and the crash report's **Check & fix** both run
+- The full Doctor entry is the crash report's **Check & fix**, which runs
   `doctor_ui.start_doctor_worker` with `include=None`, `check_online=True`, `approve_all=True` - the
   explicit click is the consent. Mods → Installed stays scoped to the current content type. The crash
   report needs `mc_version`/`loader`/`version_id`; without them its check button is disabled rather than
@@ -769,7 +805,7 @@ keep builders consistent with the shared `THEME` contract.
   `-XX:+UseG1GC` plus tuning.
 - Play and crash reports have no Fix crash action. Crash reports expose **Check & fix** (the local doctor
   for the crashed instance), website Doctor, Copy log, Discord and Close. Local dependency/conflict
-  repair also lives in Mods → Installed's Check & repair and Settings → Performance → Fix problems.
+  repair also lives in Mods → Installed's Check & repair and the automatic prelaunch gate.
 - `i18n.py` owns language order, `ui_language`, locale detection and reading direction (`page.rtl`);
   `cubeon/lang/*.py` tables use English strings as keys and fall back to English. Changes apply after
   restart. Every PyInstaller build must collect `cubeon.lang` because tables import dynamically.
@@ -834,10 +870,15 @@ keep builders consistent with the shared `THEME` contract.
 - Chat is BETA-labelled in the sidebar and tab heading. Chat and the companion mod consume one
   process-scoped FriendsService; keep adaptive polling, draft preservation, read markers, and optimistic
   send/echo intact.
-- Launcher Chat uses a bounded, eagerly laid-out transcript and enables native
-  `auto_scroll` only while following the bottom. Scrolling towards older messages
-  releases it; opening a conversation, sending, or Jump to latest restores it.
-  Post-layout native following handles wrapping/resizes. `:name:` emoji completion
+- Launcher Chat uses a bounded reversed lazy transcript (newest control first,
+  latest at offset 0, `cache_extent=160`), so tab return lays out only nearby
+  messages. Older messages are at positive offsets: use `extent_before` and
+  `ScrollDirection.REVERSE` to detect reading history; explicit latest jumps target
+  offset 0 and own their async completion. `auto_scroll` stays off (its maximum
+  would be the oldest end). Trim old controls from the tail, preserving echo slots.
+  Returning to Chat wakes its existing poll worker; it keeps `last_seq` and bubble
+  controls and never synchronously reloads history on the navigation callback.
+  `:name:` emoji completion
   and suggestions preserve drafts; there is no manual emoji button. Composer focus
   returns after sending/completion, and `state["chat_composing"]` blocks launcher
   shortcuts while typing (including Shift+1 from `!`). `tools/test_chat_ux.py` covers it.
@@ -1354,9 +1395,9 @@ requires retrying with normal system access, not changing unrelated app code.
 | Local mod import | `test_local_mod_import.py`, `test_mods_management_ui.py`, `test_importer.py`; native fixture `capture_local_mod_import.py` |
 | Navigation backend reads | `test_navigation_background.py`, `test_server_repaint_scope.py`, `test_tab_repaint_scope.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
-| Rust beta | `test_rust_engine.py`, `test_rust_profile_native.py` (compiled renderer), `test_rust_engine_native.py` (built bundle/prepared resources/GPU); `capture_rust_beta.py` (native Flet) |
+| Rust beta | `test_rust_engine.py`, `test_rust_profile_native.py`, `test_native_client.py --compiled` (compiled renderer), `test_rust_engine_native.py --companion` (built bundle/prepared resources/GPU); `capture_rust_beta.py` (native Flet) |
 | Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
-| Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_doctor_reporting.py`, `test_mod_prelaunch_dependencies.py`, `test_launch_fixes.py` |
+| Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_doctor_reporting.py`, `test_mod_prelaunch_dependencies.py`, `test_mod_resolver.py`, `test_doctor_bundled_deps.py`, `test_launch_fixes.py` |
 | Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
 | Website search visibility / translation | `test_website_seo.py`, `test_website_translation.py`, `test_website_browser.py` (optional Playwright) |
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
@@ -1369,7 +1410,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Freelook / zoom | `test_freelook.py` (`--targets` needs mapped game JARs), `test_zoom.py`, full 24-version Gradle build |
 | Camera motion blur | `test_camera_blur.py --targets`, `test_camera_blur_lifecycle.py`, `test_camera_blur_gpu.py` (Linux EGL/PyOpenGL), full 24-version Gradle build |
 | Windows/startup | `test_winproc.py`, `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_source_runtime.py`, `test_startup_recovery.py`, `test_incident.py`, `test_wedge_watchdog.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
-| Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
+| Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py`, `test_forge189_client.py --targets --download-csl` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
 | Launcher updates / installers | `test_launcher_updates.py`, `test_launcher_installers.py` (`--wine` optional), `test_linux_graphical_installer.py`, `test_update_notice.py`, `node worker/test-downloads.mjs` |
 | Repository cleanliness | `test_repository_hygiene.py` |

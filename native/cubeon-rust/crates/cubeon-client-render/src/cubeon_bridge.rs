@@ -21,7 +21,9 @@ impl Bridge {
             PathBuf::from(std::env::var_os("HOME").or_else(||std::env::var_os("USERPROFILE")).unwrap_or_default()).join(".cubeon_launcher/local_api.json")
         });
         let (send,recv)=mpsc::sync_channel(16); let shared=Arc::new(Mutex::new(Snapshot::default()));let output=shared.clone();
-        std::thread::Builder::new().name("Cubeon bridge".into()).spawn(move||run(path,recv,output)).ok();
+        if std::env::var("CUBEON_CLIENT_ENABLED").as_deref()!=Ok("0") {
+            std::thread::Builder::new().name("Cubeon bridge".into()).spawn(move||run(path,recv,output)).ok();
+        }
         Self {send,shared,previous:Snapshot::default(),room:String::new(),peer:String::new()}
     }
     pub fn snapshot(&mut self) -> &Snapshot {

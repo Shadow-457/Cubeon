@@ -7977,6 +7977,11 @@ impl Game<'_> {
             .handle_accumulated_movement(time, active, grabbed, look)
         {
             self.tutorial.mouse(xo, yo);
+            if let Some((_, yaw, pitch)) = self.companion.free.as_mut() {
+                *yaw += (xo * 0.15) as f32;
+                *pitch = (*pitch + (yo * 0.15) as f32).clamp(-90., 90.);
+                return;
+            }
             let zoom = self.zoom_turn_scale();
             self.turn_player(xo * zoom, yo * zoom);
         }
@@ -8430,6 +8435,7 @@ impl Game<'_> {
             .draw(self.settings.cubeon.overlay, &mut batch, &self.gui.atlas);
         self.draw_pad_cursor(&mut batch);
         self.resolve_inline_profiles(&batch.inline_profiles);
+        self.cubeon_hud(&mut batch, false);
         batch
     }
     fn hud_layers(&mut self, size: [u32; 2]) -> HudBatch {
@@ -8791,6 +8797,7 @@ impl Game<'_> {
             Screen::Advancements => self.draw_advancements(&mut batch),
             Screen::Mod => {}
             Screen::WorldOptions => self.draw_world_options(&mut batch),
+            Screen::Friends if self.companion.open => self.cubeon_screen(&mut batch),
             Screen::Friends => self.draw_friends_screen(&mut batch),
             Screen::Social => self.draw_social_screen(&mut batch),
             Screen::ServerLinks => self.draw_server_links(&mut batch),
@@ -11811,6 +11818,7 @@ impl Game<'_> {
             None => cubeon_client::mobs::Damage::of(cubeon_client::mobs::DamageKind::Generic),
         };
         let landed = self.hurt_by_player(index, amount, source);
+        if landed {self.cubeon_hit(self.mobs[index].id);}
         if landed && old_health > 0.0 && !self.mobs[index].alive() {
             self.native_kill_event(index);
         }
@@ -16294,6 +16302,7 @@ impl Game<'_> {
     /// `Screen.keyPressed` hears the raw one, and only a raw key settles what
     /// the container's hotbar keys are now (`checkHotbarKeyPressed`).
     fn key_pressed(&mut self, key: KeyCode, raw: KeyCode) -> Result<()> {
+        if self.cubeon_key(raw, true, false) { return Ok(()); }
         if self.sleeping.is_some()
             && self.screen == Screen::Playing
             && !matches!(
@@ -17167,6 +17176,9 @@ impl Game<'_> {
         if let WindowEvent::MouseInput { state, button, .. } = &event {
             if *state == ElementState::Pressed {
                 self.physical_buttons.insert(*button);
+                if self.screen == Screen::Playing && !self.screen_over_playing() {
+                    self.cubeon_click_count(*button);
+                }
             } else {
                 self.physical_buttons.remove(button);
             }
@@ -17323,6 +17335,7 @@ impl Game<'_> {
                     if let Some(r) = &self.renderer {
                         let b = HudBatch::new([r.config.width, r.config.height]);
                         self.cursor = (position.x as f32 / b.scale, position.y as f32 / b.scale);
+                        self.cubeon_drag(self.physical_buttons.contains(&MouseButton::Left));
                     }
                 }
                 WindowEvent::MouseInput {
@@ -17427,6 +17440,14 @@ impl Game<'_> {
         // screens keep theirs for the same reason: their key path types into
         // the world name, the seed and a server's address.
         let mut typed: Option<String> = None;
+        if let WindowEvent::KeyboardInput { event: key_event, .. } = &event
+            && let PhysicalKey::Code(key) = key_event.physical_key
+            && self.cubeon_key(key, key_event.state == ElementState::Pressed, key_event.repeat) {
+            if key_event.state == ElementState::Pressed && self.types_text() {
+                self.cubeon_chars(key_event.text.as_deref().unwrap_or(""));
+            }
+            return;
+        }
         if let WindowEvent::KeyboardInput {
             event: key_event, ..
         } = &mut event
@@ -17662,6 +17683,10 @@ impl Game<'_> {
                         }) * wheel_sensitivity
                     };
                     let d = scaled(raw_y) as f32;
+                    if (self.screen != Screen::Friends || self.companion.open)
+                        && self.companion.scroll(d, self.screen) {
+                        return Ok(());
+                    }
                     // ScreenEvent.MouseScrolled.Pre: the open screen hears of
                     // the wheel before anything scrolls, and a cancelled turn
                     // scrolls nothing — no bundle, no list, slider or
@@ -17999,7 +18024,7 @@ impl Game<'_> {
                         Screen::Paused
                             if pressed && button == MouseButton::Left && self.pause_menu =>
                         {
-                            self.pause_click()?
+                            if !self.cubeon_pause_click() {self.pause_click()?;}
                         }
                         Screen::WorldOptions if pressed && button == MouseButton::Left => {
                             self.world_options_click()
@@ -18021,6 +18046,13 @@ impl Game<'_> {
                         }
                         Screen::WorldOptions if button == MouseButton::Left => {
                             self.world_options_release()
+                        }
+                        Screen::Friends if self.companion.open => {
+                            if pressed && matches!(button, MouseButton::Left | MouseButton::Right) {
+                                self.cubeon_click(button == MouseButton::Right);
+                            } else if button == MouseButton::Left {
+                                self.cubeon_drag(false);
+                            }
                         }
                         Screen::Friends if pressed && button == MouseButton::Left => {
                             self.friends_screen_click()
@@ -18418,6 +18450,7 @@ impl Game<'_> {
                         }
                     }
                     self.extras_frame(elapsed);
+                    self.cubeon_frame(elapsed);
                     self.extras_retry()?;
                     self.apply_mouse_look();
                     self.pad_look(elapsed.as_secs_f32());
@@ -19147,6 +19180,7 @@ impl<'a> Game<'a> {
             pending_uploads: Vec::new(),
             frame_graph: Default::default(),
             extras: Default::default(),
+            companion: companion::Companion::new(Self::game_dir()),
             cubeon_skins: None,
             mods: Default::default(),
             recipe_tables: Default::default(),

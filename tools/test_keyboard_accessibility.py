@@ -78,7 +78,8 @@ finally:
 settings = closed_over(switch_tab, 'tabs')['settings']
 select = closed_over(settings.select_section, '_select_section') if '_select_section' in settings.select_section.__code__.co_freevars else settings.select_section
 panes = closed_over(select, 'panes')
-assert {'notifications', 'storage', 'seasonal', 'doctor', 'images', 'system'} <= set(panes)
+assert {'notifications', 'storage', 'seasonal', 'images', 'system'} <= set(panes)
+assert 'doctor' not in panes, 'Removed Fix problems section returned to Settings'
 for section in panes:
     settings.select_section(section)
     assert [name for name, pane in panes.items() if pane.visible] == [section]

@@ -1641,7 +1641,8 @@ def get_mod_details(project_id_or_slug: str) -> dict | None:
 
 def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
                      loader: str | None = None, *,
-                     allow_network: bool = True) -> list[dict]:
+                     allow_network: bool = True, timeout=10,
+                     attempts: int | None = None) -> list[dict]:
     """Every released version of a mod, newest first, normalized for the
     detail view. Each entry carries its own supported loaders and Minecraft
     versions, whether it is compatible with the profile the user is browsing
@@ -1660,7 +1661,7 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
     def _fetch() -> list[dict]:
         versions = net.get_json(
             f"{MODRINTH_API}/project/{ref}/version",
-            headers=modrinth_headers(), timeout=10,
+            headers=modrinth_headers(), timeout=timeout, attempts=attempts,
         )
         out = []
         for v in versions:
@@ -1697,8 +1698,11 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
         return out
 
     if allow_network:
+        previous = local_cache.get_stale("mod_versions", {"project": ref})
         releases = local_cache.cached_call(
-            "mod_versions", {"project": ref}, _fetch, max_age=6 * 3600)
+            "mod_versions", {"project": ref}, _fetch,
+            max_age=60 if previous == [] else 6 * 3600,
+            background_refresh=previous != [])
     else:
         releases = local_cache.get_stale("mod_versions", {"project": ref})
     return [dict(v, compatible=(
@@ -1893,8 +1897,8 @@ def version_satisfies(version: str, predicate) -> bool:
     return False
 
 
-def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2, loader: str | None = None) -> dict:
-    """Every mod id a jar PROVIDES, including the ones bundled inside it.
+def _nested_mod_descriptors(jar_path: str, *, max_depth: int = 4, loader: str | None = None) -> list:
+    """Root and nested descriptors, including their dependency/conflict rules.
 
     A Fabric jar may ship other mods as jar-in-jar (`META-INF/jars/*.jar`):
     Fabric API is 43 modules (`fabric-rendering-fluids-v1`,
@@ -1906,13 +1910,13 @@ def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2, loader: str | Non
     sodium, modmenu and c2me: their fabric.mod.json depends on Fabric API
     submodules and on their own bundled modules.
 
-    Returns {id: version} for this jar's own metadata plus every nested one.
+    Reads at most 256 nested entries / 128 MiB, to a bounded nesting depth.
     Never raises; a jar it cannot read contributes nothing.
     """
     import io
     import zipfile
 
-    out: dict = {}
+    out: list = []
 
     budget = {'bytes': 128 * 1024 * 1024, 'entries': 256}
 
@@ -1925,13 +1929,11 @@ def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2, loader: str | Non
                 if hasattr(source, 'seek'):
                     source.seek(0)
                 meta = read_mod_metadata(source, loader)
-                if meta and (not loader or loader in meta.get("loaders", [])):
-                    if isinstance(meta.get("id"), str) and meta["id"]:
-                        out.setdefault(meta["id"].lower(), str(meta.get("version") or ""))
-                    for identity, version in (meta.get("provided") or {}).items():
-                        out.setdefault(identity.lower(), version)
+                if meta and meta.get("environment") != "server" and (not loader or loader in meta.get("loaders", [])):
+                    out.append(meta)
+                    out.extend(meta.get("_secondary_descriptors") or [])
                 for name in sorted(names):
-                    if depth < max_depth and name.startswith("META-INF/jars/") and name.endswith(".jar"):
+                    if depth < max_depth and name.startswith(("META-INF/jars/", "META-INF/jarjar/")) and name.endswith(".jar"):
                         try:
                             size = z.getinfo(name).file_size
                             if budget['entries'] <= 0 or size > min(64 * 1024 * 1024, budget['bytes']):
@@ -1950,7 +1952,25 @@ def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2, loader: str | Non
     try:
         _scan(jar_path, 1)
     except Exception:
-        return {}
+        return []
+    return out
+
+
+def _nested_mod_metadata(jar_path: str, *, max_depth: int = 4, loader: str | None = None) -> dict:
+    """Versioned providers from bounded root/nested descriptor reads."""
+    return _descriptor_providers(_nested_mod_descriptors(jar_path, max_depth=max_depth, loader=loader))
+
+
+def _descriptor_providers(descriptors):
+    out = {}
+    for meta in descriptors:
+        providers = dict(meta.get("provided") or {})
+        if isinstance(meta.get("id"), str) and meta["id"]:
+            providers[meta["id"]] = str(meta.get("version") or "")
+        for identity, version in providers.items():
+            identity = identity.lower()
+            if identity not in out or _cmp_versions(version, out[identity]) > 0:
+                out[identity] = version
     return out
 
 
@@ -1985,6 +2005,8 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                                   if name in names), None)
             if descriptor == "fabric.mod.json":
                 d = json.loads(descriptor_bytes("fabric.mod.json").decode("utf-8", "replace"))
+                if not isinstance(d.get("depends") or {}, dict) or not isinstance(d.get("breaks") or {}, dict):
+                    raise ValueError("Invalid mod dependency descriptor")
                 return {
                     "id": d.get("id"),
                     "version": str(d.get("version") or ""),
@@ -2028,6 +2050,16 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                 def mod_version(entry):
                     value = str(entry.get("version") or "")
                     return (implementation.group(1).strip() if implementation else "") if "${" in value else value
+                secondary = []
+                for entry in declared[1:]:
+                    constraints = (data.get("dependencies") or {}).get(entry.get("modId"), [])
+                    constraints = [c for c in constraints if str(c.get("side", "BOTH")).upper() != "SERVER"]
+                    secondary.append({"id": entry.get("modId"), "name": entry.get("displayName") or entry.get("modId"),
+                                      "version": mod_version(entry),
+                                      "depends": {c["modId"]: c.get("versionRange") or "*" for c in constraints
+                                                  if c.get("modId") and (c.get("mandatory") is True or c.get("type") == "required")},
+                                      "breaks": {c["modId"]: c.get("versionRange") or "*" for c in constraints
+                                                 if c.get("modId") and c.get("type") == "incompatible"}})
                 return {
                     "id": primary.get("modId"), "name": primary.get("displayName") or primary.get("modId"),
                     "version": mod_version(primary),
@@ -2039,6 +2071,7 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                     "loaders": ["neoforge"] if descriptor.endswith("neoforge.mods.toml") else ["forge", "neoforge"],
                     "provided": {entry["modId"].lower(): mod_version(entry)
                                  for entry in declared if entry.get("modId")},
+                    "_secondary_descriptors": secondary,
                 }
     except Exception:
         return None
@@ -2077,8 +2110,10 @@ def _mod_ref(mod: dict) -> str | None:
 @lru_cache(maxsize=1024)
 def _doctor_cached_metadata(path: str, signature: tuple, loader: str | None = None) -> tuple:
     metadata = read_mod_metadata(path, loader)
-    provided = _nested_mod_metadata(path, loader=loader)
+    descriptors = _nested_mod_descriptors(path, loader=loader)
+    provided = _descriptor_providers(descriptors)
     if metadata:
+        metadata = dict(metadata, _descriptors=descriptors)
         provided = {**(metadata.get("provided") or {}), **provided}
     return metadata, provided
 

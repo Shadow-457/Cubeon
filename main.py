@@ -231,7 +231,7 @@ from cubeon import milestones as cubeon_milestones
 from cubeon import library_stats as cubeon_library_stats
 from cubeon import eta as cubeon_eta  # Measured "time left" for downloads
 from cubeon import status_text as cubeon_status  # strips "<... at 0x...>" from labels
-from cubeon import version_art  # Per-version wiki banners for the Play tab
+from cubeon import version_art  # Bundled promotional covers for the Play tab
 from cubeon import dialogs as cubeon_dialogs  # Cross-Flet open/close/snackbar plumbing
 from ui.skin_tab import build_skin_section  # Imports the skin section builder, now embedded in the Profile dialog
 from ui.mods_tab import build_mods_tab  # Imports the mods_tab builder function
@@ -447,8 +447,8 @@ def _explain_exit(code: int, lines=None) -> str:
                 "incomplete. If pressing Play again still crashes, reinstall "
                 "this version from the Play tab.")
     if "mixin transformation" in low or "illegalclassloaderror" in low or "mixin apply" in low:
-        return ("Crashed: a mod failed during startup. Run Fix problems on the "
-                "Mods tab and check the crash report for the failing mod.")
+        return ("Crashed: a mod failed during startup. Use Check & fix in the "
+                "crash report to identify the failing mod.")
     if any(name.replace("/", ".").startswith("net.minecraft.") for name in missing_classes):
         return ("Crashed: the game files for this version look incomplete. "
                 "Reinstall it, or pick another version.")
@@ -466,8 +466,8 @@ def _explain_exit(code: int, lines=None) -> str:
     # that was already working - the game it just launched proves it. Say only
     # what is true, and name the one action worth trying next.
     return (f"Crashed (exit {code}) - the game closed without naming a cause. "
-            f"Press Play again; if it keeps happening, run Fix problems on the "
-            f"Mods tab.")
+            f"Press Play again; if it keeps happening, use Check & fix in the "
+            f"crash report.")
 
 
 def _classify_session_end(ui_painted: bool, client_exit):
@@ -3216,17 +3216,13 @@ async def main(page: ft.Page):
 
     # --- Legacy versions + one-click version update ----------------------
     #
-    # Everything below 1.20 is LEGACY for Cubeon: the in-game client mod's
-    # jar matrix (mod/brackets.json) starts at 1.20.1, so on an older version
-    # there is no Friends button, no skins/capes sync, no Cubeon anything -
-    # vanilla with extra steps. Rather than pretending otherwise, those
-    # versions are hidden behind an explicit "Legacy" opt-in that says exactly
-    # that. The opt-in persists in config ("legacy_versions"): off for new
-    # users, kept for returning ones.
+    # The normal catalogue includes modern versions plus exact 1.8.9, whose
+    # Forge port ships Cubeon Client and CSL. Other older releases stay behind
+    # the persisted Legacy preference; loader compatibility remains separate.
     state.setdefault("legacy_ok", bool(cfg.get("legacy_versions", False)))
 
     def _is_legacy_version(version_id):
-        """True for versions below 1.20 (numeric MC versions only - snapshots
+        """True below 1.20 except supported 1.8.9 (numeric MC versions only - snapshots
         and unparseable ids are left alone; gating what we can't classify
         would hide playable versions on a parsing bug)."""
         mc = core.extract_mc_version(version_id) if version_id else None
@@ -3238,15 +3234,15 @@ async def main(page: ft.Page):
             return False
         while len(parts) < 3:
             parts += (0,)
-        return parts < (1, 20, 0)
+        return parts < (1, 20, 0) and parts != (1, 8, 9)
 
     legacy_note = ft.Container(
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.HISTORY_ROUNDED, size=14, color=TEXT_DIM),
                 ft.Text(
-                    "These old versions run plain vanilla - no mods, skins "
-                    "or friends.",
+                    "Cubeon Client support varies by version and loader. "
+                    "Forge 1.8.9 is available with Legacy off.",
                     size=12, color=TEXT_DIM, expand=True,
                 ),
             ],
@@ -3297,8 +3293,8 @@ async def main(page: ft.Page):
             title=ft.Text("Enable legacy versions?", color=TEXT, weight=ft.FontWeight.W_800),
             content=ft.Container(
                 content=ft.Text(
-                    "Versions below 1.20 run plain vanilla - no mods, skins "
-                    "or friends.\n\n"
+                    "Show additional older versions. Cubeon Client support "
+                    "varies by version and loader. 1.8.9 is already available.\n\n"
                     "Show legacy versions in the list?",
                     size=13, color=TEXT,
                 ),
@@ -3324,7 +3320,7 @@ async def main(page: ft.Page):
         ink=False,
         border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-        tooltip="Show or hide versions below 1.20",
+        tooltip="Show or hide additional older versions",
     )
 
     # -----------------------------------------------------------------
@@ -4720,7 +4716,10 @@ async def main(page: ft.Page):
         """
         required = jstatus.get("required") or 17
         found = jstatus.get("found")
-        if found:
+        if jstatus.get("exact"):
+            why = (f"Forge 1.8.9 needs Java {required}. "
+                   f"{'Java ' + str(found) + ' was found instead.' if found else 'No compatible Java runtime was found.'}")
+        elif found:
             why = (f"This version needs Java {required} or newer, and the only "
                    f"Java on this computer is {found}.")
         else:
@@ -4922,7 +4921,8 @@ async def main(page: ft.Page):
                 _check_cancel()
                 if not ensure_java_major:
                     mc_version = core.resolve_mc_version(version_id)
-                    jstatus = core.jre.java_status(mc_version, cfg.get("java_path"))
+                    java_version_id = mc_version + "-forge" if loader_id == "forge" and mc_version == "1.8.9" else mc_version
+                    jstatus = core.jre.java_status(java_version_id, cfg.get("java_path"))
                     _check_cancel()
                     if not jstatus.get("ok") and jstatus.get("required"):
                         java_prompt = (mc_version, jstatus, loader_id)
@@ -6199,28 +6199,8 @@ async def main(page: ft.Page):
     # -----------------------------------------------------------------
     # VERSION ART - the Play tab's visual identity.
     #
-    # version_art fetches each release's OFFICIAL Mojang key art (the same
-    # launcher-content feed the real Minecraft Launcher uses), falling back to
-    # the fan wiki only for versions Mojang's feed doesn't carry (pre-1.13
-    # releases, week-numbered snapshots). ft.Image can't read an absolute path,
-    # so cached art is fed back base64-encoded (see version_art.src). Until a
-    # version has art, the bundled OG key art (titleimg.jpg) stands in, so the
-    # page is never a blank box.
-    #
-    # The banner tracks the SELECTED version and downloads off the UI thread,
-    # repainting via thread_safe_ui. It guards against a late download landing
-    # after the user already switched away. (The Play tab no longer carries an
-    # instance list at all - the version panel is the one place to switch,
-    # rename, or remove an install. 2026-10-26.)
-    #
-    # One fetch per version serves every interested control (_art_watchers), so
-    # update_hero running on every selection change doesn't re-spawn the fetch.
-    # -----------------------------------------------------------------
-    # The version art IS the hero panel's background (2026-10-23): the old
-    # layout kept it in a separate "spotlight" card under the launcher, which
-    # read as a second, unrelated card. Now the selected version's official
-    # key art fills the main card behind a scrim, so the panel has a visual
-    # identity instead of a flat glass fill.
+    # Bundled official promotional artwork is immediately available offline.
+    # Patch-note thumbnails and gameplay screenshots are too small for Play.
     hero_art = VersionBanner()
     hero_art_scrim = ft.Container(
         left=0, top=0, right=0, bottom=0,
@@ -6243,57 +6223,9 @@ async def main(page: ft.Page):
         left=0, top=0, right=0, bottom=0,
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
     )
-    _hero_art_uid = {"value": None}
-    # Multiple controls can want the same version's art (the hero spotlight and
-    # that version's card). Each registers a callback; one fetch serves them
-    # all - a per-base "already requested" flag would leave the second caller
-    # stuck on the placeholder forever.
-    _art_watchers: dict = {}
-    _art_inflight: set = set()
-    _art_lock = threading.Lock()
-
-    def _request_art(base, apply_fn):
-        """Ensure the best available art for `base` lands in `apply_fn(value)`
-        (an ft.Image.src-safe base64 string, or None). Fires immediately when
-        the official art is already cached; otherwise downloads off-thread and
-        notifies every waiting caller when it lands."""
-        if not base:
-            return
-        if version_art.has_official(base):
-            apply_fn(version_art.src(base))
-            return
-        with _art_lock:
-            _art_watchers.setdefault(base, []).append(apply_fn)
-            if base in _art_inflight:
-                return
-            _art_inflight.add(base)
-
-        def _done(value):
-            with _art_lock:
-                _art_inflight.discard(base)
-                watchers = _art_watchers.pop(base, [])
-            for fn in watchers:
-                fn(value)
-
-        version_art.prefetch(base, _done)
-
     def _refresh_hero_banner(version):
         base = core.resolve_mc_version(version) or version
-        with thread_safe_ui.TREE_LOCK:
-            _hero_art_uid["value"] = version
-            cached = version_art.src(base) if base else None
-            hero_art.set_source(cached)
-        uid = version
-
-        def _ready(value):
-            # A download that finished after the user switched versions is
-            # stale - drop it rather than flash the wrong art.
-            with thread_safe_ui.TREE_LOCK:
-                if uid != _hero_art_uid["value"]:
-                    return
-                hero_art.set_source(value)
-
-        _request_art(base, _ready)
+        hero_art.set_source(version_art.key_art_src(base))
 
     # Repaint the big button the moment a pack install claims or releases an
     # instance (Modpacks tab / Import). Without this a disabled "INSTALLING..."
@@ -7954,9 +7886,6 @@ async def main(page: ft.Page):
         season_pet_switch=season_pet_switch,
         season_overlay_switch=season_overlay_switch,
         on_motion_change=lambda: _season_runtime_apply(),
-        doctor_target=lambda: (state.get("selected_mc_version"),
-                               state.get("mod_loader") or "vanilla",
-                               state.get("selected_version")),
         **THEME,
     )
 

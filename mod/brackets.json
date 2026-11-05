@@ -58,9 +58,9 @@
     "is left",
     "open-ended ('>=26.3') so a 26.x released after this launcher still works.",
     "",
-    "Anything below 1.20 is deliberately absent: the mod's sources use APIs that",
-    "arrived with 1.20, so there is no jar to install and the launcher installs",
-    "nothing rather than a mod that would crash on class load."
+    "Fabric builds below 1.20 are deliberately absent: these sources use modern",
+    "APIs. Forge 1.8.9 has a separate Java 8/SRG port in forge-1.8.9, built by",
+    "tools/build_forge189_client.py and routed separately by cubeonfriends.py."
   ],
   "mod_version": "1.0.0",
   "loader_version": "0.19.5",

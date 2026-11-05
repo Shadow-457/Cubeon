@@ -244,7 +244,7 @@ impl Game<'_> {
     pub(super) fn camera_view(&mut self, partial: f32) -> Option<(glam::DVec3, f32, f32)> {
         // Minecraft.cameraEntity: a server's spectator camera on a mob or
         // another player.
-        let (entity, descending) = match self.camera_mob() {
+        let (mut entity, descending) = match self.camera_mob() {
             Some(m) => (super::remote_camera::mob_camera_entity(m), false),
             None => {
                 let mut entity = self.player_camera_entity()?;
@@ -257,6 +257,12 @@ impl Game<'_> {
                 (entity, self.player.as_ref()?.shift_key_down)
             }
         };
+        if let Some((_, yaw, pitch)) = self.companion.free {
+            entity.y_rot = yaw;
+            entity.y_rot_o = yaw;
+            entity.x_rot = pitch;
+            entity.x_rot_o = pitch;
+        }
         let mut view = self.view;
         let kind = match self.camera_type {
             CameraType::FirstPerson => cubeon_client::camera::CameraType::FirstPerson,
@@ -287,6 +293,7 @@ impl Game<'_> {
             kind,
             |distance| {
                 let mut distance = distance;
+                if self.companion.free.is_some() {distance = self.companion.distance;}
                 self.native_camera_distance(partial, kind.is_mirrored(), &entity, &mut distance);
                 distance
             },

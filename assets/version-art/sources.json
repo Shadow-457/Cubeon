@@ -1,0 +1,270 @@
+{
+  "armored-paws": {
+    "title": "Armored Paws",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/MC-Updates_Carousel-N-0_2024_Armored-Paws_01_1000x563.jpg",
+    "source_size": [
+      1000,
+      563
+    ],
+    "size": [
+      1000,
+      563
+    ]
+  },
+  "bats-and-pots": {
+    "title": "Bats and Pots",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/MC-Updates_Carousel-N-0_2023_Bats-and-Pots_01_1000x563.jpg",
+    "source_size": [
+      1000,
+      563
+    ],
+    "size": [
+      1000,
+      563
+    ]
+  },
+  "bundles-of-bravery": {
+    "title": "Bundles of Bravery",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/MC-Updates_Carousel-N-0_2024_Bundles-of-Bravery_01_1000x563.jpg",
+    "source_size": [
+      1000,
+      563
+    ],
+    "size": [
+      1000,
+      563
+    ]
+  },
+  "buzzy-bees": {
+    "title": "Buzzy Bees",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Buzzy-Bees_1280x768.jpg",
+    "source_size": [
+      1280,
+      768
+    ],
+    "size": [
+      1280,
+      768
+    ]
+  },
+  "caves-and-cliffs-1": {
+    "title": "Caves & Cliffs Part I",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_caves_cliffs%28part1%29.zip",
+    "source_size": [
+      1920,
+      1080
+    ],
+    "size": [
+      1920,
+      1080
+    ],
+    "archive_member": "wallpaper_minecraft_caves_cliffs(part1)_1920x1080.png"
+  },
+  "caves-and-cliffs-2": {
+    "title": "Caves & Cliffs Part II",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_caves_cliffs%28part2%29.zip",
+    "source_size": [
+      1920,
+      1080
+    ],
+    "size": [
+      1920,
+      1080
+    ],
+    "archive_member": "wallpaper_minecraft_caves_cliffs(part2)_1920x1080.png"
+  },
+  "chaos-cubed": {
+    "title": "Chaos Cubed",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Carousel-Card_SGD-26_1280x720.jpg",
+    "source_size": [
+      1280,
+      720
+    ],
+    "size": [
+      1280,
+      720
+    ]
+  },
+  "chase-the-skies": {
+    "title": "Chase the Skies",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/MCV_SummerDrop_Hero_DotNet_Blog_Editorial_1280x768.jpg",
+    "source_size": [
+      1280,
+      768
+    ],
+    "size": [
+      1280,
+      768
+    ]
+  },
+  "java-edition": {
+    "title": "Java Edition (shared cover for legacy/unknown versions)",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_pc_bundle.zip",
+    "source_size": [
+      1920,
+      1080
+    ],
+    "size": [
+      1920,
+      1080
+    ],
+    "archive_member": "wallpaper_minecraft_pc_bundle_1920x1080.png"
+  },
+  "mounts-of-mayhem": {
+    "title": "Mounts of Mayhem",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Minecraft%20_Holiday_Game_Drop_2025_OV-PMP_1280x720.jpg",
+    "source_size": [
+      1280,
+      720
+    ],
+    "size": [
+      1280,
+      720
+    ]
+  },
+  "nether-update": {
+    "title": "Nether Update",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Nether-Update_1280x768.jpg",
+    "source_size": [
+      1280,
+      768
+    ],
+    "size": [
+      1280,
+      768
+    ]
+  },
+  "spring-to-life": {
+    "title": "Spring to Life",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/game-updates/MCV_SpringDrop_DotNet_Blog_Editorial_1280x720.jpg",
+    "source_size": [
+      1280,
+      720
+    ],
+    "size": [
+      1280,
+      720
+    ]
+  },
+  "the-copper-age": {
+    "title": "The Copper Age",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Minecraft_Fall_Drop_Campaign_Key_Art_DotNet_Blog_Editorial_1280x768.jpg",
+    "source_size": [
+      1280,
+      768
+    ],
+    "size": [
+      1280,
+      768
+    ]
+  },
+  "the-garden-awakens": {
+    "title": "The Garden Awakens",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Minecraft_TheGardenAwakens_DotNet_1280x768.jpg",
+    "source_size": [
+      1280,
+      768
+    ],
+    "size": [
+      1280,
+      768
+    ]
+  },
+  "the-wild-update": {
+    "title": "The Wild Update",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_The-Wild-Update_1280x768.jpg",
+    "source_size": [
+      1280,
+      768
+    ],
+    "size": [
+      1280,
+      768
+    ]
+  },
+  "tiny-takeover": {
+    "title": "Tiny Takeover",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Spring-Game-Drop-2026-OV-PMP-1280x720.jpg",
+    "source_size": [
+      1280,
+      720
+    ],
+    "size": [
+      1280,
+      720
+    ]
+  },
+  "trails-and-tales": {
+    "title": "Trails & Tales",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Trails-and-Tales_1280x768.jpg",
+    "source_size": [
+      1280,
+      768
+    ],
+    "size": [
+      1280,
+      768
+    ]
+  },
+  "tricky-trials": {
+    "title": "Tricky Trials",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Tricky-Trials_Full-Bleed-A-768_Key-art_1488x992.jpg",
+    "source_size": [
+      1488,
+      992
+    ],
+    "size": [
+      1488,
+      992
+    ]
+  },
+  "update-aquatic": {
+    "title": "Update Aquatic",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Update-Aquatic_1280x768.jpg",
+    "source_size": [
+      1280,
+      768
+    ],
+    "size": [
+      1280,
+      768
+    ]
+  },
+  "village-and-pillage": {
+    "title": "Village & Pillage",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Village-and-Pillage_1280x768.jpg",
+    "source_size": [
+      1280,
+      768
+    ],
+    "size": [
+      1280,
+      768
+    ]
+  },
+  "wilderness-bound": {
+    "title": "Wilderness Bound",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Minecraft_WildernessBound.Net_1170x500.jpg",
+    "source_size": [
+      1170,
+      500
+    ],
+    "size": [
+      1170,
+      500
+    ]
+  },
+  "world-of-color": {
+    "title": "World of Color",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_world_color.zip",
+    "source_size": [
+      1920,
+      1080
+    ],
+    "size": [
+      1920,
+      1080
+    ],
+    "archive_member": "wallpaper_minecraft_world_color_1920x1080.png"
+  }
+}

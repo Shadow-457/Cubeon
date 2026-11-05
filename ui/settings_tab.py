@@ -17,7 +17,7 @@ What it is now:
 main.py still owns all logic/controls (the RAM slider and its colour math,
 legacy-version widgets, backup switches, FilePickers) - this module only
 arranges them. `build_settings_tab()` keeps its old signature (plus optional
-`account_pane`, `on_replay_onboarding` and `doctor_target`), so nothing is
+`account_pane` and `on_replay_onboarding`), so nothing is
 rewired.
 """
 import flet as ft
@@ -42,7 +42,6 @@ SECTIONS = [
     ("notifications", ft.Icons.NOTIFICATIONS_OUTLINED, "Notifications"),
     ("storage", ft.Icons.FOLDER_OUTLINED, "Files and backups"),
     ("system", ft.Icons.SYSTEM_UPDATE_ROUNDED, "Launcher"),
-    ("doctor", ft.Icons.HEALTH_AND_SAFETY_OUTLINED, "Fix problems"),
     ("images", ft.Icons.PHOTO_LIBRARY_OUTLINED, "Screenshots"),
 ]
 
@@ -500,7 +499,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
                        screenshot_gallery=None, refresh_screenshot_gallery=None,
                        account_pane=None, on_replay_onboarding=None,
-                       doctor_target=None, on_check_updates=None,
+                       on_check_updates=None,
                        on_motion_change=None):
     """Assembles the two-pane Settings tab from main.py's existing controls.
 
@@ -514,10 +513,6 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     window frame is Windows/Linux-only, so main.py passes None elsewhere and
     the row is left out entirely.
 
-    `doctor_target` (optional) returns (mc_version, loader, version_id) for the
-    instance to check; when it is None the Doctor pane says so instead of
-    guessing. The full check runs on a worker thread and renders every result
-    inline - the error stays attached to the fix that followed it.
     """
 
     # Labels are translated at build time; the KEYS are not - deep links (the
@@ -620,7 +615,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                         "Include snapshot builds in the version list",
                         browse_online_row),
                     row("Legacy versions",
-                        "Releases below 1.20",
+                        "Older releases (1.8.9 is always available)",
                         legacy_btn),
                 ]),
                 # Shown only while legacy is on (main.py toggles it).
@@ -938,215 +933,6 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     )
 
     # ======================================================================
-    # DOCTOR
-    # ======================================================================
-    doctor_status = ft.Text("", size=12.5, color=TEXT_DIM, visible=False,
-                            selectable=True)
-    doctor_spinner = ft.ProgressRing(width=14, height=14, stroke_width=2,
-                                     color=ACCENT, visible=False)
-    doctor_summary = ft.Text("", size=12, color=TEXT_DIM, visible=False,
-                             selectable=True, data="settings-doctor-summary")
-    doctor_entries = ft.ListView(spacing=8, padding=0, height=340)
-    doctor_entries_host = ft.Container(
-        content=doctor_entries, visible=False,
-        border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-        bgcolor=BG, padding=ft.padding.Padding.symmetric(horizontal=16,
-                                                          vertical=12),
-    )
-    doctor_cancel = threading.Event()
-    doctor_lock = threading.Lock()
-
-    def _doctor_actions(enabled=True):
-        with thread_safe_ui.TREE_LOCK:
-            doctor_run_btn.disabled = not enabled
-            doctor_stop_btn.visible = not enabled
-            doctor_spinner.visible = not enabled
-            thread_safe_ui.refresh(doctor_run_btn)
-            thread_safe_ui.refresh(doctor_stop_btn)
-            thread_safe_ui.refresh(doctor_spinner)
-
-    def _doctor_set_status(text=""):
-        with thread_safe_ui.TREE_LOCK:
-            doctor_status.value = i18n.t(text) if text else ""
-            doctor_status.visible = bool(text)
-            thread_safe_ui.refresh(doctor_status)
-
-    def _doctor_clear_results():
-        with thread_safe_ui.TREE_LOCK:
-            doctor_entries.controls.clear()
-            doctor_entries_host.visible = False
-            doctor_summary.value = ""
-            doctor_summary.visible = False
-            thread_safe_ui.refresh(doctor_entries)
-            thread_safe_ui.refresh(doctor_entries_host)
-            thread_safe_ui.refresh(doctor_summary)
-
-    def _doctor_render(report):
-        """Show EVERY result inline: the error, then what the doctor did."""
-        from cubeon.doctor import format_problem
-
-        rows = []
-        fixed = list(report.get("fixed") or [])
-        unfixed = list(report.get("unfixed") or [])
-        for entry in fixed + unfixed:
-            if entry.get("fixed"):
-                icon = ft.Icons.CHECK_CIRCLE_ROUNDED
-                color = ACCENT
-            elif entry.get("kind") == "section-failed":
-                icon = ft.Icons.ERROR_OUTLINE_ROUNDED
-                color = DANGER
-            else:
-                icon = ft.Icons.WARNING_AMBER_ROUNDED
-                color = TEXT_DIM
-            rows.append(ft.Row(
-                [
-                    ft.Icon(icon, size=15, color=color),
-                    ft.Text(format_problem(entry), size=12.5,
-                            color=TEXT if entry.get("fixed") else TEXT_DIM,
-                            selectable=True, expand=True),
-                ],
-                spacing=8, vertical_alignment=ft.CrossAxisAlignment.START,
-            ))
-        with thread_safe_ui.TREE_LOCK:
-            doctor_entries.controls[:] = rows
-            doctor_entries_host.visible = bool(rows)
-            summary = report.get("summary") or ""
-            failed = [name for name, info in (report.get("sections") or {}).items()
-                      if isinstance(info, dict) and info.get("error")]
-            if report.get("cancelled"):
-                summary = (summary or "Check stopped early.") + " Stopped."
-            if failed:
-                summary += (" Check(s) that could not run: "
-                            + ", ".join(sorted(failed)) + ".")
-            doctor_summary.value = summary
-            doctor_summary.visible = bool(summary)
-            thread_safe_ui.refresh(doctor_entries)
-            thread_safe_ui.refresh(doctor_entries_host)
-            thread_safe_ui.refresh(doctor_summary)
-
-    def _doctor_target():
-        try:
-            return doctor_target() if callable(doctor_target) else None
-        except Exception:
-            return None
-
-    def _doctor_done(report):
-        try:
-            _doctor_render(report)
-            _doctor_set_status("")
-        finally:
-            doctor_lock.release()
-            _doctor_actions(True)
-
-    def run_full_doctor(e=None):
-        if not doctor_lock.acquire(blocking=False):
-            return
-        target = _doctor_target()
-        mc, loader, version_id = (target if target else (None, None, None))
-        if not mc or not version_id:
-            doctor_lock.release()
-            _doctor_set_status("Pick a Minecraft version on the Play tab first")
-            return
-        if not callable(doctor_target):
-            doctor_lock.release()
-            _doctor_set_status("Problem checks aren't available in this build")
-            return
-        from cubeon.doctor_ui import start_doctor_worker
-
-        doctor_cancel.clear()
-        _doctor_clear_results()
-        _doctor_set_status("")
-        _doctor_actions(False)
-        _doctor_set_status(f"Checking {version_id}…")
-        started = start_doctor_worker(
-            mc_version=mc, loader=loader or "vanilla", version_id=version_id,
-            include=None, check_online=True, cancel_event=doctor_cancel,
-            status_cb=_doctor_set_status, on_done=_doctor_done,
-            approve_all=True)
-        if started is None:
-            doctor_lock.release()
-            _doctor_actions(True)
-            _doctor_set_status("Couldn't start the check - see the log")
-
-    def stop_full_doctor(e=None):
-        doctor_cancel.set()
-        _doctor_set_status("Stopping after the current step…")
-
-    def _doctor_button(label, icon, on_click, *, primary=False):
-        return attach_hover(ft.Container(
-            content=ft.Row(
-                [ft.Icon(icon, size=15, color=ACCENT if primary else TEXT_DIM),
-                 ft.Text(i18n.t(label), size=12.5,
-                         color=TEXT if primary else TEXT_DIM,
-                         weight=ft.FontWeight.W_600)],
-                spacing=8, tight=True),
-            bgcolor=ACCENT_TINT if primary else None,
-            border=ft.border.Border.all(1, ACCENT if primary else BORDER),
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-            ink=False, on_click=on_click,
-        ), ACCENT_TINT if primary else "transparent", ROW_HOVER)
-
-    doctor_run_btn = _doctor_button("Run full check", ft.Icons.MEDICAL_SERVICES_ROUNDED,
-                                    run_full_doctor, primary=True)
-    doctor_stop_btn = _doctor_button("Stop", ft.Icons.STOP_CIRCLE_OUTLINED,
-                                     stop_full_doctor)
-    doctor_stop_btn.visible = False
-    if not callable(doctor_target):
-        doctor_run_btn.disabled = True
-
-    def _rendering_compat(restore=False):
-        target = _doctor_target()
-        if not target or not target[2]:
-            _doctor_set_status('Pick the affected instance on the Play tab first')
-            return
-        try:
-            from cubeon.paths import game_dir_for
-            from cubeon.render_compat import apply
-            changed = apply(game_dir_for(target[2], create=False), restore=restore)
-        except (OSError, ValueError) as error:
-            _doctor_set_status(f"Couldn't change rendering settings: {error}")
-            return
-        _doctor_set_status(('Previous rendering settings restored. Restart Minecraft.' if restore else
-                            'Rendering compatibility applied. Restart Minecraft; FPS may be lower.')
-                           if changed else 'No rendering settings needed changing.')
-
-    rendering_recovery = block('Rendering', group([
-        _body(ft.Column([
-            ft.Text('Use if entities disappear or skins flicker. Close Minecraft before applying.',
-                    size=12.5, color=TEXT_DIM),
-            ft.Row([
-                _doctor_button('Apply compatibility', ft.Icons.BUILD_ROUNDED,
-                               lambda e: _rendering_compat()),
-                _doctor_button('Restore settings', ft.Icons.RESTORE_ROUNDED,
-                               lambda e: _rendering_compat(True)),
-            ], wrap=True),
-        ], spacing=8)),
-    ]))
-
-    doctor_pane = pane(
-        i18n.t("Fix problems"),
-        rendering_recovery,
-        ft.Text(
-            "Checks launch settings, mods, resource packs, shaders, modpacks "
-            "and server plugins for the selected instance. Problems are fixed "
-            "when it is safe to do so; anything disabled is kept on disk so it "
-            "can be turned back on in Mods → Installed.",
-            size=12.5, color=TEXT_DIM),
-        ft.Row(
-            [doctor_run_btn, doctor_stop_btn, doctor_spinner],
-            spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        doctor_status,
-        doctor_summary,
-        doctor_entries_host,
-        ft.Text(
-            "Clicking Run full check is your approval for the fixes it finds, "
-            "including installing a missing required library. Nothing is "
-            "changed by just opening this page.",
-            size=11.5, color=TEXT_FAINT),
-    )
-
-    # ======================================================================
     # SCREENSHOTS
     # ======================================================================
     if screenshot_gallery is None:
@@ -1171,7 +957,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
              'memory': performance_pane, 'appearance': appearance_pane,
              'seasonal': seasonal_pane, 'notifications': notifications_pane,
              'storage': storage_pane, 'system': launcher_pane,
-             'doctor': doctor_pane, 'images': screenshots_pane}
+             'images': screenshots_pane}
     aliases = {'display': 'appearance', 'backups': 'storage', 'import': 'storage'}
     for key, p in panes.items():
         p.visible = (key == active_section["value"])

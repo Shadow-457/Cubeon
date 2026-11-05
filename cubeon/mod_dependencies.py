@@ -1,11 +1,9 @@
-"""Repair the dependencies declared by installed Fabric/Quilt jars before Play.
+"""Resolve declared mod dependencies and version conflicts before Play.
 
-Detection is local; only missing or outdated dependencies reach Modrinth.
-Downloaded jars are staged and validated before replacing an enabled build.
-The requester is never disabled, and old dependency builds are kept as backups.
+Clean profiles stay local. Repairs stage and verify the complete compatible set
+before reversible publication, retaining enabled identities and original JARs.
 """
 import os
-import tempfile
 import time
 
 from . import global_mod_cache, mods, net
@@ -20,70 +18,8 @@ def _scan(mc_version, loader, version_id):
     for item in mods.list_mods(mc_version, loader, version_id):
         meta, provided = mods._doctor_metadata(
             os.path.join(directory, item["filename"]), loader)
-        if meta:
-            entries.append((item, meta, provided))
+        entries.append((item, meta, provided))
     return entries
-
-
-def _providers(entries, runtime=None):
-    provided = {identity: version for identity, version in (runtime or {}).items()
-                if identity not in mods.DOCTOR_RUNTIME_IDS and version is not None}
-    for item, meta, bundled in entries:
-        if not item.get("enabled"):
-            continue
-        for identity, version in bundled.items():
-            if identity not in provided or mods._cmp_versions(version, provided[identity]) > 0:
-                provided[identity] = version
-    return provided
-
-
-def _requirements(entries, runtime):
-    requirements = {}
-    for item, meta, _ in entries:
-        if not item.get("enabled"):
-            continue
-        for identity, predicate in (meta.get("depends") or {}).items():
-            identity = str(identity).lower()
-            if identity not in runtime or identity not in mods.DOCTOR_RUNTIME_IDS:
-                requirements.setdefault(identity, []).append((item, predicate))
-    return requirements
-
-
-def _missing(entries, runtime):
-    providers = _providers(entries, runtime)
-    return {identity: owners for identity, owners in _requirements(entries, runtime).items()
-            if identity not in providers or not all(
-                mods.version_satisfies(providers[identity], predicate)
-                for _, predicate in owners)}
-
-
-def _usable(meta, provided, identity, owners, entries, runtime, mc_version, loader):
-    if not meta or identity not in provided or not all(
-            mods.version_satisfies(provided[identity], predicate) for _, predicate in owners):
-        return False
-    if mods._doctor_local_incompatibility(meta, mc_version, loader):
-        return False
-    for key, predicate in (meta.get("depends") or {}).items():
-        actual = runtime.get(key) if key in mods.DOCTOR_RUNTIME_IDS else None
-        if actual and not mods.version_satisfies(actual, predicate):
-            return False
-    # Replacing a dependency must not violate another requester's requirement
-    # or introduce an explicit Fabric breaks conflict.
-    candidate_id = str(meta.get("id") or "").lower()
-    remaining = [entry for entry in entries if entry[0].get("enabled")
-                 and str(entry[1].get("id") or "").lower() != candidate_id]
-    providers = _providers(remaining, runtime)
-    providers.update(provided)
-    for key, constraints in _requirements(remaining, runtime).items():
-        if key in provided and not all(mods.version_satisfies(provided[key], pred)
-                                       for _, pred in constraints):
-            return False
-    for _, descriptor, _ in remaining + [({}, meta, provided)]:
-        for key, predicate in (descriptor.get("breaks") or {}).items():
-            if (descriptor is meta or key in provided) and key in providers \
-                    and mods.version_satisfies(providers[key], predicate):
-                return False
-    return True
 
 
 def _stage(candidate, folder, timeout, deadline):
@@ -109,120 +45,38 @@ def _stage(candidate, folder, timeout, deadline):
     return destination
 
 
-def _activate(path, candidate, identity, entries, mc_version, loader, version_id):
-    """Swap only after validation; restore all renamed files if the swap fails."""
-    directory = mods.get_profile_dir(mc_version, loader, version_id)
-    filename = candidate["filename"]
-    destination = os.path.join(directory, filename)
-    candidate_meta = mods.read_mod_metadata(path, loader)
-    candidate_id = str(candidate_meta.get("id") or "").lower()
-    affected = [item for item, meta, _ in entries if item.get("enabled")
-                and str(meta.get("id") or "").lower() == candidate_id]
-    if any(item.get("protected") for item in affected):
-        raise ValueError("A protected mod cannot be replaced automatically")
-    # An unrelated file with the same name must never be overwritten.
-    if os.path.lexists(destination) and filename not in {item["filename"] for item in affected}:
-        raise ValueError("The dependency filename is already in use")
-    moved = []
-    landed = False
-    try:
-        for item in affected:
-            source = os.path.join(directory, item["filename"])
-            backup = source + ".disabled"
-            suffix = 1
-            while os.path.lexists(backup):
-                backup = source + f".cubeon-previous-{suffix}"
-                suffix += 1
-            os.replace(source, backup)
-            moved.append((source, backup))
-        os.replace(path, destination)
-        landed = True
-        mods._write_meta(directory, filename, identity,
-                         project_id=candidate.get("project_id") or identity,
-                         url=candidate.get("url"))
-    except BaseException:
-        if landed:
-            os.replace(destination, path)
-        for source, backup in reversed(moved):
-            os.replace(backup, source)
-        raise
-
-
 def run_dependency_doctor(mc_version, loader, *, version_id=None, status_cb=None,
-                          check_online=True, auto_fix=True):
-    """Non-interactive dependency repair, including profiles installed by old builds.
+                          check_online=True, auto_fix=True, runtime_versions=None):
+    """Verify and repair required dependencies and conflicts before staging/spawn.
 
-Only known unsatisfied jar requirements are repaired. Failed lookups are tried
-once per dependency; a connection failure stops further network probes. A clean
-profile does no network work. Unfixed requirements are returned to the caller.
-"""
+    A clean profile is local-only. Repairs retain enabled mod identities, verify
+    actual JARs, and commit the complete compatible set with rollback/backups.
+    """
     result = {"checked": 0, "fixed": [], "unfixed": []}
-    if not mc_version or loader not in ("fabric", "quilt"):
+    if not mc_version or loader not in ("fabric", "quilt", "forge", "neoforge"):
         return result
+    from .mod_resolver import Resolver
     runtime = mods._doctor_runtime_versions(mc_version, loader, version_id)
+    runtime.update({key: str(value) if value is not None else None
+                    for key, value in (runtime_versions or {}).items()})
+    directory = mods.get_profile_dir(mc_version, loader, version_id)
+    snapshot = mods._doctor_profile_snapshot(directory)
     entries = _scan(mc_version, loader, version_id)
-    result["checked"] = len(entries)
-    deadline = time.monotonic() + REPAIR_SECONDS
-    tried, errors, network_down = set(), {}, False
-    for _ in range(MAX_REPAIRS):
-        missing = _missing(entries, runtime)
-        pending = next((key for key in missing if key not in tried), None)
-        if pending is None or not auto_fix:
-            break
-        tried.add(pending)
-        owners = missing[pending]
-        if status_cb:
-            status_cb(f"Doctor: repairing {pending}")
+    resolver = Resolver(entries, runtime, mc_version, loader, version_id,
+                        time.monotonic() + REPAIR_SECONDS, MAX_REPAIRS,
+                        check_online, _stage, _scan, status_cb, snapshot=snapshot)
+    result = resolver.run(auto_fix)
+    if result["fixed"] or result["unfixed"]:
+        import logging
+        from .atomicio import write_json
+        log = logging.getLogger(__name__)
+        for entry in result["unfixed"]:
+            log.warning("Automatic Doctor: %s. %s", entry["detail"], entry["error"])
+        for entry in result["fixed"]:
+            log.info("Automatic Doctor: %s: %s", entry["dependency"], entry["fix"])
         try:
-            # Restore a compatible copy already on disk without a download.
-            disabled = next((item for item, meta, provided in entries
-                             if not item.get("enabled") and not item.get("protected")
-                             and item["filename"].endswith(".jar.disabled")
-                             and _usable(meta, provided, pending, owners, entries,
-                                         runtime, mc_version, loader)), None)
-            if disabled:
-                path = os.path.join(mods.get_profile_dir(mc_version, loader, version_id),
-                                    disabled["filename"])
-                candidate = {"filename": disabled["filename"].removesuffix(".disabled")}
-                _activate(path, candidate, pending, entries, mc_version, loader, version_id)
-                fix = "re-enabled the compatible installed dependency"
-            else:
-                remaining = deadline - time.monotonic()
-                if not check_online or network_down or remaining <= 0:
-                    raise ValueError("Download unavailable; connect to the internet and retry Play")
-                timeout = (min(3, remaining), min(10, remaining))
-                # Fabric API submodules have no separate Modrinth project.
-                project = "fabric-api" if pending == "fabric" or pending.startswith("fabric-") else pending
-                predicates = None if project != pending else [pred for _, pred in owners]
-                candidate = mods.get_mod_download(
-                    project, mc_version=mc_version, loader=loader, timeout=timeout,
-                    attempts=mods.LAUNCH_LOOKUP_ATTEMPTS, version_predicates=predicates)
-                if not candidate:
-                    raise ValueError("No compatible dependency download was found; check this instance's mods")
-                with tempfile.TemporaryDirectory(prefix=".cubeon-dependency-",
-                                                 dir=mods.get_profile_dir(mc_version, loader, version_id)) as stage:
-                    path = _stage(candidate, stage, timeout, deadline)
-                    meta, provided = mods._doctor_metadata(path, loader)
-                    if not _usable(meta, provided, pending, owners, entries,
-                                   runtime, mc_version, loader):
-                        raise ValueError("The downloaded jar does not satisfy the installed mods' requirements")
-                    _activate(path, candidate, project, entries, mc_version, loader, version_id)
-                fix = "installed and verified the compatible dependency"
-            entries = _scan(mc_version, loader, version_id)
-            if pending in _missing(entries, runtime):
-                raise ValueError("The dependency is still unsatisfied after repair")
-            result["fixed"].append({"dependency": pending, "fix": fix})
-        except Exception as error:
-            errors[pending] = str(error)
-            if isinstance(error, net.DownloadError) and not isinstance(error, net.HTTPStatusError):
-                network_down = True
-    providers = _providers(entries, runtime)
-    for identity, owners in _missing(entries, runtime).items():
-        for item, predicate in owners:
-            name = item.get("display_name") or item["filename"]
-            found = providers.get(identity)
-            detail = f"{name} requires {identity} {predicate}"
-            detail += f" (installed: {found})" if found is not None else " (missing)"
-            result["unfixed"].append({"dependency": identity, "mod": name,
-                                      "detail": detail, "error": errors.get(identity, "Retry Play to continue dependency repair")})
+            write_json(os.path.join(resolver.directory, ".cubeon-auto-doctor.json"),
+                       dict(result, mc_version=mc_version, loader=loader, version_id=version_id))
+        except OSError:
+            log.warning("Could not save the automatic Doctor report", exc_info=True)
     return result

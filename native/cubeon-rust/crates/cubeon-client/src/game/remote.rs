@@ -5025,6 +5025,11 @@ impl Game<'_> {
     /// The player list's view of the connection: the listed players (with
     /// their downloaded skins once ready), online mode, and which players
     /// are in the level with an upside-down name.
+    pub(super) fn cubeon_ping(&self) -> Option<i32> {
+        let remote = self.remote.as_ref()?;
+        remote.tab_players.get(&remote.profile).map(|player| player.latency)
+    }
+
     pub(super) fn remote_tab_players(
         &mut self,
     ) -> Option<(Vec<cubeon_client::tab_list::TabPlayer>, bool, Vec<u128>)> {
@@ -8805,6 +8810,7 @@ impl Game<'_> {
                     id: self.mobs[i].id as i32,
                 }));
                 self.remote_player_attack(i);
+                self.cubeon_hit(self.mobs[i].id);
                 self.reset_attack_strength();
             }
         } else if !self.entity_targeted()

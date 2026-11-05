@@ -14,11 +14,17 @@ The main screen reads “Minecraft” with “Rust Edition · Cubeon” beneath 
 Cubeon owns the binaries, patches and releases.
 
 Cubeon's changes remove account/session loading, chat credentials, account HTTP,
-heartbeat and telemetry collection, default server injection and world sharing.
+heartbeat and telemetry collection, default server injection and upstream hosted
+sharing integrations. The existing native sharing screen remains available.
 The AI Agent settings and MCP dependency are removed, as are Discord Rich
 Presence controls and its IPC worker. Saved upstream toggles cannot enable them.
 An explicit local diagnostic socket remains for native capture/parity probes.
-Cosmetics services are disabled. Local identity is supplied by Cubeon and applied
+Upstream cosmetics services are disabled. Native appearance reads Cubeon's
+CSL-compatible local mirrors and public skins/capes. Right Shift opens the
+native Cubeon Client HUD/settings/friends menu; C zooms, Left Alt enables
+freelook and B opens the emote wheel. Friends/messages use Cubeon's authenticated
+launcher bridge. Full cosmetic geometry and motion blur are not implemented.
+Local identity is supplied by Cubeon and applied
 only to the owner's in-memory connection; remote offline servers keep their own
 standard identity rules. Original protocol and gameplay parity tests remain.
 Optional game systems intertwined with rendering retain passive types, but no

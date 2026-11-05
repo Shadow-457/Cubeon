@@ -27,4 +27,6 @@ def prepare(cfg: dict, game_dir: str, username: str) -> dict[str, str]:
         "publicRoot": csl.CUBEON_API_BASE,
     }
     atomicio.write_json(str(directory / "cubeon-native-appearance.json"), appearance)
-    return {"CUBEON_BRIDGE_FILE": str(local_api._TOKEN_FILE)}
+    from .features import friends_enabled
+    return {"CUBEON_BRIDGE_FILE": str(local_api._TOKEN_FILE),
+            "CUBEON_CLIENT_ENABLED": "1" if friends_enabled() and cfg.get("client_mod_enabled", True) else "0"}

@@ -24,6 +24,7 @@ impl Game<'_> {
             return true;
         }
         match self.screen {
+            Screen::Friends if self.companion.open => matches!(self.companion.tab, 2 | 3),
             Screen::Chat | Screen::CommandBlock | Screen::Social => true,
             Screen::DebugOptions => self
                 .debug_options
@@ -122,6 +123,7 @@ impl Game<'_> {
             self.sign_input(None, Some(&text));
         } else {
             match self.screen {
+                Screen::Friends if self.companion.open => self.cubeon_chars(&text),
                 Screen::Chat => self.chat_type(&text),
                 Screen::CommandBlock => self.command_block_type(&text),
                 Screen::Social => self.social_type(&text),

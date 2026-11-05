@@ -397,10 +397,13 @@ def java_status(mc_version: str, java_path: str | None = None) -> dict:
     does), not a second guess, so we never prompt for a Java the launcher
     would then refuse to use.
     """
-    from .launch import (find_java_for_version, java_major_version,
+    from .launch import (exact_java_major, find_java_for_version, java_major_version,
                          required_java_major)
     required = required_java_major(mc_version)
+    exact = exact_java_major(mc_version)
     result = {"ok": False, "required": required, "found": None}
+    if exact is not None:
+        result["exact"] = True
     try:
         java = find_java_for_version(mc_version, java_path)
     except Exception:
@@ -414,7 +417,7 @@ def java_status(mc_version: str, java_path: str | None = None) -> dict:
     # An unprobeable binary counts as usable, deliberately: a path we cannot
     # run must not become a new way to fail, and the real check happens when
     # the game starts.
-    if probed is None or probed >= required:
+    if (probed is None or probed >= required) and (exact is None or probed == exact):
         result.update(ok=True, found=probed)
     else:
         result["found"] = probed

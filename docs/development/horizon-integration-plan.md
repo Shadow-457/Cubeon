@@ -1,6 +1,6 @@
 # Cubeon Rust beta integration
 
-Status: implemented locally, 2026-11-04. The Linux runtime and original resource
+Status: implemented locally, 2026-11-05. The Linux runtime and original resource
 exporters are built and packaged. Native terrain rendering, save/reopen and
 persistent local identity are verified. Public release, Windows execution and
 FPS benchmarking remain pending.
@@ -19,10 +19,24 @@ running and retains its stop path. Native singleplayer keeps the integrated
 world simulation that gameplay needs.
 
 Rust uses Cubeon's local name and stable UUID. Account/session activation,
-Microsoft sign-in, premium-session renewal, chat credentials, Horizon sharing,
-telemetry, default server injection and hosted cosmetics are disabled. This
+Microsoft sign-in, premium-session renewal, upstream chat credentials, telemetry,
+default server injection and upstream hosted cosmetics are disabled. This
 beta retains the essential game engine, renderer, input, audio and local storage.
-Java mod JARs and Cubeon's full cosmetics/social features are outside this port.
+Java mod JARs cannot run in the native engine.
+
+Native appearance reads Cubeon's CSL-compatible LocalSkin mirrors first, then
+public Cubeon skins/capes, with explicit slim models and transparent hidden capes.
+It honors the launcher's skin-management preference. This implements the native
+appearance loader; it does not install or execute the Java CustomSkinLoader JAR.
+
+The native Cubeon Client opens with **Right Shift** or the pause-menu button.
+It provides HUD overlays, a drag/resize editor, auto sprint, enemy health,
+**C** zoom, **Left Alt** freelook and a **B** emote wheel. Controls wait until
+world loading finishes. HUD preferences use `config/cubeon-client-hud.json`.
+Friends, messages and emotes use Cubeon's authenticated launcher loopback bridge,
+and the existing native sharing screen remains available. The launcher client
+preference controls the companion. Full cosmetic geometry and camera motion blur
+remain outside the native implementation.
 
 The UI labels **1000 FPS as a target**. The smoke captures establish working
 native rendering, not measured FPS or a guarantee for any computer.
@@ -128,6 +142,10 @@ Completed checks:
   preserves the owner's UUID across local name changes.
 - An isolated Linux Vulkan game rendered terrain, saved and reopened the world
   with the same UUID after a name change, and injected no default server list.
+- Offscreen native controls exercised the companion menus, saved auto sprint,
+  HUD editor, zoom, freelook and emote wheel. Compiled worker checks verified
+  local/public appearance, slim models, cape hiding, opt-out and authenticated
+  friends/message/emote bridge behavior. No new captures were taken.
 - Native Flet captures verified the existing picker flow and Server
   unavailability/restoration. Cubeon's default mega smoke gate passed.
 

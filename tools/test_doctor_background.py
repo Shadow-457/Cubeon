@@ -89,20 +89,17 @@ class BackgroundDoctorTests(unittest.TestCase):
         self.assertFalse(details.visible)
         self.assertEqual(details.value, '')
 
-    def test_settings_exposes_the_full_doctor(self):
-        # The Doctor section is a real rail entry now; opening Settings must
-        # build it (a missing pane used to be a KeyError in the rail host) and
-        # it must offer the same explicit check as Mods -> Check & repair.
+    def test_settings_does_not_expose_the_removed_doctor(self):
+        # Settings removal must leave the automatic and crash-report doctors
+        # independent of the Settings control tree.
         driver = app_driver.build_headless()
         driver.open_tab('settings')
         self.assertFalse(driver.errors, driver.errors)
         controls = list(app_driver.every_control(driver.page))
-        self.assertTrue(any(getattr(c, 'data', None) == 'settings-doctor-summary'
-                            for c in controls),
-                        'the Doctor pane was not built into Settings')
-        self.assertTrue(any('Run full check' in str(getattr(c, 'value', ''))
-                            for c in controls),
-                        'the Settings Doctor has no Run full check action')
+        self.assertFalse(any(getattr(c, 'data', None) == 'settings-doctor-summary'
+                             for c in controls))
+        self.assertFalse(any('Run full check' in str(getattr(c, 'value', ''))
+                             or 'Fix problems' in str(getattr(c, 'value', '')) for c in controls))
 
     def test_arabic_launcher_build_and_picker_save(self):
         import os

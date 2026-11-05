@@ -62,6 +62,7 @@ INSTALLED = [
 AVAILABLE = [
     {"id": "1.21.11", "type": "release", "releaseTime": "2024-06-13T00:00:00+00:00"},
     {"id": "1.8", "type": "release", "releaseTime": "2014-09-02T00:00:00+00:00"},
+    {"id": "1.8.9", "type": "release", "releaseTime": "2015-12-09T00:00:00+00:00"},
     {"id": "1.20.1", "type": "release", "releaseTime": "2023-06-07T00:00:00+00:00"},
     {"id": "26w45a", "type": "snapshot", "releaseTime": "2024-11-06T00:00:00+00:00"},
 ]
@@ -250,7 +251,7 @@ check("browsing switches the panel to the new-instance view",
 new_ids = picker_row_ids(picker_model)
 check("new mode defaults to Fabric and excludes already installed Fabric instances",
       picker_model._install_loader == "fabric"
-      and set(new_ids) == {"1.20.1", "1.21.11", "26w45a"}, str(sorted(new_ids)))
+      and set(new_ids) == {"1.8.9", "1.20.1", "1.21.11", "26w45a"}, str(sorted(new_ids)))
 picker_model._set_install_loader("fabric")
 def wait_for_versions():
     deadline = time.monotonic() + 3
@@ -278,6 +279,14 @@ check("the manifest merge keeps an installed-only id selected",
       selection_scope["version_dropdown"].value)
 
 # Legacy and loader support are separate gates: enabling Legacy must expose 1.8 Vanilla.
+check("1.8.9 is available with Legacy off", "1.8.9" in picker_row_ids(picker_model))
+picker_model._loader_versions["forge"] = {"1.8.9"}
+picker_model._set_install_loader("forge")
+wait_for_versions()
+check("Forge 1.8.9 is offered with Legacy off", "1.8.9" in picker_row_ids(picker_model))
+check("Forge does not offer adjacent unsupported versions", "1.8" not in picker_row_ids(picker_model))
+picker_model._set_install_loader("vanilla")
+wait_for_versions()
 check("1.8 stays hidden before Legacy is enabled", "1.8" not in picker_row_ids(picker_model))
 refresh_versions = inspect.getclosurevars(picker_model.on_browse_online).nonlocals["refresh_version_list"]
 selection_state["legacy_ok"] = True

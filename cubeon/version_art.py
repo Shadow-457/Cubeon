@@ -1,27 +1,11 @@
-"""Official per-version artwork for the launcher UI.
+"""Bundled promotional Play artwork and legacy per-version image caching.
 
-The real Minecraft Launcher paints every version's patch-notes card with the
-release's OFFICIAL key art, served from Mojang's own content host. We use the
-exact same source: the launcher-content patch-notes feed at
-https://launchercontent.mojang.com/v2/javaPatchNotes.json, whose entries pair a
-version id ("1.21.11") with an image path ("/v2/images/...") on the same host.
-That is the closest thing to "the real Minecraft artwork" that exists.
+Play uses key_art_src() for immediate offline update covers from minecraft.net;
+assets/version-art/README.md records their official sources and dimensions.
 
-This module maps a version id to a local image file, downloading on first use
-and caching under CACHE_DIR/version_art/. All lookups happen on background
-threads; the UI never blocks on this.
-
-Lookup order for a version:
-1. The OFFICIAL Mojang image (above). Covers 1.13+ releases and the modern
-   snapshot ids. Cached as "official_<id>.<ext>".
-2. Fallback to the fan wiki (minecraft.wiki) for versions Mojang's feed does
-   not carry - the pre-1.13 releases and the week-numbered snapshots
-   ("25w14craftmine") whose ids don't match the feed's. Cached as "<id>.<ext>".
-   The wiki path tries the standard "<id>_banner.jpg" first, then the page's
-   own lead image via the MediaWiki API (pageimages prop) for older pages.
-
-The official image is preferred, so a version that gains official art later
-wins over a wiki banner already on disk.
+The legacy src()/get_version_art() interface remains available. It prefers the
+Mojang patch-notes feed, then wiki banners/lead images, caching under
+CACHE_DIR/version_art/. These thumbnails no longer drive the Play hero.
 """
 import base64
 import json
@@ -56,15 +40,7 @@ _feed_mem: dict = {"value": None}
 _feed_refreshing: dict = {"on": False}
 _feed_lock = threading.Lock()
 
-# ENCODED-ART CACHE. src() is called from the render path - on every Play-tab
-# selection change - and each call used to re-open the file and base64-encode
-# it again. Mojang's key art is a JPEG of 27-53 KB, so that was a genuine read
-# + encode per call per control on the UI thread (measured 0.127 ms uncached
-# vs 0.023 ms cached). The expensive part is downstream: each encoded banner is
-# shipped to the client for that image control. The per-instance art cards and
-# the Play tab's instance list are gone (2026-10-26), so the hero banner is the
-# one consumer left - see tools/test_version_art_cache.py.
-#
+# Cache for legacy src() callers; Play uses native bundled asset paths.
 # The encoded string is keyed by the file's (mtime, size), so a re-downloaded
 # banner - which lands via os.replace, giving it a new mtime - is picked up
 # automatically and nothing can go stale. LRU-capped because a long session can
@@ -72,6 +48,46 @@ _feed_lock = threading.Lock()
 _src_cache: "OrderedDict[str, tuple]" = OrderedDict()   # path -> (mtime_ns, size, b64)
 _SRC_CACHE_MAX = 12
 _src_lock = threading.Lock()
+
+
+_UPDATE_COVERS = {
+    12: "world-of-color",
+    13: "update-aquatic",
+    14: "village-and-pillage",
+    15: "buzzy-bees",
+    16: "nether-update",
+    17: "caves-and-cliffs-1",
+    18: "caves-and-cliffs-2",
+    19: "the-wild-update",
+}
+_DROP_COVERS = {
+    20: ((0, "trails-and-tales"), (3, "bats-and-pots"), (5, "armored-paws")),
+    21: ((0, "tricky-trials"), (2, "bundles-of-bravery"),
+         (4, "the-garden-awakens"), (5, "spring-to-life"),
+         (6, "chase-the-skies"), (9, "the-copper-age"), (11, "mounts-of-mayhem")),
+}
+_YEAR_COVERS = {1: "tiny-takeover", 2: "chaos-cubed", 3: "wilderness-bound"}
+
+
+def key_art_src(version: str | None) -> str:
+    """Bundled promotional artwork for Play, without patch-note thumbnails.
+
+    Native asset paths avoid network requests and repeat base64 transfers.
+    Patch releases keep their update/drop's cover. Legacy and unknown versions
+    share official Java Edition artwork rather than an unrelated update image.
+    """
+    cover = "java-edition"
+    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+))?", version or "")
+    if match:
+        major, minor, patch = (int(part or 0) for part in match.groups())
+        if major == 1:
+            cover = _UPDATE_COVERS.get(minor, cover)
+            for since, drop in _DROP_COVERS.get(minor, ()):
+                if patch >= since:
+                    cover = drop
+        elif major == 26:
+            cover = _YEAR_COVERS.get(minor, cover)
+    return f"version-art/{cover}.webp"
 
 
 def _enc(version: str) -> str:

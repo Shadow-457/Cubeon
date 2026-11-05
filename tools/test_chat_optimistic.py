@@ -356,8 +356,8 @@ def main():
           f"{len(transcript.controls)} controls after {svc.next_seq} messages")
     check("... while still showing a full screen of history",
           len(transcript.controls) >= 100, str(len(transcript.controls)))
-    check("the cap is one slice delete, not a pop(0) per message",
-          "del transcript.controls[:extra]" in _CHAT_SRC
+    check("the cap trims oldest rows in one slice from the reversed transcript",
+          "del transcript.controls[_MAX_TRANSCRIPT:]" in _CHAT_SRC
           and "controls.pop(0)" not in _CHAT_SRC)
     check("all append paths trim (poll, optimistic send and restored pending)",
           _CHAT_SRC.count("_trim_transcript()") == 4,      # 1 def + 3 calls

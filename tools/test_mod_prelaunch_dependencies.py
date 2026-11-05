@@ -73,6 +73,7 @@ class DependencyTests(unittest.TestCase):
 
     def run_doctor(self, **kwargs):
         with patch.object(mods, "get_mod_download", side_effect=self.lookup), \
+                patch.object(mods, "get_mod_versions", return_value=[]), \
                 patch.object(net, "download_to", side_effect=self.download):
             return deps.run_dependency_doctor(self.mc, "fabric", version_id=self.instance, **kwargs)
 

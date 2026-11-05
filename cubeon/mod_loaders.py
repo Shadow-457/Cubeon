@@ -132,13 +132,14 @@ def loader_java(mc_version: str, loader_id: str = "") -> str:
     # Imported lazily: launch.py pulls in mods/csl/skins, and those import this
     # module. Same pattern as the config read in modpacks._curseforge_api_key.
     from .config import load_config
-    from .launch import find_java_for_version, required_java_major, java_major_version
+    from .launch import exact_java_major, find_java_for_version, required_java_major, java_major_version
+    java_version_id = mc_version + "-forge" if loader_id == "forge" and mc_version == "1.8.9" else mc_version
     try:
         configured = (load_config() or {}).get("java_path") or None
     except Exception:
         configured = None
     try:
-        java = find_java_for_version(mc_version, configured)
+        java = find_java_for_version(java_version_id, configured)
     except Exception:
         java = None
 
@@ -160,8 +161,11 @@ def loader_java(mc_version: str, loader_id: str = "") -> str:
             probed = java_major_version(java)
         except Exception:
             probed = None
-        if probed is None or probed >= required:
+        exact = exact_java_major(java_version_id)
+        if (probed is None or probed >= required) and (exact is None or probed == exact):
             return java
+        if exact is not None:
+            raise RuntimeError("Forge 1.8.9 requires Java 8. Install a Java 8 runtime in the launcher and try again.")
         too_old = probed
 
     # Nothing usable: find_java_for_version has nothing to fall back to, so say

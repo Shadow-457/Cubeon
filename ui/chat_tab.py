@@ -57,6 +57,7 @@ Design rules it follows:
     poll thread and no roster read happens until then.
 """
 import base64
+import asyncio
 from copy import deepcopy
 import os
 import re
@@ -420,10 +421,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                icon_size=18, icon_color=TEXT_DIM,
                                hover_color=DANGER,
                                tooltip="Remove friend", visible=False)
-    # Native following is enabled only at the bottom. Reading older messages
-    # releases it; opening a conversation or Jump to latest enables it again.
+    # Index zero is the newest message and the viewport starts at the bottom.
+    # A reversed lazy list draws only nearby messages on tab return; an eager
+    # transcript laid out the entire conversation again whenever shown.
     transcript = ft.ListView(expand=True, spacing=0, auto_scroll=False,
-                             build_controls_on_demand=False,
+                             reverse=True, build_controls_on_demand=True,
+                             cache_extent=160,
                              on_scroll=lambda e: _on_transcript_scroll(e),
                              scroll_interval=50,
                              padding=ft.padding.Padding.symmetric(
@@ -1194,35 +1197,65 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _on_transcript_scroll(e):
         try:
             with thread_safe_ui.TREE_LOCK:
-                # Native follow runs after layout, so changing bubble heights
-                # cannot leave the last message below the viewport. Scrolling
-                # towards older messages explicitly releases that follow.
+                # In a reversed viewport, older messages are at positive
+                # offsets; latest is min_scroll_extent (extent_before == 0).
                 user = getattr(e, "event_type", None) == ft.ScrollType.USER
                 direction = getattr(e, "direction", None)
-                if user and direction == ft.ScrollDirection.FORWARD:
+                if user and direction == ft.ScrollDirection.REVERSE:
                     _stick["at_end"] = False
                 elif _stick["at_end"]:
                     return
                 else:
-                    _stick["at_end"] = e.extent_after < 48
-                transcript.auto_scroll = _stick["at_end"]
-                jump_row.visible = not _stick["at_end"]
-                _refresh(transcript, jump_row)
+                    _stick["at_end"] = e.extent_before < 48
+                if jump_row.visible == _stick["at_end"]:
+                    jump_row.visible = not _stick["at_end"]
+                    thread_safe_ui.refresh(jump_row)
         except Exception:
             pass
 
     def _stick_bottom(force=False):
-        """Let the native viewport follow its final, post-layout extent."""
+        """Latest is offset zero; new messages stay anchored there naturally.
+
+        Only an explicit jump/open/send needs a scroll command. Never scroll
+        through a lazy list's estimated maximum to find its latest message.
+        """
         with thread_safe_ui.TREE_LOCK:
             if force:
                 _stick["at_end"] = True
                 jump_row.visible = False
                 thread_safe_ui.refresh(jump_row)
-            if not _stick["at_end"] or not transcript.visible:
+            if not force or not transcript.visible:
                 return
-            transcript.auto_scroll_animation = scrolling.animation()
-            transcript.auto_scroll = True
-            thread_safe_ui.refresh(transcript)
+            name = selected["name"]
+        animation = scrolling.animation()
+
+        async def latest():
+            # The scoped patch must reach the native viewport before jumping.
+            await asyncio.sleep(0)
+            with thread_safe_ui.TREE_LOCK:
+                if (selected["name"] != name or not _stick["at_end"]
+                        or state.get("active_tab", "chat") != "chat"):
+                    return
+                ancestor = transcript
+                while ancestor is not page:
+                    if ancestor is None or not ancestor.visible:
+                        return
+                    ancestor = ancestor.parent
+            try:
+                await transcript.scroll_to(offset=0, duration=animation.duration,
+                                           curve=animation.curve)
+            except RuntimeError as error:
+                # Own the async listener completion, matching scrolling.py's
+                # narrow detached/session/scroll-listener timeout contract.
+                listener = f"{type(transcript).__qualname__}({transcript._i})"
+                message = str(error)
+                if message in ("Session closed", f"{listener} Control must be added to the page first"):
+                    return
+                if re.fullmatch(r"TimeoutException after [\d:.]+: Timeout waiting for invoke "
+                                r"method listener for " + re.escape(listener + ".scroll_to"), message):
+                    return
+                raise
+        page.run_task(latest)
 
     def _copy_message(text):
         """Copy a single message's text; the bubble is the + copy affordance."""
@@ -1290,9 +1323,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         `_pending` entries whose wrap is gone fall into the existing
         `except ValueError` path and the echo appends a fresh bubble.
         """
-        extra = len(transcript.controls) - _MAX_TRANSCRIPT
-        if extra > 0:
-            del transcript.controls[:extra]
+        if len(transcript.controls) > _MAX_TRANSCRIPT:
+            del transcript.controls[_MAX_TRANSCRIPT:]
 
     def _append_optimistic(name, text):
         """Show an outgoing message BEFORE the relay confirms it, so pressing
@@ -1304,12 +1336,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             if day and day != _last_day.get(name):
                 _last_day[name] = day
                 _last_dir[name] = None
-                transcript.controls.append(_day_separator(label))
+                transcript.controls.insert(0, _day_separator(label))
             _last_dir[name] = "out"
             wrap = _bubble_row(
                 _make_bubble(text, True, ts, dim=True, status="Sending…"),
                 True, 2)
-            transcript.controls.append(wrap)
+            transcript.controls.insert(0, wrap)
             q = _pending.setdefault(name, [])
             entry = {"text": text, "wrap": wrap, "ts": ts,
                      "t0": time.monotonic(), "failed": False,
@@ -1420,14 +1452,14 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 _last_day[name] = day
                 _last_dir[name] = None
                 prev_side = None
-                transcript.controls.append(_day_separator(label))
+                transcript.controls.insert(0, _day_separator(label))
             # Grouped-clock rule: only the first bubble of a group (or day)
             # shows the clock; run-on messages from the same side keep the
             # transcript quiet, with the full date on hover.
             with_time = new_day or prev_side != side
             gap = 2 if prev_side == side else (6 if _last_day.get(name) else 10)
             _last_dir[name] = side
-            transcript.controls.append(_bubble_row(
+            transcript.controls.insert(0, _bubble_row(
                 _make_bubble(text, mine, ts, with_time=with_time), mine, gap))
         _trim_transcript()
         _sync_empty_state()
@@ -1491,7 +1523,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     pending["text"], True, pending["ts"],
                     dim=not pending["failed"], failed=pending["failed"],
                     status="Couldn't send" if pending["failed"] else "Sending…"), True, 2)
-                transcript.controls.append(pending["wrap"])
+                transcript.controls.insert(0, pending["wrap"])
             _trim_transcript()
         thread_safe_ui.refresh(transcript)
         _sync_empty_state()
@@ -1744,7 +1776,13 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             tick_lock.release()
 
     def refresh():
-        _tick()
+        # The pane is retained and already has its history. Reading service
+        # metadata/history on the navigation callback blocks the tab swap.
+        # Wake its existing worker to fetch only messages after last_seq.
+        if poll_thread.is_alive():
+            _wake.set()
+        else:
+            _tick()  # initial/headless build or unavailable worker
 
     def _poll_interval():
         """How long the poll loop sleeps before its next tick.
@@ -1882,7 +1920,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     # Poll only after every control exists, so a tick can never touch an
     # unassigned local; then reconcile once immediately for the first paint.
-    threading.Thread(target=_poller, daemon=True,
-                     name="cubeon-chat-tab").start()
+    poll_thread = threading.Thread(target=_poller, daemon=True,
+                                   name="cubeon-chat-tab")
+    poll_thread.start()
     refresh()
     return root, refresh
