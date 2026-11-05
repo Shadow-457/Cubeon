@@ -304,7 +304,7 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
               stage.image.visible and stage.image.src == old_source and id(stage.image) == image_id)
     check("rapid drag requests coalesce into one worker", len(jobs) == 1)
     jobs.pop(0)()
-    check("drag follows the latest yaw and pitch", stage._shown == stage._camera_key() and stage.pitch == 4)
+    check("drag follows the latest yaw and pitch", stage._shown == stage._camera_key() and stage.pitch == 16)
     check("drag renders at native resolution", raster.call_args.args[2] == 1)
     stage._drag_end()
     jobs.pop(0)()
@@ -371,15 +371,15 @@ check("Cosmetics has no global arm dropdown or separate Apply button",
 driver.open_tab("settings")
 settings = next(control for control in every_control(driver.page) if callable(getattr(control, "select_section", None)))
 panes = inspect.getclosurevars(settings.select_section).nonlocals["panes"]
-images = inspect.getclosurevars(settings.select_section).nonlocals['images_pane']
+images = panes['images']
 check("Settings initially shows one section, not screenshots",
       not images.visible and sum(bool(pane.visible) for pane in panes.values()) == 1)
-check("Settings has four named sections", [label for key, icon, label in SECTIONS] == ['Account', 'Game', 'Performance', 'Appearance'])
+check("Settings has a pane for every named section", set(panes) == {key for key, icon, label in SECTIONS})
 settings.select_section("images")
-check("Appearance owns the screenshot gallery", images.visible and panes['appearance'].visible
-      and all(not pane.visible for key, pane in panes.items() if key != 'appearance'))
+check("Screenshots owns the screenshot gallery", images.visible
+      and all(not pane.visible for key, pane in panes.items() if key != 'images'))
 settings.select_section("memory")
-check("leaving Appearance hides its gallery", panes["memory"].visible and not panes['appearance'].visible)
+check("leaving Screenshots hides its gallery", panes["memory"].visible and not images.visible)
 driver.open_tab("play")
 driver.open_tab("settings")
 check("returning to Settings keeps the selected section without showing screenshots", panes["memory"].visible and not panes['appearance'].visible)

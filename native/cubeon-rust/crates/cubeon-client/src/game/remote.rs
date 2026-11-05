@@ -5168,6 +5168,13 @@ impl Game<'_> {
 
     pub(super) fn update_remote_skins(&mut self) {
         let local = self.remote.as_ref().map(|r| r.profile);
+        let mut cubeon_names = Vec::new();
+        if let Some(r) = self.remote.as_ref() {
+            cubeon_names.push((r.profile, r.profile_name.clone()));
+            cubeon_names.extend(r.players.iter().filter(|(id, _)| **id != r.profile).map(|(id, name)| (*id, name.clone())));
+        }
+        let cubeon = self.cubeon_skins.get_or_insert_with(|| cubeon_client::cubeon_skins::Service::new(Self::game_dir()))
+            .snapshot(cubeon_names).clone();
         self.poll_own_profile();
         let Some(r) = self.remote.as_mut() else {
             return;
@@ -5223,6 +5230,24 @@ impl Game<'_> {
                     capes.insert(uuid, cape);
                 }
                 resolved.push((uuid, skin));
+            }
+        }
+        // CSL's trusted sources override per texture slot. They are decoded
+        // separately and never pretend to be a signed Minecraft property.
+        for (uuid, appearance) in cubeon.players {
+            if let Some(image) = appearance.skin {
+                if !self.skin_slots.contains(&image.location) || !self.gui.atlas.sprites.contains_key(&image.location) {
+                    self.store_skin(image.location.clone(), image.rgba.to_vec());
+                }
+                resolved.retain(|(id, _)| *id != uuid);
+                resolved.push((uuid, image.location));
+                if appearance.slim { slim.insert(uuid); } else { slim.remove(&uuid); }
+            }
+            if let Some(image) = appearance.cape {
+                if !self.skin_slots.contains(&image.location) || !self.gui.atlas.sprites.contains_key(&image.location) {
+                    self.store_skin(image.location.clone(), image.rgba.to_vec());
+                }
+                capes.insert(uuid, image.location);
             }
         }
         // An offline name's skin from the launcher, where neither the server

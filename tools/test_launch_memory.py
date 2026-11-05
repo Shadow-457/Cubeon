@@ -1,10 +1,12 @@
 """Heap precedence through real mll profile assembly and live Settings edits."""
 import json
+import ast
+from types import SimpleNamespace
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import _sandbox_home
@@ -159,6 +161,46 @@ class LaunchMemoryTests(unittest.TestCase):
             switch.on_change(None)
         self.assertTrue(slider.disabled)
         self.assertIn('profile or Java', status.value)
+
+    def test_slider_change_updates_launch_before_release_and_saves_on_blur(self):
+        source = ast.parse((Path(__file__).resolve().parents[1] / 'main.py').read_text())
+        main = next(node for node in source.body if isinstance(node, ast.AsyncFunctionDef)
+                    and node.name == 'main')
+        nodes = [node for node in main.body
+                 if (isinstance(node, ast.FunctionDef) and node.name in
+                     {'on_ram_change', 'on_ram_change_end'})
+                 or (isinstance(node, ast.Assign) and any(
+                     isinstance(target, ast.Name) and target.id == '_ram_saved'
+                     for target in node.targets))]
+        slider = ft.Slider(min=1024, max=8192, value=2048)
+        cfg = {'ram_mb': 2048}
+        save = Mock()
+        namespace = dict(cfg=cfg, ram_slider=slider, ram_label=ft.Text(),
+                         ram_warning=ft.Text(), _ram_color=lambda value: theme.ACCENT,
+                         _update_ram_warning=lambda value: None,
+                         thread_safe_ui=SimpleNamespace(TREE_LOCK=__import__('threading').RLock(),
+                                                        refresh=lambda control: None),
+                         core=SimpleNamespace(save_config=save))
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), 'RAM handlers', 'exec'), namespace)
+        slider.value = 4096
+        namespace['on_ram_change'](None)
+        self.assertEqual(cfg['ram_mb'], 4096)
+        save.assert_not_called()
+        self.profile('pack', ['-Xmx2G', '-cp', '${classpath}'])
+        argv = launch.build_launch_command('pack', 'Alex', cfg['ram_mb'], 854, 480)
+        self.assertIn('-Xmx4096M', argv[:argv.index('game.Main')])
+        self.assertNotIn('-Xmx2G', argv[:argv.index('game.Main')])
+        namespace['on_ram_change_end'](None)
+        namespace['on_ram_change_end'](None)
+        save.assert_called_once_with(cfg)
+        slider.value = 5120
+        namespace['on_ram_change'](None)
+        save.side_effect = OSError('full disk')
+        namespace['on_ram_change_end'](None)
+        self.assertTrue(namespace['ram_warning'].visible)
+        save.side_effect = None
+        namespace['on_ram_change_end'](None)
+        self.assertEqual(save.call_count, 3)
 
 
 if __name__ == '__main__':

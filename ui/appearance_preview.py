@@ -213,7 +213,7 @@ class AppearancePreview:
             position = event.local_position
             if not (math.isfinite(position.x) and math.isfinite(position.y)):
                 return
-            self.pitch = max(-35, min(35, pitch - (position.y - y) * .4))
+            self.pitch = max(-35, min(35, pitch + (position.y - y) * .4))
         self._set_yaw(yaw + (position.x - x) * .65)
 
     def _drag_end(self, event=None):

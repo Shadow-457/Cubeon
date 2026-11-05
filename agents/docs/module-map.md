@@ -159,9 +159,9 @@ keep builders consistent with the shared `THEME` contract.
   targets. Native `Semantics` requires a content control, even for a transparent button.
 - Global navigation/Play shortcuts are blocked behind managed dialogs, onboarding, the version
   picker and Settings. Escape dismisses the top dialog, then panels, then fullscreen; F1 toggles
-  its own help. Settings entrance/retirement use generation and open-state guards, never opacity
-  alone: a newly reopened popup starts at opacity 0. Its rail and content scroll independently.
-  `tools/test_keyboard_accessibility.py` covers action gates, help Close and delayed fade races.
+  its own help. Settings uses the retained tab host, with independently scrolling
+  rail/content. `tools/test_keyboard_accessibility.py` covers action gates, help
+  Close, Settings navigation, and typing punctuation in Chat.
 - Launcher notices route through `ui/toast.py`. Its stretched accent/body Row needs
   `intrinsic_height=True` inside the shrink-wrapped Column; without it native Flet
   produces an invalid transform and invisible cards. New overlay hosts must repaint
@@ -227,10 +227,14 @@ keep builders consistent with the shared `THEME` contract.
 - The hero PLAY click has a 0.35 s `_PLAY_CLICK_COOLDOWN` gate so a rapid double-press cannot run the
   username/config/Java pipeline twice; CANCEL/QUIT bypass it. A click that returns `False` releases the
   gate immediately (only a click that started work keeps it).
-- The 64px Play action uses `assets/pixel_button_frame.svg` with bundled Inter bold action labels
+- The 300×64px Play action uses `assets/pixel_button_frame.svg` with bundled Inter bold action labels
   (small Minecraftia glyphs distort under Windows DPI/font rendering);
   keep frame/label descendants inside the clickable container and retain semantic fills. Flet 0.86
   mode changes must assign `play_button_icon.icon` (a `.name` assignment never updates the glyph).
+  Set its width before `theme.keyboard_target` copies the dimensions; the aligned action host
+  never expands in the wide input Row and keeps the same button width in compact layouts.
+  Busy repaints derive `CANCELLING...` from the installing version's armed cancellation Event,
+  so tab/selection refreshes cannot restore an enabled Cancel before worker acknowledgement.
 - A launch has three ordered claims: `installing_version` (cancellable install) → `launching_version`
   (install done, game not spawned) → `running_version` (process live). `set_button_mode("play")`,
   `_main_action_click`, `on_play_click` and `_begin_install_and_launch` all honour them, so a repaint
@@ -246,6 +250,11 @@ keep builders consistent with the shared `THEME` contract.
 
 ### Play and content
 
+- `content.content_mc_versions` includes both 1.20 and 1.20.1 tags for packs/shaders
+  (shared resource format 15); 1.20.0 maps to that pair. Modrinth's exact 1.20 search
+  index returns no hits despite project releases listing it. Browse, download and detail
+  compatibility share this rule; mods and instance/profile IDs keep their exact versions.
+  Search/download cache keys include candidate tags so old empty exact-filter results cannot hide fixes.
 - Mods/Modpacks use static skeletons from `ui/content_states.py`, with no shimmer daemon.
   Preserve existing rows/artwork while refreshing. Modpacks merges both providers regardless
   of completion order, retains healthy partial results, and offers Retry for failed empty
@@ -325,6 +334,9 @@ keep builders consistent with the shared `THEME` contract.
   on disk; optional log callbacks/playtime bookkeeping must not prevent exit monitoring.
 - Discord's playing status uses the launch worker's `launch_mc` and `loader_id` (for example
   `Playing Minecraft 1.21.11 (Fabric)`), never a later selection's shared `state["mod_loader"]`.
+  Discord supplies the app name; omit redundant `details="Cubeon"`. Launcher/game/exit
+  activity carries the player's public Worker `/faces/<username>.png` as `small_image`,
+  with their name in `small_text`; retain the cube artwork and playing timer.
 - A completed loader install must ADOPT its resulting instance: `do_install_and_launch` calls
   `_adopt_installed_instance(target_version, loader_id)` whenever `target_version != version_id`, which
   moves the dropdown/`state["selected_version"]`, sets `state["mod_loader"]`, and persists
@@ -333,18 +345,19 @@ keep builders consistent with the shared `THEME` contract.
   report. `tools/test_instance_install_flow.py` locks this in.
 - Version selection repaints only the badge / server-status / loader / instance regions; do not put a
   whole-page `page.update()` back on the row-click path.
-- Account and Settings are ONE centered, rounded popup (`account_panel` aligned CENTER + `account_card`),
-  not a right-hand sidebar. `_account_panel_size()` scales it to the live window (~88% x 90%, capped
-  1320x900, min 640x480) and `page.on_resize` refits it. The top account strip is ultra-compact (small
-  avatar, name, one-line username field, Upload/Remove); the "Wearing" previews were removed 2026-10-26
-  (`refresh_wearing()` is a no-op). Settings inside is a 188 px vertical rail plus a scrollable content
-  pane.
-- Settings has exactly four sections: Account (profile, updates/notifications),
-  Game (versions/window/files/backups), Performance (RAM/Java and expandable
-  **Fix problems**), Appearance (launcher/language/decorations/screenshots).
-  `select_section` maps old system/doctor/display/seasonal/images deep links to
-  their new parent and expands requested repair/gallery content. Keep the existing
-  controls and config keys; the Account picture actions name the profile picture.
+- Settings is a retained launcher tab. Its pinned rail tile and Ctrl+, navigate
+  through `switch_tab("settings")`; the account chip's `_open_account_panel`
+  compatibility callback opens its Account section without showing an overlay.
+  Mount the Settings controls only in `tabs`, never also in `account_card`.
+- Settings separates Account, Game, Performance, Appearance, Theme and decorations,
+  Notifications, Files and backups, Launcher, Fix problems, and Screenshots.
+  Rail/content scroll independently. Existing `seasonal`, `doctor`, `images`, and
+  `system` deep links select dedicated sections; `display` aliases Appearance.
+  Preserve controls/config keys and refresh the gallery on entry.
+- The RAM slider updates `cfg["ram_mb"]` on every change so the next launch uses
+  the displayed ceiling even without a release event. Disk saves happen on release
+  or blur, tracked by `_ram_saved` so unchanged events skip writes and failed saves
+  remain retryable. `test_launch_memory.py` verifies a 4 GB change over a 2 GB profile.
 - Mods is the single sidebar content destination, with visible neutral icon/text
   selectors for Mods, Modpacks, Resource Packs and Shaders. `build_mods_tab` embeds
   the retained Modpacks host; old `switch_tab("modpacks")` links select it inside Mods,
@@ -399,6 +412,17 @@ keep builders consistent with the shared `THEME` contract.
 - Rust instance scans recognize both `cubeon-prepare.json` and older verified
   beta bundles' `horizon-prepare.json`; the bundled preparer's `--check` remains
   authoritative. Validate staged resources before replacing an existing set.
+- Native startup, resource readers and mod-content stamps use
+  `cubeon_core::prepared_files::manifest_path` for both `cubeon-resources.json`
+  and legacy `horizon-resources.json`; prepared data also accepts `horizon-data.bin`.
+  Preparations remove both stamp names before work so interruption cannot validate
+  stale resources. Keep gameplay's `horizontal` vocabulary intact when rebranding.
+- Native menus use Cubeon's black/green glass controls and embedded cube mark;
+  the main title reads Minecraft / Rust Edition · Cubeon, with visible Horizon MIT
+  port credit. Theme/UI/title assets live in `cubeon-theme`, client `ui_theme.rs`/
+  `title.rs`, renderer `ui.rs`/`hud.rs`. AI Agent settings, MCP and Discord Rich
+  Presence are removed. Only explicit `--control-socket` diagnostic launches open
+  local control; legacy saved agent/RPC preferences cannot enable it.
 - Rust resources come from verified official Mojang downloads or local cache and
   are prepared locally. The pinned exporters require **exact Java 25 once**, not
   during gameplay. `_find_preparation_java` checks configured Java, PATH, JAVA_HOME,
@@ -416,8 +440,9 @@ keep builders consistent with the shared `THEME` contract.
   same-beta rebuilds; distributed installs use Cubeon's pinned release manifest.
   `.github/workflows/rust-beta.yml` builds on relevant pushes to `rust-beta-26.3`
   and has a manual trigger, producing artifacts only. Baseline Linux/Windows
-  build, CLI and preparer checks passed; new branding/full-client changes still
-  need rebuilt artifacts. Linux native rendering/save/reopen is verified; Windows
+  build, CLI and preparer checks passed. The Cubeon glass/title build and exporters
+  were rebuilt, packaged and installed locally on Linux; installed title/settings
+  captures and legacy-resource validation passed. Linux rendering/save/reopen is verified; Windows
   gameplay, public release and measured FPS remain pending. **1000 FPS is a target**, not a measured claim.
   See [Rust integration](../../docs/development/horizon-integration-plan.md).
 - Content install gating uses the selected INSTANCE's real loader (`ui/mods_tab._instance_mod_capable` ->
@@ -809,6 +834,13 @@ keep builders consistent with the shared `THEME` contract.
 - Chat is BETA-labelled in the sidebar and tab heading. Chat and the companion mod consume one
   process-scoped FriendsService; keep adaptive polling, draft preservation, read markers, and optimistic
   send/echo intact.
+- Launcher Chat uses a bounded, eagerly laid-out transcript and enables native
+  `auto_scroll` only while following the bottom. Scrolling towards older messages
+  releases it; opening a conversation, sending, or Jump to latest restores it.
+  Post-layout native following handles wrapping/resizes. `:name:` emoji completion
+  and suggestions preserve drafts; there is no manual emoji button. Composer focus
+  returns after sending/completion, and `state["chat_composing"]` blocks launcher
+  shortcuts while typing (including Shift+1 from `!`). `tools/test_chat_ux.py` covers it.
 - `FriendsClient.connect` reuses the current loop for the same name/secret. Each replacement owns a
   fresh stop event; stale socket callbacks must not change its state. The core WebSocket has finite
   upgrade/hello and ping/pong deadlines; backoff resets after `hello_ok`, never just an open socket.
@@ -930,6 +962,8 @@ keep builders consistent with the shared `THEME` contract.
   camera requests coalesce to the latest step, with no eager 60-angle orbit bake. First-frame readiness
   enables rotation immediately. Keep generation checks so old skin renders cannot overwrite a newer
   selection. `test_skin_loading.py` checks click-path work; `--native` probes pinned Flet timings/errors.
+  Vertical orbit dragging increases pitch for downward pointer movement; projected front surfaces
+  follow the pointer. Horizontal drag/arrows retain the renderer's existing yaw convention.
   Turntables and card thumbnails request `preview_faces(..., simplify=True)` to select Giant wings'
   generated four-quad cutout with its matching texture; the default helper still emits full geometry
   for renderer comparisons. Small wings/pets/packs and in-game selection/depth settings are unaffected.
@@ -1000,6 +1034,10 @@ keep builders consistent with the shared `THEME` contract.
   Arrows/Tab + Enter work in both views. Shared `EmoteWheel` caches scanline runs per size/slot count.
   26.3 uses `InputConstants` keyboard scan codes and mouse IDs (left=1, right=3), not GLFW
   symbols or older 0/1 mouse IDs; B/K default bindings must use its native constants too.
+  Custom 26.3 search fields must own `minecraft.textInputManager()` while focused,
+  stop input on removal, and report `isInputCaptured()` to block global shortcuts.
+  `charTyped()` alone receives no SDL typing without that owner. Keep the input area
+  in GUI coordinates; `TextInputManager` converts scale/pixel density itself.
   Movement/actions cancel locally
   and relay a stop. `cubeon-emote-entity/state/origin/mojang` inject into biped/humanoid posing so player
   equipment follows. Legacy hats copy the posed head; from 1.21.2 hats are children of head and
@@ -1062,6 +1100,10 @@ keep builders consistent with the shared `THEME` contract.
   `hud/CameraBlur.java` measures rendered yaw/pitch velocity against nanoseconds and a fixed 8 ms
   exposure; smoothing and cut limits use seconds, not frame counts. The shader averages 12 samples
   of the current scene only, before GUI rendering; there is no previous-image accumulation.
+  Output world color with opaque alpha: vanilla's lower sky can leave attachment alpha
+  at zero, and the legacy alpha-blended `blit` pass clears main before copying it back.
+  Preserving that zero alpha turned the lower sky black. GPU tests include zero-alpha
+  sky RGB; `test_client_263_native.py --legacy-blur` verifies the real 1.20 copy pass.
   Changed camera samples set the velocity interval; repeat samples hold the vector for at most
   12 ms so 125/1000 Hz mice do not flicker at 2000 FPS. Velocity smoothing uses 24 ms.
   The renderer lives in `hud.blur`, hooks in `hud.blur.mixin`: ordinary helpers must stay outside
@@ -1138,8 +1180,12 @@ keep builders consistent with the shared `THEME` contract.
   `test_freelook.py` exercises production state/controller/input/camera callbacks;
   `--targets` additionally audits every cached mapped game JAR. Builds/bytecode checks do not
   replace a real in-game recording test with other camera mods installed.
-- Hold-to-zoom is Yarn-only (`zoom-double` for 1.20-1.21.1 where `GameRenderer.getFov` returns `double`,
-  `zoom-float` for 1.21.2-1.21.11 where it returns `float`); 26.x moved the FOV path and is not ported.
+- Hold-to-zoom uses `zoom-double` for 1.20-1.21.1 where `GameRenderer.getFov` returns `double`,
+  `zoom-float` for 1.21.2-1.21.11 where it returns `float`, and `zoom-26.3` on 26.3.
+  The 26.3 hook narrows `Camera.calculateFov(float)` before projection construction,
+  with SDL Z and `MouseHandler.onScroll`. Its smoothed look shares the sole
+  `FreelookLookMixin` redirect; `${zoom_look_mixin}` omits a competing ZoomLookMixin.
+  Older 26.1/26.2 brackets keep their existing separate support.
   `Zoom.java` (shared, Minecraft-free) owns the wall-clock easing and the wheel target; `ZoomMixin` reads
   `CubeonHudKeybinds.zoomActive()` and multiplies the FOV return, `ZoomScrollMixin` cancels only the
   notches that adjust zoom (so the hotbar does not change). `ZoomLookMixin` redirects Mouse's

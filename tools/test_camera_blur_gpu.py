@@ -99,6 +99,13 @@ for resource in sorted(ROOT.glob("resources-overlay-camera-blur-*")):
         upload(solid)
         result = draw(.06, .025)
         assert all(abs(a-b) <= 1 for a, b in zip(result, solid)), "No prior-frame ghost or dark borders allowed"
+    # Vanilla's lower sky can have RGB sky color with alpha zero. The legacy
+    # second pass uses alpha blending after clearing main: zero alpha made it black.
+    transparent_sky = bytes((37, 126, 220, 0)) * (width * height)
+    upload(transparent_sky)
+    result = draw(.06, .025)
+    assert all(abs(result[i + c] - (37, 126, 220, 255)[c]) <= 1
+               for i in range(0, len(result), 4) for c in range(4)), "Sky RGB must survive zero attachment alpha"
     assert GL.glGetError() == GL.GL_NO_ERROR
     if ubo:
         GL.glDeleteBuffers(1, [ubo])

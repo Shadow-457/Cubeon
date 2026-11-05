@@ -842,6 +842,20 @@ def content_compat(content_type: str, filename: str,
 # just a different project_type facet).
 # ---------------------------------------------------------------------------
 
+def content_mc_versions(mc_version: str | None) -> list[str]:
+    """Provider tags for packs that work on the selected Minecraft release.
+
+    1.20 and 1.20.1 share resource format 15 and shader support. Authors
+    commonly tag only 1.20.1; an exact 1.20 tag hides those packs. Keep this
+    separate from mod compatibility and instance/profile identifiers.
+    """
+    if mc_version in ("1.20", "1.20.0"):
+        return ["1.20", "1.20.1"]
+    if mc_version == "1.20.1":
+        return ["1.20.1", "1.20"]
+    return [mc_version] if mc_version else []
+
+
 def search_content(content_type: str, query: str, mc_version: str | None = None,
                     categories: list[str] | None = None, limit: int = 100,
                     offset: int = 0) -> list[dict]:
@@ -856,13 +870,15 @@ def search_content(content_type: str, query: str, mc_version: str | None = None,
     cache key, so pages cache independently."""
     project_type = _cfg(content_type)["project_type"]
     facets = [[f"project_type:{project_type}"]]
-    if mc_version:
-        facets.append([f"versions:{mc_version}"])
+    game_versions = content_mc_versions(mc_version)
+    if game_versions:
+        facets.append([f"versions:{version}" for version in game_versions])
     if categories:
         facets.append([f"categories:{c}" for c in categories])
 
     cache_key = {
         "type": content_type, "query": query, "mc_version": mc_version,
+        "game_versions": game_versions,
         "categories": categories or [], "limit": limit, "offset": offset,
     }
 
@@ -915,17 +931,25 @@ def get_content_download(content_type: str, project_id_or_slug: str,
     version when given. Returns {filename, url, size_kb, version_number} or
     None if no matching version exists. No loader filter - see search_content."""
     params = {}
-    if mc_version:
-        params["game_versions"] = json.dumps([mc_version])
+    game_versions = content_mc_versions(mc_version)
+    if game_versions:
+        params["game_versions"] = json.dumps(game_versions)
 
-    cache_key = {"type": content_type, "project": project_id_or_slug, "mc_version": mc_version, 'revision': 2}
+    cache_key = {"type": content_type, "project": project_id_or_slug, "mc_version": mc_version,
+                 "game_versions": game_versions, 'revision': 2}
 
     def _fetch():
         versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
             params=params, headers=modrinth_headers(), timeout=15,
         )
-        return _select_download(versions, mc_version=mc_version, extensions=_cfg(content_type)['exts'])
+        # Prefer an exact tagged release before the compatible patch tag.
+        for candidate in game_versions or [None]:
+            selected = _select_download(versions, mc_version=candidate,
+                                        extensions=_cfg(content_type)['exts'])
+            if selected:
+                return selected
+        return None
 
     # Between click and download start - 24h fresh, then SWR, offline fallback.
     return local_cache.cached_call("content_download", cache_key, _fetch, max_age=86400)

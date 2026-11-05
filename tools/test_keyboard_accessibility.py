@@ -1,7 +1,6 @@
-"""Custom keyboard targets and overlay shortcuts must preserve action gates."""
+"""Custom keyboard targets, dialogs and Settings preserve action gates."""
 import os
 import sys
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -61,45 +60,33 @@ def closed_over(fn, name):
     return dict(zip(fn.__code__.co_freevars, fn.__closure__))[name].cell_contents
 
 
-close_panel = closed_over(key, '_close_account_panel')
-open_panel = closed_over(closed_over(key, 'switch_tab'), '_open_account_panel')
-panel = closed_over(close_panel, 'account_panel')
-scrim = closed_over(close_panel, 'account_scrim')
-pending_fades, pending_retire = [], []
-run_task = page.run_task
-real_timer = stubs.app.threading.Timer
-
-
-def hold_fade(handler, *args, **kwargs):
-    if handler.__name__ == '_fade_account_in':
-        pending_fades.append(handler)
-        return None
-    return run_task(handler, *args, **kwargs)
-
-
-def hold_retire(delay, handler, *args, **kwargs):
-    if handler.__name__ == '_retire_scrim':
-        pending_retire.append(handler)
-        return SimpleNamespace(start=lambda: None, daemon=False)
-    return real_timer(delay, handler, *args, **kwargs)
-
-
-with patch.object(page, 'run_task', side_effect=hold_fade), \
-        patch.object(stubs.app.threading, 'Timer', side_effect=hold_retire):
-    send(',', ctrl=True)
-    assert panel.visible and pending_fades
-    close_panel()
-    asyncio.run(pending_fades.pop(0)())
-    assert panel.opacity == 0, 'late entrance resurrected a dismissed popup'
-    stale_retire = pending_retire.pop(0)
-    # Reopening is still opacity 0 until its pending entrance paints.
-    open_panel()
-    stale_retire()
-    assert panel.visible and scrim.visible, 'old close timer hid a reopened popup'
-    asyncio.run(pending_fades.pop(0)())
-    assert panel.opacity == 1
-    close_panel()
-    pending_retire.pop(0)()
-    assert not panel.visible and not scrim.visible
-
-print('PASS: native targets preserve action gates; modal shortcuts and popup fade races are safe')
+switch_tab = closed_over(key, 'switch_tab')
+active = closed_over(switch_tab, 'active_tab')
+views = closed_over(switch_tab, '_tab_views')
+send(',', ctrl=True)
+assert active['value'] == 'settings', 'Settings shortcut must navigate to its tab'
+assert views['settings'].visible and not views['play'].visible
+assert not any(getattr(control, 'visible', False) for control in page.overlay
+               if getattr(control, 'content', None) is not None
+               and getattr(control.content, 'shadow', None)), 'Settings opened a floating card'
+cell.cell_contents = lambda: clicks.append('settings-launch')
+try:
+    send('Enter', ctrl=True)
+    assert 'settings-launch' not in clicks, 'Play shortcut activated while editing Settings'
+finally:
+    cell.cell_contents = original
+settings = closed_over(switch_tab, 'tabs')['settings']
+select = closed_over(settings.select_section, '_select_section') if '_select_section' in settings.select_section.__code__.co_freevars else settings.select_section
+panes = closed_over(select, 'panes')
+assert {'notifications', 'storage', 'seasonal', 'doctor', 'images', 'system'} <= set(panes)
+for section in panes:
+    settings.select_section(section)
+    assert [name for name, pane in panes.items() if pane.visible] == [section]
+switch_tab('chat')
+assert not views['settings'].visible, 'Settings stayed on top of Chat'
+state = closed_over(switch_tab, 'state')
+state['chat_composing'] = True
+send('!', shift=True)
+assert active['value'] == 'chat', 'Typing ! in Chat activated the Shift+1 navigation shortcut'
+state['chat_composing'] = False
+print('PASS: keyboard targets and modal gates; Settings tab and separate sections')

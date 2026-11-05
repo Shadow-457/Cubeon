@@ -12,5 +12,6 @@ void main() {
         vec2 uv = clamp(texCoord + BlurVector * offset, halfTexel, vec2(1.0) - halfTexel);
         total += texture(DiffuseSampler, uv);
     }
-    fragColor = total / 12.0;
+    // World color is opaque even where the sky leaves attachment alpha at zero.
+    fragColor = vec4(total.rgb / 12.0, 1.0);
 }

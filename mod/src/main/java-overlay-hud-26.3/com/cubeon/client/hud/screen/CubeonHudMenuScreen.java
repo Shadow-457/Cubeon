@@ -44,6 +44,12 @@ public final class CubeonHudMenuScreen extends Screen {
     @Override public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
         menu.render(canvas(graphics), this.width, this.height, mouseX, mouseY, settings);
+        syncTextInput();
+        var search = menu.control(HudMenu.SEARCH);
+        if (menu.searchFocused() && search != null) {
+            minecraft.textInputManager().setTextInputArea(search.x(), search.y(),
+                    search.x() + search.w(), search.y() + search.h());
+        }
     }
 
     private ClientUi.Canvas canvas(GuiGraphicsExtractor graphics) { return new ClientUi.Canvas() {
@@ -66,8 +72,17 @@ public final class CubeonHudMenuScreen extends Screen {
         return super.mouseClicked(event, doubleClick);
     }
     @Override public boolean keyPressed(KeyEvent event) {
-        return key(event.key()) || super.keyPressed(event);
+        boolean handled = key(event.key()) || super.keyPressed(event);
+        syncTextInput();
+        return handled;
     }
+
+    // SDL only delivers CharacterEvents while a text-input owner is active.
+    private void syncTextInput() {
+        if (minecraft.gui.screen() == this)
+            minecraft.textInputManager().onTextInputFocusChange(this, menu.searchFocused());
+    }
+    @Override public boolean isInputCaptured() { return menu.searchFocused(); }
 
     @Override public boolean charTyped(net.minecraft.client.input.CharacterEvent event) {
         return menu.type(event.codepoint()) || super.charTyped(event);
@@ -80,7 +95,7 @@ public final class CubeonHudMenuScreen extends Screen {
         if (key == InputConstants.KEY_ESCAPE && menu.back()) return true;
         if (key == InputConstants.KEY_BACKSPACE && menu.backspace()) return true;
         if (menu.searchFocused()) {
-            if (key == InputConstants.KEY_RETURN) menu.activate(HudMenu.NONE);
+            if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) menu.activate(HudMenu.NONE);
             return true;
         }
         if (key == InputConstants.KEY_SLASH) { menu.focusSearchShortcut(); return true; }
@@ -96,7 +111,8 @@ public final class CubeonHudMenuScreen extends Screen {
 
     private boolean choose(int action) {
         if (action < 0 || action >= HudMenu.ACTION_COUNT) return false;
-        if (menu.activate(action)) return true;
+        if (menu.activate(action)) { syncTextInput(); return true; }
+        syncTextInput();
         CubeonHudConfig config = CubeonHudConfig.get();
         int overlayIndex = HudMenu.overlayIndex(action);
         if (overlayIndex >= 0) {
@@ -142,7 +158,10 @@ public final class CubeonHudMenuScreen extends Screen {
         return true;
     }
 
-    @Override public void removed() { CubeonHudConfig.save(); }
+    @Override public void removed() {
+        minecraft.textInputManager().stopTextInput(this);
+        CubeonHudConfig.save();
+    }
     @Override public void onClose() {
         CubeonHudConfig.save();
         if (this.minecraft != null) this.minecraft.gui.setScreen(null);

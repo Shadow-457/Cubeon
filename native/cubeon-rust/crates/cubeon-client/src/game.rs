@@ -123,6 +123,9 @@ mod events;
 mod execution_role;
 mod explosion;
 mod extras;
+mod companion;
+mod companion_emotes;
+mod companion_hud;
 mod falling_damage;
 mod fangs;
 mod fireworks;
@@ -2881,6 +2884,8 @@ struct Game<'a> {
     frame_graph: cubeon_client::perf_overlay::FrameGraph,
     /// Cubeon's extras (minimap, auto-reconnect; mods' counters): `game/extras.rs`.
     extras: extras::ExtrasState,
+    companion: companion::Companion,
+    cubeon_skins: Option<cubeon_client::cubeon_skins::Service>,
     /// Cubeon mods (`game/mods.rs`), none running unless turned on.
     mods: mods::ModsState,
     /// Every item and recipe, for mods (`game/native_recipes.rs`), made once.
@@ -7845,6 +7850,7 @@ impl Game<'_> {
     }
     /// Apply a physical key to every mapping bound to it.
     fn mapped_key_event(&mut self, key: KeyCode, pressed: bool, repeat: bool) -> Result<()> {
+        if self.cubeon_key(key, pressed, repeat) { return Ok(()); }
         for mapped in self.settings.keys.translate_all(key) {
             match mapped {
                 Ok(k) => {
@@ -17023,7 +17029,7 @@ impl ApplicationHandler for Game<'_> {
         let size = self.options.window_size.map(f64::from);
         self.fullscreen = cubeon_client::window::FullscreenState::new(fullscreen);
         let attributes = Window::default_attributes()
-            .with_title("Cubeon Rust · Beta")
+            .with_title("Minecraft Rust Edition · Cubeon")
             .with_window_icon(cubeon_client::window::icon());
         // Wayland names the window by its app id, which the cubeon.desktop entry matches.
         #[cfg(target_os = "linux")]
@@ -19141,6 +19147,7 @@ impl<'a> Game<'a> {
             pending_uploads: Vec::new(),
             frame_graph: Default::default(),
             extras: Default::default(),
+            cubeon_skins: None,
             mods: Default::default(),
             recipe_tables: Default::default(),
             panel: Default::default(),
@@ -20975,7 +20982,7 @@ impl Loading {
             .map(f64::from);
         self.fullscreen = cubeon_client::window::FullscreenState::new(fullscreen);
         let attributes = Window::default_attributes()
-            .with_title("Cubeon Rust · Beta")
+            .with_title("Minecraft Rust Edition · Cubeon")
             .with_window_icon(cubeon_client::window::icon());
         // Wayland names the window by its app id, which the cubeon.desktop entry matches.
         #[cfg(target_os = "linux")]

@@ -962,6 +962,7 @@ pub fn setup(
             }
             humanoid(p, s, &h);
             if player {
+                crate::cubeon_emotes::apply(m, p);
                 player_model_visibility(p, m.extra.hidden_model_parts, m.extra.spectator);
             }
             if m.ai.aggressive && !bow {

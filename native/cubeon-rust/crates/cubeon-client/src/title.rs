@@ -92,15 +92,18 @@ fn recover_issues(dir: &Path) -> [Option<crate::save::DatIssue>; 2] {
 /// The SafetyScreen's column (WarningScreen: title, 12 px around the message
 /// box of its lines and 4 px padding, the checkbox, then the buttons, 8 px
 /// apart): the title's top.
-/// Cubeon's mark and wordmark, shared by the title and onboarding screens.
+/// Minecraft Rust Edition title with Cubeon branding, also used by onboarding.
 fn draw_logo(atlas: &HudAtlas, batch: &mut HudBatch, w: f32) {
     use crate::ui_theme::{Face, Ui, color};
-    batch.sprite_scaled(atlas, "cubeon/logo", w / 2.0 - 91.0, 30.0, 40.0, 40.0, u32::MAX);
     let density = batch.scale;
     let mut ui = Ui::new(atlas, batch, (0.0, 0.0));
     ui.density = density;
-    ui.text(Face::SemiBold, 30.0, w / 2.0 - 40.0, 26.0, color::TEXT, "Cubeon");
-    ui.text(Face::Mono, 9.0, w / 2.0 - 38.0, 64.0, color::MUTED, "RUST EDITION · BETA");
+    let label_width = ui.measure(Face::SemiBold, 30.0, "Minecraft")
+        .max(ui.measure(Face::Mono, 9.0, "RUST EDITION · CUBEON"));
+    let left = (w - label_width - 51.0) / 2.0;
+    ui.batch.sprite_scaled(atlas, "cubeon/logo", left, 30.0, 40.0, 40.0, u32::MAX);
+    ui.text(Face::SemiBold, 30.0, left + 51.0, 26.0, color::TEXT, "Minecraft");
+    ui.text(Face::Mono, 9.0, left + 51.0, 64.0, color::MUTED, "RUST EDITION · CUBEON");
     ui.finish();
 }
 
@@ -3125,28 +3128,11 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
             crate::widgets::widget_cursor(inside, b.enabled);
             let is_focused = self.focused_button == Some(b.id);
             let hover = b.enabled && (inside || is_focused);
-            let sprite = if !b.enabled {
-                "gui/sprites/widget/button_disabled"
-            } else if hover {
-                "gui/sprites/widget/button_highlighted"
-            } else {
-                "gui/sprites/widget/button"
-            };
-            // Nine-slice approximation: left and right halves of the 200-wide sprite.
-            if let Some(r) = atlas.sprites.get(sprite).copied() {
-                let half = b.w / 2.0;
-                let mut left = r;
-                left.u1 = r.u0 + (r.u1 - r.u0) * (half / r.w as f32);
-                batch.rect_uv(b.x, b.y, half, 20.0, left, u32::MAX);
-                let mut right = r;
-                right.u0 = r.u1 - (r.u1 - r.u0) * (half / r.w as f32);
-                batch.rect_uv(b.x + half, b.y, half, 20.0, right, u32::MAX);
-            }
-            let color = if b.enabled {
-                u32::MAX
-            } else {
-                rgba(160, 160, 160, 255)
-            };
+            crate::ui::glass_panel(batch, atlas, [b.x, b.y, b.w, 20.0], hover, b.enabled);
+            let color = crate::ui::theme_color(
+                if b.enabled { cubeon_theme::DARK.ink } else { cubeon_theme::DARK.muted },
+                255,
+            );
             if let Some((icon, size)) = b.icon {
                 // CenteredIcon divides the button and sprite sizes separately:
                 // a 15px icon in a 20px button starts at 10 - 7 = 3, not 2.

@@ -230,6 +230,52 @@ class ContentAudit(unittest.TestCase):
         result = mods._select_download(versions, mc_version='1.21.11', extensions=('.zip',))
         self.assertEqual(result['filename'], 'good.zip'); self.assertEqual(result['size_kb'], 0)
 
+    def test_120_browse_includes_compatible_patch_tags_and_preserves_filters(self):
+        for kind in ('resourcepack', 'shader'):
+            for mc in ('1.20', '1.20.0'):
+                with self.subTest(kind=kind, mc=mc):
+                    old_key = dict(type=kind, query='test', mc_version=mc,
+                                   categories=['realistic'], limit=24, offset=24)
+                    content.local_cache.set('search_content', old_key, [])
+
+                    def search(url, **kwargs):
+                        params = kwargs['params']
+                        facets = json.loads(params['facets'])
+                        self.assertIn(['versions:1.20', 'versions:1.20.1'], facets)
+                        self.assertIn([f'project_type:{kind}'], facets)
+                        self.assertIn(['categories:realistic'], facets)
+                        self.assertEqual(params['offset'], '24')
+                        self.assertEqual(params['limit'], '24')
+                        return {'hits': [{'project_id': 'compatible', 'slug': 'compatible'}]}
+
+                    with patch.object(content.net, 'get_json', side_effect=search) as network:
+                        found = content.search_content(kind, 'test', mc, ['realistic'], 24, 24)
+                    self.assertEqual(found[0]['slug'], 'compatible')
+                    self.assertEqual(network.call_count, 1)
+
+    def test_120_download_prefers_exact_then_compatible_zip_and_rejects_other_formats(self):
+        def release(mc, filename):
+            return {'game_versions': [mc], 'files': [{'filename': filename, 'url': 'https://cdn.modrinth.com/' + filename}]}
+
+        for kind in ('shader', 'resourcepack'):
+            for mc in ('1.20', '1.20.0'):
+                with self.subTest(kind=kind, mc=mc):
+                    versions = [release('1.20.2', 'wrong-format.zip'),
+                                release('1.20.1', 'not-a-pack.jar'),
+                                release('1.20.1', 'compatible.zip')]
+                    with patch.object(content.net, 'get_json', return_value=versions) as network:
+                        found = content.get_content_download(kind, 'patch-' + mc, mc)
+                    self.assertEqual(found['filename'], 'compatible.zip')
+                    self.assertEqual(json.loads(network.call_args.kwargs['params']['game_versions']), ['1.20', '1.20.1'])
+                    versions.append(release('1.20', 'exact.zip'))
+                    with patch.object(content.net, 'get_json', return_value=versions):
+                        found = content.get_content_download(kind, 'exact-' + mc, mc)
+                    self.assertEqual(found['filename'], 'exact.zip')
+                    with patch.object(content.net, 'get_json', return_value=versions[:1]):
+                        self.assertIsNone(content.get_content_download(kind, 'wrong-' + mc, mc))
+        self.assertEqual(content.content_mc_versions('1.20.2'), ['1.20.2'])
+        self.assertEqual(content.content_mc_versions('26.3'), ['26.3'])
+
     def test_redirects_validate_each_hop_before_request(self):
         class Response:
             status_code = 302

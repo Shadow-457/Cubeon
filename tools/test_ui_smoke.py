@@ -1316,12 +1316,13 @@ def _fn_body(source, name):
     return seg[:m.start() + 1] if m else seg
 _open_src = _fn_body(_src_main, "def _open_account_panel")
 _close_src = _fn_body(_src_main, "def _close_account_panel")
-check("account panel open/close use per-control diffs, not page.update()",
+check("account entry opens its Settings section with scoped refresh",
       not _re.search(r"^\s*page\.update\(\)", _open_src, _re.M)
       and not _re.search(r"^\s*page\.update\(\)", _close_src, _re.M)
-      and "thread_safe_ui.refresh(account_scrim)" in _open_src
-      and "thread_safe_ui.refresh(account_panel)" in _open_src,
-      "a page.update() call in the panel handlers is the full-app-reload jank")
+      and 'switch_tab("settings")' in _open_src
+      and 'settings_tab.select_section("account")' in _open_src
+      and "thread_safe_ui.refresh(account_pane)" in _open_src,
+      "account controls stay mounted once in Settings")
 
 # --- Browse/Installed view tabs on every content surface ------------------------
 # User request (2026-09-09): mods/resourcepacks/shaders, modpacks and plugins
@@ -1458,11 +1459,11 @@ _screenshot_tab_src = (open(_screenshot_tab_path, encoding="utf-8").read()
                        if os.path.exists(_screenshot_tab_path) else "")
 check("screenshot gallery is in Settings, not Cosmetics",
       "def build_screenshot_gallery_tab" in _screenshot_tab_src
-      and "data='settings-screenshots'" in open(
+      and "screenshots_pane = pane('Screenshots', images_pane)" in open(
           os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
       and "screenshot_gallery=screenshot_gallery_tab" in _main_src
       and "refresh_screenshot_gallery=refresh_screenshot_gallery" in _main_src
-      and "requested == 'images'" in open(
+      and "if key == 'images':" in open(
           os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
       and "screenshot_gallery" not in open(
           os.path.join(_app_root, "ui", "skin_tab.py"), encoding="utf-8").read()
@@ -2437,13 +2438,15 @@ check("the Settings row exists on every supported platform",
       and "if custom_chrome_cb is not None:" in open(
           os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read(),
       "macOS keeps the native frame, so the row is absent there")
-_overlay_text = []
-for _o in getattr(page, "overlay", []) or []:
-    _overlay_text.extend(all_text(_o))
+_nav_settings = next(c for c in walk(page.controls[0])
+                     if getattr(c, 'tooltip', '') == 'Settings'
+                     and callable(getattr(c, 'on_click', None)))
+_nav_settings.on_click(types.SimpleNamespace(control=_nav_settings))
+_settings_text = [text for control in page.controls for text in all_text(control)]
 check("the Linux build mounts the Custom title bar row",
       sys.platform.startswith("linux")
-      and any("custom title bar" in t for t in _overlay_text),
-      "the toggle is in the Account+Settings popup, not the Play tab")
+      and any("custom title bar" in t for t in _settings_text),
+      "the toggle is retained inside the Settings tab")
 
 print(f"\n{passed} passed, {failed} failed")
 print("Smoke test complete: " + ("FAIL" if failed else "PASS"))

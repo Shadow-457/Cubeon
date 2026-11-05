@@ -4,8 +4,7 @@
   "compatibilityLevel": "JAVA_17",
   "client": [
     "ZoomMixin",
-    "ZoomScrollMixin",
-    "ZoomLookMixin"
+    "ZoomScrollMixin"${zoom_look_mixin}
   ],
   "injectors": {
     "defaultRequire": 0

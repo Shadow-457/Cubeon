@@ -106,6 +106,34 @@ class DeferredThread:
 
 
 with patch("main.threading.Thread", DeferredThread):
+    # Cancellation remains claimed until the worker acknowledges its Event.
+    on_cancel = function_from_controls(controls, "on_cancel_install")
+    switch_tab = function_from_controls(controls, "switch_tab")
+    sync_button = function_from_controls(controls, "_sync_play_button")
+    cancel = scope["_cancel_event"]("1.20.1")
+    state["installing_version"] = "1.20.1"
+    cancel.clear()
+    set_button_mode("busy")
+    on_cancel()
+    switch_tab("mods")
+    switch_tab("play")
+    check("returning from Mods preserves the pending cancellation",
+          cancel.is_set() and play_button.disabled and play_text.value == "CANCELLING...")
+    keyboard = play_button.cubeon_keyboard_button
+    check("the keyboard action stays disabled while cancelling", keyboard.disabled)
+    for mode in ("busy", "play", "download", "install_loader"):
+        set_button_mode(mode)
+        check(f"a stale {mode} repaint cannot offer Cancel again",
+              play_button.disabled and play_text.value == "CANCELLING...")
+    state["installing_version"] = None
+    sync_button()
+    check("acknowledged cancellation restores Play", not play_button.disabled and play_text.value == "PLAY")
+    cancel.clear()
+    state["installing_version"] = "1.20.1"
+    set_button_mode("busy")
+    check("a fresh install has its own active Cancel", not play_button.disabled and play_text.value == "CANCEL")
+    state["installing_version"] = None
+
     # --- the window between "install done" and "game running" --------------
     state["installing_version"] = None
     state["launching_version"] = "1.20.1"

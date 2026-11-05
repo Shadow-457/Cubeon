@@ -22,6 +22,7 @@ import weakref
 import flet as ft
 from cubeon import i18n
 from cubeon.mod_loaders import MOD_CAPABLE_LOADERS
+from cubeon.content import content_mc_versions
 
 from cubeon.theme import (  # design system: corner radius, on-accent fg, hover states
     RADIUS, ON_ACCENT, ACCENT_HI, INFO, attach_hover,
@@ -2288,6 +2289,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 versions = core.get_mod_versions(
                     ref, mc_version=detail_search_mc,
                     loader=detail_loader if content_type == "mod" else None)
+                if content_type != "mod":
+                    candidates = content_mc_versions(detail_search_mc)
+                    versions = [dict(v, compatible=(not candidates or any(
+                        candidate in (v.get("game_versions") or []) for candidate in candidates)))
+                        for v in versions]
             except Exception:
                 versions = []
             try:

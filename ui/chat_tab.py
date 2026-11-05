@@ -59,8 +59,10 @@ Design rules it follows:
 import base64
 from copy import deepcopy
 import os
+import re
 import threading
 import time
+import unicodedata
 
 import flet as ft
 from cubeon import i18n
@@ -68,7 +70,7 @@ from cubeon import i18n
 from cubeon.theme import (
     RADIUS, ON_ACCENT, WARNING, TEXT_FAINT, ACCENT_HI,
     CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT,
-    AVATAR_COLORS, attach_hover,
+    AVATAR_COLORS, attach_hover, keyboard_target,
 )
 from cubeon.config import validate_username
 from cubeon import dialogs as _dialogs
@@ -106,6 +108,29 @@ _MAX_TRANSCRIPT = 400
 _BUBBLE_MAX = 560
 _BUBBLE_MIN = 88
 _CHAR_PX = 6.8
+
+# Local text aliases only: no relay, plugin or platform emoji dependency.
+_EMOJI_GROUPS = {
+    "Everyday": {
+        "smile": "😄", "grin": "😀", "joy": "😂", "sweat_smile": "😅",
+        "heart_eyes": "😍", "sunglasses": "😎", "thinking": "🤔", "wave": "👋",
+        "thumbsup": "👍", "clap": "👏", "heart": "❤️", "fire": "🔥",
+        "party": "🥳", "tada": "🎉", "eyes": "👀", "skull": "💀",
+        "cry": "😢", "sleeping": "😴", "handshake": "🤝", "check": "✅",
+    },
+    "Minecraft": {
+        "video_game": "🎮", "pickaxe": "⛏️", "swords": "⚔️", "brick": "🧱",
+        "diamond": "💎", "tree": "🌳", "pig": "🐷", "boom": "💥",
+    },
+}
+_EMOJI_CODES = {code: emoji for group in _EMOJI_GROUPS.values() for code, emoji in group.items()}
+_EMOJI_CODES.update({"+1": "👍", "-1": "👎", "laughing": "😆", "blush": "😊",
+                     "wink": "😉", "sob": "😭", "ok_hand": "👌", "pray": "🙏",
+                     "muscle": "💪", "100": "💯", "rocket": "🚀", "grinning": "😀"})
+
+
+def _expand_emoji_codes(text):
+    return re.sub(r":([a-z0-9_+-]+):", lambda m: _EMOJI_CODES.get(m[1], m[0]), text)
 
 
 def _fmt_time(ts_ms) -> str:
@@ -250,6 +275,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     # switches and tab closes within the session (the tab stays mounted once
     # built; a fresh launch starts with empty drafts).
     _drafts = {}
+    _filter = {"v": "all"}
+    _pane_width = {"v": None}
+    _add_busy = {"v": False}
     # Outgoing requests the user cancelled THIS session. The row is hidden
     # immediately on a successful decline; the marker is dropped as soon as the
     # roster itself stops listing the name. Long-term the removal is durable -
@@ -263,6 +291,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     stop = threading.Event()
 
     # --- controls --------------------------------------------------------
+    def _refresh(*controls):
+        for control in controls:
+            thread_safe_ui.refresh(control)
+
     you_avatar = ft.Container(width=34, height=34, border_radius=RADIUS)
     conn_dot = ft.Container(width=8, height=8, border_radius=4,
                             bgcolor=TEXT_FAINT)
@@ -308,11 +340,43 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         on_submit=lambda e: _do_add(),
     )
 
+    def _focus(control):
+        try:
+            page.run_task(control.focus)
+        except Exception:
+            pass
+
+    def _toggle_add(_e=None, open_=None):
+        with thread_safe_ui.TREE_LOCK:
+            add_panel.visible = not add_panel.visible if open_ is None else open_
+            add_toggle.selected = add_panel.visible
+            _refresh(add_panel, add_toggle)
+        if add_panel.visible:
+            _focus(add_field)
+
+    add_toggle = ft.IconButton(
+        icon=ft.Icons.PERSON_ADD_ROUNDED, icon_color=ACCENT, icon_size=20,
+        tooltip="Add a friend", on_click=_toggle_add,
+    )
+    add_submit = ft.TextButton(
+        "Send friend request", icon=ft.Icons.ARROW_FORWARD_ROUNDED,
+        on_click=lambda e: _do_add(), style=ft.ButtonStyle(color=ACCENT),
+    )
+    add_panel = ft.Container(
+        content=ft.Column([
+            ft.Text("Ask your friend for their 8-digit Cubeon ID.",
+                    size=11, color=TEXT_DIM),
+            add_field,
+            add_submit,
+        ], spacing=8, tight=True),
+        padding=12, bgcolor=CARD_FILL, border_radius=RADIUS, visible=False,
+    )
+
     # Client-side roster filter: narrows the Friends list by name (or ID)
     # without touching the service - every keystroke just re-renders the
     # matching rows from the last roster snapshot.
     find_field = ft.TextField(
-        hint_text="Find a friend…",
+        hint_text="Search name or ID",
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
         border_color=CARD_BORDER,
         focused_border_color=ACCENT,
@@ -329,7 +393,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     requests_label = section_label(i18n.t("Requests"))
     requests_col = ft.Column(spacing=8)
     friends_label = section_label(i18n.t("Friends"))
+    friends_count = ft.Text("", size=11, color=TEXT_FAINT)
     friends_col = ft.Column(spacing=4)
+
+    def _choose_filter(value):
+        with thread_safe_ui.TREE_LOCK:
+            _filter["v"] = value
+            _rebuild_friends(_last_roster["v"] or {})
+
+    all_filter = ft.TextButton("All", on_click=lambda e: _choose_filter("all"))
+    unread_filter = ft.TextButton("Unread", on_click=lambda e: _choose_filter("unread"))
+    filter_row = ft.Row([all_filter, unread_filter], spacing=4)
 
     transcript_header = ft.Text("", size=16, color=TEXT,
                                 weight=ft.FontWeight.W_700, max_lines=1,
@@ -337,15 +411,19 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     transcript_sub = ft.Text("", size=11, color=TEXT_FAINT)
     header_avatar = ft.Container(width=36, height=36, border_radius=RADIUS,
                                  visible=False)
+    peer_id_btn = ft.IconButton(
+        icon=ft.Icons.CONTENT_COPY_ROUNDED, icon_size=16, icon_color=TEXT_DIM,
+        tooltip="Copy friend's Cubeon ID", visible=False,
+        on_click=lambda e: _copy_peer_id(),
+    )
     remove_btn = ft.IconButton(icon=ft.Icons.PERSON_REMOVE_ROUNDED,
                                icon_size=18, icon_color=TEXT_DIM,
                                hover_color=DANGER,
                                tooltip="Remove friend", visible=False)
-    # auto_scroll=False on purpose: it slams to the newest line on EVERY
-    # control update, which makes reading history impossible. _stick_bottom()
-    # reproduces the good half (follow new messages) only while the user is
-    # already at the bottom - tracked by the on_scroll handler.
+    # Native following is enabled only at the bottom. Reading older messages
+    # releases it; opening a conversation or Jump to latest enables it again.
     transcript = ft.ListView(expand=True, spacing=0, auto_scroll=False,
+                             build_controls_on_demand=False,
                              on_scroll=lambda e: _on_transcript_scroll(e),
                              scroll_interval=50,
                              padding=ft.padding.Padding.symmetric(
@@ -353,29 +431,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     # "Jump to newest" pill: appears while the view is scrolled up and sends
     # the transcript back to the bottom with one click.
+    jump_button = ft.TextButton(
+        "Jump to latest", icon=ft.Icons.VERTICAL_ALIGN_BOTTOM_ROUNDED,
+        style=ft.ButtonStyle(color=ACCENT, bgcolor=SURFACE_HI),
+        on_click=lambda e: _stick_bottom(force=True),
+    )
     jump_row = ft.Container(
         content=ft.Row(
             [
                 ft.Container(expand=True),
-                ft.Container(
-                    content=ft.Row(
-                        [
-                            ft.Icon(ft.Icons.VERTICAL_ALIGN_BOTTOM_ROUNDED,
-                                    size=15, color=ACCENT),
-                            ft.Text("Newest", size=11, color=ACCENT,
-                                    weight=ft.FontWeight.W_600),
-                        ],
-                        spacing=4, tight=True,
-                        alignment=ft.MainAxisAlignment.CENTER,
-                    ),
-                    bgcolor=SURFACE_HI,
-                    border=ft.border.Border.all(1, ACCENT_DIM),
-                    border_radius=RADIUS,
-                    padding=ft.padding.Padding.symmetric(horizontal=12,
-                                                         vertical=8),
-                    ink=False,
-                    on_click=lambda e: _stick_bottom(force=True),
-                ),
+                jump_button,
+                ft.Container(expand=True),
             ],
             tight=True,
         ),
@@ -385,14 +451,27 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _on_composer_change(_e=None):
         """Keep the open conversation's draft fresh while typing, so leaving
         the conversation (or the tab) never loses what was half-typed."""
-        key = selected["name"]
-        if not key:
-            return
-        value = composer.value or ""
-        if value.strip():
-            _drafts[key] = value
-        else:
-            _drafts.pop(key, None)
+        with thread_safe_ui.TREE_LOCK:
+            key = selected["name"]
+            if not key:
+                return
+            value = composer.value or ""
+            expanded = _expand_emoji_codes(value)
+            if expanded != value:
+                composer.value = expanded
+                value = expanded
+                thread_safe_ui.refresh(composer)
+                _focus(composer)
+            if value.strip():
+                _drafts[key] = value
+            else:
+                _drafts.pop(key, None)
+            _sync_composer()
+            _sync_emoji_suggestions()
+
+    def _composer_focus(focused):
+        with thread_safe_ui.TREE_LOCK:
+            state["chat_composing"] = focused
 
     composer = ft.TextField(
         hint_text=i18n.t("Message..."),
@@ -401,6 +480,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         color=TEXT,
         hint_style=ft.TextStyle(color=TEXT_FAINT),
         bgcolor=CARD_FILL,
+        text_size=14,
         border_radius=RADIUS,
         expand=True,
         multiline=True,
@@ -410,74 +490,113 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
         on_submit=lambda e: _do_send(),
         on_change=_on_composer_change,
+        on_focus=lambda e: _composer_focus(True),
+        on_blur=lambda e: _composer_focus(False),
     )
     send_btn = attach_hover(ft.Container(
         content=ft.Icon(ft.Icons.SEND_ROUNDED, size=18, color=ON_ACCENT),
         bgcolor=ACCENT, border_radius=RADIUS, width=44, height=44,
         alignment=ft.Alignment.CENTER, ink=False,
+        tooltip="Send message · Enter",
         on_click=lambda e: _do_send(),
     ), ACCENT, ACCENT_HI)
+    send_target = keyboard_target(send_btn, "Send message")
+    composer_hint = ft.Text("Enter to send · Shift+Enter for a new line",
+                            size=10, color=TEXT_FAINT)
+    composer_footer = ft.Row([
+        ft.Icon(ft.Icons.LOCK_OUTLINE_ROUNDED, size=12, color=TEXT_FAINT),
+        ft.Text("Private conversation", size=10, color=TEXT_FAINT),
+        ft.Container(expand=True), composer_hint,
+    ], spacing=5, visible=False)
 
-    # --- emoji picker -------------------------------------------------
-    # A small, game-flavored set. Kept as literal text so no platform emoji
-    # plugin is needed; clicking one appends it at the composer's end.
-    _EMOJIS = ("😀 😂 🥹 😍 😎 🤔 😅 😢 😡 🥳 😴 🤝 👍 👎 🙏 👏 💪 🔥 💀 🎉 "
-               "🎮 ⚔️ ⛏️ 🧱 💎 🌳 🐷 💥 ✅ ❌ ❓ 👀").split()
+    def _sync_composer(connected=None):
+        if connected is None:
+            connected = bool((_last_roster["v"] or {}).get("connected"))
+        can_send = bool(selected["name"] and (composer.value or "").strip() and connected)
+        send_btn.disabled = not can_send
+        send_btn.cubeon_keyboard_button.disabled = not can_send
+        send_btn.opacity = 1 if can_send else 0.4
+        composer_hint.value = ("Enter to send · Shift+Enter for a new line" if connected
+                               else "Offline · your draft stays here")
+        _refresh(send_btn, send_btn.cubeon_keyboard_button, composer_hint)
 
-    def _insert_emoji(em):
-        composer.value = (composer.value or "") + em
-        thread_safe_ui.refresh(composer)
+    # --- :name: emoji suggestions ----------------------------------------
+    def _complete_emoji(code):
+        with thread_safe_ui.TREE_LOCK:
+            composer.value = re.sub(r":[a-z0-9_+-]*$", _EMOJI_CODES[code],
+                                    composer.value or "")
+            _on_composer_change()
+            thread_safe_ui.refresh(composer)
+        _focus(composer)
 
-    def _toggle_emoji():
-        emoji_panel.visible = not emoji_panel.visible
-        thread_safe_ui.refresh(emoji_panel)
+    emoji_suggestions = ft.Row(spacing=4, run_spacing=4, wrap=True, visible=False)
+    _emoji_sig = {"v": None}
 
-    emoji_btn = ft.IconButton(
-        icon=ft.Icons.EMOJI_EMOTIONS_ROUNDED, icon_size=20,
-        icon_color=TEXT_DIM, tooltip="Emoji", visible=False,
-        on_click=lambda e: _toggle_emoji(),
-    )
-    emoji_panel = ft.Container(
-        content=ft.Column(
-            [ft.Row(
-                [ft.Container(
-                    ft.Text(em, size=18), padding=4, border_radius=RADIUS,
-                    ink=False, on_click=lambda e, em=em: _insert_emoji(em),
-                    tooltip=None,
-                 ) for em in _EMOJIS[i:i + 8]],
-                spacing=4, run_spacing=4, wrap=True,
-            ) for i in range(0, len(_EMOJIS), 8)],
-            spacing=0, tight=True,
-        ),
-        bgcolor=SURFACE_HI,
-        border=ft.border.Border.all(1, CARD_BORDER),
-        border_radius=RADIUS,
-        padding=ft.padding.Padding.all(8),
-        visible=False,
-    )
+    def _sync_emoji_suggestions():
+        match = re.search(r"(?:^|\s):([a-z0-9_+-]*)$", composer.value or "")
+        codes = ([code for code in _EMOJI_CODES if code.startswith(match[1])][:5]
+                 if match else [])
+        sig = (tuple(codes), bool(selected["name"]))
+        if sig == _emoji_sig["v"]:
+            return
+        _emoji_sig["v"] = sig
+        emoji_suggestions.controls = [ft.TextButton(
+            content=f"{_EMOJI_CODES[code]}  :{code}:",
+            tooltip=f"Insert :{code}:", on_click=lambda e, c=code: _complete_emoji(c),
+            style=ft.ButtonStyle(color=TEXT_DIM, bgcolor=CARD_FILL, padding=8),
+        ) for code in codes]
+        emoji_suggestions.visible = bool(codes and selected["name"])
+        thread_safe_ui.refresh(emoji_suggestions)
+
     composer_status = ft.Text("", size=11, color=DANGER, max_lines=2,
                               overflow=ft.TextOverflow.ELLIPSIS, visible=False)
-    composer_row = ft.Row([emoji_btn, composer, send_btn], spacing=8,
+    composer_row = ft.Row([composer, send_target], spacing=8,
                           visible=False,
                           vertical_alignment=ft.CrossAxisAlignment.END)
 
-    empty_title = ft.Text("Pick a friend to start chatting", size=14,
-                          color=TEXT_DIM)
+    empty_title = ft.Text("Make room for good conversations", size=22,
+                          weight=ft.FontWeight.W_600, text_align=ft.TextAlign.CENTER,
+                          color=TEXT)
     empty_sub = ft.Text(i18n.t("Messages are private to you and them."), size=12,
-                        color=TEXT_FAINT)
+                        color=TEXT_DIM, text_align=ft.TextAlign.CENTER, width=340)
+    empty_add = ft.TextButton(
+        "Add a friend", icon=ft.Icons.PERSON_ADD_ROUNDED,
+        style=ft.ButtonStyle(color=ACCENT, bgcolor=ACCENT_TINT),
+        on_click=lambda e: _toggle_add(open_=True),
+    )
     empty_state = ft.Container(
         content=ft.Column(
             [
-                ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=38,
-                        color=TEXT_FAINT),
+                ft.Container(
+                    ft.Icon(ft.Icons.FORUM_OUTLINED, size=32, color=ACCENT),
+                    width=72, height=72, bgcolor=ACCENT_TINT, border_radius=24,
+                    alignment=ft.Alignment.CENTER, margin=ft.Margin(0, 0, 0, 12)),
                 empty_title,
                 empty_sub,
+                empty_add,
             ],
             spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             tight=True,
         ),
         alignment=ft.Alignment.CENTER, expand=True,
     )
+
+    def _sync_empty_state():
+        name = selected["name"]
+        has_messages = bool(transcript.controls)
+        empty_state.visible = not name or not has_messages
+        transcript.visible = bool(name and has_messages)
+        empty_add.visible = not name
+        if name:
+            label, _uid = _peer_identity(name, _friend_by_name(name) or {})
+            empty_title.value = f"Say hello to {label}"
+            empty_sub.value = "Plan your next world, share a win, or just catch up."
+        else:
+            has_friends = bool((_last_roster["v"] or {}).get("friends"))
+            empty_title.value = "Your conversations" if has_friends else "Make room for good conversations"
+            empty_sub.value = ("Choose a friend on the left to pick up where you left off."
+                               if has_friends else "Add a friend with their Cubeon ID to start chatting.")
+        _refresh(empty_state, transcript)
 
     conn_banner_text = ft.Text("", size=12, color=WARNING, expand=True)
     reconnect_btn = ft.TextButton(
@@ -563,12 +682,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             return None
 
     def _pill(label, fill, fg, on_click):
-        return ft.Container(
-            content=ft.Text(label, size=11, weight=ft.FontWeight.W_600,
-                            color=fg),
-            bgcolor=fill, border_radius=RADIUS, ink=False,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
-            on_click=on_click,
+        return ft.TextButton(
+            ft.Text(label, size=11), style=ft.ButtonStyle(color=fg, bgcolor=fill, padding=8),
+            on_click=on_click, tooltip=label,
         )
 
     def _row_bg(is_sel):
@@ -649,12 +765,16 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             preview_color = TEXT_DIM if online or unread else TEXT_FAINT
         else:
             preview, preview_color = _presence(f)
+        if (_drafts.get(name) or "").strip():
+            preview = "Draft: " + _drafts[name].replace("\n", " ")
+            preview_color = WARNING
         stamp = _short_stamp(last_ts) if last_ts else ""
         cached = _friend_rows.get(name)
         if cached:
             row = cached["row"]
             _paint_avatar(cached["avatar"], label, 34, online)
             cached["title"].value = label
+            cached["title"].weight = ft.FontWeight.W_700 if unread else ft.FontWeight.W_600
             cached["uid"].value = _uid_line(uid)
             cached["preview"].value = preview
             cached["preview"].color = preview_color
@@ -664,6 +784,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             cached["badge"].visible = bool(unread)
             cached["badge"].content.value = str(unread) if unread < 100 else "99+"
             row.bgcolor = _row_bg(is_sel)
+            row.border = ft.border.Border.all(1, ACCENT_DIM if is_sel else "transparent")
             row.tooltip = _recipient(name, f)
             attach_hover(row, _row_bg(is_sel), ROW_HOVER)
             return row
@@ -687,16 +808,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     ft.Column(
                         [
                             ft.Text(label, size=13, color=TEXT,
-                                    weight=ft.FontWeight.W_600, max_lines=1,
+                                    weight=ft.FontWeight.W_700 if unread else ft.FontWeight.W_600, max_lines=1,
                                     overflow=ft.TextOverflow.ELLIPSIS),
                             ft.Text(_uid_line(uid), size=10, color=TEXT_FAINT,
                                     font_family=FONT_MONO, max_lines=1,
+                                    visible=False,
                                     overflow=ft.TextOverflow.ELLIPSIS),
                             ft.Text(preview, size=11, color=preview_color,
                                     max_lines=1,
                                     overflow=ft.TextOverflow.ELLIPSIS),
                         ],
-                        spacing=4, tight=True, expand=True,
+                        spacing=6, tight=True, expand=True,
                     ),
                     trailing,
                 ],
@@ -704,9 +826,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             bgcolor=_row_bg(is_sel),
+            border=ft.border.Border.all(1, ACCENT_DIM if is_sel else "transparent"),
             border_radius=RADIUS,
             ink=False,
-            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=8),
+            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=12),
             tooltip=_recipient(name, f),
             on_click=lambda e, n=name: _select(n),
         )
@@ -734,8 +857,14 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         actions = (
             [_pill("Cancel", None, TEXT_DIM, lambda e, n=name: _cancel_out(n))]
             if outgoing else [
-                _pill("Accept", ACCENT, ON_ACCENT, lambda e, n=name: _accept(n)),
-                _pill("Decline", None, TEXT_DIM, lambda e, n=name: _decline(n)),
+                ft.IconButton(icon=ft.Icons.CHECK_ROUNDED, icon_size=18,
+                              width=32, height=32, padding=4, icon_color=ACCENT,
+                              bgcolor=ACCENT_TINT, tooltip=f"Accept {label}'s request",
+                              on_click=lambda e, n=name: _accept(n)),
+                ft.IconButton(icon=ft.Icons.CLOSE_ROUNDED, icon_size=18,
+                              width=32, height=32, padding=4, icon_color=TEXT_DIM,
+                              tooltip=f"Decline {label}'s request",
+                              on_click=lambda e, n=name: _decline(n)),
             ])
         row = ft.Container(
             tooltip=_recipient(name),
@@ -777,6 +906,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             return
         status_text.value = text
         status_text.color = DANGER if error else TEXT_DIM
+        status_text.visible = True
         thread_safe_ui.refresh(status_text)
 
     def _set_composer_status(text):
@@ -849,9 +979,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             conn_banner.visible = True
         else:
             conn_banner.visible = False
-        empty_sub.value = ("Add a friend by ID, or wait for someone to add you."
-                           if connected else
-                           "You're offline. Your conversations and drafts are kept here.")
+        _sync_composer(connected)
+        _sync_empty_state()
         for ctrl in (you_text, your_id_text, copy_id_btn, you_avatar, conn_dot,
                      conn_text, conn_banner, empty_sub):
             thread_safe_ui.refresh(ctrl)
@@ -885,6 +1014,16 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         friends = [f for f in (roster.get("friends") or [])
                    if isinstance(f, dict) and f.get("name")]
         active = {f["name"] for f in friends}
+        unread_count = sum(bool(f.get("unread")) for f in friends)
+        friends_count.value = f"{sum(bool(f.get('online')) for f in friends)} online · {len(friends)} friends"
+        unread_filter.content = f"Unread ({unread_count})" if unread_count else "Unread"
+        for button, key in ((all_filter, "all"), (unread_filter, "unread")):
+            button.style = ft.ButtonStyle(
+                color=ACCENT if _filter["v"] == key else TEXT_DIM,
+                bgcolor=ACCENT_TINT if _filter["v"] == key else "transparent",
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8))
+        if _filter["v"] == "unread":
+            friends = [f for f in friends if f.get("unread")]
         query = (find_field.value or "").strip().lower()
         if query:
             def _match(f):
@@ -899,16 +1038,27 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             rows = []
             if not friends and not query:
                 rows.append(
-                    ft.Text(i18n.t("No friends yet. Add one above."), size=12,
+                    ft.Text("You're all caught up." if _filter["v"] == "unread" else
+                            i18n.t("No friends yet. Add one above."), size=12,
                             color=TEXT_FAINT))
             elif not friends:
                 rows.append(
-                    ft.Text("No friend matches that.", size=12,
+                    ft.Text("No unread conversation matches." if _filter["v"] == "unread" else
+                            "No friend matches that name or ID.", size=12,
                             color=TEXT_FAINT))
+            friends.sort(key=lambda f: (
+                -bool(f.get("unread")), -int(f.get("last_ts") or 0),
+                -bool(f.get("online")), _identity_label(f)[0].casefold()))
             for f in friends:
                 rows.append(_friend_row(f))
             friends_col.controls[:] = rows
-        thread_safe_ui.refresh(friends_col)
+        _refresh(friends_col, friends_count, filter_row)
+
+    def _copy_peer_id():
+        f = _friend_by_name(selected["name"]) or {}
+        _label, uid = _identity_label(f)
+        if uid:
+            _copy_message(uid)
 
     def _friend_by_name(name):
         for f in (_last_roster["v"] or {}).get("friends") or []:
@@ -931,15 +1081,20 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         transcript_header.tooltip = _recipient(name, f)
         transcript_sub.value = f"{sub}  ·  {_uid_line(uid)}"
         transcript_sub.color = sub_color
+        composer.hint_text = f"Message {label}…"
+        peer_id_btn.visible = bool(uid)
+        peer_id_btn.tooltip = f"Copy Cubeon ID {uid}"
         _paint_avatar(header_avatar, label, 36, f.get("online"))
         header_avatar.tooltip = _recipient(name, f)
         remove_btn.tooltip = f"Remove {_recipient(name, f)}"
-        for ctrl in (transcript_header, transcript_sub, header_avatar, remove_btn):
+        for ctrl in (transcript_header, transcript_sub, header_avatar, remove_btn, peer_id_btn, composer):
             thread_safe_ui.refresh(ctrl)
 
     def _render_roster(roster=None, force=False):
         if roster is not None:
             _last_roster["v"] = roster
+            if not selected["name"]:
+                _sync_empty_state()
         roster = _last_roster["v"]
         if not roster:
             return
@@ -989,13 +1144,35 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         _rebuild_friends(roster)
 
     def _bubble_max_width():
-        w = getattr(page, "width", None) or 1000
-        return max(220, min(_BUBBLE_MAX, int(w * 0.5)))
+        w = _pane_width["v"] or max(160, (getattr(page, "width", None) or 1000) - 440)
+        return max(48, min(_BUBBLE_MAX, int(w * 0.82) - 32))
 
     def _bubble_text_width(text, max_w):
-        lines = (text or "").split("\n")
-        longest = max((len(ln) for ln in lines), default=1)
+        def cells(line):
+            return sum(0 if unicodedata.combining(char) or char == '\u200d' else
+                       2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+                       for char in line)
+        longest = max((cells(line) for line in (text or "").split("\n")), default=1)
         return min(max_w, max(_BUBBLE_MIN, int(longest * _CHAR_PX) + 6))
+
+    def _on_pane_size(e):
+        width = getattr(e, "width", None)
+        if not width or abs(width - (_pane_width["v"] or 0)) < 1:
+            return
+        with thread_safe_ui.TREE_LOCK:
+            _pane_width["v"] = width
+            for wrap in transcript.controls:
+                row = getattr(wrap, "content", None)
+                if not isinstance(row, ft.Row) or len(row.controls) != 1:
+                    continue
+                bubble = row.controls[0]
+                if isinstance(getattr(bubble, "content", None), ft.Column):
+                    body = bubble.content.controls[0]
+                    body.width = _bubble_text_width(body.value, _bubble_max_width())
+            empty_sub.width = min(340, max(100, width - 48))
+            composer_hint.visible = width >= 430
+            _refresh(transcript, empty_sub, composer_hint)
+        _stick_bottom()
 
     def _day_separator(label):
         """A centered "Today"/date rule, the standard way a long transcript
@@ -1016,26 +1193,36 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     def _on_transcript_scroll(e):
         try:
-            # "At the end" with a little tolerance, so a half-pixel drift
-            # doesn't strand the follow on.
-            at_end = e.extent_after < 48
-            _stick["at_end"] = at_end
-            if jump_row.visible == at_end:
-                jump_row.visible = not at_end
-                thread_safe_ui.refresh(jump_row)
+            with thread_safe_ui.TREE_LOCK:
+                # Native follow runs after layout, so changing bubble heights
+                # cannot leave the last message below the viewport. Scrolling
+                # towards older messages explicitly releases that follow.
+                user = getattr(e, "event_type", None) == ft.ScrollType.USER
+                direction = getattr(e, "direction", None)
+                if user and direction == ft.ScrollDirection.FORWARD:
+                    _stick["at_end"] = False
+                elif _stick["at_end"]:
+                    return
+                else:
+                    _stick["at_end"] = e.extent_after < 48
+                transcript.auto_scroll = _stick["at_end"]
+                jump_row.visible = not _stick["at_end"]
+                _refresh(transcript, jump_row)
         except Exception:
             pass
 
     def _stick_bottom(force=False):
-        """Follow the newest message, but only when the user wants that:
-        either forced (conversation just opened) or the view is already at
-        the bottom. scroll_to is async - it must ride page.run_task."""
-        if not (force or _stick["at_end"]):
-            return
-        try:
-            scrolling.follow_end(page, transcript)
-        except Exception:
-            pass   # headless/test hosts have no run_task
+        """Let the native viewport follow its final, post-layout extent."""
+        with thread_safe_ui.TREE_LOCK:
+            if force:
+                _stick["at_end"] = True
+                jump_row.visible = False
+                thread_safe_ui.refresh(jump_row)
+            if not _stick["at_end"] or not transcript.visible:
+                return
+            transcript.auto_scroll_animation = scrolling.animation()
+            transcript.auto_scroll = True
+            thread_safe_ui.refresh(transcript)
 
     def _copy_message(text):
         """Copy a single message's text; the bubble is the + copy affordance."""
@@ -1053,7 +1240,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         rule: consecutive messages from one side show no clock (the full date
         lives on hover); the first message of a group or day does."""
         max_w = _bubble_max_width()
-        rows = [ft.Text(text, size=13, selectable=True,
+        rows = [ft.Text(text, size=14, selectable=True,
                         color=TEXT_DIM if dim else TEXT,
                         width=_bubble_text_width(text, max_w),
                         tooltip="Click the bubble to copy this message")]
@@ -1078,8 +1265,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 1, DANGER if failed
                 else (CARD_BORDER if (dim or failed)
                       else (ACCENT_DIM if mine else CARD_BORDER))),
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
+            border_radius=ft.BorderRadius(14, 14, 4 if mine else 14, 14 if mine else 4),
+            padding=ft.padding.Padding.symmetric(horizontal=14, vertical=10),
             ink=False,
             tooltip=((_full_date(ts) + "  ·  click to copy") if ts
                      else "Click to copy this message"),
@@ -1134,7 +1321,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 q.pop(0)
             _trim_transcript()
         thread_safe_ui.refresh(transcript)
-        _stick_bottom()
+        _sync_empty_state()
+        _stick_bottom(force=True)
         return entry
 
     def _fail_pending(name, text=None, entry=None, rejected=False):
@@ -1242,6 +1430,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             transcript.controls.append(_bubble_row(
                 _make_bubble(text, mine, ts, with_time=with_time), mine, gap))
         _trim_transcript()
+        _sync_empty_state()
         thread_safe_ui.refresh(transcript)
 
     def _append_messages(msgs, name):
@@ -1254,15 +1443,20 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     # --- actions ---------------------------------------------------------
     def _select(name):
         prev = selected["name"]
+        if prev == name:
+            _stick_bottom(force=True)
+            _focus(composer)
+            return
         if prev and prev != name:
             _drafts[prev] = composer.value
             _set_open(prev, False)
+        state["chat_composing"] = False
         selected["name"] = name
         last_seq[name] = -1
         _last_day[name] = None
         _last_dir[name] = None
         _stick["at_end"] = True   # opening a conversation starts at the bottom
-        emoji_panel.visible = False
+        transcript.auto_scroll = False
         composer_status.visible = False
         composer.value = _drafts.get(name) or ""
         with thread_safe_ui.TREE_LOCK:
@@ -1272,18 +1466,21 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         _header_sig["v"] = None
         _refresh_header()
         header_avatar.visible = True
+        header_row.visible = True
         remove_btn.visible = True
         header_rule.visible = True
         remove_btn.on_click = lambda e, n=name: _confirm_remove(n)
         composer_row.visible = True
-        emoji_btn.visible = True
+        composer_footer.visible = True
         jump_row.visible = False   # opening starts at the bottom
         _roster_sig["v"] = None   # repaint the selection highlight
         for ctrl in (transcript, empty_state, transcript_header,
                      transcript_sub, header_avatar, remove_btn, header_rule,
-                     composer_row, composer_status, emoji_btn, emoji_panel,
-                     jump_row, composer):
+                     composer_row, composer_status,
+                     jump_row, composer, header_row, composer_footer):
             thread_safe_ui.refresh(ctrl)
+        _sync_composer()
+        _sync_emoji_suggestions()
         _mark_read(name)
         _tick()
         # A send worker/echo can finish while a different conversation is
@@ -1297,7 +1494,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 transcript.controls.append(pending["wrap"])
             _trim_transcript()
         thread_safe_ui.refresh(transcript)
+        _sync_empty_state()
         _stick_bottom(force=True)
+        _focus(composer)
 
     def _run(action, done, label):
         """Run a service call off the UI thread. Several do real network I/O
@@ -1316,16 +1515,16 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     def _do_send():
         name = selected["name"]
-        text = (composer.value or "").strip()
+        text = _expand_emoji_codes(composer.value or "").strip()
         if not name or not text:
             return
         if _last_roster["v"] and not _last_roster["v"].get("connected"):
             _set_composer_status("Chat is reconnecting. Your message is kept in the draft.")
             _drafts[name] = composer.value
+            _focus(composer)
             return
 
         _set_composer_status("")
-        emoji_panel.visible = False
         # Optimistic: clear the box and show the bubble NOW. send_chat blocks
         # on the peer-pubkey lookup + WS send (~a second); the user must never
         # wait on that. If the send is refused, the pending bubble turns red
@@ -1334,6 +1533,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         composer.value = ""
         _drafts.pop(name, None)   # the message left the box - draft is spent
         thread_safe_ui.refresh(composer)
+        _sync_composer()
+        _sync_emoji_suggestions()
         pending = _append_optimistic(name, text)
         # Confirm fast: poll every _POLL_FAST_SECONDS until the echo files the
         # real line, so the bubble flips out of "Sending…" in a few hundred ms
@@ -1353,12 +1554,16 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         composer.value = text
                         _drafts[name] = text
                         thread_safe_ui.refresh(composer)
+                        _sync_composer()
                 elif not _drafts.get(name):
                     _drafts[name] = text
 
         _run(lambda: service.send_chat(name, text), done, "cubeon-chat-send")
+        _focus(composer)
 
     def _do_add():
+        if _add_busy["v"]:
+            return
         raw = (add_field.value or "").strip()
         if not raw:
             return
@@ -1366,8 +1571,16 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         if not uid:
             _set_status("Enter your friend's 8-number ID.", error=True)
             return
+        _add_busy["v"] = True
+        add_submit.disabled = True
+        add_submit.content = "Sending request…"
+        thread_safe_ui.refresh(add_submit)
 
         def done(res):
+            _add_busy["v"] = False
+            add_submit.disabled = False
+            add_submit.content = "Send friend request"
+            thread_safe_ui.refresh(add_submit)
             if res.get("ok"):
                 add_field.value = ""
                 _set_status(f"Friend request sent to ID {uid}.")
@@ -1433,6 +1646,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             _drafts[selected["name"]] = composer.value
             _set_open(selected["name"], False)
         selected["name"] = None
+        state["chat_composing"] = False
+        transcript.auto_scroll = False
         composer.value = ""
         with thread_safe_ui.TREE_LOCK:
             transcript.controls.clear()
@@ -1444,22 +1659,24 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         _header_sig["v"] = None
         header_avatar.tooltip = None
         header_avatar.visible = False
+        header_row.visible = False
+        peer_id_btn.visible = False
         remove_btn.tooltip = "Remove friend"
         remove_btn.visible = False
         header_rule.visible = False
         composer_row.visible = False
-        emoji_btn.visible = False
-        emoji_panel.visible = False
+        composer_footer.visible = False
         composer_status.visible = False
         jump_row.visible = False
-        for name in list(_pending):
-            _pending[name] = []
         _roster_sig["v"] = None
         for ctrl in (transcript, empty_state, transcript_header,
                      transcript_sub, header_avatar, remove_btn, header_rule,
-                     composer_row, composer_status, emoji_btn, emoji_panel,
-                     jump_row, composer):
+                     composer_row, composer_status,
+                     jump_row, composer, header_row, composer_footer, peer_id_btn):
             thread_safe_ui.refresh(ctrl)
+        _sync_empty_state()
+        _sync_composer()
+        _sync_emoji_suggestions()
 
     def _confirm_remove(name):
         dlg = ft.AlertDialog(modal=True)
@@ -1555,10 +1772,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     # --- layout ----------------------------------------------------------
     status_text = ft.Text("", size=12, color=TEXT_DIM,
-                          max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
+                          max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, visible=False)
 
     left = ft.Container(
-        width=290,
+        width=300,
         content=ft.Column(
             [
                 ft.Row(
@@ -1574,13 +1791,20 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                 horizontal=8, vertical=4),
                         ),
                         ft.Container(expand=True),
-                        conn_dot,
-                        conn_text,
+                        add_toggle,
                     ],
                     spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                ft.Container(height=4),
+                add_panel,
+                find_field,
+                filter_row,
+                ft.Row([friends_label, ft.Container(expand=True), friends_count], spacing=8),
+                ft.Column([
+                    requests_label, requests_col, friends_col,
+                ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True),
+                status_text,
+                ft.Container(height=1, bgcolor=CARD_BORDER),
                 ft.Container(
                     content=ft.Row(
                         [
@@ -1588,7 +1812,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                             ft.Column(
                                 [
                                     you_text,
-                                    your_id_text,
+                                    ft.Row([ft.Text("ID", size=10, color=TEXT_FAINT),
+                                            your_id_text], spacing=6),
                                 ],
                                 spacing=4, tight=True, expand=True,
                             ),
@@ -1597,26 +1822,16 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         spacing=12,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    tooltip="Your Cubeon account (the ID is yours alone - "
-                            "it can't be renamed or taken)",
+                    tooltip="Share your Cubeon ID so friends can add you",
                     bgcolor=CARD_FILL,
                     border=ft.border.Border.all(1, CARD_BORDER),
                     border_radius=RADIUS,
                     padding=ft.padding.Padding.symmetric(horizontal=12,
                                                          vertical=8),
                 ),
-                ft.Container(height=8),
-                add_field,
-                requests_label,
-                requests_col,
-                find_field,
-                friends_label,
-                friends_col,
-                ft.Container(height=8),
-                status_text,
+                ft.Row([conn_dot, conn_text], spacing=6),
             ],
-            spacing=8,
-            scroll=ft.ScrollMode.AUTO,
+            spacing=12,
             expand=True,
         ),
     )
@@ -1626,29 +1841,32 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     # invisible, and this rule alone rendered as a stray floating line
     # across the empty right pane.
     header_rule = ft.Container(height=1, bgcolor=CARD_BORDER, visible=False)
+    header_row = ft.Row([
+        header_avatar,
+        ft.Column([transcript_header, transcript_sub], spacing=4, expand=True, tight=True),
+        peer_id_btn, remove_btn,
+    ], spacing=12, visible=False, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     right = ft.Container(
         expand=True,
+        bgcolor=CARD_FILL,
+        border=ft.border.Border.all(1, CARD_BORDER),
+        border_radius=16,
+        padding=16,
+        on_size_change=_on_pane_size,
+        size_change_interval=100,
         content=ft.Column(
             [
-                ft.Row(
-                    [
-                        header_avatar,
-                        ft.Column([transcript_header, transcript_sub],
-                                  spacing=4, expand=True, tight=True),
-                        remove_btn,
-                    ],
-                    spacing=12,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
+                header_row,
                 conn_banner,
                 header_rule,
                 transcript,
                 jump_row,
                 empty_state,
                 composer_status,
-                emoji_panel,
+                emoji_suggestions,
                 composer_row,
+                composer_footer,
             ],
             spacing=12,
             expand=True,
@@ -1656,8 +1874,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     )
 
     root = ft.Row(
-        [left, ft.Container(width=1, bgcolor=CARD_BORDER), right],
-        spacing=16,
+        [left, right],
+        spacing=20,
         expand=True,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH,
     )

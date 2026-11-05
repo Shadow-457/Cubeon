@@ -25,6 +25,7 @@ public final class CubeonHudKeybinds {
     private static KeyMapping friendsChat;
 	private static KeyMapping wingFlare;
 	private static KeyMapping freelook;
+	private static KeyMapping zoom;
 
 	private CubeonHudKeybinds() {
 	}
@@ -74,12 +75,17 @@ public final class CubeonHudKeybinds {
 				InputConstants.KEY_LALT,
 				CATEGORY);
 		KeyMappingHelper.registerKeyMapping(freelook);
+
+        zoom = new KeyMapping("key." + CubeonHudClient.MOD_ID + ".zoom",
+                InputConstants.Type.KEYBOARD, InputConstants.KEY_Z, CATEGORY);
+        KeyMappingHelper.registerKeyMapping(zoom);
 	}
 
 	/** Called once per client tick; opens the menu when the key was newly pressed. */
 	public static void tick() {
 		Minecraft client = Minecraft.getInstance();
 		FreelookController.sync();
+        Zoom.setHeld(zoomActive());
 
         boolean wingPressed = false;
         while (wingFlare != null && wingFlare.consumeClick()) wingPressed = true;
@@ -108,6 +114,9 @@ public final class CubeonHudKeybinds {
 	}
 
     public static boolean freelookHeld() { return freelook != null && freelook.isDown(); }
+    public static boolean zoomActive() {
+        return zoom != null && zoom.isDown() && freelookEligible() && !FreelookController.sync();
+    }
     public static boolean freelookEligible() {
         Minecraft client = Minecraft.getInstance();
         return client.player != null && client.level != null && client.gui.screen() == null

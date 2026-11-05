@@ -221,7 +221,7 @@ def audit_jars():
             result = subprocess.run(["java", "-cp", str(jar) + __import__('os').pathsep + directory,
                                      "com.cubeon.client.hud.CameraBlurTest"], capture_output=True, text=True, timeout=60)
             error = result.stderr if result.returncode else None
-            if not error and bracket["mappings"] == "yarn":
+            if not error and any(o.startswith("zoom-") for o in bracket["overlays"]):
                 with zipfile.ZipFile(jar) as archive:
                     if b"com/cubeon/client/hud/blur/CameraBlurRenderer" not in archive.read("com/cubeon/client/mixin/ZoomMixin.class"):
                         error = "Packaged zoom hook does not publish the final camera FOV"

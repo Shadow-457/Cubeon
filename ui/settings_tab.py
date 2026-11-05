@@ -6,7 +6,7 @@ were a mix of checkboxes, switches, loose buttons and boxed panels, and the
 account strip sat above everything and ate the height.
 
 What it is now:
-- ONE rail of four sections (Account, Game, Performance, Appearance).
+- A section rail keeps each destination focused and independently scrollable.
   Account is a section here, not a strip above the rail.
 - ONE row pattern everywhere: a title, at most one short grey line, and the
   control on the right. Rows live in a group card and are separated by hairline
@@ -32,12 +32,18 @@ from cubeon.theme import (
     RADIUS, RADIUS_LG, attach_hover, ROW_HOVER, ACCENT_TINT, TEXT_FAINT,
 )
 
-# Old deep-link keys are resolved to these four sections below.
+# Keep established deep-link keys while separating previously crowded groups.
 SECTIONS = [
     ("account", ft.Icons.PERSON_ROUNDED, "Account"),
     ("versions", ft.Icons.SPORTS_ESPORTS_ROUNDED, "Game"),
     ("memory", ft.Icons.MEMORY_ROUNDED, "Performance"),
     ("appearance", ft.Icons.PALETTE_ROUNDED, "Appearance"),
+    ("seasonal", ft.Icons.WB_SUNNY_ROUNDED, "Theme and decorations"),
+    ("notifications", ft.Icons.NOTIFICATIONS_OUTLINED, "Notifications"),
+    ("storage", ft.Icons.FOLDER_OUTLINED, "Files and backups"),
+    ("system", ft.Icons.SYSTEM_UPDATE_ROUNDED, "Launcher"),
+    ("doctor", ft.Icons.HEALTH_AND_SAFETY_OUTLINED, "Fix problems"),
+    ("images", ft.Icons.PHOTO_LIBRARY_OUTLINED, "Screenshots"),
 ]
 
 # The rail's motion: the section tint fades and its icon lifts one step.
@@ -71,6 +77,8 @@ def _rail_item(key, icon, label, active, on_click, *, ACCENT, ACCENT_TINT,
                             scale=1.0 if active else 0.94,
                             animate_scale=RAIL_ANIM),
                     ft.Text(label, size=13.5,
+                            expand=True, max_lines=2,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                             color=TEXT if active else TEXT_DIM,
                             weight=ft.FontWeight.W_600 if active else ft.FontWeight.W_500),
                 ],
@@ -1152,35 +1160,19 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     game_window, launcher_appearance = display_pane.controls[2:]
     if account_section is None:
         account_section = pane("Account")
-    account_section.controls.extend([updates, notifications, welcome, links])
-    versions_pane.controls.extend([game_window, files, backups])
-
-    def disclosure(label, content, *, data, opened=None):
-        content.visible = False
-        action = ft.TextButton(i18n.t(label), icon=ft.Icons.EXPAND_MORE_ROUNDED, data=data)
-        def toggle(_event=None):
-            with thread_safe_ui.TREE_LOCK:
-                content.visible = not content.visible
-                action.icon = ft.Icons.EXPAND_LESS_ROUNDED if content.visible else ft.Icons.EXPAND_MORE_ROUNDED
-                if content.visible and opened:
-                    opened()
-                thread_safe_ui.refresh(host)
-        action.on_click = toggle
-        host = ft.Column([action, content], spacing=8)
-        return host, action
-
-    doctor_pane.controls = doctor_pane.controls[2:]
-    fixes_group, fixes_button = disclosure('Fix problems', doctor_pane, data='settings-fix-problems')
-    screenshots_group, screenshots_button = disclosure(
-        'Screenshots', images_pane, data='settings-screenshots', opened=refresh_screenshot_gallery)
-    performance_pane.controls.append(fixes_group)
-    appearance_pane = pane('Appearance', launcher_appearance,
-                           block('Theme and decorations', ft.Column(seasonal_pane.controls[2:], spacing=16)),
-                           screenshots_group)
+    versions_pane.controls.append(game_window)
+    versions_pane.controls.remove(import_pane)
+    appearance_pane = pane('Appearance', launcher_appearance)
+    notifications_pane = pane('Notifications', notifications)
+    storage_pane = pane('Files and backups', files, backups, import_pane)
+    launcher_pane = pane('Launcher', updates, welcome, links)
+    screenshots_pane = pane('Screenshots', images_pane)
     panes = {'account': account_section, 'versions': versions_pane,
-             'memory': performance_pane, 'appearance': appearance_pane}
-    aliases = {'display': 'appearance', 'seasonal': 'appearance', 'images': 'appearance',
-               'doctor': 'memory', 'system': 'account'}
+             'memory': performance_pane, 'appearance': appearance_pane,
+             'seasonal': seasonal_pane, 'notifications': notifications_pane,
+             'storage': storage_pane, 'system': launcher_pane,
+             'doctor': doctor_pane, 'images': screenshots_pane}
+    aliases = {'display': 'appearance', 'backups': 'storage', 'import': 'storage'}
     for key, p in panes.items():
         p.visible = (key == active_section["value"])
 
@@ -1190,15 +1182,12 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     rail_items = {}   # key -> the row Container, built once (see _rebuild_rail)
 
     def _select_section(key):
-        requested = key
         key = aliases.get(key, key)
         if key not in panes:
             return
         active_section["value"] = key
-        if requested == 'images' and not images_pane.visible:
-            screenshots_button.on_click(None)
-        if requested == 'doctor' and not doctor_pane.visible:
-            fixes_button.on_click(None)
+        if key == 'images':
+            refresh_screenshot_gallery()
         for k, p in panes.items():
             p.visible = (k == key)
         _rebuild_rail()
@@ -1252,7 +1241,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         expand=True,
     )
 
-    # The popup already bounds the height; the content pane owns the scroll.
+    # Mounted once in the launcher's retained Settings tab.
     host = ft.Column([settings_tab], spacing=0, expand=True)
 
     # --- instant save on blur (width/height/java) ---------------------------

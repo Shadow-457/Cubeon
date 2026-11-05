@@ -1316,10 +1316,11 @@ async def main(page: ft.Page):
     threading.Thread(
         target=_rpc.set_activity,
         kwargs={
-            "details": "Cubeon",
             "state": "In the launcher",
             "large_image": _discord_img,
             "large_text": _discord_img_text,
+            "small_image": core.get_skin_face_url(cfg.get("username", "")),
+            "small_text": cfg.get("username", ""),
         },
         daemon=True,
     ).start()
@@ -1926,32 +1927,13 @@ async def main(page: ft.Page):
         for key, _icon, _label in top_nav_items:
             nav_buttons[key].width = inner
 
-        # Settings: the same tile shape as the nav, pinned to the bottom.
-        # (The account chip moved to the top bar; both open the same popup.)
-        settings_btn = theme.attach_hover(
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Icon(ft.Icons.TUNE_ROUNDED, size=22, color=TEXT_DIM),
-                        ft.Text(i18n.t("Settings"), size=11, color=TEXT_DIM,
-                                weight=ft.FontWeight.W_500),
-                    ],
-                    spacing=4, tight=True,
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                width=inner, height=NAV_BTN_H,
-                border_radius=RADIUS_LG,
-                alignment=ft.Alignment.CENTER,
-                ink=False,
-                tooltip=i18n.t("Settings"),
-                # Late-bound: _open_account_panel is defined further down.
-                on_click=lambda e: _open_account_panel(),
-            ),
-            None, ROW_HOVER,
-        )
-
-        foot = [theme.keyboard_target(settings_btn, i18n.t("Settings"))]
+        # Settings is a retained destination, with the same active/focus
+        # treatment as the other tabs, pinned below the scrolling rail.
+        settings_tile = build_top_nav_button("settings", ft.Icons.TUNE_ROUNDED,
+                                             i18n.t("Settings"))
+        settings_tile.width = inner
+        nav_buttons["settings"].width = inner
+        foot = [settings_tile]
         if _inspector_enabled:
             # Dev-only UI inspector (CUBEON_INSPECT=1).
             foot.append(ft.IconButton(
@@ -2675,32 +2657,16 @@ async def main(page: ft.Page):
         thread_safe_ui.refresh(account_badges)
 
     def _open_account_panel(e=None):
-        # Only one overlay at a time: opening the popup folds Versions away.
+        """The account chip opens the Account section of the Settings tab."""
         try:
             if picker.is_open():
                 picker.close()
         except NameError:
             pass  # picker is built later in main(); the button can't be hit yet
-        # Fit the card to the current window before showing it. The wrapper
-        # centers it, so this is the only geometry write the popup needs.
-        card_w, card_h = _account_panel_size()
-        account_card.width = card_w
-        account_card.height = card_h
-        #
-        # The Wearing previews are gone (2026-10-26); refresh_wearing is a
-        # no-op kept for this open path.
         refresh_wearing()
         account_badges.controls[:] = build_badges(cubeon_milestones.load_state(), account_badge_state["counts"])
         account_badges.visible = bool(account_badges.controls)
         account_badge_state["generation"] += 1
-        generation = account_badge_state["generation"]
-        account_scrim.visible = True
-        account_scrim.opacity = 1
-        # Reopening during the close fade: cancel the fade target so the
-        # retire timer sees an open popup and leaves it mounted.
-        account_panel.visible = True
-        state["account_open"] = True
-        account_panel.opacity = 0
         # The account fields are shared with the old panel; sync them so a
         # rename done on the Play tab shows up here too.
         profile_dialog_username.value = cfg["username"]
@@ -2708,19 +2674,9 @@ async def main(page: ft.Page):
         profile_username_field.error_text = None
         sidebar_username_text.value = cfg["username"]
         profile_pfp_status.value = ""
-        # Per-control diff (see _close_account_panel): a page.update() here
-        # was the "whole app reloads" jank - it re-synced every mounted tab.
-        thread_safe_ui.refresh(account_scrim)
-        thread_safe_ui.refresh(account_panel)
-
-        async def _fade_account_in():
-            await asyncio.sleep(0.03)
-            with thread_safe_ui.TREE_LOCK:
-                if state["account_open"] and account_badge_state["generation"] == generation:
-                    account_panel.opacity = 1
-                    thread_safe_ui.refresh(account_panel)
-
-        page.run_task(_fade_account_in)
+        switch_tab("settings")
+        settings_tab.select_section("account")
+        thread_safe_ui.refresh(account_pane)
         threading.Thread(target=_scan_account_badges,
                          args=(account_badge_state["generation"],), daemon=True,
                          name="ux-account-badges").start()
@@ -3818,6 +3774,7 @@ async def main(page: ft.Page):
         ),
         bgcolor=ACCENT,
         border_radius=0,
+        width=300,
         height=64,
         padding=0,
         shadow=ft.BoxShadow(blur_radius=0, spread_radius=0,
@@ -3949,6 +3906,11 @@ async def main(page: ft.Page):
                 mode = "installing"
             elif _fixing_selected():
                 mode = "working"
+
+        if mode == "busy":
+            cancel_event = _install_cancels.get(state.get("installing_version"))
+            if cancel_event is not None and cancel_event.is_set():
+                mode = "cancelling"
 
         if mode == "play":
             paint(ACCENT, ON_ACCENT)
@@ -5314,8 +5276,10 @@ async def main(page: ft.Page):
                     try:
                         if friends_service is not None:
                             friends_service.set_version(None)
-                        _rpc.set_activity(details="Cubeon", state="In the launcher",
-                                          large_image=_discord_img, large_text=_discord_img_text)
+                        _rpc.set_activity(state="In the launcher",
+                                          large_image=_discord_img, large_text=_discord_img_text,
+                                          small_image=core.get_skin_face_url(cfg.get("username", "")),
+                                          small_text=cfg.get("username", ""))
                     except Exception:
                         logging.getLogger(__name__).debug("exit presence cleanup failed", exc_info=True)
 
@@ -5561,11 +5525,12 @@ async def main(page: ft.Page):
             if not exited["done"]:
                 try:
                     _rpc.set_activity(
-                        details="Cubeon",
                         state=f"Playing Minecraft {launch_mc} ({core.SUPPORTED_LOADERS.get(loader_id, loader_id)})",
                         start=int(time.time() * 1000),
                         large_image=_discord_img,
                         large_text=_discord_img_text,
+                        small_image=core.get_skin_face_url(username),
+                        small_text=username,
                     )
                 except Exception:
                     logging.getLogger(__name__).debug("game Discord presence failed", exc_info=True)
@@ -6495,6 +6460,8 @@ async def main(page: ft.Page):
     )
     play_action_host = ft.Container(
         content=theme.keyboard_target(play_button, play_button_text.value),
+        width=play_button.width,
+        alignment=ft.Alignment.BOTTOM_LEFT,
         padding=ft.padding.Padding.only(top=10),
     )
     play_fields = ft.Row(spacing=16, vertical_alignment=ft.CrossAxisAlignment.END)
@@ -6527,7 +6494,7 @@ async def main(page: ft.Page):
             if arrangement == "row":
                 play_version_field.expand = 4
                 play_username_field.expand = 3
-                play_action_host.expand = 5
+                play_action_host.expand = None
                 play_fields.controls = [play_version_field, play_username_field, play_action_host]
                 play_inputs.controls = [play_fields]
             elif arrangement == "pair":
@@ -6924,21 +6891,19 @@ async def main(page: ft.Page):
             ram_warning.visible = False
 
     _update_ram_warning(cfg["ram_mb"])
+    _ram_saved = {"value": int(cfg["ram_mb"])}
 
     def on_ram_change(e):
-        """Per-tick: visual only - label, thumb/track colour, warning.
+        """Update the launch setting and visuals without disk writes per tick.
 
-        Deliberately does NOT touch the config here. This handler fires for
-        every integer step of a drag (the slider has ~64 divisions), and it
-        used to call core.save_config(cfg) - i.e. serialise and rewrite the
-        whole config JSON to disk up to dozens of times per drag, on the UI
-        thread. That is the bulk of the "chunky slider" feel.
-
-        Persisting is deferred to on_ram_change_end (drag/keyboard release).
+        Launch reads cfg, so it must match the displayed value even if a
+        keyboard change or interrupted drag has not delivered change_end.
+        Disk persistence stays deferred to release or focus loss.
         The repaint is control-level, not page.update(): a full-tree diff on
         every tick is the other half of the jank - only three controls change.
         """
         value = int(ram_slider.value)
+        cfg["ram_mb"] = value
         color = _ram_color(value)
         ram_slider.active_color = color
         ram_slider.thumb_color = color
@@ -6957,7 +6922,7 @@ async def main(page: ft.Page):
         """
         with thread_safe_ui.TREE_LOCK:
             value = int(ram_slider.value)
-            if int(cfg.get("ram_mb", 0)) == value:
+            if _ram_saved["value"] == value:
                 return  # nothing changed (e.g. a stray change_end after load)
             cfg["ram_mb"] = value
             try:
@@ -6966,12 +6931,15 @@ async def main(page: ft.Page):
                 ram_warning.value = f"⚠ Couldn't save the RAM setting: {ex}"
                 ram_warning.visible = True
                 thread_safe_ui.refresh(ram_warning)
+            else:
+                _ram_saved["value"] = value
 
     ram_slider.on_change = on_ram_change
     # on_change_end exists in this Flet generation (0.86.x) and fires on drag
     # release / keyboard step. Unknown control attrs are silently dropped by
     # Flet, so this is a no-op on a build without it rather than a crash.
     ram_slider.on_change_end = on_ram_change_end
+    ram_slider.on_blur = on_ram_change_end
 
     # Width and height input fields
     width_field = ft.TextField(
@@ -7993,42 +7961,6 @@ async def main(page: ft.Page):
     )
 
     # -----------------------------------------------------------------
-    # ACCOUNT & SETTINGS - ONE centered popup (user ask, 2026-10-26)
-    #
-    # The account slide-over and the Settings tab used to be two separate
-    # places. They are now one rounded card in the middle of the window:
-    # account summary on top, the compacted settings sections underneath.
-    # Both the sidebar's account button and the Settings nav entry open it.
-    # -----------------------------------------------------------------
-    def _build_account_settings_body():
-        # One slim header (title + close), then the Settings tab, whose rail
-        # starts with the Account section. No profile strip above the rail.
-        return ft.Column(
-            [
-                ft.Row(
-                    [
-                        ft.Text(i18n.t("Settings"), size=18, color=TEXT,
-                                font_family=FONT_DISPLAY, expand=True),
-                        ft.IconButton(
-                            icon=ft.Icons.CLOSE_ROUNDED, icon_size=18,
-                            icon_color=TEXT_DIM, tooltip=i18n.t("Close"),
-                            on_click=_close_account_panel,
-                            style=ft.ButtonStyle(
-                                bgcolor={ft.ControlState.HOVERED: SURFACE_HI}),
-                        ),
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                ft.Container(height=8),
-                settings_tab,
-            ],
-            spacing=0,
-            expand=True,
-        )
-
-    account_card.content = _build_account_settings_body()
-
-    # -----------------------------------------------------------------
     # TAB SWITCHING LOGIC
     # -----------------------------------------------------------------
 
@@ -8122,16 +8054,12 @@ async def main(page: ft.Page):
                 if mods_tab.content is not None:
                     mods_tab.content.select_content_type('modpack')
             key = 'mods'
-        # Settings is not a tab any more: it lives in the combined
-        # Account & Settings popup. The nav entry (and every deep link) opens
-        # that popup, so the previous tab stays visible behind the scrim.
         if (key in {"server", "server_console", "server_plugins", "server_settings"}
                 and not rust_engine.hosting_available(version_dropdown.value)):
             _show_snack(i18n.t("Servers unavailable for Rust beta"))
             return
-        if key == "settings":
-            _open_account_panel()
-            return
+        if key == "settings" and picker.is_open():
+            picker.close()
         # The top-bar Servers icon is an entry point, not a tab of its own:
         # it opens the Console (the chips then switch between the three).
         if key == SERVER_TOP_KEY:
@@ -9298,7 +9226,9 @@ async def main(page: ft.Page):
         # Keep launcher commands behind dialogs, the tour and retained panes.
         dialogs = getattr(getattr(page, "_dialogs", None), "controls", []) or getattr(page, "opened", [])
         tour = _onboard_overlay is not None and _onboard_overlay.visible
-        return bool(dialogs) or tour or _account_panel_is_open() or picker.is_open()
+        return (bool(dialogs) or tour or _account_panel_is_open() or picker.is_open()
+                or active_tab["value"] == "settings"
+                or (active_tab["value"] == "chat" and state.get("chat_composing", False)))
 
     def _on_key(e):
         try:

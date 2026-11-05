@@ -274,7 +274,7 @@ def test_install():
             handle.write(b"PK\x03\x04 not really a jar")
 
         real_find = cubeonfriends.find_jar
-        cubeonfriends.find_jar = lambda mc: (
+        cubeonfriends.find_jar = lambda mc, loader=None: (
             os.path.join(fake_cache, cubeonfriends.jar_name(cubeonfriends.pick_bracket(mc)))
             if cubeonfriends.pick_bracket(mc)
             and os.path.isfile(os.path.join(
@@ -617,7 +617,7 @@ def test_shipped_jars(matrix):
        "the build decides whether the emotes entrypoint exists")
 
     jars = sorted(glob.glob(os.path.join(ROOT, "assets", "jars",
-                                         "cubeon-client-*.jar")))
+                                         "cubeon-client-*+mc*.jar")))
     expected = {
         matrix["jar_name"].replace("{version}", matrix["mod_version"]).replace("{key}", bracket["key"]): bracket
         for bracket in matrix["brackets"]
@@ -743,7 +743,7 @@ def test_freelook(matrix):
 
 
 def test_zoom():
-    """Hold-to-zoom: one overlay per getFov return type, and no 26.x claim."""
+    """Hold-to-zoom: native FOV paths and a single mouse-look redirect."""
     section("hold-to-zoom wiring")
     matrix = load(os.path.join(MOD, "brackets.json"))
     buckets = {b["key"]: [o for o in b["overlays"]
@@ -753,8 +753,8 @@ def test_zoom():
     mojang = [b for b in matrix["brackets"] if b["mappings"] != "yarn"]
     ok(all(len(buckets[b["key"]]) == 1 for b in yarn),
        "every Yarn bracket carries exactly one zoom overlay")
-    ok(all(not buckets[b["key"]] for b in mojang),
-       "26.x brackets carry none: their FOV path moved and is not ported")
+    ok(all(buckets[b["key"]] == (["zoom-26.3"] if b["key"] == "26.3" else []) for b in mojang),
+       "26.3 zoom uses Camera.calculateFov; older Mojang brackets remain separate")
 
     # GameRenderer.getFov returns a double up to 1.21.1 and a float from
     # 1.21.2. A jar with the wrong copy compiles (the names match) and then
@@ -789,7 +789,7 @@ def test_zoom():
                             "cubeon-client.zoom.mixins.json")
     ok(os.path.isfile(cfg_path), "the zoom mixin config is shipped")
     if os.path.isfile(cfg_path):
-        cfg = load(cfg_path)
+        cfg = json.loads(open(cfg_path, encoding="utf-8").read().replace("${zoom_look_mixin}", ",\n    \"ZoomLookMixin\""))
         ok(set(cfg.get("client", [])) == {"ZoomMixin", "ZoomScrollMixin", "ZoomLookMixin"},
            "it registers FOV, scroll and smoothed-look mixins")
         ok(cfg.get("required") is False

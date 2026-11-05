@@ -160,10 +160,8 @@ processResources {
     // listing it unconditionally would have every Yarn jar point at a config
     // that is not there.
     def emotes = bracket.overlays.any { it.toString().startsWith('emotes') }
-    // The hold-to-zoom hooks target GameRenderer.getFov and Mouse.onMouseScroll,
-    // both Yarn-era methods; 26.x reshaped the FOV path, so those brackets have
-    // no zoom overlay and must not point at this config (a config naming a
-    // missing class is a startup warning). Same pattern as mixins_extra.
+    // Each zoom overlay selects its native FOV/scroll path. 26.3 shares
+    // freelook's sole mouse redirect, while Yarn registers ZoomLookMixin.
     def zoom = bracket.overlays.any { it.toString().startsWith('zoom-') }
     def replacements = [
             version        : project.version,
@@ -189,6 +187,9 @@ processResources {
     filesMatching('fabric.mod.json') {
         expand replacements
     }
+    def zoomLook = [zoom_look_mixin: obfuscated ? ',\n    "ZoomLookMixin"' : '']
+    inputs.properties zoomLook
+    filesMatching('cubeon-client.zoom.mixins.json') { expand zoomLook }
 }
 
 tasks.register('printBracket') {

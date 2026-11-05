@@ -791,17 +791,17 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
         older()
         old_recommend()
         check("stale search and recommendation completions cannot replace newer results",
-              [r["title"] for r in browse["results"]] == ["newer"])
+              [r["title"] for r in closure_env(fns["_render_browse_page"])["browse_state"]["results"]] == ["newer"])
     QueuedThread.queue.clear()
     scope = closure_env(fns["_browse_key"])["search_scope"]
     category = closure_env(fns["_browse_key"])["active_category"]
     scope_label = closure_env(fns["_refresh_browse_scope"])["browse_scope_text"]
     results_view = closure_env(fns["_render_browse_page"])["browse_results_view"]
     checkbox = closure_env(fns["_change_search_scope"])["compatible_only"]
-    scope_row = next(control for control in _walk(root)
-                     if isinstance(control, ft.Row) and any(child is checkbox for child in control.controls))
-    check("the compatibility row uses flex layout, never a wrapped expanding spacer",
-          not scope_row.wrap and any(child.expand for child in scope_row.controls))
+    scope_column = next(control for control in _walk(root)
+                        if isinstance(control, ft.Column) and any(child is checkbox for child in control.controls))
+    check("the compatibility checkbox sits above a scrolling category strip",
+          any(isinstance(child, ft.Row) and child.scroll == ft.ScrollMode.AUTO for child in scope_column.controls))
     check("the compatibility checkbox follows the active theme",
           checkbox.active_color == _theme.THEME["ACCENT"]
           and checkbox.label_style.color == _theme.THEME["TEXT_DIM"])
@@ -816,7 +816,7 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
                   for control in _walk(results_view)))
         check("active version, loader, and category are visible",
               "1.20.1" in scope_label.value and "Fabric" in scope_label.value and "Utility" in scope_label.value)
-        old_token = browse["token"]
+        old_token = closure_env(fns["_render_browse_page"])["browse_state"]["token"]
         fns["_search_all_modrinth"]()
         QueuedThread.queue.pop(0)()
         check("all-Modrinth action removes compatibility and category filters",
@@ -824,7 +824,7 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
               and searching.call_args.kwargs["loader"] is None
               and searching.call_args.kwargs["categories"] is None
               and not checkbox.value)
-        check("scope changes invalidate in-flight searches", old_token != browse["token"])
+        check("scope changes invalidate in-flight searches", old_token != closure_env(fns["_render_browse_page"])["browse_state"]["token"])
         check("broader discovery does not change the active instance",
               state == {"selected_mc_version": "1.20.1", "mod_loader": "fabric"} and drop.value == "1.20.1")
         check("broader scope is clearly labeled", "all loaders" in scope_label.value)
@@ -852,7 +852,7 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
         check("unsupported download handler cannot bypass the disabled control",
               not QueuedThread.queue and not download.called)
     with patch.object(_core, "search_mods", side_effect=RuntimeError("offline")):
-        fns["run_mod_search"]()
+        fns["_retry_search"]()
         QueuedThread.queue.pop(0)()
         check("failed searches stop loading and provide a retry action",
               not results_view.disabled
@@ -900,6 +900,27 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
                       not done and errors and "Installed, but" in str(errors[0]))
         state.update(selected_mc_version="1.20.1", mod_loader="fabric")
         QueuedThread.queue.clear()
+    # Packs tagged only 1.20.1 remain installable in a 1.20 instance's details.
+    state.update(selected_mc_version="1.20", mod_loader="fabric")
+    drop.value = "fabric-loader-0.20.1-1.20"
+    for kind in ("resourcepack", "shader", "mod"):
+        active["type"] = kind
+        release = dict(filename="patch.zip" if kind != "mod" else "patch.jar",
+                       url="offline", version_number="1", game_versions=["1.20.1"],
+                       loaders=["fabric"], compatible=False, date_published="2026-01-01")
+        with patch.object(_core, "get_mod_details", return_value={"title": "Patch pack"}), \
+                patch.object(_core, "get_mod_versions", return_value=[release]), \
+                patch.object(_core, "list_content", return_value=[]):
+            rowbuild({"project_id": "patch-" + kind, "title": "Patch pack"}).on_click(None)
+            QueuedThread.queue.pop()()
+        dialog = page._dialogs.controls[-1]
+        latest = [control for control in _walk(dialog)
+                  if isinstance(control, ft.Text) and control.value == "Install latest"]
+        check(f"1.20 {kind} details use the appropriate compatibility rule",
+              bool(latest) == (kind != "mod"))
+        QueuedThread.queue.clear()
+    state.update(selected_mc_version="1.20.1", mod_loader="fabric")
+    drop.value = "1.20.1"
     active["type"] = "resourcepack"
     with patch.object(_core, "list_content", return_value=[{"display_name": "test", "filename": "test.zip", 'size_kb': 1}]) as listing:
         refresh()
@@ -917,6 +938,7 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
             patch.object(_core, "search_modpacks_curseforge", return_value=[{"source": "curseforge", "project_id": "cf", "title": "CF"}]):
         for cf_first in (False, True):
             QueuedThread.queue.clear()
+            pack_search.value = f"query-{cf_first}"
             pf["run_search"]()
             mr, cf = QueuedThread.queue
             QueuedThread.queue.clear()

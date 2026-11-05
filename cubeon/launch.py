@@ -1118,6 +1118,13 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         if watchdog.stale_session() is not None:
             raise RuntimeError("Minecraft is already running. Close it before starting another instance.")
         command = rust_engine.launch_command(username, width, height)
+        child_env = rust_engine.child_environment(username)
+        if cfg is not None:
+            from . import native_client
+            before = (cfg.get("csl_synced_name"), cfg.get("csl_synced_cape_name"))
+            child_env.update(native_client.prepare(cfg, rust_engine.game_dir(), username))
+            if before != (cfg.get("csl_synced_name"), cfg.get("csl_synced_cape_name")):
+                save_config(cfg)
         if server_address:
             address = str(server_address)
             if server_port is not None:
@@ -1126,7 +1133,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         return _spawn_game(command, rust_engine.game_dir(), version_id, username,
                            rust_engine.VERSION, "rust", status_cb=status_cb,
                            log_cb=log_cb, on_exit=on_exit, stage_java=False,
-                           game_env=rust_engine.child_environment(username))
+                           game_env=child_env)
     from .versions import validate_launch_profile
     validate_launch_profile(version_id)
     from . import watchdog

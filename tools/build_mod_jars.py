@@ -136,15 +136,14 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "assets/cubeon-client/cosmetics/catalog.json",
                     "assets/cubeon-client/textures/cosmetics/shoulder_ember_fox.png")
 
-# The Yarn brackets only: hold-to-zoom uses FOV narrowing, the wheel
+# Zoom brackets: hold-to-zoom uses FOV narrowing, the wheel
 # and a slowed/smoothed mouse-look hook. A mixin class that is compiled but not listed
 # in a config does nothing, and one listed without being present is a startup
 # warning, so both the config and the classes are required together.
 REQUIRED_ENTRIES_ZOOM = ("cubeon-client.zoom.mixins.json",
                          "com/cubeon/client/hud/Zoom.class",
                          "com/cubeon/client/mixin/ZoomMixin.class",
-                         "com/cubeon/client/mixin/ZoomScrollMixin.class",
-                         "com/cubeon/client/mixin/ZoomLookMixin.class")
+                         "com/cubeon/client/mixin/ZoomScrollMixin.class")
 
 # The 26.x brackets only. The HUD there measures ping through a mixin of its own,
 # and a mixin that is compiled but not registered by a config silently does
@@ -270,6 +269,8 @@ def verify(jar_path, bracket=None):
     if bracket and any(str(o).startswith("zoom-")
                        for o in bracket.get("overlays", [])):
         required.extend(REQUIRED_ENTRIES_ZOOM)
+        if bracket.get("mappings") == "yarn":
+            required.append("com/cubeon/client/mixin/ZoomLookMixin.class")
     try:
         with zipfile.ZipFile(jar_path) as zf:
             names = set(zf.namelist())

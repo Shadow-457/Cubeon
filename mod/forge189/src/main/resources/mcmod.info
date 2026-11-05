@@ -1,0 +1,12 @@
+[
+  {
+    "modid": "cubeonclient",
+    "name": "Cubeon Client",
+    "description": "Cubeon HUD, friends, chat, cosmetics and emotes for Minecraft Forge 1.8.9. Skins and capes use CustomSkinLoader.",
+    "version": "1.0.0",
+    "mcversion": "1.8.9",
+    "url": "https://www.ylet.online",
+    "authorList": ["Cubeon"],
+    "clientSideOnly": true
+  }
+]

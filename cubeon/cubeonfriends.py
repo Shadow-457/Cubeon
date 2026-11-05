@@ -151,7 +151,7 @@ def jar_name(bracket: dict) -> str:
             .replace("{key}", str(bracket.get("key", ""))))
 
 
-def mod_stamp(mc_version: str | None) -> str:
+def mod_stamp(mc_version: str | None, loader: str | None = None) -> str:
     """Short sha256 of the jar find_jar() would install - the freshness
     fingerprint served on GET /friends.
 
@@ -160,7 +160,7 @@ def mod_stamp(mc_version: str | None) -> str:
     i.e. the player forgot to restart Minecraft after updating Cubeon. Cached
     per (path, mtime) so the once-a-second poll doesn't re-hash the file.
     """
-    path = find_jar(mc_version)
+    path = find_jar(mc_version, loader=loader)
     if not path:
         return ""
     try:
@@ -186,10 +186,10 @@ def mod_stamp(mc_version: str | None) -> str:
 _mod_stamp_cache: dict = {}
 
 
-def _jar_info(path):
+def _jar_info(path, loader="fabric"):
     try:
         stat = os.stat(path)
-        key = (path, stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns)
+        key = (path, loader, stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns)
         if key in _jar_info_cache:
             return _jar_info_cache[key]
         with open(path, "rb") as fh:
@@ -198,8 +198,19 @@ def _jar_info(path):
             fh.seek(0)
             digest = hashlib.sha256(fh.read()).digest()
         with zipfile.ZipFile(path) as jar:
-            metadata = jar.getinfo("fabric.mod.json")
-            json.loads(jar.read(metadata))
+            if loader == "forge":
+                rows = json.loads(jar.read("mcmod.info"))
+                if not isinstance(rows, list) or not any(
+                    isinstance(row, dict) and row.get("modid") == "cubeonclient"
+                    and row.get("mcversion") == "1.8.9" for row in rows
+                ) or "fabric.mod.json" in jar.namelist():
+                    return None
+                entry = jar.read("com/cubeon/forge/CubeonForge.class")
+                if entry[:4] != b"\xca\xfe\xba\xbe" or int.from_bytes(entry[6:8], "big") > 52:
+                    return None
+            else:
+                metadata = jar.getinfo("fabric.mod.json")
+                json.loads(jar.read(metadata))
             stamp = max(item.date_time for item in jar.infolist())
         result = (digest, stamp)
         if len(_jar_info_cache) >= 16:
@@ -213,7 +224,7 @@ def _jar_info(path):
 _jar_info_cache = {}
 
 
-def find_jar(mc_version: str | None) -> str | None:
+def find_jar(mc_version: str | None, loader: str | None = None) -> str | None:
     """The built jar for mc_version, looked up in the shipped layouts.
 
     Order: the launcher's runtime cache (what a previous run installed), then
@@ -223,16 +234,24 @@ def find_jar(mc_version: str | None) -> str | None:
     differ by namespace, not by features, and installing the 26.x one into a
     1.21 profile is a crash on class load rather than a missing button.
     """
-    bracket = pick_bracket(mc_version)
-    if bracket is None:
+    loader = loader or ("forge" if "forge" in str(mc_version).lower() and "neoforge" not in str(mc_version).lower() else "fabric")
+    if loader == "forge":
+        if parse_mc_version(mc_version) != (1, 8, 9):
+            return None
+        name = "cubeon-client-forge-1.8.9.jar"
+    elif loader in ("fabric", "quilt"):
+        bracket = pick_bracket(mc_version)
+        if bracket is None:
+            return None
+        name = jar_name(bracket)
+    else:
         return None
-    name = jar_name(bracket)
     candidates = [os.path.join(CUBEON_HOME, "cache", name),
                   _resource_path("assets", "jars", name),
                   os.path.join(_REPO, "assets", "jars", name),
                   os.path.join(_REPO, "mod", "build", "libs", name)]
     valid = [(path, info) for path in dict.fromkeys(candidates)
-             if (info := _jar_info(path)) is not None]
+             if (info := _jar_info(path, loader)) is not None]
     if not valid:
         return None
     path, info = valid[0]
@@ -267,22 +286,21 @@ def ensure_installed(mc_version: str | None, loader: str | None,
 
     """Drops the right mod jar into the active (mc_version, loader) profile.
 
-    Only mod loaders that can run the Fabric-format jar get it: Fabric itself,
-    and Quilt, which loads Fabric mods natively. Vanilla has no mod loader and
-    Forge/NeoForge need a differently-built jar, so those are a no-op rather
-    than a broken install. Returns True when the jar is in place.
+    Fabric and Quilt use the bracketed Fabric build. Forge 1.8.9 uses the
+    exact Java 8/SRG legacy build; other Forge/NeoForge versions are unsupported.
     """
     if not profile_dir:
         return False
 
-    if not mc_version or loader not in ("fabric", "quilt"):
+    supported = loader in ("fabric", "quilt") or (loader == "forge" and parse_mc_version(mc_version) == (1, 8, 9))
+    if not mc_version or not supported:
         # A profile that switched away from Fabric must not keep the jar: the
         # game would either ignore it or, on Forge, fail to read it.
         if os.path.isdir(profile_dir):
             _remove_other_jars(profile_dir, None)
         return False
 
-    src = find_jar(mc_version)
+    src = find_jar(mc_version, loader=loader)
     name = os.path.basename(src) if src else None
     try:
         os.makedirs(profile_dir, exist_ok=True)

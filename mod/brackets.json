@@ -616,6 +616,7 @@
       "fabric_api": "0.160.7+26.3",
       "overlays": [
         "api-mojang",
+        "zoom-26.3",
         "hud-26.3",
         "cosmetics-26",
         "cubeon-emote-mojang",

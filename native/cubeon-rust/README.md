@@ -10,6 +10,7 @@ exporter sources. The upstream launcher and hosted server applications are exclu
 Packages, internal namespaces, bundled translations, runtime icons and UI palettes
 use Cubeon branding. Menus and loading screens use the launcher’s black-and-green
 glass palette and Cubeon cube mark, with visible “Ported from Horizon” credit.
+The main screen reads “Minecraft” with “Rust Edition · Cubeon” beneath it.
 Cubeon owns the binaries, patches and releases.
 
 Cubeon's changes remove account/session loading, chat credentials, account HTTP,
