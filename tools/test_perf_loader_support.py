@@ -83,6 +83,37 @@ class LoaderBoost(unittest.TestCase):
         self.assertEqual(self.install('forge')['installed'][:2], ['embeddium', 'radium'])
         self.assertTrue(all(call[1]['loader'] == 'forge' for call in self.calls))
 
+    def test_requested_additions_and_optional_mods_obey_individual_selection(self):
+        result = self.install('fabric')
+        self.assertTrue({'modernfix', 'badoptimizations'} <= set(result['installed']))
+        self.assertFalse({'moreculling', 'ebe', 'exordium'} & set(result['installed']))
+        self.calls.clear()
+        result = perf.ensure_installed('1.20.1', 'fabric', version_id='fabric',
+                                      repair_dependencies=False, optional_mods=['ebe', 'untrusted-project'])
+        self.assertEqual(result['installed'], ['ebe'])
+        self.assertEqual([slug for slug, _ in self.calls], ['ebe'])
+        self.assertEqual(perf.prune_retired_perf_mods('1.20.1', 'fabric', 'fabric'), [])
+        self.assertIn('badoptimizations', perf._present('1.20.1', 'fabric', 'fabric'))
+
+    def test_optional_removals_and_disabled_jars_are_never_undone(self):
+        profile = Path(mods.get_profile_dir('1.20.1', 'fabric', 'fabric'))
+        self.jar(profile, 'custom-name.jar', 'ebe', 'fabric')
+        mods.delete_mod('1.20.1', 'fabric', 'custom-name.jar', version_id='fabric')
+        self.jar(profile, 'exordium.jar.disabled', 'exordium', 'fabric')
+        result = perf.ensure_installed('1.20.1', 'fabric', version_id='fabric',
+                                      repair_dependencies=False, optional_mods=['ebe', 'exordium'])
+        self.assertIn('ebe', result['skipped'])
+        self.assertIn('exordium', result['kept'])
+        self.assertFalse({'ebe', 'exordium'} & {slug for slug, _ in self.calls})
+
+    def test_unavailable_is_distinct_from_a_failed_download(self):
+        self.missing = {'modernfix', 'ebe', 'exordium'}
+        result = perf.ensure_installed('26.3', 'fabric', version_id='fabric',
+                                      repair_dependencies=False, optional_mods=['ebe', 'exordium'])
+        self.assertEqual(set(result['unavailable']), self.missing)
+        self.assertEqual(result['failed'], [])
+        self.assertIn('no compatible build', result['detail'])
+
     def test_manual_or_disabled_renderer_and_logic_ports_prevent_competing_downloads(self):
         for renderer in ('embeddium', 'rubidium', 'optifine'):
             instance = renderer
@@ -114,7 +145,7 @@ class LoaderBoost(unittest.TestCase):
         with patch.object(perf, 'get_mod_download', side_effect=net.DownloadError('offline')) as fetch:
             result = self.install('neoforge')
         self.assertEqual(fetch.call_count, 1)
-        self.assertEqual(len(result['failed']), 5)
+        self.assertEqual(len(result['failed']), len(perf.PERF_MODS))
         self.assertEqual(self.downloads, [])
 
     def launch_boost(self, loader, cfg):
@@ -164,6 +195,30 @@ class LoaderBoost(unittest.TestCase):
         options = self.launch_boost('quilt', {'client_mod_enabled': False, 'fps_boost_enabled': True,
                                               'perf_mods_enabled': False})
         self.assertIn('graphicsMode:0', options.read_text())
+        self.assertEqual(self.calls, [])
+
+    def test_actual_launch_syncs_even_without_mod_downloads(self):
+        cfg = {'fps_boost_enabled': True, 'fps_boost_sync_settings': True, 'perf_mods_enabled': False}
+        options = self.launch_boost('fabric', cfg)
+        self.assertIn('renderDistance:4', options.read_text())
+        self.assertIn('enableVsync:false', options.read_text())
+        options.write_text(options.read_text().replace('maxFps:260', 'maxFps:60'))
+        self.launch_boost('fabric', cfg)
+        self.assertIn('maxFps:260', options.read_text())
+        self.assertEqual(self.calls, [])
+
+    def test_launch_syncs_and_restores_existing_renderer_with_downloads_disabled(self):
+        profile = Path(mods.get_profile_dir('1.20.1', 'fabric', 'fabric'))
+        self.jar(profile, 'sodium.jar', 'sodium', 'fabric')
+        cfg = {'fps_boost_enabled': True, 'fps_boost_sync_settings': True, 'perf_mods_enabled': False}
+        options = self.launch_boost('fabric', cfg)
+        renderer = options.parent / 'config/sodium-options.json'
+        self.assertEqual(json.loads(renderer.read_text())['performance']['chunk_builder_threads'], 2)
+        renderer.write_text(json.dumps({'performance': {'chunk_builder_threads': 2, 'use_fog_occlusion': False}}))
+        self.launch_boost('fabric', cfg)
+        self.assertTrue(json.loads(renderer.read_text())['performance']['use_fog_occlusion'])
+        self.launch_boost('fabric', dict(cfg, fps_boost_enabled=False))
+        self.assertFalse(json.loads(renderer.read_text())['performance']['use_fog_occlusion'])
         self.assertEqual(self.calls, [])
 
     def test_legacy_graphics_encoding_and_prior_backup_upgrade_preserve_user_edits(self):

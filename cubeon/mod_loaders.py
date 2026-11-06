@@ -4,6 +4,7 @@ module (8.0+), so all four loaders install through the same code path.
 """
 import inspect
 import os
+from .storage import runtime_dir
 import re
 import shutil
 from contextlib import nullcontext
@@ -112,73 +113,25 @@ def find_installed_loader_version(installed_ids, loader_id: str, mc_version: str
     return min(candidates, key=rank)
 
 
-def loader_java(mc_version: str, loader_id: str = "") -> str:
-    """The Java a loader INSTALLER runs under, or a readable error.
+def loader_java(mc_version: str, loader_id: str = "", *, progress_cb=None,
+                status_cb=None, cancel_check=None) -> str:
+    """Prepare a runnable, compatible Java before executing a loader installer.
 
-    Every mll loader (fabric/quilt/forge/neoforge) installs by downloading an
-    installer jar and EXECUTING it. mll 8.0 silently falls back to the bare
-    command "java" when the caller doesn't pass one, so on a Windows machine
-    with no Java on PATH - which is most end users, since Cubeon ships no JRE
-    - installing Fabric died with exactly:
-
-        FileNotFoundError: [WinError 2] The system cannot find the file specified
-
-    surfaced raw under the download button (the 2026-09-24 user report). So the
-    Java is resolved HERE with the same logic that starts the game (Settings
-    path -> system java -> JAVA_HOME -> every JVM on the machine, lowest
-    sufficient major) and is verified to EXIST *and* to be new enough before
-    the installer ever sees it - see the too-old comment below the resolution.
+    Use installed Java when possible, otherwise download a verified managed
+    runtime. Forge 1.8.9 needs exact Java 8; modern loaders use the game's
+    minimum major. Progress and cancellation share the installer's controls.
     """
     # Imported lazily: launch.py pulls in mods/csl/skins, and those import this
     # module. Same pattern as the config read in modpacks._curseforge_api_key.
     from .config import load_config
-    from .launch import exact_java_major, find_java_for_version, required_java_major, java_major_version
+    from .jre import ensure_java_for_version
     java_version_id = mc_version + "-forge" if loader_id == "forge" and mc_version == "1.8.9" else mc_version
     try:
         configured = (load_config() or {}).get("java_path") or None
     except Exception:
         configured = None
-    try:
-        java = find_java_for_version(java_version_id, configured)
-    except Exception:
-        java = None
-
-    try:
-        required = required_java_major(mc_version)
-    except Exception:
-        required = 17
-
-    # An installer is EXECUTED, so it dies on a too-old JVM with a raw
-    # UnsupportedClassVersionError rather than a Minecraft error. Existence is
-    # therefore not enough: find_java_for_version deliberately falls back to a
-    # too-old Java (so LAUNCH can surface Minecraft's own clearer error), and
-    # that fallback used to sail through this os.path.isfile() check and get
-    # handed straight to the loader. An unprobeable binary (major is None -
-    # a path we can't run, e.g. a stub) is still accepted, as before.
-    too_old = None
-    if java and (os.path.isfile(java) or shutil.which(java)):
-        try:
-            probed = java_major_version(java)
-        except Exception:
-            probed = None
-        exact = exact_java_major(java_version_id)
-        if (probed is None or probed >= required) and (exact is None or probed == exact):
-            return java
-        if exact is not None:
-            raise RuntimeError("Forge 1.8.9 requires Java 8. Install a Java 8 runtime in the launcher and try again.")
-        too_old = probed
-
-    # Nothing usable: find_java_for_version has nothing to fall back to, so say
-    # it plainly. Mention JAVA_HOME because it - along with Settings and PATH -
-    # is now one of the three places a Java is picked up from, and it is the one
-    # an affected user most likely has set and was being ignored.
-    label = SUPPORTED_LOADERS.get(loader_id, "mod loader")
-    detail = (f" Only Java {too_old} was found, which is too old for "
-              f"{mc_version}.") if too_old is not None else ""
-    raise RuntimeError(
-        f"Java {required}+ wasn't found, so the {label} installer can't run. "
-        f"Install a Java {required} runtime (Temurin/Adoptium is fine), set the "
-        f"path in Settings, or point JAVA_HOME at it, then try again.{detail}")
+    return ensure_java_for_version(java_version_id, configured, progress_cb=progress_cb,
+                                   status_cb=status_cb, cancel_check=cancel_check)
 
 
 def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, max_cb,
@@ -189,9 +142,7 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
     with a before/after diff, since the exact resulting id format varies per
     loader."""
     if loader_id == "vanilla" or loader_id not in SUPPORTED_LOADERS:
-        from .config import launch_java_path
         install_version(mc_version, progress_cb, status_cb, max_cb,
-                        explicit_java=bool(launch_java_path()),
                         cancel_event=cancel_event)
         return mc_version
 
@@ -221,7 +172,18 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
     patch_mll()
     # Resolve Java BEFORE the download starts: failing here is instant and the
     # message is actionable, versus a half-finished install and a bare WinError.
-    java = loader_java(mc_version, loader_id)
+    def check_cancel():
+        if bridge is not None:
+            bridge.note_thread()
+            if bridge.should_stop():
+                raise _DownloadCancelled()
+
+    def java_progress(done, total):
+        callback["setProgress"](done / (total or 1))
+
+    callback["setMax"](1)
+    java = loader_java(mc_version, loader_id, progress_cb=java_progress,
+                       status_cb=callback["setStatus"], cancel_check=check_cancel)
 
     # mll >= 8: install(mc, dir, *, loader_version=None, callback=None,
     # java=None) and it RETURNS the installed version id. `java` is passed
@@ -241,7 +203,7 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
     expected_id = None
     if kwargs.get("loader_version") and hasattr(loader, "get_installed_version"):
         expected_id = loader.get_installed_version(mc_version, kwargs["loader_version"])
-    expected_folder = (os.path.join(MINECRAFT_DIR, "versions", expected_id)
+    expected_folder = (os.path.join(runtime_dir(MINECRAFT_DIR), "versions", expected_id)
                        if expected_id else None)
     folder_existed = bool(expected_folder and os.path.exists(expected_folder))
     owns_attempt = False
@@ -249,7 +211,7 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
         with (_active_install(expected_id) if expected_id else nullcontext()):
             owns_attempt = True
             with _PatchedMllDownloads(bridge, explicit_java=True):
-                reported = loader.install(mc_version, MINECRAFT_DIR, **kwargs)
+                reported = loader.install(mc_version, runtime_dir(MINECRAFT_DIR), **kwargs)
             callback["setStatus"]("Checking mod loader files")
     except Exception:
         # Own only the new loader folder, never the verified base or an

@@ -227,6 +227,7 @@ main{display:block}
 .dl-card.soon{background:var(--paper)}
 .dl-card.soon .btn{background:var(--paper);color:var(--text-soft);border-color:var(--line);box-shadow:none;cursor:not-allowed}
 .dl-card.soon .btn:hover{transform:none;background:var(--paper)}
+.btn:disabled,.dl-btn-primary:disabled{background:var(--paper);color:var(--text-soft);border-color:var(--line);box-shadow:none;cursor:not-allowed;transform:none;opacity:.65}
 @media(max-width:820px){.dl-grid{grid-template-columns:1fr}}
 
 /* ---- notes ---- */

@@ -22,7 +22,7 @@ import time
 from urllib.parse import urlsplit
 import zipfile
 
-from . import atomicio, net, paths
+from . import atomicio, net, paths, storage
 
 VERSION = "26.3"
 INSTANCE_ID = "cubeon-rust-26.3"
@@ -303,8 +303,12 @@ def _install_runtime(cancel, status_cb, progress_cb):
             status_cb("Downloading Cubeon Rust beta")
             try:
                 manifest = net.get_json(RELEASE_BASE + "/manifest.json", timeout=20, attempts=1)
+            except net.HTTPStatusError as ex:
+                if ex.status_code == 404:
+                    raise RustEngineError("The Cubeon Rust beta download is not available yet. Retry after the Rust release is published.") from ex
+                raise RustEngineError("Couldn't download Cubeon Rust beta metadata. Please retry. " + str(ex)) from ex
             except Exception as ex:
-                raise RustEngineError("The Cubeon Rust build is not published yet. Build it from source or retry after the Rust beta release.") from ex
+                raise RustEngineError("Couldn't connect to the Cubeon Rust download server. Check your connection and retry.") from ex
             item = (manifest.get("platforms") or {}).get(tag) if isinstance(manifest, dict) else None
             if not isinstance(item, dict):
                 raise RustEngineError("No Cubeon Rust beta build is available for this platform.")
@@ -453,7 +457,7 @@ def install(*, cfg=None, cancel=None, status_cb=lambda _: None,
             status_cb("Getting Minecraft 26.3 resource files")
             versions.install_version(VERSION, progress_cb, status_cb, max_cb,
                                      cancel_event=cancel, explicit_java=True)
-            version_dir = Path(paths.MINECRAFT_DIR) / "versions" / VERSION
+            version_dir = Path(storage.runtime_dir()) / "versions" / VERSION
             info = _read(version_dir / (VERSION + ".json"))
             server = (info.get("downloads") or {}).get("server") or {}
             server_jar = _owned(root() / "inputs" / "server-26.3.jar")
@@ -490,7 +494,7 @@ def install(*, cfg=None, cancel=None, status_cb=lambda _: None,
             with tempfile.TemporaryDirectory(prefix="prepare-", dir=resources.parent) as temp:
                 stage = Path(temp) / "resources"
                 _run([preparer, "--prepare", "--complete", "--progress", "json",
-                      "--minecraft-dir", paths.MINECRAFT_DIR, "--server-jar", str(server_jar),
+                      "--minecraft-dir", storage.runtime_dir(), "--server-jar", str(server_jar),
                       "--java-home", str(Path(java).parent.parent), "--output", str(stage)],
                      cancel=cancel, status_cb=status_cb, progress_cb=progress_cb)
                 _check_cancel(cancel)

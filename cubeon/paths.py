@@ -275,9 +275,8 @@ def ensure_dirs() -> None:
     vastly more useful than a stack trace at startup.
     """
     for d in (
-        MINECRAFT_DIR, MODS_DIR, GLOBAL_MODS_DIR, CUBEON_HOME, CACHE_DIR, SKINS_DIR,
-        CAPES_DIR, PFP_DIR, SERVERS_DIR, PROFILES_DIR, BIN_DIR, RUNTIMES_DIR,
-        RESOURCEPACKS_DIR, SHADERPACKS_DIR, GLOBAL_CONTENT_DIR,
+        CUBEON_HOME, CACHE_DIR, SKINS_DIR,
+        CAPES_DIR, PFP_DIR, SERVERS_DIR, BIN_DIR, RUNTIMES_DIR,
     ):
         try:
             os.makedirs(d, exist_ok=True)
@@ -442,6 +441,12 @@ def game_dir_for(version_id: "str | None", *, create: bool = True) -> str:
         return game_dir(create=create)
     if not version_id:
         return MINECRAFT_DIR
+    from . import storage
+    if create:
+        storage.assert_writable()
+    direct = storage.game_dir(version_id, create=create)
+    if direct:
+        return direct
     slug = _instance_slug(version_id)
     path = os.path.join(INSTANCES_GAME_DIR, slug)
     if os.path.isdir(path):
@@ -508,9 +513,30 @@ def active_game_dir() -> str:
         import json
         with open(ACTIVE_INSTANCE_PATH, "r", encoding="utf-8") as fh:
             path = (json.load(fh) or {}).get("game_dir")
-        if path and os.path.isdir(path):
-            return path
+        if path:
+            from . import storage
+            for vid, meta, _profile in storage.instance_profiles():
+                if meta.get("legacy_game_dir") == path or path in meta.get("previous_game_dirs", []):
+                    return storage.game_dir(vid)
+            if os.path.isdir(path):
+                return path
     except (OSError, ValueError):
         pass
     return MINECRAFT_DIR
+
+
+def instance_csl_path(legacy_path: str) -> str:
+    """Resolve live skin writes to the running instance, including after selection changes."""
+    from . import storage
+    if not storage.enabled():
+        return legacy_path
+    storage.assert_writable()
+    relative = os.path.relpath(legacy_path, CSL_DIR)
+    if relative.startswith(".."):
+        return legacy_path
+    active = active_game_dir()
+    base = os.path.join(active, "CustomSkinLoader")
+    if active == MINECRAFT_DIR:
+        base = os.path.join(CUBEON_HOME, "skin-mirror")
+    return os.path.join(base, relative)
 

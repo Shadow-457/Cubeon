@@ -17,7 +17,8 @@ public final class EmoteMenuScreen extends Screen {
     public EmoteMenuScreen() { super(Component.translatable("cubeonclient.menu.emotes")); }
     @Override protected void init() { wheel.layout(this.width, this.height); }
     @Override public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        graphics.fill(0, 0, this.width, this.height, ClientUi.BACKDROP);
+        extractBlurredBackground(graphics);
+        graphics.fill(0,0,this.width,this.height,0x22000000);
     }
     @Override public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
@@ -34,7 +35,7 @@ public final class EmoteMenuScreen extends Screen {
             }
             public int width(String value) { return font.width(ClientUiFont.text(value)); }
             public String translate(String key) { return Component.translatable(key).getString(); }
-        }, this.width, this.height, mouseX, mouseY, CubeonHudConfig.get().showEmotes, Bridge.get().emotesReady());
+        }, this.width, this.height, mouseX, mouseY, CubeonHudConfig.get().showEmotes, Bridge.get().emotesReady(), CubeonHudConfig.get().menuAnimations);
     }
     @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (event.button() == 1) { onClose(); return true; }

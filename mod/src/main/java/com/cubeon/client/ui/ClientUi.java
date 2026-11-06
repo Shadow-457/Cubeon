@@ -10,6 +10,9 @@ public final class ClientUi {
     public interface Canvas {
         void fill(int x0, int y0, int x1, int y1, int color);
         void text(String value, int centerX, int y, int color);
+        default void textScaled(String value, int centerX, int y, int color, float scale) {
+            text(value, centerX, y, color);
+        }
         String translate(String key);
         default int width(String value) { return value.length() * 5; }
         default boolean textures() { return false; }

@@ -4,6 +4,7 @@ Clean profiles stay local. Repairs stage and verify the complete compatible set
 before reversible publication, retaining enabled identities and original JARs.
 """
 import os
+from .storage import metadata_path
 import time
 
 from . import global_mod_cache, mods, net
@@ -75,7 +76,7 @@ def run_dependency_doctor(mc_version, loader, *, version_id=None, status_cb=None
         for entry in result["fixed"]:
             log.info("Automatic Doctor: %s: %s", entry["dependency"], entry["fix"])
         try:
-            write_json(os.path.join(resolver.directory, ".cubeon-auto-doctor.json"),
+            write_json(metadata_path(resolver.directory, ".cubeon-auto-doctor.json"),
                        dict(result, mc_version=mc_version, loader=loader, version_id=version_id))
         except OSError:
             log.warning("Could not save the automatic Doctor report", exc_info=True)

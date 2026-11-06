@@ -52,25 +52,19 @@ jobs = []
 liveness_jobs = []
 deny_liveness = False
 
-# Renamed-instance art uses the recorded game version, reuses in-flight work,
-# and cannot overwrite the artwork of a later selection.
+# Renamed-instance bundled artwork uses the recorded game version.
 renamed = Path(versions.version_folder('Survival 2.0'))
 renamed.mkdir(parents=True)
 (renamed / '_cubeon_instance.json').write_text('{"mc_version":"1.21.11"}')
 refresh_banner = callback(controls, '_refresh_hero_banner')
 banner = inspect.getclosurevars(refresh_banner).nonlocals['hero_art']
-requests, lookups = [], []
-with patch.object(version_art, 'src', side_effect=lambda base: lookups.append(base)), \
-        patch.object(version_art, 'has_official', return_value=False), \
-        patch.object(version_art, 'prefetch', side_effect=lambda base, ready: requests.append((base, ready))):
+lookups = []
+with patch.object(version_art, 'key_art_src', side_effect=lambda base: lookups.append(base) or 'bundled-art'):
     refresh_banner('Survival 2.0')
     refresh_banner('Survival 2.0')
-    assert lookups == ['1.21.11', '1.21.11'] and len(requests) == 1
+    assert lookups == ['1.21.11', '1.21.11'] and banner.source == 'bundled-art'
     refresh_banner('1.20.1')
-    requests[0][1]('stale-art')
-    assert banner.source != 'stale-art'
-    requests[1][1]('current-art')
-    assert banner.source == 'current-art'
+    assert lookups[-1] == '1.20.1'
 
 
 class HeldThread:
@@ -97,7 +91,7 @@ with patch('main.threading.Thread', HeldThread), \
         patch.object(watchdog, 'stale_session', return_value=None), \
         patch.object(stubs.core, 'pack_install_for_instance', return_value=None):
     reset()
-    with patch.object(stubs.core.jre, 'java_status') as java:
+    with patch.object(stubs.core.jre, 'ensure_java_for_version') as java:
         assert on_play() is True
         java.assert_not_called()  # expensive preflight is off the click path
     assert len(jobs) == 1
@@ -145,7 +139,7 @@ with patch('main.threading.Thread', HeldThread), \
     assert previous_watch.is_set(), 'exit must wake its liveness watcher immediately'
 
     reset()
-    with patch.object(stubs.core.jre, 'java_status', return_value={'ok': False, 'required': 21, 'found': None}), \
+    with patch.object(stubs.core.jre, 'ensure_java_for_version', side_effect=RuntimeError('fixture: Java download unavailable')), \
             patch.object(stubs.core, 'launch_game') as spawn:
         begin('1.20.1', 'AuditPilot')
         jobs.pop()()

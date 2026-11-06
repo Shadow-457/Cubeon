@@ -86,6 +86,18 @@ class RustEngineTests(unittest.TestCase):
         self.assertEqual((target / executable.name).read_text(), "rebuilt offline engine")
         self.assertTrue(rust._runtime_valid(target))
 
+    def test_missing_release_and_network_failures_are_distinct(self):
+        checkout = self.home / "no-local-build"
+        failures = [(rust.net.HTTPStatusError("Missing", 404), "not available yet"),
+                    (rust.net.HTTPStatusError("Forbidden", 403), "metadata"),
+                    (rust.net.DownloadError("Timed out"), "connection")]
+        with patch.object(rust, "__file__", str(checkout / "cubeon/rust_engine.py")):
+            for error, message in failures:
+                with self.subTest(error=error), patch.object(rust.net, "get_json", side_effect=error):
+                    with self.assertRaisesRegex(rust.RustEngineError, message):
+                        rust._install_runtime(None, lambda _: None, lambda _: None)
+        self.assertFalse(rust._runtime_valid(rust.runtime_dir()))
+
     def test_archive_traversal_and_links_are_rejected(self):
         for name in ("../escape", "/tmp/escape", "C:\\escape"):
             archive = self.home / "bad.zip"

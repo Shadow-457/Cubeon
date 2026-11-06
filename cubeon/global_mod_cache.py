@@ -53,6 +53,17 @@ _INDEX_STRUCT = ("sha256", "manifest")
 _INDEX_LOCK = threading.RLock()
 
 
+def _store_root():
+    from . import storage
+    return str(storage.root() / "cache" / "downloads" / "mods") if storage.enabled() else GLOBAL_MODS_DIR
+
+
+def _index_path():
+    from . import storage
+    return os.path.join(_store_root(), ".hash_index.json") if storage.enabled() else _HASH_INDEX_PATH
+
+
+
 def _hash_file(path: str, algo: str = "sha256") -> str:
     h = hashlib.new(algo)
     with open(path, "rb") as f:
@@ -65,7 +76,7 @@ def _load_index() -> dict:
     """{"sha256": {sha256-hex: stored filename},
          "manifest": {sha1/sha512-hex: sha256-hex}}"""
     try:
-        with open(_HASH_INDEX_PATH, "r", encoding="utf-8") as f:
+        with open(_index_path(), "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
             return {key: {k: v for k, v in data.get(key, {}).items()
@@ -77,9 +88,9 @@ def _load_index() -> dict:
 
 
 def _save_index(index: dict) -> None:
-    os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
+    os.makedirs(_store_root(), exist_ok=True)
     from .atomicio import write_json
-    write_json(_HASH_INDEX_PATH, index)
+    write_json(_index_path(), index)
 
 
 def _filename_for_sha(sha256_hex: str) -> "str | None":
@@ -88,8 +99,8 @@ def _filename_for_sha(sha256_hex: str) -> "str | None":
 
 def _store_path(filename: str) -> str:
     from .file_safety import entry_name, inside
-    path = os.path.join(GLOBAL_MODS_DIR, entry_name(filename))
-    if not inside(GLOBAL_MODS_DIR, path):
+    path = os.path.join(_store_root(), entry_name(filename))
+    if not inside(_store_root(), path):
         raise ValueError('The cached file points outside its mod store.')
     return path
 
@@ -158,6 +169,17 @@ def link_into_place(cached_path: str, dest_path: str) -> None:
 
     Logs which strategy succeeded so the user can tell whether their
     filesystem is doing symlinks, hardlinks, or copies."""
+    from . import storage
+    storage.assert_writable()
+    if storage.enabled():
+        parent = os.path.dirname(os.path.abspath(dest_path))
+        os.makedirs(parent, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".copy-", dir=parent) as staging:
+            staged = os.path.join(staging, "payload")
+            shutil.copyfile(cached_path, staged)
+            os.replace(staged, dest_path)
+        storage.record_installed_file(dest_path)
+        return
     try:
         if os.path.samefile(cached_path, dest_path):
             return
@@ -255,7 +277,7 @@ def _ingest(tmp_path: str, human_name: str | None, hashes: dict) -> str:
             os.remove(tmp_path)
             return existing
 
-        os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
+        os.makedirs(_store_root(), exist_ok=True)
         filename = _choose_store_name(sha256_hex, human_name, _load_index())
         stored = _store_path(filename)
         os.replace(tmp_path, stored)
@@ -299,8 +321,8 @@ def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,
 
     # Store miss - fetch once, hash the real bytes, store under a human
     # name, remember the manifest hash -> sha256 alias for next time.
-    os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=".fetch-", suffix=".part", dir=GLOBAL_MODS_DIR)
+    os.makedirs(_store_root(), exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".fetch-", suffix=".part", dir=_store_root())
     os.close(fd)
     try:
         fetch_fn(tmp_path)
@@ -334,8 +356,8 @@ def put_file(src_path: str, dest_path: str, hashes: dict = None) -> str:
         link_into_place(stored, dest_path)
         return dest_path
 
-    os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=".fetch-", suffix=".part", dir=GLOBAL_MODS_DIR)
+    os.makedirs(_store_root(), exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".fetch-", suffix=".part", dir=_store_root())
     os.close(fd)
     try:
         shutil.copyfile(src_path, tmp_path)

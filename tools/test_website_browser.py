@@ -84,8 +84,8 @@ def main():
                     expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://www.ylet.online/')
                     expect(page.locator('.sign .pane.on .btn')).to_be_visible()
                     page.locator('[data-pick="mac"]').click()
-                    expect(page.locator('.sign .pane.on .btn')).to_have_attribute(
-                        'href', 'https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-macOS.zip')
+                    expect(page.locator('.sign .pane.on .btn')).to_be_disabled()
+                    expect(page.locator('.sign .pane.on .btn')).to_have_text('macOS unavailable')
                     question = page.locator('#what-is-cubeon-launcher .q-a')
                     question.click()
                     expect(question).to_have_attribute('aria-expanded', 'true')

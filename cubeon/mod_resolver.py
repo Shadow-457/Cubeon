@@ -297,7 +297,7 @@ class Resolver:
             for choice, destination in zip(changed, destinations):
                 os.replace(choice.path, destination)
                 placed.append((choice.path, destination))
-                sidecar = destination + mods.MOD_META_SUFFIX
+                sidecar = mods._meta_path(self.directory, os.path.basename(destination))
                 try:
                     with open(sidecar, "rb") as source:
                         sidecars[sidecar] = source.read()

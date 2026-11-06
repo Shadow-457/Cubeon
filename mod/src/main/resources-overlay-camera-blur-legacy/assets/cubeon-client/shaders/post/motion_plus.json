@@ -1,0 +1,29 @@
+{
+  "targets": [
+    "swap",
+    "history"
+  ],
+  "passes": [
+    {
+      "name": "cubeon_motion_plus",
+      "intarget": "minecraft:main",
+      "outtarget": "swap",
+      "auxtargets": [
+        {
+          "name": "HistorySampler",
+          "id": "history"
+        }
+      ]
+    },
+    {
+      "name": "cubeon_motion_scene",
+      "intarget": "minecraft:main",
+      "outtarget": "history"
+    },
+    {
+      "name": "blit",
+      "intarget": "swap",
+      "outtarget": "minecraft:main"
+    }
+  ]
+}

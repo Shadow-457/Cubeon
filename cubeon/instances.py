@@ -26,6 +26,7 @@ via ``instance_size_bytes``.
 """
 import json
 import os
+from .storage import runtime_dir
 import re
 import threading
 import time
@@ -104,7 +105,7 @@ def instance_size_bytes(version_id: str, folder: "str | None" = None,
     """
     if _versions_dir is None:
         from .paths import MINECRAFT_DIR
-        _versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+        _versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     root = os.path.join(_versions_dir, folder or version_id)
     if not os.path.isdir(root):
         return None

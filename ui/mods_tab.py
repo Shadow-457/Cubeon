@@ -23,6 +23,8 @@ import flet as ft
 from cubeon import i18n
 from cubeon.mod_loaders import MOD_CAPABLE_LOADERS
 from cubeon.content import content_mc_versions
+from cubeon import cubeonfriends
+from cubeon.mods import resolve_profile_dir
 
 from cubeon.theme import (  # design system: corner radius, on-accent fg, hover states
     RADIUS, ON_ACCENT, ACCENT_HI, INFO, attach_hover,
@@ -413,6 +415,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def _change_client_enabled(enabled):
         with thread_safe_ui.TREE_LOCK:
+            changed = False
             try:
                 if on_client_mod_change is not None:
                     if on_client_mod_change(enabled) is False:
@@ -431,9 +434,52 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             except Exception as error:
                 _set_installed_status(f"Could not save Cubeon Client settings: {error}")
             else:
+                changed = True
                 _set_installed_status(f"Cubeon Client {'enabled' if enabled else 'disabled'}. "
                                       'Applies to all instances on the next launch.')
             _render_installed_snapshot(_cached_installed())
+            return changed
+
+    def _client_browse_entry():
+        # A local catalogue entry shares the normal Browse grid. Never alter
+        # provider pages/offsets or offer a client for an unsupported profile.
+        if (not _is_mod() or browse_state['page'] != 0
+                or state.get('mod_loader') not in ('fabric', 'quilt', 'forge')
+                or cubeonfriends.client_support_status(
+                    state.get('selected_mc_version'), state.get('mod_loader')) is None
+                or active_category['value'] not in ('', 'utility', 'social')):
+            return None
+        if any(word not in 'cubeon client cosmetics friends chat hud' for word in _browse_query().lower().split()):
+            return None
+        return dict(slug='cubeon-client', title='Cubeon Client', author='Cubeon',
+                    description='Cosmetics, friends, chat and HUD controls.', builtin_client=True)
+
+    def _install_client(target, feedback):
+        with thread_safe_ui.TREE_LOCK:
+            if (target != _installed_target('mod') or not _is_mod() or not _can_install('mod') or feedback.busy
+                    or target[2] not in ('fabric', 'quilt', 'forge')
+                    or cubeonfriends.client_support_status(target[1], target[2]) is None):
+                return
+            if not cfg.get('client_mod_enabled', True) and not _change_client_enabled(True):
+                feedback.finish(error=installed_status.value)
+                return
+            if not feedback.start(text='Installing Cubeon Client...'):
+                return
+
+        def worker():
+            try:
+                profile = resolve_profile_dir(target[1], target[2], target[3])
+                if not cubeonfriends.ensure_installed(target[1], target[2], profile):
+                    raise RuntimeError('The matching Cubeon Client file is unavailable. Update the launcher and retry.')
+                feedback.finish(note='Cubeon Client installed. Available on the next game launch.')
+                _refresh_after_install(target)
+            except Exception as error:
+                feedback.finish(error=f"Couldn't install Cubeon Client: {error}")
+
+        try:
+            threading.Thread(target=worker, daemon=True, name='cubeon-client-install').start()
+        except Exception as error:
+            feedback.finish(error=f"Couldn't start Cubeon Client installation: {error}")
 
     def _mod_status(m):
         if _is_client_mod(m):
@@ -1603,13 +1649,25 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         return
                     browse_sessions.pop(token[1], None)
                     browse_status_text.value = "Search unavailable"
-                    layout_tiles(browse_results_view, False)
+                    client_entry = _client_browse_entry()
                     browse_results_view.disabled = False
-                    browse_results_view.controls[:] = [
-                        empty_state("Search unavailable", "Check your connection, then try again.",
-                                    icon=ft.Icons.WIFI_OFF_ROUNDED),
-                        quiet_chip('Retry', on_click=_retry_search),
-                    ]
+                    if client_entry:
+                        # Bundled client recovery remains available offline, in
+                        # the same compact grid as successful provider results.
+                        browse_results_view.controls[:] = [
+                            build_browse_row(client_entry, any(_is_client_mod(m) for m in _cached_installed('mod'))),
+                            ft.Container(ft.Column([
+                                ft.Text('Modrinth unavailable', size=12, color=TEXT_DIM),
+                                ft.TextButton('Retry', on_click=_retry_search),
+                            ], spacing=4), padding=12),
+                        ]
+                    else:
+                        browse_results_view.controls[:] = [
+                            empty_state("Search unavailable", "Check your connection, then try again.",
+                                        icon=ft.Icons.WIFI_OFF_ROUNDED),
+                            quiet_chip('Retry', on_click=_retry_search),
+                        ]
+                    layout_tiles(browse_results_view, bool(client_entry))
                 thread_safe_ui.refresh(browse_status_text)
                 thread_safe_ui.refresh(browse_results_view)
                 return
@@ -1702,8 +1760,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         can't be clicked while the real one is in flight."""
         if (not browse_results_view.controls or isinstance(browse_results_view.controls[0], (ft.Text, ft.Row))
                 or getattr(browse_results_view.controls[0], "data", None) == "content-empty"):
-            browse_results_view.controls[:] = [loading_rows(fill=BORDER)]
-            layout_tiles(browse_results_view, False)
+            client_entry = _client_browse_entry()
+            if client_entry:
+                browse_results_view.controls[:] = [
+                    ft.Container(ft.Text('Loading…', size=12, color=TEXT_DIM),
+                                 alignment=ft.Alignment.CENTER, data='content-loading'),
+                    build_browse_row(client_entry, any(_is_client_mod(m) for m in _cached_installed('mod'))),
+                ]
+            else:
+                browse_results_view.controls[:] = [loading_rows(fill=BORDER)]
+            layout_tiles(browse_results_view, bool(client_entry))
         browse_results_view.disabled = getattr(browse_results_view.controls[0], 'data', None) != 'content-loading'
         browse_pager_row.visible = False
         # Scoped: a full page.update() here re-synced every mounted tab right
@@ -1745,8 +1811,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         browse_state["results"] = results
 
+        client_entry = _client_browse_entry()
+        displayed_results = ([client_entry] if client_entry else []) + [
+            item for item in results if not client_entry or item.get('slug') != 'cubeon-client']
         rows = []
-        if not results:
+        if not displayed_results:
             rows.append(
                 empty_state(browse_state.get("empty_msg") or "No results",
                             "Try a different search or adjust the filters."))
@@ -1760,7 +1829,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             is_mod_now = _is_mod()
             already = installed_slugs() if is_mod_now else set()
             tokens = set() if is_mod_now else content_installed_tokens()
-            for mod in results:
+            for mod in displayed_results:
                 if is_mod_now:
                     slug = (mod.get("slug") or "").lower()
                     compact = re.sub(r"[^a-z0-9]+", "", slug)
@@ -1768,8 +1837,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     # exactly this and no slug, so it's often the only match
                     # for a pack-installed mod.
                     pid = (mod.get("project_id") or "").strip().lower()
-                    is_installed = slug in already or (bool(compact) and compact in already) \
-                        or (bool(pid) and pid in already)
+                    is_installed = (any(_is_client_mod(item) for item in _cached_installed('mod'))
+                                    if mod.get('builtin_client') else
+                                    slug in already or (bool(compact) and compact in already)
+                                    or (bool(pid) and pid in already))
                 else:
                     # Resource packs / shaders store no Modrinth slug (they're
                     # just .zips in a shared folder), so match the project's
@@ -1782,13 +1853,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 rows.append(build_browse_row(mod, is_installed))
 
         browse_results_view.controls[:] = rows
-        layout_tiles(browse_results_view, bool(results))
+        layout_tiles(browse_results_view, bool(displayed_results))
         browse_results_view.disabled = False
 
         matched_query = results[0].get("search_query", _browse_query()) if results else ""
         browse_status_text.value = (
             f'Related matches for "{matched_query}"' if matched_query and matched_query != _browse_query()
-            else f"{len(results)} result(s)" if results else "")
+            else f"{len(displayed_results)} result(s)" if displayed_results else "")
         browse_pager_label.value = f"Page {page_num + 1} of {total_pages}"
         browse_pager_row.visible = total_pages > 1
         browse_pager_prev.disabled = page_num <= 0
@@ -2415,6 +2486,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         action is a restrained green wash instead of a solid block, so five
         rows don't stack five loud buttons.
         """
+        builtin = bool(mod.get('builtin_client'))
         row_content_type = _ct()
         if mod.get('slug') and mod.get('icon_url'):
             installed_icon_urls[mod['slug']] = mod['icon_url']
@@ -2445,7 +2517,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 spacing=8, tight=True,
             ),
             bgcolor=ACCENT if available else None,
-            width=84, height=30, alignment=ft.Alignment.CENTER,
+            width=104 if builtin else 84, height=30, alignment=ft.Alignment.CENTER,
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ink=False,
@@ -2458,6 +2530,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             Handles the download of a mod. It finds the appropriate file (compatible with
             current Minecraft version and loader), then downloads it and refreshes the installed list.
             """
+            if builtin:
+                _install_client(row_target, feedback)
+                return
             content_type = row_content_type
             if row_target != _installed_target(row_content_type):
                 return
@@ -2612,7 +2687,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 content=ft.Row(
                     [
                         # Mod icon (or placeholder if none) - disk-cached art
-                        _art_image(mod.get("icon_url"), 44, 44),
+                        (ft.Image(src="icon_64.png", width=44, height=44, fit=ft.BoxFit.CONTAIN)
+                         if builtin else _art_image(mod.get("icon_url"), 44, 44)),
                         # Title leads; description and metadata support it.
                         ft.Column(
                             [
@@ -2622,6 +2698,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                         installed_badge], spacing=6),
                                 ft.Text(mod.get('author') or mod.get('author_name') or 'Community project',
                                         size=11.5, color=TEXT_DIM, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                ft.Text("Bundled with Cubeon", size=10.5, color=TEXT_FAINT) if builtin else
                                 ft.Row([ft.Icon(ft.Icons.DOWNLOAD_OUTLINED, size=12, color=TEXT_FAINT),
                                         ft.Text(downloads_label(mod.get('downloads')), size=10.5, color=TEXT_FAINT)], spacing=4),
                             ],
@@ -2637,7 +2714,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             ),
             SURFACE, BORDER, ROW_HOVER,
         )
-        row.on_click = lambda e: open_mod_detail(mod, row_content_type)
+        row.on_click = None if builtin else lambda e: open_mod_detail(mod, row_content_type)
+        if builtin:
+            row.data = 'cubeon-client-browse'
+            download_btn.data = 'cubeon-client-install'
 
         row_state = {"installed": is_installed, "result": feedback.result_id}
         def paint(job):
@@ -2647,21 +2727,22 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     row_state["installed"] = True
             installed = row_state["installed"]
             installed_badge.visible = installed and not job.busy
-            download_btn.visible = not installed or job.busy
+            download_btn.visible = builtin or not installed or job.busy
             icon = download_btn.content.controls[0]
             icon.icon = ft.Icons.CHECK_ROUNDED if installed and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
             download_btn_text.value = compact_status(job.text) if job.busy else (
-                i18n.t("Installed") if installed else "Try again" if job.result == "error"
+                "Try again" if builtin and job.result == "error" else
+                "Reinstall" if builtin and installed else i18n.t("Installed") if installed else "Try again" if job.result == "error"
                 else "Unavailable" if compatibility_note else "Install")
-            can_install = not installed and not compatibility_note and _can_install(row_content_type)
-            download_btn_text.color = (TEXT_DIM if job.busy or installed or not can_install else
+            can_install = (builtin or not installed) and not compatibility_note and _can_install(row_content_type)
+            download_btn_text.color = (TEXT_DIM if job.busy or not can_install else
                                        DANGER if job.result == 'error' else ON_ACCENT)
             icon.color = download_btn_text.color
             download_btn.bgcolor = SURFACE_HI if job.busy else ACCENT if can_install and job.result != 'error' else None
-            download_btn.disabled = job.busy or installed or bool(compatibility_note) or not _can_install(row_content_type)
+            download_btn.disabled = job.busy or (installed and not builtin) or bool(compatibility_note) or not _can_install(row_content_type)
             download_btn.tooltip = job.text if job.busy or job.result == "error" else (
                 job.note if installed else compatibility_note or None)
-            download_btn.on_click = None if installed and not job.busy else on_download
+            download_btn.on_click = None if installed and not builtin and not job.busy else on_download
 
         def sync_action(installed):
             row_state["installed"] = installed

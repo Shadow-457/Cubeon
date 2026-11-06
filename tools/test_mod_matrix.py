@@ -397,8 +397,9 @@ def test_resources(matrix):
        "nor does the shared tree still carry CrosshairScale")
 
     # Source, config and resources must all drop the removed effects.
+    # The new temporalMotionBlur / motion_blur_plus names are a separate feature.
     pattern = re.compile(
-        r"(?<!camera)motion[_-]?blur|dynamic[_-]?crosshair|crosshair(?:scale|mixin)|renderTargetHighlight", re.I)
+        r"(?<![A-Za-z])motion[_-]?blur(?!_plus)|dynamic[_-]?crosshair|crosshair(?:scale|mixin)|renderTargetHighlight", re.I)
     leftovers = []
     for path in Path(MOD, "src", "main").rglob("*"):
         if path.suffix not in {".java", ".json", ".fsh"}:
@@ -432,16 +433,22 @@ def test_removed_effect_guard():
                 "key.cubeon-client.freelook": "Hold to Freelook",
                 "cubeonclient.hud.wing_depth": "3D wings",
                 "cubeonclient.hud.camera_blur": "Camera motion blur",
+                "cubeonclient.hud.motion_blur_plus": "Motion blur+",
+                "cubeonclient.hud.motion_blur_plus_hint": "Temporal world exposure",
+                "cubeonclient.hud.motion_blur_plus_strength": "Strength",
                 "cubeonclient.hud.blur_intensity": "Blur intensity",
                 "cubeonclient.hud.blur_intensity_hint": "Click to increase intensity",
                 "key.cubeon-client.wing_flare": "Dragon Wing Flare"}).encode()
             entries["com/cubeon/client/hud/CubeonHudKeybinds.class"] = b"wing_flare"
-            entries["com/cubeon/client/hud/CubeonHudConfig.class"] = b"wingDepth cameraMotionBlur cameraBlurIntensity"
+            entries["com/cubeon/client/hud/CubeonHudConfig.class"] = b"wingDepth cameraMotionBlur cameraBlurIntensity temporalMotionBlur temporalBlurStrength"
             entries["assets/cubeon-client/cosmetics/catalog.json"] = Path(ROOT, "assets/cosmetics/catalog.json").read_bytes()
             names = ["back_" + wing + "_wings" + size + ".png"
                      for wing in ("ember", "frost", "leaf", "void", "aurora") for size in ("", "_small", "_flat")]
             for name in names:
                 entries["assets/cubeon-client/textures/cosmetics/" + name] = Path(ROOT, "assets/cosmetics", name).read_bytes()
+            for entry in ("assets/cubeon-client/icon.png", "assets/cubeon-client/font/cubeon_client.json",
+                          "assets/cubeon-client/textures/font/cubeon_client.png"):
+                entries[entry] = Path(MOD, "src/main/resources", entry).read_bytes()
             entries.update(extra)
             with zipfile.ZipFile(path, "w") as jar:
                 for name, data in entries.items():

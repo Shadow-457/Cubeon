@@ -83,7 +83,7 @@
            : /linux|x11/.test(ua) ? 'linux' : '';
 
     document.querySelectorAll('[data-os]').forEach(function(el){
-      if(el.getAttribute('data-os') === os) el.classList.add('rec');
+      if(el.getAttribute('data-os') === os && !el.classList.contains('soon')) el.classList.add('rec');
     });
 
     var panes = document.querySelectorAll('.pane');

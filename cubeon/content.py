@@ -195,7 +195,9 @@ _COLLISION_TAG = 8
 def store_dir(content_type: str) -> str:
     """The global, human-browsable store this content type shares with every
     profile - the packs/shaders twin of GLOBAL_MODS_DIR."""
-    d = child_directory(GLOBAL_CONTENT_DIR, _cfg(content_type)["subdir"])
+    from . import storage
+    base = str(storage.root() / "cache" / "downloads" / "content") if storage.enabled() else GLOBAL_CONTENT_DIR
+    d = child_directory(base, _cfg(content_type)["subdir"])
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -204,6 +206,10 @@ def resolve_content_profile_dir(content_type: str, mc_version: str | None,
                                 loader: str | None,
                                 version_id: str | None = None) -> str:
     require_loader_and_version(mc_version, loader, "read content")
+    from . import storage
+    direct = storage.game_dir(version_id)
+    if direct:
+        return child_directory(direct, _cfg(content_type)["subdir"])
     root = resolve_profile_dir(mc_version, loader, version_id)
     return child_directory(root, _cfg(content_type)["subdir"])
 
@@ -219,8 +225,8 @@ def profile_dir(content_type: str, mc_version: str | None,
     the game never looks."""
     require_loader_and_version(
         mc_version, loader, f"manage {_cfg(content_type)['label_plural'].lower()}")
-    d = child_directory(get_profile_dir(mc_version, loader, version_id),
-                        _cfg(content_type)["subdir"])
+    get_profile_dir(mc_version, loader, version_id)
+    d = resolve_content_profile_dir(content_type, mc_version, loader, version_id)
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -376,10 +382,14 @@ def link_into_profile(content_type: str, stored_path: str,
         # symlink to the stored folder (or copied where symlinks are refused).
         with tempfile.TemporaryDirectory(prefix='.link-', dir=os.path.dirname(dest)) as work:
             staged = os.path.join(work, 'pack')
-            try:
-                os.symlink(stored_path, staged, target_is_directory=True)
-            except OSError:
+            from . import storage
+            if storage.enabled():
                 shutil.copytree(stored_path, staged)
+            else:
+                try:
+                    os.symlink(stored_path, staged, target_is_directory=True)
+                except OSError:
+                    shutil.copytree(stored_path, staged)
             replace_directory(staged, dest)
         return dest
     global_mod_cache.link_into_place(stored_path, dest)
@@ -1147,6 +1157,10 @@ def sync_content_to_game(mc_version: str | None, loader: str | None,
     Best-effort by design - a pack that can't be staged must never stop a
     launch."""
     require_loader_and_version(mc_version, loader, "sync packs into the game")
+    from . import storage
+    storage.assert_writable()
+    if storage.game_dir(version_id):
+        return
     for content_type in ("resourcepack", "shader"):
         try:
             _sync_content_type(content_type, mc_version, loader, version_id)

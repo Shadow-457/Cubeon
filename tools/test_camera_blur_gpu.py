@@ -58,8 +58,17 @@ def upload(data):
     GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA8, width, height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
 
 
-for resource in sorted(ROOT.glob("resources-overlay-camera-blur-*")):
-    fragment, = resource.rglob("*.fsh")
+history = GL.glGenTextures(1)
+GL.glActiveTexture(GL.GL_TEXTURE1)
+GL.glBindTexture(GL.GL_TEXTURE_2D, history)
+GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA8, width, height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, bytes((200, 40, 60, 0)) * (width * height))
+
+for fragment in sorted(ROOT.glob("resources-overlay-camera-blur-*/**/*.fsh")):
+    resource = next(p for p in fragment.parents if p.name.startswith("resources-overlay-camera-blur-"))
+    plus_only = "motion_plus" in fragment.stem
+    scene_only = "motion_scene" in fragment.stem
     source = fragment.read_text()
     # RenderPearl translates its native vertex intrinsic for its backend.
     # All actual fragment sources are compiled unchanged, including 26.3.
@@ -69,6 +78,7 @@ for resource in sorted(ROOT.glob("resources-overlay-camera-blur-*")):
     GL.glUseProgram(program)
     sampler = "DiffuseSampler" if "DiffuseSampler" in source else "InSampler"
     GL.glUniform1i(GL.glGetUniformLocation(program, sampler), 0)
+    GL.glUniform1i(GL.glGetUniformLocation(program, "HistorySampler"), 1)
     ubo = None
     if "layout(std140)" in source:
         ubo = GL.glGenBuffers(1)
@@ -87,32 +97,45 @@ for resource in sorted(ROOT.glob("resources-overlay-camera-blur-*")):
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         return GL.glReadPixels(0, 0, width, height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
 
-    upload(pixels)
-    sharp = draw(0, 0)
-    assert sharp == pixels, f"{resource.name}: zero-vector must preserve the scene exactly"
-    blurred = draw(.06, 0)
-    assert blurred != sharp, f"{resource.name}: moving camera must visibly blur"
-    assert all(blurred[i] == pixels[i] for i in range(1, len(pixels), 4)), "Horizontal blur must not smear vertical detail"
-    assert all(blurred[i] == 255 for i in range(3, len(pixels), 4)), "Opaque scene must stay opaque"
-    for color in [(0, 0, 0, 255), (37, 126, 220, 255)]:
-        solid = bytes(color) * (width * height)
-        upload(solid)
+    if scene_only:
+        upload(pixels)
+        assert draw(0, 0) == pixels, "Raw history preserves the current scene exactly"
+        upload(bytes((37, 126, 220, 0)) * (width * height))
+        assert draw(0, 0) == bytes((37, 126, 220, 255)) * (width * height), "Raw history preserves zero-alpha sky RGB"
+    if not plus_only and not scene_only:
+        upload(pixels)
+        sharp = draw(0, 0)
+        assert sharp == pixels, f"{resource.name}: zero-vector must preserve the scene exactly"
+        blurred = draw(.06, 0)
+        assert blurred != sharp, f"{resource.name}: moving camera must visibly blur"
+        assert all(blurred[i] == pixels[i] for i in range(1, len(pixels), 4)), "Horizontal blur must not smear vertical detail"
+        assert all(blurred[i] == 255 for i in range(3, len(pixels), 4)), "Opaque scene must stay opaque"
+        for color in [(0, 0, 0, 255), (37, 126, 220, 255)]:
+            solid = bytes(color) * (width * height)
+            upload(solid)
+            result = draw(.06, .025)
+            assert all(abs(a-b) <= 1 for a, b in zip(result, solid)), "No prior-frame ghost or dark borders allowed"
+        # Vanilla's lower sky can have RGB sky color with alpha zero. The legacy
+        # second pass uses alpha blending after clearing main: zero alpha made it black.
+        transparent_sky = bytes((37, 126, 220, 0)) * (width * height)
+        upload(transparent_sky)
         result = draw(.06, .025)
-        assert all(abs(a-b) <= 1 for a, b in zip(result, solid)), "No prior-frame ghost or dark borders allowed"
-    # Vanilla's lower sky can have RGB sky color with alpha zero. The legacy
-    # second pass uses alpha blending after clearing main: zero alpha made it black.
-    transparent_sky = bytes((37, 126, 220, 0)) * (width * height)
-    upload(transparent_sky)
-    result = draw(.06, .025)
-    assert all(abs(result[i + c] - (37, 126, 220, 255)[c]) <= 1
-               for i in range(0, len(result), 4) for c in range(4)), "Sky RGB must survive zero attachment alpha"
+        assert all(abs(result[i + c] - (37, 126, 220, 255)[c]) <= 1
+                   for i in range(0, len(result), 4) for c in range(4)), "Sky RGB must survive zero attachment alpha"
+    if plus_only or "HistorySampler" in source:
+        upload(bytes((20, 100, 180, 0)) * (width * height))
+        for weight in (0, .3, .8):
+            result = draw(weight if plus_only else 1 + weight, 0)
+            expected_weight = min(.45, weight)
+            expected = (round(20 * (1-expected_weight) + 200 * expected_weight), round(100 * (1-expected_weight) + 40 * expected_weight), round(180 * (1-expected_weight) + 60 * expected_weight), 255)
+            assert all(abs(result[i+c] - expected[c]) <= 1 for i in range(0, len(result), 4) for c in range(4)), f"{fragment}: temporal seed/blend preserves RGB and opaque sky"
     assert GL.glGetError() == GL.GL_NO_ERROR
     if ubo:
         GL.glDeleteBuffers(1, [ubo])
     GL.glDeleteProgram(program)
-    print(resource.name, "compiled; sharp/blurred pixels, direction, alpha, edge clamp and no-history checks passed")
+    print(resource.name, fragment.stem, "compiled; scene pixels and temporal blend checks passed")
 
-GL.glDeleteTextures([texture])
+GL.glDeleteTextures([texture, history])
 GL.glDeleteVertexArrays(1, [vao])
 EGL.eglMakeCurrent(display, EGL.EGL_NO_SURFACE, EGL.EGL_NO_SURFACE, EGL.EGL_NO_CONTEXT)
 EGL.eglDestroyContext(display, context)

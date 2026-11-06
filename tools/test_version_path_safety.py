@@ -122,7 +122,9 @@ class VersionSafety(unittest.TestCase):
     def test_java_probe_reuses_success_but_invalidates_replaced_binary(self):
         binary = self.root / 'java'
         binary.write_bytes(b'java-21')
-        with patch.object(launch.subprocess, 'run', return_value=SimpleNamespace(stderr='openjdk version "21.0.1"')) as run:
+        binary.chmod(0o755)
+        with patch.object(launch.subprocess, 'run', return_value=SimpleNamespace(
+                returncode=0, stdout='', stderr='openjdk version "21.0.1"')) as run:
             self.assertEqual(launch.java_major_version(str(binary)), 21)
             self.assertEqual(launch.java_major_version(str(binary)), 21)
             self.assertEqual(run.call_count, 1)

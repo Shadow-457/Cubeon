@@ -49,6 +49,8 @@ copy"), so a fix can never hide the error that caused it.
 """
 import json
 import os
+from .storage import runtime_dir
+from .storage import metadata_path
 import re
 import shutil
 import time
@@ -545,14 +547,9 @@ def _iter_modpack_markers():
     because the doctor needs the profile DIRECTORY too - and a marker that
     fails to parse has to be visible, since that is one of the problems it
     fixes."""
-    profiles_dir = modpacks.PROFILES_DIR
-    try:
-        keys = sorted(os.listdir(profiles_dir))
-    except OSError:
-        return
-    for key in keys:
-        profile_dir = os.path.join(profiles_dir, key)
-        marker = os.path.join(profile_dir, modpacks.MODPACK_META_FILENAME)
+    from .mods import iter_profile_dirs
+    for key, profile_dir in iter_profile_dirs():
+        marker = metadata_path(profile_dir, modpacks.MODPACK_META_FILENAME)
         if not os.path.isfile(marker):
             continue
         try:
@@ -589,8 +586,7 @@ def _modpacks_section(mc_version, loader, auto_fix, check_online, status_cb, app
             fixed = False
             fix = ""
             if auto_fix:
-                marker = os.path.join(profile_dir,
-                                      modpacks.MODPACK_META_FILENAME)
+                marker = metadata_path(profile_dir, modpacks.MODPACK_META_FILENAME)
                 backup = f"{marker}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}"
                 try:
                     os.replace(marker, backup)
@@ -625,7 +621,7 @@ def _modpacks_section(mc_version, loader, auto_fix, check_online, status_cb, app
         pack_mc = meta.get("mc_version")
         pack_version_id = meta.get("version_id")
         if pack_mc:
-            versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+            versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
             installed = os.path.isdir(os.path.join(versions_dir, str(pack_mc)))
             if pack_version_id:
                 installed = installed and os.path.isdir(

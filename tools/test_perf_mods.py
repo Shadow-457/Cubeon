@@ -4,8 +4,9 @@ and the options.txt appliers (cubeon/game_options.py).
 
 The point of the feature: the Cubeon Client is a social mod, so "activate
 Cubeon Client" must also bring the mods that actually raise frame rate
-(Sodium, Lithium, ImmediatelyFast, EntityCulling, FerriteCore). It must
-NOT touch Vsync/maxFps - those belong to the player. These tests pin the
+(Sodium, Lithium, ImmediatelyFast, EntityCulling, FerriteCore, ModernFix,
+BadOptimizations). Ordinary boost preserves Vsync/maxFps; explicit settings
+sync can manage them (covered by test_fps_boost_sync.py). These tests pin the
 install/skip/fail behaviour and the options rewrite with no network and no
 real profile:
 
@@ -13,9 +14,9 @@ real profile:
   - one/both already present (by slug, display name, project id or filename)
     -> kept, never re-downloaded (a duplicate Sodium is a crash, not a boost);
   - Fabric/Quilt/Forge/NeoForge use loader-compatible builds; vanilla is a no-op;
-  - every failure (no build, download error) is reported, never raised;
+  - missing builds and download errors are reported distinctly, never raised;
   - options.txt: graphics keys are rewritten atomically and idempotently,
-    enableVsync/maxFps are never read or written.
+    ordinary graphics appliers leave enableVsync/maxFps alone.
 """
 import json as _json
 import os
@@ -132,7 +133,8 @@ print("\n5. failures are reported, never raised")
 perf.list_mods = lambda mc, ld, **kwargs: []
 perf.get_mod_download = lambda slug, **kw: None
 report = perf.ensure_installed("1.21.11", "quilt")
-check("no build -> failed list", report["failed"] == ALL_SLUGS, f"got {report!r}")
+check("no build -> unavailable, not a failed download",
+      report["unavailable"] == ALL_SLUGS and not report["failed"], f"got {report!r}")
 
 _wire([], download_raises=True)
 report = perf.ensure_installed("1.21.11", "quilt")
@@ -196,8 +198,9 @@ _wire([{"project_id": "AANobbMI"}, {"project_id": "gvQqBUqZ"}])
 check("opaque performance project IDs are recognized",
       "sodium" in perf._present("1.20.1", "fabric")
       and "lithium" in perf._present("1.20.1", "fabric"))
-check("retired project IDs are no longer recognized",
-      "badoptimizations" not in perf._present("1.20.1", "fabric"))
+_wire([{"project_id": "g96Z4WVZ"}, {"project_id": "nmDcB62a"}])
+check("requested BadOptimizations and ModernFix IDs are recognized",
+      {"badoptimizations", "modernfix"} <= perf._present("1.20.1", "fabric"))
 
 print("\n7. options.txt: the launcher leaves Vsync/maxFps alone")
 with tempfile.TemporaryDirectory() as tmp:
@@ -243,8 +246,7 @@ with tempfile.TemporaryDirectory() as tmp:
           game_options.apply_max_fps(os.path.join(tmp, "nope.txt"))["changed"] == [])
 
 # The 2026-10-24 fan-noise fix: forcing enableVsync:false + maxFps:260 on
-# every launch is gone for good. A fresh install keeps Minecraft's defaults
-# (Vsync ON, maxFps 120) and an existing file is never rewritten.
+# every launch is opt-in. Ordinary boost keeps the player's frame pacing.
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _launch_now = open(os.path.join(_ROOT, "cubeon", "launch.py"),
                    encoding="utf-8").read()
@@ -252,14 +254,13 @@ _options_src = open(os.path.join(_ROOT, "cubeon", "game_options.py"),
                     encoding="utf-8").read()
 check("the frame-rate unlocker is gone",
       not hasattr(game_options, "unlock_frame_rate"))
-check("the launch path never rewrites Vsync or maxFps",
+check("the launch path uses the settings-sync gate for frame pacing",
       "unlock_frame_rate" not in _launch_now
-      and "game_options.VSYNC_KEY" not in _launch_now
-      and "game_options.MAX_FPS_KEY" not in _launch_now,
-      "forcing Vsync off on every launch pegged six cores in singleplayer")
-check("no applier writes Vsync/maxFps keys",
-      "VSYNC_KEY:" not in _options_src and "MAX_FPS_KEY:" not in _options_src,
-      "the constants stay documented but no table may use them")
+      and 'cfg.get("fps_boost_sync_settings", False)' in _launch_now)
+check("ordinary boost leaves pacing alone; explicit sync unlocks it",
+      not {"enableVsync", "maxFps"} & {entry[0] for entry in game_options.MAX_FPS_OPTIONS}
+      and game_options.SYNC_OPTIONS["enableVsync"] == "false"
+      and game_options.SYNC_OPTIONS["maxFps"] == "260")
 
 print("\n8. the EntityCulling config is repaired of crash-inducing entries")
 with tempfile.TemporaryDirectory() as tmp:

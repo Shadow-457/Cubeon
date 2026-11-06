@@ -72,7 +72,9 @@ with patch('main.threading.Thread', DeferredThread):
     begin('1.20.1', 'tester')
     check('the shared card refuses a second simultaneous install', len(jobs) == 1)
     scope['_cancel_event']('1.21.11').set()
-    jobs.pop(0)()
+    with patch.object(stubs.core.jre, 'ensure_java_for_version') as java:
+        jobs.pop(0)()
+        check('cancellation before the worker skips Java setup', java.call_count == 0)
 check('an immediate cancel survives until the worker starts',
       scope['progress_stage'].value == 'CANCELLED' and state['installing_version'] is None)
 check('cancel returns a usable main button',
@@ -81,7 +83,15 @@ check('cancel returns a usable main button',
 # The loader choice belongs to the attempt, even if selection changes while
 # the worker is waiting to run. Stop in the fake loader, before any spawn.
 loader_calls = []
+install_order = []
+def prepare_java(version, *args, **kwargs):
+    install_order.append('java')
+    kwargs['cancel_check']()
+    return '/tmp/verified-java'
+
 def install_base(version, progress, status, maximum, **kwargs):
+    install_order.append('game')
+    check('verified Java skips the duplicate Mojang runtime', kwargs.get('explicit_java') is True)
     maximum(10)
     progress(5)
     installed.append({'id': version, 'type': 'release'})
@@ -92,6 +102,7 @@ def cancelled_loader(loader, mc, progress, status, maximum, **kwargs):
     raise RuntimeError('fixture: cancelled during loader download')
 
 with patch.object(stubs.core, 'install_version', install_base), \
+     patch.object(stubs.core.jre, 'ensure_java_for_version', prepare_java), \
      patch.object(stubs.core, 'install_mod_loader', cancelled_loader), \
      patch.object(stubs.core, 'is_loader_supported', return_value=True), \
      patch.object(stubs.core, 'delete_version') as delete, \
@@ -102,6 +113,7 @@ with patch.object(stubs.core, 'install_version', install_base), \
     jobs.pop(0)()
     check('changing selection cannot change the loader being installed',
           loader_calls == [('fabric', '1.21.11')])
+    check('Java is prepared before game-file installation', install_order[:2] == ['java', 'game'])
     check('loader cancellation keeps the verified base version',
           '1.21.11' in state['installed'] and delete.call_count == 0)
     check('loader cancellation releases the install claim',
@@ -125,12 +137,15 @@ def install_loader_ok(loader, mc, progress, status, maximum, **kwargs):
     return vid
 
 launched = []
+java_used = []
 
 def launch_ok(version_id, *args, **kwargs):
     launched.append(version_id)
+    java_used.append(args[4])
     return SimpleNamespace(session_id='fixture-session')
 
 with patch.object(stubs.core, 'install_mod_loader', install_loader_ok), \
+     patch.object(stubs.core.jre, 'ensure_java_for_version', return_value='/tmp/verified-java'), \
      patch.object(stubs.core, 'is_loader_supported', return_value=True), \
      patch.object(stubs.core, 'launch_game', launch_ok), \
      patch.object(stubs.core, 'save_config', save_config), \
@@ -143,6 +158,7 @@ with patch.object(stubs.core, 'install_mod_loader', install_loader_ok), \
 loader_id = 'fabric-loader-0.19.5-1.21.11'
 check('a loader install launches the loader instance',
       launched == [loader_id])
+check('the launch receives the Java that passed preflight', java_used == ['/tmp/verified-java'])
 check('the installed loader instance becomes the selected one',
       selection_scope['version_dropdown'].value == loader_id
       and state.get('selected_version') == loader_id
@@ -171,7 +187,8 @@ check('a new unmeasured phase hides the previous percentage',
       scope['progress_bar'].value is None and not worker['progress_percent'].visible)
 
 # Reopening the welcome tour never needs a config reset.
-replay = next(c for c in fz.every_control(page) if getattr(c, 'content', None) == 'Open tour')
+function_from_controls(controls, 'switch_tab')('settings')
+replay = next(c for c in fz.every_control(page) if getattr(c, 'data', None) == 'replay-onboarding')
 before = len(page.overlay)
 replay.on_click(None)
 check('Settings can reopen onboarding', len(page.overlay) >= before and page.overlay[-1].opacity == 1)

@@ -179,6 +179,8 @@ LOCAL_ENTRY_NAME = EXTRALIST_ENTRIES["cubeon-localskin.json"]["name"]
 # Reading CSL's own state
 # ---------------------------------------------------------------------------
 
+from .paths import instance_csl_path
+
 def read_csl_config() -> dict | None:
     """CSL's CustomSkinLoader.json, or None if absent/unparseable.
 
@@ -186,7 +188,7 @@ def read_csl_config() -> dict | None:
     the file itself on first launch, so this is not an error.
     """
     try:
-        with open(CSL_CONFIG_PATH, "r", encoding="utf-8") as f:
+        with open(instance_csl_path(CSL_CONFIG_PATH), "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
@@ -216,7 +218,7 @@ def pending_names() -> set[str]:
     """
     pending = set()
     for filename, entry in EXTRALIST_ENTRIES.items():
-        if os.path.isfile(os.path.join(CSL_EXTRALIST_DIR, filename)):
+        if os.path.isfile(os.path.join(instance_csl_path(CSL_EXTRALIST_DIR), filename)):
             pending.add(entry["name"])
     return pending
 
@@ -385,7 +387,7 @@ def refresh_stale_localskin_entry() -> bool:
     cfg = read_csl_config()
     cfg["loadlist"] = [e for e in loadlist if e.get("name") != LOCAL_ENTRY_NAME]
     try:
-        with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as f:
+        with open(instance_csl_path(CSL_CONFIG_PATH), "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
     except OSError:
         return False
@@ -432,7 +434,7 @@ def refresh_stale_worker_entry() -> bool:
         if isinstance(entry, dict) and entry.get("name") == WORKER_ENTRY_NAME:
             entry["root"] = CUBEON_SKIN_API_ROOT
     try:
-        with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as f:
+        with open(instance_csl_path(CSL_CONFIG_PATH), "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
     except OSError:
         return False
@@ -464,14 +466,14 @@ def set_localskin_model(model: str) -> bool:
                 break
         if changed:
             try:
-                with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as f:
+                with open(instance_csl_path(CSL_CONFIG_PATH), "w", encoding="utf-8") as f:
                     json.dump(cfg, f, indent=2)
             except OSError:
                 return False
 
     # A first-time install has not merged the entry yet. If it is queued,
     # patch the queued file too, rather than allowing one wrong-model launch.
-    path = os.path.join(CSL_EXTRALIST_DIR, "cubeon-localskin.json")
+    path = os.path.join(instance_csl_path(CSL_EXTRALIST_DIR), "cubeon-localskin.json")
     queued = _queued_content(path)
     if queued and queued.get("name") == LOCAL_ENTRY_NAME and queued.get("model") != wanted:
         queued["model"] = wanted
@@ -497,7 +499,7 @@ def configure_request_cache() -> bool:
     cfg["cacheExpiry"] = 300
     try:
         from .atomicio import write_json
-        write_json(CSL_CONFIG_PATH, cfg)
+        write_json(instance_csl_path(CSL_CONFIG_PATH), cfg)
     except OSError:
         return False
     return True
@@ -552,11 +554,11 @@ def write_extralist_entries() -> list[str]:
         # fully-offline case where the Worker is unreachable.
         if entry["name"] == LOCAL_ENTRY_NAME and WORKER_ENTRY_NAME not in have:
             continue
-        path = os.path.join(CSL_EXTRALIST_DIR, filename)
+        path = os.path.join(instance_csl_path(CSL_EXTRALIST_DIR), filename)
         if _queued_content(path) == entry:
             continue  # already waiting for CSL, and still correct
         try:
-            os.makedirs(CSL_EXTRALIST_DIR, exist_ok=True)
+            os.makedirs(instance_csl_path(CSL_EXTRALIST_DIR), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(entry, f, indent=2)
         except OSError:
@@ -587,7 +589,7 @@ def remove_pending_entries() -> list[str]:
     """
     removed = []
     for filename, entry in EXTRALIST_ENTRIES.items():
-        path = os.path.join(CSL_EXTRALIST_DIR, filename)
+        path = os.path.join(instance_csl_path(CSL_EXTRALIST_DIR), filename)
         if not os.path.isfile(path):
             continue
         try:

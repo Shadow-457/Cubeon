@@ -15,7 +15,6 @@ import com.cubeon.client.ui.HudMenu;
 /** Cubeon HUD settings, with custom cards and native input adapters. */
 public final class CubeonHudMenuScreen extends Screen {
     private static final Overlay[] OVERLAYS = Overlay.values();
-    private static final float[] SCALES = {.5f, .75f, 1f, 1.25f, 1.5f, 2f};
     private final HudMenu menu = new HudMenu();
     private final HudMenu.Settings settings = new HudMenu.Settings() {
         public boolean visible(int index) {
@@ -27,6 +26,13 @@ public final class CubeonHudMenuScreen extends Screen {
             };
         }
         public float scale(int index) { return CubeonHud.scaleOf(OVERLAYS[index]); }
+        public void setScale(int index, float value) { CubeonHudConfig.get().setScaleForLive(CubeonHud.slotOf(OVERLAYS[index]), value); }
+        public void save() { CubeonHudConfig.save(); }
+        public boolean menuAnimations() { return CubeonHudConfig.get().menuAnimations; }
+        public boolean blurPlus() { return CubeonHudConfig.get().temporalMotionBlur; }
+        public float blurPlusStrength() { return CubeonHudConfig.get().temporalBlurStrength; }
+        public void setBlurPlusStrength(float value) { CubeonHudConfig.get().temporalBlurStrength=value; com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); }
+        public boolean ownNameTag() { return CubeonHudConfig.get().showOwnNameTag; }
         public boolean health() { return CubeonHudConfig.get().showEnemyHealth; }
         public boolean animations() { return CubeonHudConfig.get().cosmeticAnimations; }
         public boolean wingDepth() { return CubeonHudConfig.get().wingDepth; }
@@ -39,7 +45,9 @@ public final class CubeonHudMenuScreen extends Screen {
     public CubeonHudMenuScreen() { super(Component.translatable("cubeonclient.menu.title")); }
     @Override protected void init() { menu.layout(this.width, this.height); }
     @Override public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        graphics.fill(0, 0, this.width, this.height, ClientUi.BACKDROP);
+        if (minecraft.level == null) extractPanorama(graphics, partialTick);
+        extractBlurredBackground(graphics);
+        graphics.fill(0, 0, this.width, this.height, 0x9309090C);
     }
     @Override public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
@@ -54,16 +62,22 @@ public final class CubeonHudMenuScreen extends Screen {
                 ClientUiDraw.image(graphics, path, x, y, w, h, u, v, regionW, regionH, textureW, textureH, color);
             }
             public void text(String value, int x, int y, int color) {
-                var label = ClientUiFont.text(value);
+                var label = Component.literal(value);
                 graphics.text(font, label, x - font.width(label) / 2, y, color, false);
             }
-            public int width(String value) { return font.width(ClientUiFont.text(value)); }
+            public int width(String value) { return font.width(Component.literal(value)); }
             public String translate(String key) { return Component.translatable(key).getString(); }
         }; }
     @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (event.button() == 1) { onClose(); return true; }
-        if (event.button() == 0) return choose(menu.hit(event.x(), event.y()));
+        if (event.button() == 0) { boolean handled = menu.beginScale(event.x(), event.y()) || choose(menu.hit(event.x(), event.y())); return handled; }
         return super.mouseClicked(event, doubleClick);
+    }
+    @Override public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+        return event.button() == 0 && menu.dragScale(event.x()) || super.mouseDragged(event, dx, dy);
+    }
+    @Override public boolean mouseReleased(MouseButtonEvent event) {
+        return event.button() == 0 && menu.finishScale() || super.mouseReleased(event);
     }
     @Override public boolean keyPressed(KeyEvent event) {
         return key(event.key()) || super.keyPressed(event);
@@ -83,6 +97,8 @@ public final class CubeonHudMenuScreen extends Screen {
             if (key == GLFW.GLFW_KEY_ENTER) menu.activate(HudMenu.NONE);
             return true;
         }
+        if (key == GLFW.GLFW_KEY_LEFT && menu.adjustScale(-.01f)) return true;
+        if (key == GLFW.GLFW_KEY_RIGHT && menu.adjustScale(.01f)) return true;
         if (key == GLFW.GLFW_KEY_SLASH) { menu.focusSearchShortcut(); return true; }
         if (key >= GLFW.GLFW_KEY_1 && key <= GLFW.GLFW_KEY_5) return choose((key - GLFW.GLFW_KEY_1) * 3);
         if (key == GLFW.GLFW_KEY_LEFT || key == GLFW.GLFW_KEY_UP) { menu.step(-1); return true; }
@@ -114,23 +130,25 @@ public final class CubeonHudMenuScreen extends Screen {
                     CubeonHudConfig.save();
                 }
                 case 1 -> { if (this.minecraft != null) this.minecraft.setScreen(new MoveOverlayScreen(this, overlay)); }
-                case 2 -> {
-                    float current = CubeonHud.scaleOf(overlay);
-                    int index = 0;
-                    for (int i = 0; i < SCALES.length; i++) if (Math.abs(SCALES[i] - current) < .001f) { index = i; break; }
-                    config.setScaleFor(CubeonHud.slotOf(overlay), SCALES[(index + 1) % SCALES.length]);
-                }
+                case 2 -> { /* Size is controlled by the slider, including arrow keys. */ }
             }
             return true;
         }
         switch (action) {
-            case HudMenu.FRIENDS -> { if (this.minecraft != null) this.minecraft.setScreen(new FriendsChatScreen()); }
+            case HudMenu.SKINS -> { if (this.minecraft != null) this.minecraft.setScreen(new SkinLibraryScreen(this)); }
+            case HudMenu.FRIENDS -> { if (this.minecraft != null) this.minecraft.setScreen(new FriendsChatScreen(this)); }
             case HudMenu.EMOTES -> { if (this.minecraft != null) this.minecraft.setScreen(new EmoteMenuScreen()); }
+            case HudMenu.OWN_NAME_TAG -> { config.showOwnNameTag = !config.showOwnNameTag; CubeonHudConfig.save(); }
             case HudMenu.HEALTH -> { config.showEnemyHealth = !config.showEnemyHealth; CubeonHudConfig.save(); }
+            case HudMenu.MENU_ANIMATIONS -> { config.menuAnimations = !config.menuAnimations; CubeonHudConfig.save(); }
             case HudMenu.ANIMATIONS -> { config.cosmeticAnimations = !config.cosmeticAnimations; CubeonHudConfig.save(); }
             case HudMenu.WING_DEPTH -> { config.wingDepth = !config.wingDepth; CubeonHudConfig.save(); }
             case HudMenu.OTHER_COSMETICS -> { config.showOtherCosmetics = !config.showOtherCosmetics; CubeonHudConfig.save(); }
+            case HudMenu.BLUR_PLUS -> { config.temporalMotionBlur = !config.temporalMotionBlur;
+                if(config.temporalMotionBlur) config.cameraMotionBlur=false;
+                com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
             case HudMenu.CAMERA_BLUR -> { config.cameraMotionBlur = !config.cameraMotionBlur;
+                if(config.cameraMotionBlur) config.temporalMotionBlur=false;
                 com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
             case HudMenu.BLUR_INTENSITY -> { config.cameraBlurIntensity = HudMenu.nextBlurIntensity(config.cameraBlurIntensity);
                 com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
@@ -142,7 +160,7 @@ public final class CubeonHudMenuScreen extends Screen {
         return true;
     }
 
-    @Override public void removed() { CubeonHudConfig.save(); }
+    @Override public void removed() { menu.finishScale(); CubeonHudConfig.save(); }
     @Override public void onClose() {
         CubeonHudConfig.save();
         if (this.minecraft != null) this.minecraft.setScreen(null);

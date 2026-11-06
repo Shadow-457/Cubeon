@@ -173,6 +173,8 @@ def _disabled_name(directory, filename):
 
 
 def import_entry(entry, mc_version, loader, *, version_id=None, replace=False):
+    from . import storage
+    storage.assert_writable()
     """Revalidate preview bytes/conflicts, stage, then publish with rollback."""
     mods.require_mod_loader(mc_version, loader, 'import a local mod')
     with _IMPORT_LOCK:
@@ -223,6 +225,7 @@ def import_entry(entry, mc_version, loader, *, version_id=None, replace=False):
                         import shutil
                         shutil.copyfileobj(source, output)
                 published = True
+                storage.record_installed_file(destination)
             except BaseException:
                 if published:
                     os.unlink(destination)

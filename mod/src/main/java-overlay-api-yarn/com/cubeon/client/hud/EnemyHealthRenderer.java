@@ -38,7 +38,11 @@ public final class EnemyHealthRenderer {
                 if (visibility == AbstractTeam.VisibilityRule.NEVER || visibility == AbstractTeam.VisibilityRule.HIDE_FOR_OTHER_TEAMS) continue;
             }
             if (!player.canSee(enemy)) continue;
-            Vec3d anchor = enemy.getLerpedPos(tickDelta).add(0, enemy.getHeight() + 0.5, 0);
+            // Match vanilla's rendered entity interpolation, not physics/tick history.
+            Vec3d anchor = new Vec3d(
+                    EnemyHealthBar.lerp(enemy.lastRenderX, enemy.getX(), tickDelta),
+                    EnemyHealthBar.lerp(enemy.lastRenderY, enemy.getY(), tickDelta) + enemy.getHeight() + 0.5,
+                    EnemyHealthBar.lerp(enemy.lastRenderZ, enemy.getZ(), tickDelta));
             Vec3d name = project.apply(anchor);
             // Sample camera-facing label height, including when looking up/down.
             Vec3d bottom = project.apply(anchor.add(down.x, down.y, down.z));

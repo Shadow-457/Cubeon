@@ -573,7 +573,7 @@ SUITES = [
     "test_version_integrity.py", "test_local_api_gate.py",
     "test_auto_cleanup.py", "test_doctor_bundled_deps.py",
     "test_mod_prelaunch_dependencies.py", "test_mod_resolver.py", "test_doctor_reporting.py",
-    "test_instances.py", "test_version_art_cache.py", "test_version_ui.py",
+    "test_instances.py", "test_instance_storage.py", "test_version_art_cache.py", "test_version_ui.py",
     "test_install_cancel.py",
     "test_wedge_watchdog.py", "test_web_download_count.py",
     "test_faces.py", "test_chat_optimistic.py", "test_chat_avatar_stability.py", "test_toast.py", "test_render_compat.py",

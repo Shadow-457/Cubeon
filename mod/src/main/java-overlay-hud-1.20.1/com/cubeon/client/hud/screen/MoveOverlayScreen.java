@@ -11,12 +11,13 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 
 /**
- * Drag editor for one overlay: the live widget is shown where it will sit on the HUD
+ * Drag editor: enabled peers stay visible beside the selected live widget
  * (highlighted so it is easy to see) and can be dragged anywhere with the left mouse
  * button. Done returns to the menu with the new spot saved.
  */
 public final class MoveOverlayScreen extends Screen {
 	private static final int PADDING = 2;
+    private static final Overlay[] OVERLAYS = Overlay.values();
 
 	private final Screen parent;
 	private final Overlay overlay;
@@ -46,7 +47,7 @@ public final class MoveOverlayScreen extends Screen {
 	public void renderBackground(DrawContext context) {
 		// Translucent darkening instead of the vanilla background, so the world and the
 		// real HUD stay visible while choosing a spot.
-		context.fill(0, 0, this.width, this.height, ClientUi.BACKDROP);
+		context.fill(0, 0, this.width, this.height, 0x22000000);
 	}
 
 	@Override
@@ -63,22 +64,15 @@ public final class MoveOverlayScreen extends Screen {
 		int w = CubeonHud.widthOf(overlay, this.client);
 		int h = CubeonHud.heightOf(overlay, this.client);
 
-		// Live ghost of the overlay itself; the keystrokes widget is drawn fully lit
-		// so it reads as a preview.
-		float hudScale = CubeonHud.scaleOf(overlay);
-		context.getMatrices().push();
-		context.getMatrices().scale(hudScale, hudScale, 1.0F);
-
-		switch (overlay) {
-			case FPS -> CubeonHud.renderFps(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
-			case KEYS -> CubeonHud.renderKeys(context, this.client, (int) (x / hudScale), (int) (y / hudScale), true);
-			case ARMOR -> CubeonHud.renderArmor(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
-			case PING -> CubeonHud.renderPing(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
-			case CPS -> CubeonHud.renderCps(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
-            default -> CubeonHud.renderExtra(context, this.client, overlay, (int)(x / hudScale), (int)(y / hudScale), true);
-		}
-
-		context.getMatrices().pop();
+        for (Overlay other : OVERLAYS) {
+            if (other == overlay || !CubeonHud.enabled(other, config)) continue;
+            CubeonHud.renderPreview(context, this.client, config, other, this.width, this.height);
+            HudEditorChrome.peer(canvas(context), this.width, this.height,
+                    CubeonHud.posX(other, config, this.client, this.width),
+                    CubeonHud.posY(other, config, this.client, this.height),
+                    CubeonHud.widthOf(other, this.client), CubeonHud.heightOf(other, this.client), x, y, w, h);
+        }
+        CubeonHud.renderPreview(context, this.client, config, overlay, this.width, this.height);
 
         HudEditorChrome.render(canvas(context), this.width, this.height, this.title.getString(),
                 mouseX, mouseY, x, y, w, h, this.dragging);

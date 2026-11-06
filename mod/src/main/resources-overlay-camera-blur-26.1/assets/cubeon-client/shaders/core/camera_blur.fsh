@@ -1,9 +1,18 @@
 #version 330
 uniform sampler2D InSampler;
+uniform sampler2D HistorySampler;
 layout(std140) uniform CameraBlur { vec2 BlurVector; };
 in vec2 texCoord;
 out vec4 fragColor;
 void main() {
+    // Values >= 1 select Motion blur+; ordinary camera vectors stay below 0.12.
+    if (BlurVector.x >= 1.0) {
+        vec3 current = texture(InSampler, texCoord).rgb;
+        float weight = clamp(BlurVector.x - 1.0, 0.0, 0.45);
+        // First frames/cuts never read uninitialized or stale history.
+        fragColor = vec4(weight <= 0.0 ? current : mix(current, texture(HistorySampler, texCoord).rgb, weight), 1.0);
+        return;
+    }
     vec2 halfTexel = 0.5 / vec2(textureSize(InSampler, 0));
     vec4 total = vec4(0.0);
     // Twelve samples across one fixed shutter exposure, using only this frame.

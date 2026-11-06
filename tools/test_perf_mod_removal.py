@@ -65,7 +65,7 @@ class PerformanceRemovalTests(unittest.TestCase):
             self.assertFalse((self.root / 'game-mods' / 'moreculling.jar').exists())
             self.assertIn('moreculling', report['skipped'])
         self.assertEqual(self.lookups, [])
-        self.assertEqual(len(list(self.profile.glob('*.jar'))), 5)
+        self.assertEqual(len(list(self.profile.glob('*.jar'))), len(perf_mods.PERF_MODS))
 
     def test_disabled_then_removed_mod_and_manual_renamed_mod_are_remembered(self):
         mods.toggle_mod('1.21.11', 'fabric', 'moreculling.jar', version_id='selected')

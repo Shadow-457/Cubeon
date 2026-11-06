@@ -33,7 +33,8 @@ public class FriendsChatTest {
  }
  static class Canvas implements ClientUi.Canvas {
   final int w,h;final BufferedImage image;final Graphics2D g;final Map<String,Object> labels;
-  int calls, widthCalls;final Map<String,BufferedImage> assets=new HashMap<>();
+  int calls, widthCalls, greenTints;final Map<String,BufferedImage> assets=new HashMap<>();
+  void color(int color){if((color&0xFFFFFF)==0x8DBA83)return;if(((color>>>8)&255)>Math.max((color>>>16)&255,color&255)+10)greenTints++;}
   Canvas(int w,int h,String font,String language)throws Exception{
    this.w=w;this.h=h;image=new BufferedImage(w*3,h*3,BufferedImage.TYPE_INT_ARGB);g=image.createGraphics();g.scale(3,3);
    g.setFont(Font.createFont(Font.TRUETYPE_FONT,new java.io.File(font)).deriveFont(9f));
@@ -43,15 +44,18 @@ public class FriendsChatTest {
   public String translate(String key){return Json.str(labels,key,key);}
   public int width(String value){widthCalls++;return g.getFontMetrics().stringWidth(value);}
   public void fill(int x0,int y0,int x1,int y1,int color){
+   color(color);
    check(x0>=0&&y0>=0&&x1<=w&&y1<=h&&x0<=x1&&y0<=y1,"quads remain in screen");
    g.setColor(new Color(color,true));g.fillRect(x0,y0,x1-x0,y1-y0);calls++;
   }
   public void text(String text,int x,int y,int color){
+   color(color);
    check(x-width(text)/2>=0&&x+(width(text)+1)/2<=w&&y>=0&&y+9<=h,"text bounds: "+text);
    g.setColor(new Color(color,true));g.drawString(text,x-width(text)/2,y+8);calls++;
   }
   public boolean textures(){return true;}
   public void image(String path,int x,int y,int w,int h,int u,int v,int rw,int rh,int tw,int th,int color){
+   color(color);
    check(x>=0&&y>=0&&x+w<=this.w&&y+h<=this.h,"texture bounds");
    try{
     var atlas=assets.get(path);if(atlas==null){atlas=ImageIO.read(Path.of(System.getProperty("cubeon.ui.assets"),path).toFile());assets.put(path,atlas);}
@@ -90,7 +94,8 @@ public class FriendsChatTest {
    panel.render(canvas,size[0],size[1],0,0);
    check(panel.inputWidth()>80&&panel.inputX()+panel.inputWidth()<size[0],"composer fits minimum GUI");
    check(canvas.calls<200,"only visible rows drawn");
-   ImageIO.write(canvas.image,"png",Path.of(args[2],"friends-"+size[1]+".png").toFile());
+   check(canvas.greenTints>0,"Chat controls use Cubeon green accents");
+   if(Boolean.getBoolean("cubeon.ui.capture"))ImageIO.write(canvas.image,"png",Path.of(args[2],"friends-"+size[1]+".png").toFile());
   }
   var transcriptField=Bridge.class.getDeclaredField("chat");transcriptField.setAccessible(true);
   var transcriptLock=Bridge.class.getDeclaredField("chatLock");transcriptLock.setAccessible(true);
@@ -121,7 +126,7 @@ public class FriendsChatTest {
   for(int i=0;i<20;i++)ClientToasts.accept(new Bridge.Toast(i,"Notice "+i,false));
   check(((java.util.Deque<?>)q.get(null)).size()==6,"toast queue bounded");
   Canvas canvas=new Canvas(640,360,args[0],args[1]);Thread.sleep(200);ClientToasts.render(canvas,640,360);
-  ImageIO.write(canvas.image,"png",Path.of(args[2],"toasts.png").toFile());
+  if(Boolean.getBoolean("cubeon.ui.capture"))ImageIO.write(canvas.image,"png",Path.of(args[2],"toasts.png").toFile());
   Thread.sleep(5050);Canvas expired=new Canvas(640,360,args[0],args[1]);ClientToasts.render(expired,640,360);
   check(expired.calls==0,"expired toasts cause no drawing");
   // A queued message cannot cross a refreshed account identity.
@@ -190,12 +195,14 @@ def main():
         sent.clear()
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp); harness=folder/'FriendsChatTest.java'; harness.write_text(HARNESS)
-            files=[ROOT/'mod/src/main/java/com/cubeon/client'/f for f in ('Bridge.java','Json.java','ui/ClientUi.java','ui/FriendsPanel.java','ui/ClientToasts.java')]
+            files=[ROOT/'mod/src/main/java/com/cubeon/client'/f for f in ('Bridge.java','Json.java','ui/ClientUi.java','ui/MenuUi.java','ui/FriendsPanel.java','ui/ClientToasts.java')]
             subprocess.run([javac,'--release','17','-d',temp,*map(str,files),str(harness)],check=True)
-            captures=ROOT/'archive/ui-captures/in-game-friends';captures.mkdir(parents=True,exist_ok=True)
+            captures=ROOT/'archive/ui-captures/in-game-friends'
+            if os.environ.get('CUBEON_UI_CAPTURE') == '1': captures.mkdir(parents=True,exist_ok=True)
             font=ROOT/'mod/src/main/resources/assets/cubeon-client/font/inter-ui.ttf'
             if not font.exists(): font=next((ROOT/'mod/src/main/resources/assets/cubeon-client/font').glob('*.ttf'))
             subprocess.run([java,f'-Duser.home={Path(api._TOKEN_FILE).parent.parent}',
+                            *(['-Dcubeon.ui.capture=true'] if os.environ.get('CUBEON_UI_CAPTURE') == '1' else []),
                             f'-Dcubeon.ui.assets={ROOT}/mod/src/main/resources/assets/cubeon-client',
                             '-cp',temp,'com.cubeon.client.FriendsChatTest',str(font),
                             str(ROOT/'mod/src/main/resources/assets/cubeon-client/lang/en_us.json'),str(captures)],check=True,timeout=60)

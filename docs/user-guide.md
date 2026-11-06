@@ -14,8 +14,7 @@ Packaged builds do not require a separate Python installation.
   app menu entry. The setup includes everything and supports systems without
   FUSE. Alternatively use the Debian/Ubuntu package. For an AppImage, grant
   execute permission and launch it from your file manager or terminal.
-- **macOS:** extract the release archive and open the app. Unsigned builds
-  may require approval through the operating system's security settings.
+- **macOS:** untested; downloads and updates are currently unavailable.
 
 Only approve a security warning after checking the download's source.
 Do not disable system-wide security protections to launch an app.
@@ -50,10 +49,29 @@ Selecting an existing instance restores its version and loader. Your render and
 simulation distances stay saved for that instance. FPS boost applies performance
 defaults once, then preserves later video changes. Turning it off restores previous
 graphics settings where you have not changed the boosted values yourself.
+Enable **Sync game settings** beside FPS boost to reapply its video preset before
+every launch, including after in-game edits. It uses 4-chunk render distance,
+5-chunk simulation distance where supported, VSync off, unlimited FPS, minimal
+particles, disabled clouds/shadows/smooth lighting, and reduced entity distance.
+It also restores supported renderer culling, deferred chunk building and fast
+batching options, uses two chunk-builder threads, and disables Iris/Oculus
+shaders and Cubeon motion-blur effects. Shader-pack selections are retained.
+The shorter view and reduced effects trade visual detail for less rendering work.
+Driver and rendering-compatibility workarounds stay preserved.
+New instances receive version-appropriate settings on their first launch.
+Turning sync off stops enforcement; turning FPS boost off restores eligible
+original video and mod settings from per-instance backups. FPS gains depend on the machine
+and scene; the preset does not guarantee a particular frame rate.
 Boost works independently of the Cubeon Client switch on Fabric, Quilt, Forge
 and NeoForge. It installs compatible performance mods when builds exist for
-that Minecraft version: Forge uses Embeddium and Canary/Radium, while NeoForge
-prefers Sodium and Lithium. Existing alternatives and disabled/removed mods
+that Minecraft version: Sodium, Lithium, ImmediatelyFast, Entity Culling,
+FerriteCore, ModernFix and BadOptimizations. Forge uses Embeddium and
+Canary/Radium, while NeoForge prefers Sodium and Lithium. The small options
+button beside FPS boost lets you select More Culling, Enhanced Block Entities
+and Exordium individually. These are off by default and may change visual/HUD
+behavior; a missing compatible build is skipped. Unchecking stops automatic
+additions; disable already installed copies in Mods → Installed.
+Existing alternatives and disabled/removed mods
 are respected. Turning Boost off stops new additions and restores eligible
 graphics settings; installed mods remain manageable under Mods → Installed.
 With Discord desktop running, Rich Presence shows the Minecraft version and
@@ -68,7 +86,7 @@ Microsoft/Mojang account.
   work just because another loader is installed. Disable or remove optional
   performance mods such as More Culling in **Mods → Installed**; Play respects
   that choice for this instance. You can install them again from the Mods browser.
-  More Culling is excluded from Cubeon's automatic performance setup. On first
+  More Culling requires an explicit choice in the FPS boost options. On first
   Play after updating, old launcher-managed copies in ordinary profiles are
   disabled once and remain recoverable in Installed. Manual jars, modpack
   content, and mods requiring More Culling are preserved. An old browser install
@@ -114,6 +132,13 @@ Microsoft/Mojang account.
   F1 still hides it along with Minecraft's HUD.
   Search the categorized feature cards, use their switches to toggle a feature,
   and choose **Configure** for Move, size and feature-specific options.
+  K and in-game Friends open in compact centered charcoal panels with clear
+  controls and the Cubeon logo. Cubeon players in the Tab list show the logo beside their name.
+  **Own name tag** under Player shows your name in third person (off by default).
+  **Menu animations** under Render turns opening, hover and
+  page motion off for the K menu, Friends and emote picker.
+  Drag the size slider from 0.50× to 2.00×; Left/Right makes fine adjustments
+  when the slider is selected. The new size appears immediately and saves on release.
   Clock (system/world time), system usage, potion effects, coordinates, compass,
   biome, day/light, combo counter and auto sprint all start **disabled**.
   Readouts use the original HUD's white shadowed text and a small black backing
@@ -137,9 +162,15 @@ Microsoft/Mojang account.
   stay sharp. Turning it off frees its scene buffer and skips blur rendering.
   **Blur intensity** adjusts the strength from 25% to 200% in 25% steps;
   click it to advance, with 100% preserving the original effect. After 200% it
-  returns to 25%. Both choices are saved. **Reset layout** restores overlay positions and sizes.
+  returns to 25%. Both choices are saved.
+  **Motion blur+** under Render blends recent world frames for smooth motion,
+  including moving players and entities. Its strength slider ranges from 25% to 200%;
+  the effect uses elapsed time so exposure remains consistent at different FPS.
+  It starts off, keeps HUDs and menus sharp, and replaces Camera motion blur when enabled.
+  **Reset layout** restores overlay positions and sizes.
   Tab/arrows select controls; Enter activates them. In the drag editor,
-  release the mouse to save and choose Done or press Enter to return.
+  other enabled HUDs stay visible at their saved sizes and positions, with amber
+  frames marking overlaps. Release the mouse to save and choose Done or press Enter to return.
   Sodium and vanilla video options accept **1 chunk** for render and simulation
   distance. Render distance 1 gives very short visibility and can improve FPS;
   simulation 1 reduces nearby ticking in local worlds. Multiplayer simulation
@@ -159,17 +190,38 @@ Microsoft/Mojang account.
 - **Emotes:** press B, or K → Emotes, to open the circular picker. The library
   includes Wave, Dance, Bow, Salute, Shrug, Point, Clap, Laugh, Sit and Celebrate.
   Move the mouse over a wedge and click, or press 1–8. Arrows/Tab and Enter also
-  work. Choose **Edit wheel** (or press E) to add or remove favorites: the wheel
+  work. Choose **Edit wheel** in the center (or press E) to add or remove favorites: the wheel
   holds up to eight, saved in the order you add them. Selected entries have an
-  green edge; remove one before adding another when full. Click **Done** to
+  grey edge; remove one before adding another when full. Click **Done** to
   return. Esc or right click returns from editing, then closes the picker;
   click the center to stop an emote. Move, jump, attack or use an item to
-  cancel. **Show Emotes** turns their display on/off and saves your choice.
+  cancel. The center's **ON/OFF** button toggles emote display and saves your choice.
   Other players running the updated Cubeon Client can see them on ordinary
   servers without a server mod. Both launchers need an online Cubeon connection
-  and both players must join using the same server address. The picker shows
-  whether sync is available; offline emotes remain visible to you. Unmodified
+  and both players must join using the same server address. Offline emotes remain visible to you. Unmodified
   Minecraft clients cannot display these animations.
+- **In-game cosmetics:** on supported Fabric versions from Minecraft 1.20 through
+  26.3, choose **Cosmetics** at the top right of Minecraft's main menu, or open
+  **K → Cosmetics** while playing. The **Skins** tab lets you browse saved skins, drag the 3D preview or
+  use the Left/Right keys to rotate it, and choose **CONFIRM** to save and immediately
+  update your own player. Selecting a preview alone does not apply it.
+  **Import PNG** opens a file picker; you can also drop a 64×64 or legacy
+  64×32 skin PNG onto the page. Enter a Minecraft username and choose
+  the **+** button to import that player's public Mojang skin without changing
+  your account or username. Imported skins join the same library used by the
+  launcher. The toolbar lets you switch list/grid, export a PNG, or delete an
+  unused skin (click trash twice to confirm). Confirm a different skin before
+  deleting the one you wear. The arm control cycles Auto, Alex and Steve;
+  the six buttons beside the player toggle Minecraft's hat, jacket, sleeves
+  and trouser layers and save those visibility settings. Keep Cubeon open and
+  enable **CustomSkinLoader** under Settings → Game → In game. Other players'
+  views still depend on their compatible skin support and service/cache refresh.
+  The **Capes** tab offers **Cubeon Cape**, **No Cape**, and your uploaded capes.
+  Import or drop a cape image, rotate the player to preview it, then choose
+  **CONFIRM** to save and update it immediately. HD capes retain their original
+  resolution in game. Cape pages stay loaded when switching tabs. Custom cape
+  choices and No Cape affect your own screen; friends still see the shared
+  Cubeon cape, as with the launcher's Cape pane.
 - **Skin arms:** each uploaded skin has an **Auto / Alex / Steve** control.
   Auto detects normal skin sheets; choose **Alex · 3 px** for a slim skin
   whose editor filled its unused pixels, or **Steve · 4 px** for wide arms.
@@ -287,8 +339,8 @@ Friends-enabled builds include chat and in-game integration. Some public
 builds omit these features. You do not need to deploy the backend yourself
 to use a build configured for Cubeon's services.
 
-Press **G** in Minecraft, or choose **Friends** in the **K** client menu, to
-message your Cubeon friends. Keep the launcher open: both views share the same
+Choose **Chat** from Minecraft’s main menu, press **G** in game, or choose
+**Friends** in the **K** client menu to message your Cubeon friends. Keep the launcher open: both views share the same
 encrypted conversations, so messages sent in either place appear in both.
 Use Enter to send, Ctrl+Up/Down to select a friend, and the wheel or Page Up/Down
 to scroll. The game keeps your draft until the friends relay confirms the
@@ -314,10 +366,9 @@ your local network need a separately configured, reachable server address.
 
 ## Launcher settings
 
-Settings has four sections: **Account** for your profile, updates and notifications;
-**Game** for versions, game window, files and backups; **Performance** for memory,
-Java; and **Appearance** for language, window style, seasonal
-decorations and screenshots.
+Settings has separate **Account**, **Game**, **Performance**, **Appearance**, **Theme**,
+**Notifications**, **Files**, **Launcher**, and **Screenshots** sections. Advanced Java,
+version options, maintenance and backup scheduling stay collapsed until opened.
 
 **Settings → Game → In game** has separate **Cubeon Client** and
 **CustomSkinLoader (CSL)** switches. Turn either off to stop its in-game features
@@ -339,7 +390,7 @@ Arabic, Urdu, Persian, and Pashto use a right-to-left layout.
 **Custom title bar** defaults on for Windows (including Windows 10) and Linux. An
 explicit saved choice to switch it off is preserved. Restart after changing it.
 
-**Settings → Appearance → Theme and decorations → Seasonal look** enables the seasonal palette and extras.
+**Settings → Theme → Seasonal look** enables the seasonal palette and extras.
 Switch off **Play scenery** in that section to hide the trees, grass and particles
 while keeping the seasonal colors and buddy. Spring has blossoms and petals; summer has green trees,
 butterflies and fireflies; autumn has falling leaves; winter has snow. The tilted
@@ -351,7 +402,13 @@ returns it to the bottom edge. Turning off Full motion also keeps the buddy stat
 Particles stop while Play is hidden. All seasonal animation pauses when the window
 is minimized or loses focus. There is no separate Weather effects option.
 
-In **Settings → Performance → Java**, expand **Cubeon's default flags** to see the
+Install checks that Java exists, can run, and meets the selected game's requirement.
+It uses suitable installed Java first, otherwise downloads or repairs a verified
+runtime automatically. Download sources are measured on your connection, with server
+fallback, parallel transfers where supported, and resume after interruption. Leave
+**Java path** blank for automatic setup, or enter an executable, JDK folder or bin folder.
+
+In **Settings → Performance → Advanced Java settings**, expand **Cubeon's default flags** to see the
 options derived from your memory setting and hardware, with explanations and skipped
 options. This readout updates when you change RAM or custom flags. Custom flags go
 after defaults; choosing another garbage collector suppresses Cubeon's G1 options.
@@ -361,7 +418,7 @@ so the RAM slider no longer sets the heap. Set your own heap flags in **Custom
 Java flags** if needed. Minecraft and loader arguments remain required. The
 switch saves immediately; no launcher restart is needed.
 
-**Settings → Account → Notifications → Chat messages** controls incoming message
+**Settings → Notifications → Chat messages** controls incoming message
 notifications immediately. Open conversations in a focused launcher or the companion
 mod suppress their alerts; old history and your own sent messages do not trigger them.
 
@@ -406,14 +463,35 @@ replacement and restores the old program if replacement fails.
 environment. Back up worlds before removing game files, and keep identity
 files private.
 
-Each installed version plays in its own folder under
-`~/.cubeon_minecraft/instances/<instance>/`. Its worlds (`saves/`), mod configs
-(`config/`) and `options.txt` live there, so a world or a video setting in one
-instance never shows up in another. Mod, resource-pack and shader bytes use
-shared stores, while each instance's profile records its installed and enabled
-content. Launch stages that profile's enabled entries, so installing or disabling
-content in one instance does not change another. Deleting an instance does not delete its world
-folder; remove that folder yourself once you are sure.
+**Instances** is the main folder for your Minecraft installations. Visible
+folders use readable names such as `26.3-Fabric`, `1.21.11-Fabric` or your custom
+name. Minecraft's shared version downloads, assets and libraries are stored
+inside `instances/.runtime/`; there are no duplicate runtime copies or links.
+Long loader build IDs are only used inside that hidden runtime folder.
+
+For migrated instances, worlds are in
+`~/.cubeon_minecraft/instances/<instance>/saves/`. Each world is a folder
+containing `level.dat`. Some instances have an inner `minecraft/` folder, so
+their worlds are in `minecraft/saves/`. The easiest route is to select the
+instance and choose **Settings → Files → Worlds (saves)**. A version you haven't
+played may not have any world saves yet.
+
+**Open Mods Folder** opens the folder Minecraft reads: add a compatible JAR to
+install it, or remove it to uninstall it. Deleting an instance retains its game
+folder under `backups/deleted-instances/` for recovery.
+
+The **Organize Minecraft files** prompt migrates old global content, removes old
+content folders from the main directory and combines shared version files under
+Instances. Choose **Migrate now** for an old installation or **Organize folders**
+if its content is already migrated, then **Restart Launcher**. **Later** keeps
+the current setup working; the same action is under **Settings → Files**.
+
+Worlds, configs and settings stay with their own instance. Folder renames move
+existing files together without merging worlds or resetting settings. Original
+global content is retained under `backups/legacy-content/shared-<id>/`.
+Interrupted moves can recover, and completed instances keep newer changes.
+Close Minecraft before organizing. Older launchers do not understand the new
+paths; keep using the updated launcher after migration.
 
 If the app will not start, run it from a terminal and record the error.
 For a failed game launch, check the selected version, loader, Java path,

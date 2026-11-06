@@ -37,6 +37,8 @@ Fixed here by:
 import json
 import logging
 import os
+from .storage import metadata_path
+from .storage import runtime_dir
 import re
 import shutil
 import threading
@@ -256,7 +258,7 @@ def _instance_meta_path(version_id: str | None) -> str | None:
         return None
     if os.path.basename(version_id) != version_id:
         return None
-    return os.path.join(MINECRAFT_DIR, "versions", version_id,
+    return os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id,
                         INSTANCE_META_FILENAME)
 
 
@@ -313,6 +315,11 @@ def read_instance_meta(version_id: str | None) -> dict | None:
     profile", which is exactly how every install made before instance
     isolation behaved.
     """
+    from . import storage
+    if version_id and _instance_meta_path(version_id):
+        direct = storage.manifest(version_id)
+        if direct is not None:
+            return direct
     path = _instance_meta_path(version_id)
     if not path:
         return None
@@ -324,6 +331,9 @@ def write_instance_meta(version_id: str | None, meta: dict) -> bool:
     path = _instance_meta_path(version_id)
     if not path:
         return False
+    from . import storage
+    if storage.update_meta(version_id, meta):
+        return True
     try:
         # Unique temp name + fsync: two writers (or a crash mid-write) must
         # never leave a truncated sidecar or overwrite each other's temp file.
@@ -355,15 +365,25 @@ def profile_key_for(mc_version: str | None, loader: str | None,
 
 def resolve_profile_dir(mc_version: str | None, loader: str | None,
                         version_id: str | None = None) -> str:
+    from . import storage
+    direct = storage.game_dir(version_id)
+    if direct:
+        from .file_safety import child_directory
+        return child_directory(direct, "mods")
     from .file_safety import child_directory
     return child_directory(PROFILES_DIR, profile_key_for(mc_version, loader, version_id))
 
 
 def get_profile_dir(mc_version: str | None, loader: str | None,
                     version_id: str | None = None) -> str:
+    from . import storage
+    storage.assert_writable()
+    if version_id:
+        storage.folder_for(version_id, create=True,
+                           meta={"mc_version": mc_version, "loader": loader})
     path = resolve_profile_dir(mc_version, loader, version_id)
     os.makedirs(path, exist_ok=True)
-    meta_path = os.path.join(path, PROFILE_META_FILENAME)
+    meta_path = metadata_path(path, PROFILE_META_FILENAME)
     if not os.path.isfile(meta_path):
         write_json(meta_path, {"mc_version": mc_version, "loader": loader})
     return path
@@ -376,6 +396,10 @@ def profile_dir_for_key(key: str | None) -> str | None:
     if key in (".", "..") or os.path.basename(key) != key \
             or "/" in key or "\\" in key:
         return None
+    from . import storage
+    direct = storage.profile_for_key(key)
+    if direct:
+        return direct
     from .file_safety import child_directory
     try:
         return child_directory(PROFILES_DIR, key)
@@ -405,6 +429,9 @@ def private_profile_for_deletion(version_id: str | None) -> tuple[str, int] | No
     """
     if not version_id or not isinstance(version_id, str):
         return None
+    from . import storage
+    if storage.manifest(version_id):
+        return None  # Version deletion archives the complete instance for recovery.
     meta = read_instance_meta(version_id) or {}
     key = meta.get("profile")
     if not isinstance(key, str) or not key:
@@ -414,7 +441,7 @@ def private_profile_for_deletion(version_id: str | None) -> tuple[str, int] | No
     path = profile_dir_for_key(key)
     if not path or not os.path.isdir(path):
         return None
-    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     try:
         others = os.listdir(versions_dir)
     except OSError:
@@ -479,7 +506,7 @@ def unique_profile_key(mc_version: str | None, loader: str | None,
     base = f"{profile_key(mc_version, loader)}-{_profile_slug(label)}"
     candidate = base
     n = 2
-    while os.path.isdir(os.path.join(PROFILES_DIR, candidate)):
+    while os.path.isdir(profile_dir_for_key(candidate) or os.path.join(PROFILES_DIR, candidate)):
         candidate = f"{base}-{n}"
         n += 1
     return candidate
@@ -499,7 +526,7 @@ def create_instance_version(mc_version: str, loader: str,
     The new id starts with the Minecraft version, so `extract_mc_version()`
     resolves it without the loader's own version confusing it.
     """
-    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     source_dir = os.path.join(versions_dir, source_version_id)
     if not os.path.isdir(source_dir):
         raise ValueError(f"Can't isolate this install: {source_version_id} is missing.")
@@ -594,17 +621,28 @@ def require_mod_loader(mc_version: str | None, loader: str | None, action: str) 
         raise ValueError("Vanilla can't load mods. Choose Fabric, Quilt, Forge, or NeoForge on the Play tab first.")
 
 
+def iter_profile_dirs():
+    from . import storage, instances, versions
+    value = storage.registry()
+    legacy_keys = None
+    if value:
+        legacy_keys = {profile_key_for(versions.resolve_mc_version(vid), instances.detect_loader(vid), vid)
+                       for vid in storage.pending_versions()}
+    for key in sorted(os.listdir(PROFILES_DIR)) if os.path.isdir(PROFILES_DIR) else []:
+        if legacy_keys is None or key in legacy_keys:
+            yield key, os.path.join(PROFILES_DIR, key)
+    for _vid, meta, directory in storage.instance_profiles():
+        yield meta.get("profile") or meta["id"], directory
+
+
 def list_profiles() -> list[dict]:
     """Every profile that currently has a folder, with its mod count -
     used to populate the 'copy mods from...' picker."""
     profiles = []
-    if not os.path.isdir(PROFILES_DIR):
-        return profiles
-    for key in sorted(os.listdir(PROFILES_DIR)):
-        path = os.path.join(PROFILES_DIR, key)
+    for key, path in iter_profile_dirs():
         if not os.path.isdir(path):
             continue
-        meta_path = os.path.join(path, PROFILE_META_FILENAME)
+        meta_path = metadata_path(path, PROFILE_META_FILENAME)
         meta = {}
         if os.path.isfile(meta_path):
             try:
@@ -641,7 +679,7 @@ def _meta_path(profile_dir: str, filename: str) -> str:
     from .file_safety import entry_name
     entry_name(filename, extensions=(".jar", ".jar.disabled"))
     base = filename[:-len(".disabled")] if filename.endswith(".disabled") else filename
-    return os.path.join(profile_dir, base + MOD_META_SUFFIX)
+    return metadata_path(profile_dir, base + MOD_META_SUFFIX)
 
 
 def _read_meta(profile_dir: str, filename: str) -> dict | None:
@@ -1102,6 +1140,10 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
     MINECRAFT_DIR/mods without restoring anything, no matter what loader
     was actually selected on the Play tab."""
     require_loader_and_version(mc_version, loader, "sync mods to the game")
+    from . import storage
+    storage.assert_writable()
+    if storage.game_dir(version_id):
+        return  # The authoritative mods folder is already Minecraft's folder.
 
     profile_dir = (get_profile_dir(mc_version, loader, version_id)
                    if loader in MOD_CAPABLE_LOADERS else None)
@@ -2185,7 +2227,7 @@ def _doctor_runtime_versions(mc_version: str, loader: str, version_id: str | Non
             profile = json.load(source)
         prefixes = {"forge": "net.minecraftforge:fmlloader:", "neoforge": "net.neoforged:neoforge:",
                     "fabric": "net.fabricmc:fabric-loader:", "quilt": "org.quiltmc:quilt-loader:"}
-        library_root = os.path.realpath(os.path.join(MINECRAFT_DIR, "libraries"))
+        library_root = os.path.realpath(os.path.join(runtime_dir(MINECRAFT_DIR), "libraries"))
         for library in profile.get("libraries", []):
             name = library.get("name", "")
             prefix = prefixes.get(loader)
@@ -2253,7 +2295,7 @@ def _doctor_profile_snapshot(profile_dir: str, names=None) -> tuple:
     for name in sorted(names if names is not None else os.listdir(profile_dir)):
         if name.endswith((".jar", ".jar.disabled", MOD_META_SUFFIX)):
             try:
-                stat = os.stat(os.path.join(profile_dir, name))
+                stat = os.stat(metadata_path(profile_dir, name) if name.endswith(MOD_META_SUFFIX) else os.path.join(profile_dir, name))
                 snapshot.append((name, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns))
             except FileNotFoundError:
                 snapshot.append((name, None))

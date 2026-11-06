@@ -894,6 +894,39 @@ public final class Bridge {
 
     // ---- transport -------------------------------------------------------
 
+    /** Skin screens invoke these only on their own bounded worker, never during render/init. */
+    public Map<String, Object> skinLibrary(int offset) {
+        return skinLibrary(offset, "skin");
+    }
+    public Map<String, Object> skinLibrary(int offset, String kind) {
+        if (!loadToken()) return Map.of("ok", false, "error", "Keep the Cubeon launcher open to use your skin library.");
+        Reply reply = getReply("/skins?offset=" + Math.max(0, offset) + ("cape".equals(kind) ? "&kind=cape" : ""));
+        if (!reply.isOk()) return Map.of("ok", false, "error", readResult(reply.status, reply.body).error());
+        return Json.parseObject(reply.body);
+    }
+
+    public Map<String, Object> skinAction(String body) {
+        if (!loadToken()) return Map.of("ok", false, "error", "Keep the Cubeon launcher open to use your skin library.");
+        String base = baseUrl, key = token;
+        if (base == null || key == null) return Map.of("ok", false, "error", "The Cubeon launcher isn't running.");
+        try {
+            var request = HttpRequest.newBuilder(URI.create(base + "/skin"))
+                    .timeout(Duration.ofSeconds(40)).header("X-Cubeon-Token", key)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
+            var response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() == 401) invalidateToken();
+            if (response.statusCode() >= 200 && response.statusCode() < 300 && usableBody(response.body()))
+                return Json.parseObject(response.body());
+            return Map.of("ok", false, "error", readResult(response.statusCode(), response.body()).error());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return Map.of("ok", false, "error", "Skin action interrupted.");
+        } catch (Exception failure) {
+            return Map.of("ok", false, "error", "Couldn't reach the Cubeon launcher. Check it is still open.");
+        }
+    }
+
     /**
      * Reads ~/.cubeon_launcher/local_api.json when it is new or has changed.
      * Returns false when there is nothing to talk to.

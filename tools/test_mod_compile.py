@@ -67,6 +67,7 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/emotes/EmoteWheel.java",
     "mod/src/main/java/com/cubeon/client/emotes/EmoteFavorites.java",
     "mod/src/main/java/com/cubeon/client/ui/ClientUi.java",
+    "mod/src/main/java/com/cubeon/client/ui/MenuUi.java",
     "mod/src/main/java/com/cubeon/client/ui/ClientToasts.java",
     "mod/src/main/java/com/cubeon/client/ui/HudMenu.java",
     "mod/src/main/java/com/cubeon/client/ui/HudIcon.java",
@@ -81,6 +82,7 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/mixin/YggdrasilSessionServiceMixin.java",
     "mod/src/main/java-overlay-api-mojang/com/cubeon/client/CubeonClient.java",
     "mod/src/main/java-overlay-api-mojang/com/cubeon/client/TabListTag.java",
+    "mod/src/main/java-overlay-tab-logo-mojang/com/cubeon/client/TabLogo.java",
     "mod/src/main/java-overlay-api-mojang/com/cubeon/client/WorldPlayers.java",
     "mod/src/main/java-overlay-api-mojang/com/cubeon/client/mixin/PlayerTabOverlayMixin.java",
 ]
@@ -179,21 +181,10 @@ STUBS = {
 
         import net.minecraft.ChatFormatting;
 
-        /*
-         * Only what the mod styles with. withColor(TextColor) and
-         * withColor(ChatFormatting) both exist in 1.20.1 and 26.1.2 (javap'd in
-         * both real jars), which is why the Cubeon-green tab tag can be exact
-         * rather than approximated with ChatFormatting.GREEN - whose chat green
-         * is a different colour, and was all the old nametag badge could use
-         * on the 1.20-1.21 bracket.
-         *
-         * The real class also has withColor(int); deliberately NOT modelled,
-         * because it erases against withColor(TextColor) in a bare stub and the
-         * mod has no reason to reach for it - the int form is not what gives
-         * the exact green, TextColor.fromRgb is.
-         */
         public final class Style {
             public static final Style EMPTY = new Style();
+
+            public Style withFont(FontDescription font) { return this; }
 
             public Style withColor(TextColor color) {
                 return this;
@@ -202,6 +193,20 @@ STUBS = {
             public Style withColor(ChatFormatting formatting) {
                 return this;
             }
+        }
+        """,
+
+    "net/minecraft/resources/Identifier.java": """
+        package net.minecraft.resources;
+        public record Identifier(String value) {
+            public static Identifier parse(String value) { return new Identifier(value); }
+        }
+        """,
+
+    "net/minecraft/network/chat/FontDescription.java": """
+        package net.minecraft.network.chat;
+        public interface FontDescription {
+            record Resource(net.minecraft.resources.Identifier id) implements FontDescription {}
         }
         """,
 
@@ -1162,7 +1167,7 @@ def _dedent(source):
 def _check_mixin_wiring():
     """The mixin config, MOD_SOURCES and build_mod_jars must agree.
 
-    The [Cubeon] tab tag is three moving parts: the mixin, its registration in
+    The Cubeon logo tab badge is three moving parts: the mixin, its registration in
     cubeon-client.mixins.json, and the two build lists. Disagreement is never a
     soft warning - an unregistered mixin silently does NOTHING in-game, and a
     stale REQUIRED_ENTRIES entry fails a real build over a class that no longer
@@ -1195,7 +1200,11 @@ def _check_mixin_wiring():
         overlays = sorted(glob.glob(
             f"mod/src/main/java-overlay-*/com/cubeon/client/mixin/{name}.java"))
         if os.path.isfile(os.path.join(ROOT, shared)):
-            say(shared in MOD_SOURCES, f"{name}.java (shared) is in MOD_SOURCES")
+            # Optional Mod Menu/Sodium hooks use third-party APIs outside this
+            # Minecraft stub. The real matrix builds and jar gate cover them.
+            native_only = {"ModMenuCountMixin", "SodiumDistanceMixin", "SodiumLegacyDistanceMixin"}
+            say(shared in MOD_SOURCES or name in native_only,
+                f"{name}.java (shared) has compile coverage")
         else:
             say(len(overlays) > 0,
                 f"{name} is per-bracket and has an overlay copy", shared)
@@ -1267,7 +1276,7 @@ def _check_mixin_wiring():
     # The tag is TAB LIST ONLY. The nametag badge was removed deliberately.
     say("PlayerNameMixin" not in registered,
         "the removed nametag mixin is NOT registered",
-        "the [Cubeon] tag is tab-list only; a nametag badge must not come back")
+        "the logo badge is tab-list only; a nametag badge must not come back")
     say("PlayerNameMixin.java" not in jar_src,
         "the removed nametag mixin is gone from build_mod_jars")
     say("PlayerNameMixin.java" not in "\n".join(MOD_SOURCES),
@@ -1294,10 +1303,10 @@ def _check_mixin_wiring():
         say("Throwable" in mixin, f"the {label} per-frame injection swallows everything")
 
         tag = open(os.path.join(ROOT, base, "TabListTag.java"), encoding="utf-8").read()
-        say('"[Cubeon]"' in tag, f"the {label} tag text is [Cubeon]")
-        say("0x83C13D" in tag, f"the {label} tag uses the exact Cubeon green")
-        say("TextColor.fromRgb" in tag,
-            f"the {label} green goes through TextColor.fromRgb (present in both eras)")
+        say("TabLogo.icon()" in tag and '"[Cubeon]"' not in tag,
+            f"the {label} tab badge uses the logo")
+        say(".append(displayed)" in tag,
+            f"the {label} tab badge preserves the original styled name")
     return ok
 
 

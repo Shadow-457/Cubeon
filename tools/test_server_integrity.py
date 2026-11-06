@@ -133,8 +133,7 @@ with tempfile.TemporaryDirectory(prefix="cubeon-server-integrity-") as scratch:
 
         old, replacement = Process(), Process()
         with patch.object(S, "world_lock_holder", return_value=None), \
-                patch.object(S, "find_java_for_version", return_value="java"), \
-                patch.object(S, "java_major_version", return_value=25), \
+                patch("cubeon.jre.ensure_java_for_version", return_value="java"), \
                 patch.object(S, "high_ping_optimization_enabled", return_value=False), \
                 patch.object(S.subprocess, "Popen", side_effect=[old, replacement]), \
                 patch.object(S.threading, "Thread", side_effect=lambda target, **kw: SimpleNamespace(start=lambda: targets.append(target))):

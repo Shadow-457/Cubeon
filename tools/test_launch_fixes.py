@@ -38,7 +38,7 @@ def check(cond, label, detail=""):
         print(f"  FAIL {label}" + (f"\n       {detail}" if detail else ""))
 
 
-from cubeon import launch, milestones, watchdog, cubeonfriends, config  # noqa: E402
+from cubeon import launch, milestones, watchdog, cubeonfriends, config, jre  # noqa: E402
 
 # launch_game also installs Fabric API next to the client mod (the HUD half is
 # built on it). In a sandboxed HOME nothing is installed yet, so the real
@@ -98,12 +98,15 @@ with tempfile.TemporaryDirectory() as tmp:
     check(chosen is None or os.path.isfile(chosen) or shutil.which(chosen),
           "the fallback is a real Java (or mll's own default)", repr(chosen))
 
-    # A real explicit path is still honoured verbatim.
+    # A runnable explicit Java is still honoured verbatim.
+    explicit = os.path.join(tmp, "java")
+    Path(explicit).write_text('#!/bin/sh\necho \'openjdk version "21.0.5"\' >&2\n')
+    os.chmod(explicit, 0o755)
     with patch.object(launch.mll.command, "get_minecraft_command",
                       side_effect=_fake_command):
         launch.build_launch_command(version, "tester", 2048, 854, 480,
-                                    sys.executable)
-    check(seen["opts"].get("executablePath") == sys.executable,
+                                    explicit)
+    check(seen["opts"].get("executablePath") == explicit,
           "a valid explicit Java is kept", repr(seen["opts"].get("executablePath")))
 
 # ---------------------------------------------------------------------- L15 ---
@@ -241,6 +244,7 @@ with tempfile.TemporaryDirectory() as tmp:
             patch.object(doctor, "run_doctor", lambda *a, **kw: {}), \
             patch.object(launch, "sync_mods_to_game", slow_sync), \
             patch.object(launch, "build_launch_command", lambda *a, **k: ["java", "game"]), \
+            patch.object(launch, "java_major_version", return_value=21), \
             patch.object(launch.subprocess, "Popen", side_effect=gated_spawn), \
             patch.object(milestones, "begin_play_session", lambda *a, **k: None), \
             patch.object(FriendsService, "reconcile_username_active", lambda: None, create=True):
@@ -338,7 +342,7 @@ from cubeon import mod_loaders  # noqa: E402
 
 _fake_java = os.path.join(tempfile.gettempdir(), "cubeon-fake-java")
 with open(_fake_java, "w") as _fh:
-    _fh.write("")
+    _fh.write('#!/bin/sh\necho \'openjdk version "21.0.5"\' >&2\n')
 os.chmod(_fake_java, 0o755)
 
 _calls = {}
@@ -394,8 +398,7 @@ check(_calls.get("lv") == "0.16.9",
       "the newest stable loader version is pinned instead of guessed")
 check(_calls.get("callback") is not None, "progress callbacks still reach mll")
 
-# No Java at all: fail BEFORE downloading anything, with a message that says
-# what to do - never a bare OS error.
+# A failed Java setup must stop before running the loader installer.
 _started = []
 
 
@@ -407,43 +410,34 @@ class _NeverCalled(_FakeLoader):
 
 with patch.object(mod_loaders, "get_installed_versions", _fake_installed), \
         patch.object(mod_loaders, "loader_java",
-                     side_effect=RuntimeError("Java 17+ wasn't found, so the "
-                                              "Fabric installer can't run.")), \
+                     side_effect=jre.JreError("Couldn't download Java 17 runtime.")), \
         patch.object(mod_loaders.mll.mod_loader, "get_mod_loader",
                      lambda loader_id: _NeverCalled()):
     try:
         mod_loaders.install_mod_loader("fabric", "1.20.1",
                                        lambda *_: None, lambda *_: None,
                                        lambda *_: None)
-        check(False, "a machine with no Java fails with a readable message")
+        check(False, "a failed Java setup has a readable message")
     except RuntimeError as ex:
-        check("Java 17+" in str(ex) and "installer" in str(ex),
-              "a machine with no Java fails with a readable message",
+        check("Java 17" in str(ex) and "download" in str(ex),
+              "a failed Java setup has a readable message",
               f"got: {ex}")
 check(not _started, "the download is never started without Java")
 
-# loader_java itself: a verified path is accepted, the bare-name fallback is
-# NOT (that fallback is what mll turned into WinError 2).
+# loader_java accepts a verified path and automatically replaces a missing one.
 with patch.object(launch, "find_java_for_version", return_value=_fake_java):
     check(mod_loaders.loader_java("1.20.1", "fabric") == _fake_java,
           "an existing java path is accepted")
 with patch.object(launch, "find_java_for_version", return_value="java"), \
-        patch.object(mod_loaders.shutil, "which", lambda name: None):
-    try:
-        mod_loaders.loader_java("1.20.1", "fabric")
-        check(False, "the bare 'java' fallback is rejected, not handed to mll")
-    except RuntimeError as ex:
-        check("Java" in str(ex) and "Settings" in str(ex),
-              "the bare 'java' fallback is rejected, not handed to mll",
-              f"got: {ex}")
+        patch.object(launch.shutil, "which", lambda name: None), \
+        patch.object(jre, "install_jre", return_value=_fake_java) as managed:
+    check(mod_loaders.loader_java("1.20.1", "fabric") == _fake_java,
+          "the bare 'java' fallback is replaced before reaching mll")
+    check(managed.call_args.args[0] == 17, "missing Java prepares the game's required major")
 
 # ------------------------------------------- too-old Java must NOT slip past ---
-# The banner said "Java 17+ wasn't found" even on machines that DID have Java,
-# because find_java_for_version falls back to a too-old binary on purpose (so
-# LAUNCH can show Minecraft's own error) and the old check only asked "does
-# this path exist?". A Java 8 on PATH therefore reached the installer jar, which
-# died on a raw UnsupportedClassVersionError instead of this message.
-print("\n8c. a too-old Java is rejected with an honest message")
+# Existing Java 8 must never reach an installer requiring a newer runtime.
+print("\n8c. outdated Java automatically prepares the correct runtime")
 
 
 def _fake_jvm(major_label, raw):
@@ -460,50 +454,28 @@ _java17 = _fake_jvm("openjdk", "17.0.11")
 check(launch.java_major_version(_java8) == 8, "the stub JVM reports its real major")
 check(launch.java_major_version(_java17) == 17, "a 17 stub reports 17")
 
-# The bug: Java 8 exists, so the old os.path.isfile() check passed it straight
-# through. It must now be rejected.
-with patch.object(launch, "find_java_for_version", return_value=_java8):
-    try:
-        got = mod_loaders.loader_java("1.20.1", "fabric")
-        check(False, "a Java 8 on PATH is NOT handed to the 1.20.1 installer",
-              f"returned {got}")
-    except RuntimeError as ex:
-        check("Java 17+" in str(ex),
-              "a Java 8 on PATH is NOT handed to the 1.20.1 installer",
-              f"got: {ex}")
-        check("Only Java 8 was found" in str(ex) and "1.20.1" in str(ex),
-              "the message says what WAS found and which version needs more",
-              f"got: {ex}")
-        check("JAVA_HOME" in str(ex),
-              "the message names JAVA_HOME, one of the three sources now read",
-              f"got: {ex}")
+with patch.object(launch, "find_java_for_version", return_value=_java8), \
+        patch.object(jre, "install_jre", return_value=_java17) as managed:
+    check(mod_loaders.loader_java("1.20.1", "fabric") == _java17,
+          "Java 8 is replaced before running the 1.20.1 installer")
+    check(managed.call_args.args[0] == 17, "the fallback requests Java 17")
 
 # A new-enough Java is still accepted unchanged (no regression on the happy path).
 with patch.object(launch, "find_java_for_version", return_value=_java17):
-    check(mod_loaders.loader_java("1.20.1", "fabric") == _java17,
-          "a Java 17 is still accepted for 1.20.1")
-    try:
-        mod_loaders.loader_java("1.21", "fabric")
-        check(False, "Java 17 is correctly rejected for a 1.21 (needs 21)")
-    except RuntimeError as ex:
-        check("Java 21+" in str(ex),
-              "Java 17 is correctly rejected for a 1.21 (needs 21)",
-              f"got: {ex}")
+    with patch.object(jre, "install_jre", return_value=_fake_java) as managed:
+        check(mod_loaders.loader_java("1.20.1", "fabric") == _java17,
+              "a Java 17 is still accepted for 1.20.1")
+        check(not managed.called, "compatible installed Java requires no download")
+        check(mod_loaders.loader_java("1.21", "fabric") == _fake_java,
+              "Java 17 is replaced for a 1.21 installer")
+        check(managed.call_args.args[0] == 21, "1.21 prepares Java 21")
 
-# The number in the message must track the SELECTED Minecraft version - that is
-# why the same build showed "Java 21+" and "Java 17+" to different users.
+# Runtime selection follows the selected game version.
 with patch.object(launch, "find_java_for_version", return_value=_java8):
-    _msgs = {}
-    for _mc, _expect in (("1.20.1", "Java 17+"), ("1.21.4", "Java 21+"),
-                         ("26.1", "Java 25+")):
-        try:
+    for _mc, _expect in (("1.20.1", 17), ("1.21.4", 21), ("26.1", 25)):
+        with patch.object(jre, "install_jre", return_value=_fake_java) as managed:
             mod_loaders.loader_java(_mc, "fabric")
-        except RuntimeError as ex:
-            _msgs[_mc] = str(ex)
-    check(all(_expect in _msgs.get(_mc, "") for _mc, _expect in
-              (("1.20.1", "Java 17+"), ("1.21.4", "Java 21+"), ("26.1", "Java 25+"))),
-          "the required major follows the selected Minecraft version",
-          f"got: {_msgs}")
+            check(managed.call_args.args[0] == _expect, f"{_mc} prepares Java {_expect}")
 
 # ------------------------------------------------ JAVA_HOME is now consulted ---
 # The other half of the report: machines WITH a JDK (Temurin/Adoptium) were told
@@ -518,7 +490,7 @@ with tempfile.TemporaryDirectory() as _jh:
         _fh.write('#!/bin/sh\necho \'openjdk version "21.0.5"\' >&2\nexit 0\n')
     os.chmod(_jh_java, 0o755)
 
-    with patch.dict(os.environ, {"JAVA_HOME": _jdk}), \
+    with patch.dict(os.environ, {"JAVA_HOME": _jdk, "PATH": ""}), \
             patch.object(launch.shutil, "which", lambda n: None), \
             patch.object(launch, "mll") as _mll:
         _mll.java_utils.find_system_java_versions.return_value = []
@@ -569,7 +541,7 @@ with tempfile.TemporaryDirectory() as _jh:
             patch.object(launch.shutil, "which", lambda n: None), \
             patch.object(launch.mll, "java_utils") as _mll3, \
             patch.object(launch, "find_java_for_version",
-                         side_effect=lambda mc, jp=None: _real_find(mc, _jdk)):
+                         side_effect=lambda mc, jp=None, **kw: _real_find(mc, _jdk, **kw)):
         _mll3.java_utils.find_system_java_versions.return_value = []
         check(mod_loaders.loader_java("1.21", "fabric") == _jh_java,
               "a loader install uses the JDK folder from java_path (no banner)")
@@ -715,11 +687,11 @@ finally:
             proc.wait(5)
     watchdog.clear()
 
-print("\n14. managed Java runtimes (offered, never forced)")
-# The launcher now offers to download a Temurin JRE when the selected
-# version needs one and the machine has none. The invariants worth pinning
+print("\n14. managed Java runtimes (automatic fallback)")
+# The launcher downloads a verified JRE when the selected version needs one
+# and the machine has none. The invariants worth pinning
 # down are the ones that could quietly break a user who already has Java:
-# it must never be downloaded unasked, never preferred over a system Java,
+# compatible system Java must win, automatic setup must choose the right major,
 # and an interrupted install must never look complete.
 from cubeon import jre  # noqa: E402
 
@@ -790,8 +762,7 @@ with patch.object(jre, "RUNTIMES_DIR", _sandbox):
                                          "escaped.txt")),
           "nothing was written outside the destination")
 
-# The launcher must not prompt a machine that already has a usable Java, and
-# must report a real shortfall when it does not.
+# The launcher must recognize usable Java and report a real shortfall otherwise.
 _st = jre.java_status("1.20.1")
 if _st["ok"]:
     check(_st["found"] is None or _st["found"] >= _st["required"],
@@ -811,7 +782,7 @@ check(_fn.index("find_system_java_versions()") < _fn.index("installed_runtimes()
       "a system Java must keep winning - the managed one is a fallback")
 check("java_status" in open(os.path.abspath(jre.__file__),
                             encoding="utf-8").read(),
-      "java_status exists for the pre-install prompt")
+      "java_status exists for the shared pre-install check")
 
 # --- A runtime must RUN before it may call itself installed -----------------
 # A sha256-valid download can still unpack short (disk full, antivirus,
@@ -862,6 +833,7 @@ from cubeon import local_cache  # noqa: E402
 with patch.object(content, "sync_content_to_game", lambda *a: None), \
         patch.object(launch, "sync_mods_to_game", lambda *a: None), \
         patch.object(launch, "build_launch_command", lambda *a, **k: ["java", "game"]), \
+        patch.object(launch, "java_major_version", return_value=21), \
         patch.object(watchdog, "stale_session", return_value=None), \
         patch.object(launch.subprocess, "Popen", side_effect=lambda *a, **k: GameProcess(777)), \
         patch.object(milestones, "begin_play_session", lambda *a, **k: None), \
@@ -901,6 +873,7 @@ print("\nM2. ignoring Doctor never blocks Minecraft from launching")
 with patch.object(content, "sync_content_to_game", lambda *args: None), \
         patch.object(launch, "sync_mods_to_game", lambda *args: None), \
         patch.object(launch, "build_launch_command", lambda *args, **kwargs: ["java", "game"]), \
+        patch.object(launch, "java_major_version", return_value=21), \
         patch.object(watchdog, "stale_session", return_value=None), \
         patch.object(launch.subprocess, "Popen") as spawn:
     spawn.reset_mock()
@@ -945,7 +918,7 @@ with tempfile.TemporaryDirectory() as tmp:
               "--versionType", "release"]
     with patch.object(launch.mll.command, "get_minecraft_command",
                       side_effect=lambda vid, d, opts: leaked):
-        cmd = launch.build_launch_command(version, "tester", 2048, 854, 480, None)
+        cmd = launch.build_launch_command(version, "tester", 2048, 854, 480, _java17)
     leaked_args = [a for a in cmd if "${" in a]
     check(not leaked_args, "no literal ${...} placeholder survives in the argv",
           f"still present: {leaked_args}")
@@ -1001,7 +974,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     with patch.object(launch.mll.command, "get_minecraft_command",
                       side_effect=_capture):
-        launch.build_launch_command(version, "tester", 2048, 854, 480, None,
+        launch.build_launch_command(version, "tester", 2048, 854, 480, _java17,
                                     custom_jvm_flags="-Dmy.prop=hello -XX:MaxGCPauseMillis=77")
     jvm = seen.get("jvmArguments", [])
     check("-Dmy.prop=hello" in jvm and "-XX:MaxGCPauseMillis=77" in jvm,
@@ -1013,7 +986,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     with patch.object(launch.mll.command, "get_minecraft_command",
                       side_effect=_capture):
-        launch.build_launch_command(version, "tester", 2048, 854, 480, None,
+        launch.build_launch_command(version, "tester", 2048, 854, 480, _java17,
                                     custom_jvm_flags="他他他 -Xss2M")
     jvm = seen.get("jvmArguments", [])
     check("他他他" not in jvm,

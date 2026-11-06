@@ -264,6 +264,27 @@ public final class CubeonHud {
 		context.getMatrices().pop();
 	}
 
+	/** Enabled overlays are previewed without changing the player's visibility choices. */
+    public static boolean enabled(Overlay overlay, CubeonHudConfig config) {
+        return switch (overlay) {
+            case FPS -> config.showFps; case KEYS -> config.showKeys;
+            case ARMOR -> config.showArmor; case PING -> config.showPing; case CPS -> config.showCps;
+            default -> config.extraEnabled(slotOf(overlay));
+        };
+    }
+    public static void renderPreview(DrawContext context, MinecraftClient client, CubeonHudConfig config,
+                                     Overlay overlay, int screenW, int screenH) {
+        OverlayRenderer renderer = switch (overlay) {
+            case FPS -> CubeonHud::renderFps;
+            case KEYS -> (d,c,x,y) -> renderKeys(d,c,x,y,true);
+            case ARMOR -> CubeonHud::renderArmor;
+            case PING -> CubeonHud::renderPing;
+            case CPS -> CubeonHud::renderCps;
+            default -> (d,c,x,y) -> renderExtra(d,c,overlay,x,y,true);
+        };
+        renderOverlay(context,client,config,overlay,screenW,screenH,renderer);
+    }
+
 	/** One overlay's saved size, including the legacy shared-size fallback. */
 	public static float scaleOf(Overlay overlay) {
 		return CubeonHudConfig.get().scaleFor(slotOf(overlay));

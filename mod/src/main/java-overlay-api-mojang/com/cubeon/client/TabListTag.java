@@ -6,12 +6,10 @@ import java.util.TreeSet;
 
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.Style;
-import net.minecraft.network.chat.TextColor;
 
 /**
  * Tags Cubeon players in the TAB LIST, so a friend reads as
- * {@code [Cubeon]Shadow} in green instead of a bare name.
+ * the Cubeon cube logo beside the original player name.
  *
  * <p><b>Tab list only, on purpose.</b> This is the one place a Cubeon marker is
  * purely the player's own business: the tab list is rendered on your screen and
@@ -32,11 +30,8 @@ import net.minecraft.network.chat.TextColor;
  * covers both brackets with no per-version renderer code. Same reasoning that
  * let the old nametag badge hook {@code Player.getDisplayName()} instead.
  *
- * <p><b>Colour is exact, not approximate.</b> {@code Style.withColor(TextColor)}
- * and {@code TextColor.fromRgb(int)} have the same shape in 1.20.1 and 26.1.2
- * (checked in both jars), so the tag is the real Cubeon green {@code #83C13D}
- * in both - not {@code ChatFormatting.GREEN}, whose chat green is a different
- * colour entirely.
+ * <p>The logo glyph alone uses the Cubeon bitmap font. The separating space
+ * and original name keep their native font and any server-provided styling.
  *
  * <p><b>Cost.</b> {@code getNameForDisplay} runs once per row per frame while
  * the tab list is visible, so the name set is rebuilt only when the bridge
@@ -46,9 +41,6 @@ import net.minecraft.network.chat.TextColor;
  * untouched.
  */
 public final class TabListTag {
-
-    /** The Cubeon accent, the same green the Friends button and logo use. */
-    private static final TextColor CUBEON_GREEN = TextColor.fromRgb(0x83C13D);
 
     /** Cached Cubeon names, and the bridge revisions they were built from. */
     private static volatile Set<String> known =
@@ -135,24 +127,14 @@ public final class TabListTag {
                 return displayed;
             }
             return Component.empty()
-                    .append(Component.literal("[Cubeon]").withStyle(cubeonGreen()))
+                    .append(TabLogo.icon())
+                    .append(Component.literal(" "))
                     .append(displayed);
         } catch (Throwable ignored) {
             // getNameForDisplay is per-row per-frame: anything thrown here is
             // a crash-on-every-frame, not a one-off. An untagged row is free.
             return displayed;
         }
-    }
-
-    /**
-     * The exact Cubeon green as a Style.
-     *
-     * <p>A method rather than a shared constant purely so the green is spelled
-     * in one place; Style is immutable so building it per call costs nothing
-     * that matters on this path.
-     */
-    private static Style cubeonGreen() {
-        return Style.EMPTY.withColor(CUBEON_GREEN);
     }
 
     /** The Cubeon names this machine knows, rebuilt only when the bridge moves. */

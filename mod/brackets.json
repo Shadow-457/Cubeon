@@ -84,7 +84,11 @@
         "freelook-yarn",
         "freelook-camera-double",
         "camera-blur-legacy",
-        "chat-yarn-legacy"
+        "chat-yarn-legacy",
+        "live-skin-legacy",
+        "skin-native-legacy",
+        "name-tag-legacy",
+        "tab-logo-yarn"
       ],
       "java": ">=17",
       "min": "1.20",
@@ -108,7 +112,11 @@
         "freelook-yarn",
         "freelook-camera-double",
         "camera-blur-legacy",
-        "chat-yarn-legacy"
+        "chat-yarn-legacy",
+        "live-skin-legacy",
+        "skin-native-legacy",
+        "name-tag-legacy",
+        "tab-logo-yarn"
       ],
       "java": ">=17",
       "min": "1.20.1",
@@ -133,7 +141,11 @@
         "freelook-yarn",
         "freelook-camera-double",
         "camera-blur-legacy",
-        "chat-yarn-legacy"
+        "chat-yarn-legacy",
+        "live-skin-yarn",
+        "skin-native-legacy",
+        "name-tag-legacy",
+        "tab-logo-yarn"
       ],
       "java": ">=17",
       "min": "1.20.2",
@@ -158,7 +170,11 @@
         "freelook-yarn",
         "freelook-camera-double",
         "camera-blur-legacy",
-        "chat-yarn-legacy"
+        "chat-yarn-legacy",
+        "live-skin-yarn",
+        "skin-native-legacy",
+        "name-tag-legacy",
+        "tab-logo-yarn"
       ],
       "java": ">=17",
       "min": "1.20.3",
@@ -183,7 +199,11 @@
         "freelook-yarn",
         "freelook-camera-double",
         "camera-blur-legacy",
-        "chat-yarn-legacy"
+        "chat-yarn-legacy",
+        "live-skin-yarn",
+        "skin-native-legacy",
+        "name-tag-legacy",
+        "tab-logo-yarn"
       ],
       "java": ">=17",
       "min": "1.20.4",
@@ -208,7 +228,11 @@
         "freelook-yarn",
         "freelook-camera-double",
         "camera-blur-legacy",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn",
+        "skin-native-yarn",
+        "name-tag-legacy",
+        "tab-logo-yarn"
       ],
       "java": ">=17",
       "min": "1.20.5",
@@ -233,7 +257,11 @@
         "freelook-yarn",
         "freelook-camera-double",
         "camera-blur-legacy",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn",
+        "skin-native-yarn",
+        "name-tag-legacy",
+        "tab-logo-yarn"
       ],
       "java": ">=17",
       "min": "1.20.6",
@@ -258,7 +286,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-legacy",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn",
+        "skin-native-yarn-1.21",
+        "name-tag-legacy",
+        "tab-logo-yarn"
       ],
       "java": ">=21",
       "min": "1.21",
@@ -283,7 +315,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-legacy",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn",
+        "skin-native-yarn-1.21",
+        "name-tag-legacy",
+        "tab-logo-yarn"
       ],
       "java": ">=21",
       "min": "1.21.1",
@@ -308,7 +344,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-post",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn",
+        "skin-native-yarn-new",
+        "name-tag-yarn-state",
+        "tab-logo-yarn"
       ],
       "java": ">=21",
       "min": "1.21.2",
@@ -333,7 +373,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-post",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn",
+        "skin-native-yarn-new",
+        "name-tag-yarn-state",
+        "tab-logo-yarn"
       ],
       "java": ">=21",
       "min": "1.21.3",
@@ -358,7 +402,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-post",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn",
+        "skin-native-yarn-new",
+        "name-tag-yarn-state",
+        "tab-logo-yarn"
       ],
       "java": ">=21",
       "min": "1.21.4",
@@ -383,7 +431,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-gpu5",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn-new",
+        "skin-native-yarn-new",
+        "name-tag-yarn-state",
+        "tab-logo-yarn"
       ],
       "java": ">=21",
       "min": "1.21.5",
@@ -406,7 +458,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-gpu6",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn-new",
+        "skin-native-yarn-gui",
+        "name-tag-yarn-state",
+        "tab-logo-yarn"
       ],
       "java": ">=21",
       "min": "1.21.6",
@@ -429,7 +485,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-gpu6",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn-new",
+        "skin-native-yarn-gui",
+        "name-tag-yarn-state",
+        "tab-logo-yarn"
       ],
       "java": ">=21",
       "min": "1.21.7",
@@ -452,7 +512,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-gpu6",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn-new",
+        "skin-native-yarn-gui",
+        "name-tag-yarn-state",
+        "tab-logo-yarn"
       ],
       "java": ">=21",
       "min": "1.21.8",
@@ -475,7 +539,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-gpu6",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn-avatar",
+        "skin-native-yarn-gui",
+        "name-tag-yarn-avatar",
+        "tab-logo-yarn-modern"
       ],
       "java": ">=21",
       "min": "1.21.9",
@@ -498,7 +566,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-gpu6",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn-avatar",
+        "skin-native-yarn-gui",
+        "name-tag-yarn-avatar",
+        "tab-logo-yarn-modern"
       ],
       "java": ">=21",
       "min": "1.21.10",
@@ -521,7 +593,11 @@
         "freelook-yarn",
         "freelook-camera-float",
         "camera-blur-gpu9",
-        "chat-yarn"
+        "chat-yarn",
+        "live-skin-yarn-avatar",
+        "skin-native-yarn-final",
+        "name-tag-yarn-avatar",
+        "tab-logo-yarn-modern"
       ],
       "java": ">=21",
       "min": "1.21.11",
@@ -541,7 +617,11 @@
         "cubeon-emote-mojang",
         "freelook-mojang",
         "camera-blur-26.1",
-        "chat-mojang"
+        "chat-mojang",
+        "live-skin-mojang",
+        "skin-native-mojang",
+        "name-tag-mojang",
+        "tab-logo-mojang"
       ],
       "java": ">=25",
       "min": "26.1",
@@ -561,7 +641,11 @@
         "cubeon-emote-mojang",
         "freelook-mojang",
         "camera-blur-26.1",
-        "chat-mojang"
+        "chat-mojang",
+        "live-skin-mojang",
+        "skin-native-mojang",
+        "name-tag-mojang",
+        "tab-logo-mojang"
       ],
       "java": ">=25",
       "min": "26.1.1",
@@ -581,7 +665,11 @@
         "cubeon-emote-mojang",
         "freelook-mojang",
         "camera-blur-26.1",
-        "chat-mojang"
+        "chat-mojang",
+        "live-skin-mojang",
+        "skin-native-mojang",
+        "name-tag-mojang",
+        "tab-logo-mojang"
       ],
       "java": ">=25",
       "min": "26.1.2",
@@ -601,7 +689,11 @@
         "cubeon-emote-mojang",
         "freelook-mojang",
         "camera-blur-26.2",
-        "chat-mojang"
+        "chat-mojang",
+        "live-skin-mojang",
+        "skin-native-mojang",
+        "name-tag-mojang",
+        "tab-logo-mojang"
       ],
       "java": ">=25",
       "min": "26.2",
@@ -622,7 +714,11 @@
         "cubeon-emote-mojang",
         "freelook-mojang",
         "camera-blur-26.3",
-        "chat-mojang"
+        "chat-mojang",
+        "live-skin-mojang",
+        "skin-native-mojang",
+        "name-tag-mojang",
+        "tab-logo-mojang"
       ],
       "java": ">=25",
       "min": "26.3",

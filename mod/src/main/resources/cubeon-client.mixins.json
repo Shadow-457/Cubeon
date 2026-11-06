@@ -15,7 +15,10 @@
     "AutoSprintMixin",
     "ComboDamageMixin",
     "CosmeticLayersAccessor",
-    "CosmeticElytraMixin"
+    "CosmeticElytraMixin",
+    "LiveSkinMixin",
+    "SkinTitleMenuMixin",
+    "OwnNameTagMixin"
   ],
   "injectors": {
     "defaultRequire": 0

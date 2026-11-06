@@ -183,20 +183,17 @@ def main():
                 patch.object(launch, "_java_home_binaries", return_value=[]), \
                 patch.object(launch.mll.java_utils, "find_system_java_versions", return_value=[]), \
                 patch.object(jre, "installed_runtimes", return_value={8: java8}), \
-                patch.object(launch, "java_major_version", side_effect=lambda path: {java8: 8, java21: 21}.get(path)):
+                patch.object(launch, "java_major_version", side_effect=lambda path, **kw: {java8: 8, java21: 21}.get(path)):
             assert launch.find_java_for_version("1.8.9-forge-11.15.1.2318-1.8.9", java21) == java8
             assert jre.java_status("1.8.9-forge", java21)["ok"]
         with patch.object(launch, "find_java_for_version", return_value=java21), \
                 patch.object(launch, "java_major_version", return_value=21):
             assert jre.java_status("1.8.9-forge", java21) == {"ok": False, "required": 8, "found": 21, "exact": True}
             assert jre.java_status("1.8.9", java21)["ok"]
-            try:
-                mod_loaders.loader_java("1.8.9", "forge")
-            except RuntimeError as error:
-                assert "requires Java 8" in str(error)
-            else:
-                raise AssertionError("Forge installer accepted Java 21")
-        print("Forge 1.8.9 exact Java 8 selection, download preflight and installer rejection passed.")
+            with patch.object(jre, "install_jre", return_value=java8) as managed:
+                assert mod_loaders.loader_java("1.8.9", "forge") == java8
+                assert managed.call_args.args[0] == 8
+        print("Forge 1.8.9 exact Java 8 selection and automatic setup passed.")
         profile = Path(temp) / "mods"
         profile.mkdir()
         (profile / "cubeon-client-stale.jar").write_bytes(b"old")

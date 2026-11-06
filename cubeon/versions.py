@@ -5,6 +5,7 @@ Mod-loader-specific installs live in mod_loaders.py.
 import json
 import logging
 import os
+from .storage import runtime_dir
 import re
 import shutil
 import threading
@@ -53,6 +54,8 @@ def install_in_progress(version_id: "str | None") -> bool:
 
 @contextmanager
 def _active_install(version_id: str):
+    from . import storage
+    storage.assert_writable()
     with _active_installs_lock:
         if version_id in _active_installs:
             raise RuntimeError(f"Minecraft {version_id} is already installing.")
@@ -75,8 +78,8 @@ def version_folder(version_id: str) -> str:
     """One owned version directory; refuse traversal and external symlinks."""
     if not _plain_filename(version_id):
         raise ValueError("Invalid version id: choose an instance from the version picker.")
-    root = os.path.realpath(os.path.join(MINECRAFT_DIR, "versions"))
-    folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+    root = os.path.realpath(os.path.join(runtime_dir(MINECRAFT_DIR), "versions"))
+    folder = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id)
     for path in (folder, os.path.join(folder, version_id + '.json'),
                  os.path.join(folder, version_id + '.jar')):
         resolved = os.path.realpath(path)
@@ -252,7 +255,7 @@ _scan_cache: "tuple | None" = None   # (key, result)
 
 def _versions_scan_key(active: set[str]) -> "tuple | None":
     """A cheap fingerprint of versions/: (folder, [(file, mtime, size)])."""
-    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     folders = []
     try:
         with os.scandir(versions_dir) as entries:
@@ -288,7 +291,7 @@ def get_installed_versions() -> list[dict]:
     The result is memoized until a file in versions/ changes (see
     _versions_scan_key), so the Play-tab repaints do not pay for a scan."""
     global _scan_cache
-    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     if not os.path.isdir(versions_dir):
         return _with_rust_entries([])
 
@@ -329,7 +332,7 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
 
     # Pass 1: mll's strict, well-formed scan (fast path, always correct)
     try:
-        for v in mll.utils.get_installed_versions(MINECRAFT_DIR):
+        for v in mll.utils.get_installed_versions(runtime_dir(MINECRAFT_DIR)):
             try:
                 version_folder(v["id"])
             except ValueError:
@@ -558,6 +561,8 @@ def delete_version(version_id: str) -> None:
     Raises ValueError with a readable message on anything the UI should
     surface (unknown id, path escape attempt, or an OS failure to remove).
     """
+    from . import storage
+    storage.assert_writable()
     if version_id == "cubeon-rust-26.3":
         from . import rust_engine, watchdog
         running = watchdog.stale_session()
@@ -584,6 +589,7 @@ def delete_version(version_id: str) -> None:
 
     try:
         shutil.rmtree(target)
+        storage.archive_instance(version_id)
     except OSError as ex:
         raise ValueError(f"Couldn't delete this version: {ex}") from ex
 
@@ -598,7 +604,7 @@ def dependents_of(version_id: str) -> list[str]:
     """
     if not version_id or not isinstance(version_id, str):
         return []
-    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     try:
         names = sorted(os.listdir(versions_dir))
     except OSError:
@@ -677,7 +683,7 @@ def unfinished_install_reason(folder: str) -> "str | None":
         return None
     if install_in_progress(folder):
         return None  # a live download, never a leftover to sweep
-    folder_path = os.path.join(MINECRAFT_DIR, "versions", folder)
+    folder_path = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", folder)
     if not os.path.isdir(folder_path):
         return None
 
@@ -732,7 +738,7 @@ def find_unfinished_installs() -> list[dict]:
     launch id mll needs), reason is the short phrase from
     unfinished_install_reason(). Sorted for a stable log/status line.
     """
-    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     if not os.path.isdir(versions_dir):
         return []
     try:
@@ -808,7 +814,7 @@ def _inherited_base_version(version_id: str) -> "str | None":
     """
     if not _plain_filename(version_id):
         return None
-    folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+    folder = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id)
     data = _load_version_json(folder, f"{version_id}.json")
     if not isinstance(data, dict):
         return None
@@ -893,7 +899,7 @@ def resolve_mc_version(version_id: str) -> str:
     if recorded:
         return recorded
     if _plain_filename(version_id or ""):
-        folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+        folder = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id)
         data = _load_version_json(folder, f"{version_id}.json")
         if isinstance(data, dict):
             for key in ("inheritsFrom", "id"):
@@ -910,7 +916,11 @@ def _read_instance_sidecar(folder: str) -> dict | None:
     stack; a bad sidecar just means "legacy install"."""
     if not folder or os.path.basename(folder) != folder:
         return None
-    path = os.path.join(MINECRAFT_DIR, "versions", folder,
+    from . import storage
+    direct = storage.manifest(folder)
+    if direct:
+        return direct
+    path = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", folder,
                         INSTANCE_META_FILENAME)
     try:
         with open(path, "r", encoding="utf-8") as fh:
@@ -1408,10 +1418,9 @@ class _PatchedMllDownloads:
       * install_jvm_runtime() is skipped when the caller passes explicit_java:
         mll then downloads a whole second JDK - tens of MB, hundreds of files -
         into the game directory that the launch never uses, because
-        build_launch_command passes executablePath. It is kept by default
-        because without an explicit path mll's own command builder falls back
-        to exactly that runtime (minecraft_launcher_lib/command.py), and on a
-        machine with no Java of its own it is the only Java there is.
+        build_launch_command passes a verified executablePath. Public version
+        installation prepares Java first and passes explicit_java=True; native
+        resource preparation also bypasses this unused runtime download.
 
     Tolerant of a fake mll (tests): only modules that actually expose the names
     are touched, and __exit__ puts back exactly what was there.
@@ -1624,11 +1633,9 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
     resilient downloader (timeouts, retries, resume, checksum) is installed
     with or without a cancel_event - only the abort depends on it.
 
-    explicit_java: True when the caller launches this version with a Java path
-    of its own (Cubeon passes cfg["java_path"]), so the copy of Java mll would
-    install into the game directory is never the JVM the game runs on and is
-    skipped - a whole second JDK, tens of MB. Leave it False otherwise: see
-    _PatchedMllDownloads for why that runtime is load-bearing.
+    explicit_java: True when the caller already verified a Java executable
+    (or is fetching resources for the native client). Otherwise prepare Java
+    here before writing game files. Both paths skip mll's duplicate runtime.
 
     Guarded: mll's own downloader has no resume and no integrity check, so a
     network death mid-install used to leave a truncated jar that the version
@@ -1645,6 +1652,24 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
         destroy a working install (or the user's own files).
     """
     validate_launch_profile(version_id)
+    if not explicit_java:
+        from .config import launch_java_path
+        from .jre import ensure_java_for_version
+
+        def check_java_cancel():
+            if cancel_event is not None and cancel_event.is_set():
+                raise _DownloadCancelled()
+
+        try:
+            check_java_cancel()
+            max_cb(1)
+            ensure_java_for_version(
+                version_id, launch_java_path(), status_cb=status_cb,
+                progress_cb=lambda done, total: progress_cb(done / (total or 1)),
+                cancel_check=check_java_cancel)
+        except _DownloadCancelled as error:
+            raise RuntimeError("The download was cancelled.") from error
+        explicit_java = True
     # Every callback is wrapped: the status one so the asset phase reports
     # something readable instead of a sha1 (see _FriendlyStatus), and all three
     # so the cancel bridge sees which thread is downloading.
@@ -1741,7 +1766,7 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
                 with _PatchedMllDownloads(bridge,
                                           explicit_java=explicit_java):
                     mll.install.install_minecraft_version(
-                        version_id, MINECRAFT_DIR, callback=callback)
+                        version_id, runtime_dir(MINECRAFT_DIR), callback=callback)
             finally:
                 if bridge is not None:
                     bridge.release()

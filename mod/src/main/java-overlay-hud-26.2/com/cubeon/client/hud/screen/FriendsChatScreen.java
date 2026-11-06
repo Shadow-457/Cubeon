@@ -2,38 +2,45 @@ package com.cubeon.client.hud.screen;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 
 import com.cubeon.client.ui.ClientUi;
+import com.cubeon.client.ui.MenuUi;
 
 import com.cubeon.client.Bridge;
 import com.cubeon.client.ui.FriendsPanel;
 import net.minecraft.client.gui.components.EditBox;
 /** Friends messages use the launcher's encrypted history, never the server chat channel. */
 public final class FriendsChatScreen extends Screen {
+    private final Screen parent;
     private final FriendsPanel panel = new FriendsPanel(Bridge.get());
     private EditBox input;
-    public FriendsChatScreen() { super(Component.translatable("cubeonclient.friends.title")); }
+    public FriendsChatScreen() { this(null); }
+    public FriendsChatScreen(Screen parent) { super(Component.translatable("cubeonclient.friends.chat_title")); this.parent = parent; }
+    public static void open(Screen parent) { Minecraft.getInstance().gui.setScreen(new FriendsChatScreen(parent)); }
     @Override protected void init() {
         if (input != null) panel.saveDraft(input.getValue());
         panel.layout(this.width, this.height); panel.ensurePeer();
         input = new EditBox(font, panel.inputX(), panel.inputY(), panel.inputWidth(), 16,
                 Component.translatable("cubeonclient.friends.message"));
         input.setMaxLength(1000);
-        input.setBordered(false); input.setTextColor(ClientUi.TEXT);
-        input.addFormatter((value, start) -> ClientUiFont.text(value).getVisualOrderText());
+        input.setBordered(false); input.setTextColor(MenuUi.TEXT);
+
         input.setValue(panel.draft());
         addRenderableWidget(input); setInitialFocus(input);
     }
     @Override public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        graphics.fill(0, 0, this.width, this.height, ClientUi.BACKDROP);
+        if (minecraft.level == null) extractPanorama(graphics, partialTick);
+        extractBlurredBackground(graphics);
+        graphics.fill(0, 0, this.width, this.height, 0x9309090C);
     }
     @Override public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         
         super.extractRenderState(graphics, mouseX, mouseY, delta);
-        panel.render(canvas(graphics), this.width, this.height, mouseX, mouseY);
+        panel.render(canvas(graphics), this.width, this.height, mouseX, mouseY, com.cubeon.client.hud.CubeonHudConfig.get().menuAnimations);
         input.extractRenderState(graphics, mouseX, mouseY, delta);
     }
     private ClientUi.Canvas canvas(GuiGraphicsExtractor graphics) { return new ClientUi.Canvas() {
@@ -44,10 +51,10 @@ public final class FriendsChatScreen extends Screen {
                 ClientUiDraw.image(graphics, path, x, y, w, h, u, v, regionW, regionH, textureW, textureH, color);
             }
             public void text(String value, int x, int y, int color) {
-                var label = ClientUiFont.text(value);
+                var label = Component.literal(value);
                 graphics.text(font, label, x - font.width(label) / 2, y, color, false);
             }
-            public int width(String value) { return font.width(ClientUiFont.text(value)); }
+            public int width(String value) { return font.width(Component.literal(value)); }
             public String translate(String key) { return Component.translatable(key).getString(); }
         }; }
     @Override public void tick() {
@@ -88,6 +95,6 @@ public final class FriendsChatScreen extends Screen {
         panel.scroll(x, amount); return true;
     }
     @Override public void removed() { if (input != null) panel.saveDraft(input.getValue()); panel.close(); }
-    @Override public void onClose() { if (this.minecraft != null) this.minecraft.gui.setScreen(null); }
+    @Override public void onClose() { if (this.minecraft != null) this.minecraft.gui.setScreen(parent); }
     @Override public boolean isPauseScreen() { return false; }
 }

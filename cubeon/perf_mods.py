@@ -1,15 +1,16 @@
 """Optional performance-mod setup for the Play menu's FPS Boost.
 
-Five jobs: terrain rendering, game logic, immediate rendering, entity culling
-and memory use. Fabric/Quilt use Sodium/Lithium; Forge uses Embeddium and
+Terrain rendering, game logic, batching, culling, memory and loading fixes.
+Fabric/Quilt use Sodium/Lithium; Forge uses Embeddium and
 Canary/Radium; NeoForge prefers Sodium/Lithium with compatible older ports.
 Every candidate must publish an exact Minecraft-version/native-loader build.
 Quilt can use the curated Fabric builds. Existing renderer/logic alternatives,
 disabled JARs and profile removal preferences prevent competing additions.
 
-More Culling stays retired from automatic installs. Legacy managed copies are
-disabled once; explicit installs, pack content and required dependencies stay.
-ThreadTweak, BadOptimizations, Krypton and Dynamic FPS stay retired.
+More Culling, Enhanced Block Entities and Exordium require an explicit opt-in.
+Legacy managed More Culling copies are disabled once; explicit installs, pack
+content and required dependencies stay. ThreadTweak, Krypton and Dynamic FPS
+stay retired. BadOptimizations was restored at the user's request.
 
 Downloads are bounded and best-effort. Final prelaunch Doctor verifies the
 installed dependency graph; no published build means no invented compatibility.
@@ -17,6 +18,7 @@ Graphics transitions are independent of the client menu and of mod downloads.
 """
 import json
 import os
+from .storage import metadata_path
 import threading
 
 from . import net
@@ -34,27 +36,36 @@ PERF_MODS = (
     ("immediatelyfast", "5ZwdcRci", "ImmediatelyFast"),
     ("entityculling", "NNAgCjsB", "Entity Culling"),
     ("ferrite-core", "uXXizFIs", "FerriteCore"),
+    ("modernfix", "nmDcB62a", "ModernFix"),
+    ("badoptimizations", "g96Z4WVZ", "BadOptimizations"),
 )
 _MORE_CULLING = ("moreculling", "51shyZVL", "More Culling")
+OPTIONAL_PERF_MODS = (
+    _MORE_CULLING,
+    ("ebe", "OVuFYfre", "Enhanced Block Entities"),
+    ("exordium", "DynYZEae", "Exordium"),
+)
 _EMBEDDIUM = ("embeddium", "sk9rgfiA", "Embeddium")
 _CANARY = ("canary", "qa2H4BS9", "Canary")
 _RADIUM = ("radium", "2gvRmQXx", "Radium")
 # Existing renderers satisfy the same job; never add a competing renderer.
 _RENDERERS = frozenset({"sodium", "embeddium", "rubidium", "optifine"})
 _LOGIC_MODS = frozenset({"lithium", "canary", "radium"})
-_KNOWN_PERF_MODS = PERF_MODS + (_MORE_CULLING, _EMBEDDIUM, _CANARY, _RADIUM,
+_KNOWN_PERF_MODS = PERF_MODS + OPTIONAL_PERF_MODS + (_EMBEDDIUM, _CANARY, _RADIUM,
                               ("rubidium", "", "Rubidium"), ("optifine", "", "OptiFine"))
 
 
-def _suite_candidates(loader):
-    """Five performance jobs, with ports queried only for their actual loader."""
+def _suite_candidates(loader, optional_mods=()):
+    """Use native ports and only explicitly selected optional projects."""
     if loader == "forge":
         first = ((_EMBEDDIUM,), (_CANARY, _RADIUM))
     elif loader == "neoforge":
         first = ((PERF_MODS[0], _EMBEDDIUM), (PERF_MODS[1], _RADIUM))
     else:
         first = ((PERF_MODS[0],), (PERF_MODS[1],))
-    return first + tuple((entry,) for entry in PERF_MODS[2:])
+    selected = optional_mods if isinstance(optional_mods, (list, tuple, set, frozenset)) else ()
+    return (first + tuple((entry,) for entry in PERF_MODS[2:])
+            + tuple((entry,) for entry in OPTIONAL_PERF_MODS if entry[0] in selected))
 
 
 def _equivalents(slug):
@@ -68,7 +79,6 @@ def _equivalents(slug):
 # so an existing profile can be cleaned up (see prune_retired_perf_mods). Do
 # NOT re-add these to PERF_MODS without the user's say-so.
 RETIRED_PERF_MODS = (
-    ("badoptimizations", "g96Z4WVZ"),
     ("krypton", "fQEb0iXm"),
     ("threadtweak", "vSEH1ERy"),
     ("dynamic-fps", "LQ3K71Q1"),
@@ -102,7 +112,7 @@ def _read_removals(profile_dir: str) -> set[str]:
     """Missing means no removals; unreadable preferences must not undo choices."""
     with _REMOVAL_LOCK:
         try:
-            with open(os.path.join(profile_dir, REMOVED_MODS_FILE), encoding="utf-8") as fh:
+            with open(metadata_path(profile_dir, REMOVED_MODS_FILE), encoding="utf-8") as fh:
                 data = json.load(fh)
         except FileNotFoundError:
             return set()
@@ -115,7 +125,7 @@ def _read_removals(profile_dir: str) -> set[str]:
 def allow_explicit_more_culling(profile_dir: str) -> None:
     """A deliberate new install must not be treated as an old default."""
     with _REMOVAL_LOCK:
-        write_json(os.path.join(profile_dir, MORE_CULLING_MIGRATION), {"completed": True})
+        write_json(metadata_path(profile_dir, MORE_CULLING_MIGRATION), {"completed": True})
 
 
 def retire_legacy_more_culling(mc_version: str | None, loader: str | None,
@@ -133,7 +143,7 @@ def retire_legacy_more_culling(mc_version: str | None, loader: str | None,
     profile = resolve_profile_dir(mc_version, loader, version_id)
     if not os.path.isdir(profile) or os.path.lexists(os.path.join(profile, "_modpack.json")):
         return []
-    marker = os.path.join(profile, MORE_CULLING_MIGRATION)
+    marker = metadata_path(profile, MORE_CULLING_MIGRATION)
     with _REMOVAL_LOCK:
         try:
             with open(marker, encoding="utf-8") as fh:
@@ -195,7 +205,7 @@ def remember_removal(profile_dir: str, filename: str, metadata: dict,
         previous = _read_removals(profile_dir)
         if removed <= previous:
             return
-        write_json(os.path.join(profile_dir, REMOVED_MODS_FILE),
+        write_json(metadata_path(profile_dir, REMOVED_MODS_FILE),
                    {"removed": sorted(previous | removed)})
 
 # EntityCulling's own whitelist arrays are a crash-on-start hazard. The mod is
@@ -527,14 +537,15 @@ def prune_retired_perf_mods(mc_version: str | None, loader: str | None,
 
 def ensure_installed(mc_version: str | None, loader: str | None,
                      status_cb=None, version_id: str | None = None, *,
-                     repair_dependencies: bool = True) -> dict:
+                     repair_dependencies: bool = True, optional_mods=()) -> dict:
     """Installs any missing performance mod into the profile.
 
-    Returns {"installed", "kept", "skipped", "failed", "detail"} so the caller can log or
+    Returns installed/kept/skipped/unavailable/failed lists so the caller can log or
     show what actually happened. Download failures are reported; failed legacy
     retirement raises so Play can stop before loading an unsafe profile.
     """
-    result = {"installed": [], "kept": [], "skipped": [], "failed": [], "detail": ""}
+    result = {"installed": [], "kept": [], "skipped": [], "unavailable": [],
+              "failed": [], "detail": ""}
 
     if not mc_version:
         result["detail"] = "no Minecraft version selected"
@@ -543,9 +554,11 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         result["detail"] = "performance mods need a modded profile"
         return result
 
+    from . import storage
+    storage.reconcile_mod_removals(resolve_profile_dir(mc_version, loader, version_id), loader)
     retired = retire_legacy_more_culling(mc_version, loader, version_id)
     present = _present(mc_version, loader, version_id)
-    suite = _suite_candidates(loader)
+    suite = _suite_candidates(loader, optional_mods)
     relevant = set().union(*(_equivalents(choices[0][0]) for choices in suite))
     result["kept"] = sorted(present - relevant)
     try:
@@ -575,6 +588,7 @@ def ensure_installed(mc_version: str | None, loader: str | None,
             result["failed"].append(primary)
             continue
         installed = False
+        available = False
         for slug, project_id, label in choices:
             try:
                 file_info = get_mod_download(
@@ -583,6 +597,7 @@ def ensure_installed(mc_version: str | None, loader: str | None,
                 )
                 if not file_info:
                     continue
+                available = True
                 if status_cb:
                     status_cb(f"Installing {label}")
                 download_mod(
@@ -594,13 +609,14 @@ def ensure_installed(mc_version: str | None, loader: str | None,
                 result["installed"].append(slug)
                 installed = True
             except Exception as ex:
+                available = True  # lookup/download failed; availability is unknown
                 if isinstance(ex, net.DownloadError) and not isinstance(ex, net.HTTPStatusError):
                     network_down = True
             # Fallback ports are for missing builds, never for replacing a
             # failed download or a partially installed renderer.
             break
         if not installed:
-            result["failed"].append(primary)
+            result["failed" if available else "unavailable"].append(primary)
 
     parts = []
     if retired:
@@ -634,5 +650,8 @@ def ensure_installed(mc_version: str | None, loader: str | None,
     if result["failed"]:
         parts.append("couldn't get " + ", ".join(
             _LABELS.get(s, s) for s in result["failed"]))
+    if result["unavailable"]:
+        parts.append("no compatible build: " + ", ".join(
+            _LABELS.get(s, s) for s in result["unavailable"]))
     result["detail"] = "; ".join(parts)
     return result

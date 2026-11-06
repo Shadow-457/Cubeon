@@ -259,7 +259,8 @@ def stream_to_file(resp: requests.Response, dest_path: str, *,
 def download_to(dest_path: str, url: str, *, headers: dict | None = None,
                 timeout: int = 30, attempts: int = DEFAULT_ATTEMPTS,
                 expected_hash: tuple[str, str] | None = None,
-                progress_cb=None, deadline: float | None = None, url_validator=None) -> int:
+                progress_cb=None, deadline: float | None = None, url_validator=None,
+                cancel_check=None) -> int:
     """Download url -> dest_path with retry + Range resume, capped by the
     global download gate. Verifies expected_hash=(algo, hexdigest) when
     given; a hash mismatch clears the partial file and raises (a resume
@@ -272,12 +273,21 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
     part_path = dest_path + ".part"
     last_err: Exception | None = None
 
-    if deadline is None:
+    if cancel_check is not None:
+        while True:
+            cancel_check()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise DownloadError("Download time limit reached while waiting; retry the download")
+            if DOWNLOAD_GATE.acquire(timeout=.25):
+                break
+    elif deadline is None:
         DOWNLOAD_GATE.acquire()
     elif not DOWNLOAD_GATE.acquire(timeout=max(0, deadline - time.monotonic())):
         raise DownloadError("Download time limit reached while waiting; retry the download")
     try:
         for attempt in range(attempts):
+            if cancel_check is not None:
+                cancel_check()
             if deadline is not None and time.monotonic() >= deadline:
                 raise DownloadError("Download time limit reached; retry the download")
             # Resume: if a partial file survived the last attempt, ask the

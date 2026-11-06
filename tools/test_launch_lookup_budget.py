@@ -147,10 +147,10 @@ check("perf_mods.ensure_installed passes the launch policy",
       grabbed.get("perf", {}).get("timeout") == mods.LAUNCH_LOOKUP_TIMEOUT
       and grabbed.get("perf", {}).get("attempts") == mods.LAUNCH_LOOKUP_ATTEMPTS,
       repr(grabbed.get("perf")))
-check("a lookup that finds no build still marks the mod failed",
-      len(result["failed"]) == len(perf_mods.PERF_MODS)
+check("a lookup that finds no build reports unavailable without a download failure",
+      len(result["unavailable"]) == len(perf_mods.PERF_MODS) and not result["failed"]
       and result["installed"] == [],
-      repr(result["failed"]))
+      repr(result["unavailable"]))
 
 print()
 print("3. a dead route is probed once, not once per mod")
@@ -173,7 +173,7 @@ check("one connection failure marks every mod failed",
       sorted(result["failed"]) == sorted(s for s, _p, _l in perf_mods.PERF_MODS),
       repr(result["failed"]))
 check("... and the launch still returns a normal result dict",
-      set(result) == {"installed", "kept", "skipped", "failed", "detail"})
+      set(result) == {"installed", "kept", "skipped", "unavailable", "failed", "detail"})
 
 tabulated = []
 

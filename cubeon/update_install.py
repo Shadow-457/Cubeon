@@ -28,6 +28,9 @@ class UpdateReleaseChanged(ValueError):
 
 
 def application_busy(state: dict) -> bool:
+    from . import storage
+    if storage.blocked():
+        return True
     if any(state.get(key) for key in ("running_version", "installing_version",
                                      "launching_version", "ending_session")):
         return True
@@ -80,7 +83,7 @@ def installation_target() -> InstallTarget:
             return InstallTarget("windows", reason="Run Cubeon from its installed folder, or reinstall it to repair its registration.")
         return InstallTarget("windows", reason="Install Cubeon using the Windows setup to enable automatic updates.")
     if sys.platform == "darwin":
-        return InstallTarget("macos")
+        return InstallTarget("macos", reason="macOS is untested; downloads and updates are unavailable.")
     image = os.environ.get("APPIMAGE") or os.environ.get("CUBEON_APPIMAGE_PATH")
     if image and getattr(sys, "frozen", False) and platform.machine().lower() in {"x86_64", "amd64"}:
         path = Path(image).resolve()

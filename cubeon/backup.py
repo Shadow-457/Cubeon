@@ -137,6 +137,9 @@ def create_backup(include_saves: bool | None = None, dest_dir: str | None = None
     periodically so a caller on a background thread can update a UI
     progress bar via its own thread-safe update mechanism.
     """
+    from . import storage
+    if storage.blocked():
+        return BackupResult(False, "Finish organizing Minecraft files and restart Cubeon before backing up.")
     settings = load_backup_settings()
     if include_saves is None:
         include_saves = settings.get("include_saves", False)
@@ -157,6 +160,19 @@ def create_backup(include_saves: bool | None = None, dest_dir: str | None = None
     all_files = []
     for _key, _label, path, _always in sources:
         all_files.extend(_iter_files(path))
+    for vid, _meta, _profile in storage.instance_profiles():
+        folder = storage.folder_for(vid)
+        game = Path(storage.game_dir(vid))
+        instance_sources = [folder / "instance.json", folder / ".cubeon"]
+        instance_sources += [game / name for name in ("mods", "config", "resourcepacks",
+                                                     "shaderpacks", "options.txt", "servers.dat")]
+        for source in instance_sources:
+            if source.is_file():
+                all_files.append((str(source), os.path.relpath(source, MINECRAFT_DIR)))
+            else:
+                all_files.extend(_iter_files(str(source), arc_root=MINECRAFT_DIR))
+    if storage.enabled():
+        all_files.append((str(storage.registry_path()), "instances/storage.json"))
     if include_saves:
         # Worlds are per instance now: back up every instance's saves/ with
         # the path it restores to, so one instance's world never overwrites
@@ -212,6 +228,11 @@ def _instance_saves_dirs() -> list:
         path = os.path.join(INSTANCES_GAME_DIR, name, "saves")
         if os.path.isdir(path):
             out.append(path)
+    from . import storage
+    for vid, _meta, _profile in storage.instance_profiles():
+        path = os.path.join(storage.game_dir(vid), "saves")
+        if os.path.isdir(path) and path not in out:
+            out.append(path)
     return out
 
 
@@ -260,6 +281,9 @@ def restore_backup(zip_path: str, progress_cb=None) -> BackupResult:
     since the backup (new mods, new skins) is left alone rather than wiped
     to match the snapshot.
     """
+    from . import storage
+    if storage.blocked():
+        return BackupResult(False, "Restart Cubeon after organizing files before restoring a backup.")
     if not os.path.isfile(zip_path):
         return BackupResult(False, "Backup file not found.")
 

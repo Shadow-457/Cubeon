@@ -371,6 +371,9 @@ def organize(apply: bool = True) -> dict:
         "temp_files": 0,
         "freed_bytes": 0,
     }
+    from . import storage
+    if storage.enabled() or storage.blocked():
+        return report  # Legacy files are recovery data; cleanup is a separate action.
     try:
         _merge_stray_assets(apply, report)
         referenced_paths, referenced_inodes = _referenced()

@@ -86,6 +86,8 @@ _DEFAULT_STEVE_PATH = os.path.join(
     "assets", "skins", "steve.png")
 
 
+from .paths import instance_csl_path
+
 def default_base_skin() -> Image.Image:
     """Minecraft's bundled classic-arm Steve texture, as an independent sheet."""
     with Image.open(_DEFAULT_STEVE_PATH) as sheet:
@@ -368,7 +370,7 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
         _remove_local_skin(previous)
         cfg["csl_synced_name"] = None
 
-    target = os.path.join(CSL_LOCAL_SKINS_DIR, f"{username}.png")
+    target = os.path.join(instance_csl_path(CSL_LOCAL_SKINS_DIR), f"{username}.png")
     wrote_local = False
 
     if filename:
@@ -377,7 +379,7 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
             src = None
         if src is not None:
             try:
-                os.makedirs(CSL_LOCAL_SKINS_DIR, exist_ok=True)
+                os.makedirs(instance_csl_path(CSL_LOCAL_SKINS_DIR), exist_ok=True)
                 # The composed sheet is what lands in CSL: the active skin
                 # (or the built-in default when none is set).
                 sheet = compose_skin(cfg)
@@ -388,7 +390,7 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
                 wrote_local = True
             except OSError:
                 try:
-                    os.remove(os.path.join(CSL_LOCAL_SKINS_DIR,
+                    os.remove(os.path.join(instance_csl_path(CSL_LOCAL_SKINS_DIR),
                                            f"{username}.png.uploading"))
                 except OSError:
                     pass
@@ -401,7 +403,7 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
         ours = previous == username or not os.path.isfile(target)
         if ours:
             try:
-                os.makedirs(CSL_LOCAL_SKINS_DIR, exist_ok=True)
+                os.makedirs(instance_csl_path(CSL_LOCAL_SKINS_DIR), exist_ok=True)
                 tmp = target + ".uploading"
                 default_base_skin().save(tmp, format="PNG")
                 os.replace(tmp, target)
@@ -409,7 +411,7 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
                 wrote_local = True
             except OSError:
                 try:
-                    os.remove(os.path.join(CSL_LOCAL_SKINS_DIR,
+                    os.remove(os.path.join(instance_csl_path(CSL_LOCAL_SKINS_DIR),
                                            f"{username}.png.uploading"))
                 except OSError:
                     pass
@@ -441,7 +443,7 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
 
 def _remove_local_skin(username: str) -> None:
     try:
-        path = os.path.join(CSL_LOCAL_SKINS_DIR, f"{username}.png")
+        path = os.path.join(instance_csl_path(CSL_LOCAL_SKINS_DIR), f"{username}.png")
         if os.path.isfile(path):
             os.remove(path)
     except OSError:

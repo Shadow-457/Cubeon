@@ -20,10 +20,12 @@ import copy
 import inspect
 import json
 import os
+from .storage import runtime_dir
 import re
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -88,24 +90,31 @@ def _prune_game_logs():
 
 
 def _normalize_java_path(path: str) -> str:
-    """Accept a JAVA_HOME-style directory anywhere a java executable is expected.
-
-    A user who just installed a JDK very reasonably pastes the JDK folder -
-    `C:\\Program Files\\Java\\jdk-21` - into Settings -> java_path (or sets
-    JAVA_HOME and expects the same shape to work). Pointing a subprocess at that
-    directory fails with a bare WinError 2 / "is a directory", and the
-    os.path.isfile() guard then reports "Java N+ wasn't found" on a machine that
-    plainly has Java - the same false banner as the JAVA_HOME gap. If it is a
-    directory with a java inside bin/, use that; otherwise hand it back
-    unchanged so the existing "not found" path still reports it honestly.
-    """
-    if not path or not os.path.isdir(path):
+    """Accept an executable, bin folder, JDK home, or macOS JDK bundle."""
+    if not isinstance(path, (str, os.PathLike)):
+        return ""
+    path = os.fspath(path).strip()
+    if len(path) >= 2 and path[0] == path[-1] and path[0] in {'"', "'"}:
+        path = path[1:-1].strip()
+    path = os.path.expanduser(os.path.expandvars(path))
+    if not path:
         return path
     names = ("java.exe", "java") if os.name == "nt" else ("java",)
-    for name in names:
-        candidate = os.path.join(path, "bin", name)
-        if os.path.isfile(candidate):
-            return candidate
+    if os.path.isdir(path):
+        for relative in ("bin", os.path.join("Contents", "Home", "bin"), ""):
+            for name in names:
+                candidate = os.path.join(path, relative, name)
+                if os.path.isfile(candidate):
+                    return candidate
+        return path
+    path = shutil.which(path) or path
+    # javaw can suppress -version output on Windows. The console executable
+    # beside it can be verified and stays hidden through winproc.hidden().
+    if os.path.basename(path).lower() in {"javaw", "javaw.exe"}:
+        for name in names:
+            candidate = os.path.join(os.path.dirname(path), name)
+            if os.path.isfile(candidate):
+                return candidate
     return path
 
 
@@ -121,25 +130,83 @@ def _java_home_binaries() -> list[str]:
     bare `find_java()` fallback and `find_java_for_version()` need it.
     """
     home = (os.environ.get("JAVA_HOME") or "").strip().strip('"').strip("'")
+    home = os.path.expanduser(os.path.expandvars(home))
     if not home or not os.path.isdir(home):
         return []
     # On Windows the file is java.exe; probing "bin/java" still works for
     # subprocess (CreateProcess appends .exe) but not for os.path.isfile, so
     # both spellings are offered.
     names = ("java.exe", "java") if os.name == "nt" else ("java",)
-    return [os.path.join(home, "bin", name) for name in names]
+    roots = (home, os.path.join(home, "Contents", "Home"))
+    return [os.path.join(root, "bin", name) for root in roots for name in names
+            if root == home or os.path.isdir(root)]
 
 
-def find_java() -> str | None:
+def _local_java_binaries():
+    """Bounded discovery for JDKs that were extracted without registering them."""
+    user = os.path.expanduser("~")
+    roots = [os.path.join(user, "jdks"), os.path.join(user, ".jdks"),
+             os.path.join(user, ".sdkman", "candidates", "java")]
+    if os.name == "nt":
+        for key in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+            base = os.environ.get(key)
+            if base:
+                roots.extend(os.path.join(base, vendor) for vendor in
+                             ("Java", "Eclipse Adoptium", "Microsoft", "Zulu", "Programs/Eclipse Adoptium"))
+    elif sys.platform == "darwin":
+        roots.extend(("/Library/Java/JavaVirtualMachines",
+                      os.path.join(user, "Library", "Java", "JavaVirtualMachines")))
+    else:
+        roots.extend(("/usr/lib/jvm", "/usr/java", "/opt/java"))
+    for root in roots:
+        try:
+            with os.scandir(root) as entries:
+                children = []
+                for index, entry in enumerate(entries):
+                    if index >= 64:
+                        break
+                    if entry.is_dir():
+                        children.append(entry.path)
+            for child in sorted(children):
+                yield _normalize_java_path(child)
+        except OSError:
+            continue
+
+
+def _path_java_binaries():
+    """Try later PATH entries when an earlier Java shim is broken."""
+    names = ("java.exe", "javaw.exe", "java") if os.name == "nt" else ("java", "javaw")
+    for directory in os.get_exec_path():
+        for name in names:
+            candidate = os.path.join(directory, name)
+            if os.path.isfile(candidate):
+                yield candidate
+
+
+def find_java(*, cancel_check=None) -> str | None:
+    seen = set()
     for candidate in ("java", "javaw"):
+        if cancel_check:
+            cancel_check()
         path = shutil.which(candidate)
         if path:
-            return path
+            seen.add(os.path.normcase(os.path.realpath(path)))
+        if path and java_major_version(path) is not None:
+            return _normalize_java_path(path)
+    for path in _path_java_binaries():
+        if cancel_check:
+            cancel_check()
+        identity = os.path.normcase(os.path.realpath(path))
+        if identity not in seen and java_major_version(path) is not None:
+            return _normalize_java_path(path)
+        seen.add(identity)
     # Nothing on PATH - JAVA_HOME is still a legitimate "the user has Java"
     # signal, and returning None here is what pushes the caller onto the bare
     # "java" fallback (and, for an install, the error banner).
     for path in _java_home_binaries():
-        if os.path.isfile(path):
+        if cancel_check:
+            cancel_check()
+        if os.path.isfile(path) and java_major_version(path) is not None:
             return path
     return None
 
@@ -187,16 +254,30 @@ def exact_java_major(version_id: str) -> int | None:
     return None
 
 
-def java_major_version(java_path: str) -> int | None:
-    """Major version of a Java executable, or None if it can't be probed."""
-    executable = shutil.which(java_path) or java_path
+def java_major_version(java_path: str, *, force=False) -> int | None:
+    """Return a major only after Java runs successfully and reports its version."""
+    executable = _normalize_java_path(java_path)
+    if not executable or not os.path.isfile(executable):
+        return None
+    if os.name != "nt" and not os.access(executable, os.X_OK):
+        return None
     fingerprint = None
     try:
         st = os.stat(executable)
-        fingerprint = (st.st_mtime_ns, st.st_size, st.st_ino, st.st_mode)
+        parts = [(st.st_mtime_ns, st.st_size, st.st_ino, st.st_mode)]
+        home = os.path.dirname(os.path.dirname(os.path.realpath(executable)))
+        for relative in ("release", "lib/modules", "lib/server/libjvm.so",
+                         "lib/server/libjvm.dylib", "bin/server/jvm.dll"):
+            try:
+                dependency = os.stat(os.path.join(home, relative))
+                parts.append((dependency.st_mtime_ns, dependency.st_size,
+                              dependency.st_ino, dependency.st_mode))
+            except OSError:
+                parts.append(None)
+        fingerprint = tuple(parts)
     except OSError:
         pass
-    if fingerprint is not None:
+    if fingerprint is not None and not force:
         with _java_probe_lock:
             cached = _java_probe_cache.get(executable)
             if cached and cached[0] == fingerprint and cached[1] > time.monotonic():
@@ -204,13 +285,21 @@ def java_major_version(java_path: str) -> int | None:
                 return cached[2]
     try:
         from .winproc import hidden
-        out = subprocess.run(
+        result = subprocess.run(
             [executable, "-version"], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
             timeout=8, **hidden(),
-        ).stderr
+        )
     except (OSError, subprocess.SubprocessError):
+        with _java_probe_lock:
+            _java_probe_cache.pop(executable, None)
         return None
-    m = re.search(r'version "([^"]+)"', out)
+    with _java_probe_lock:
+        _java_probe_cache.pop(executable, None)
+    if result.returncode != 0:
+        return None
+    out = (result.stderr or "") + "\n" + (result.stdout or "")
+    m = re.search(r'(?m)^\s*(?:openjdk|java)\s+(?:version\s+)?"?([0-9][^\s"]*)', out)
     if not m:
         return None
     raw = m.group(1)
@@ -219,8 +308,8 @@ def java_major_version(java_path: str) -> int | None:
         tail = raw.split(".")[1] if len(raw.split(".")) > 1 else ""
         major = int(tail) if tail.isdigit() else None
     else:
-        head = raw.split(".")[0]
-        major = int(head) if head.isdigit() else None
+        head = re.match(r"\d+", raw)
+        major = int(head[0]) if head else None
     if major is not None and fingerprint is not None:
         with _java_probe_lock:
             _java_probe_cache[executable] = (fingerprint, time.monotonic() + 60, major)
@@ -230,22 +319,54 @@ def java_major_version(java_path: str) -> int | None:
     return major
 
 
-def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
-    """Picks the best Java for a server version.
+def find_java_for_version(version_id: str, java_path: str | None = None, *,
+                          force_probe=False, cancel_check=None) -> str:
+    """Prefer a verified explicit/system JVM, then a verified managed fallback.
 
-    Prefers the user-supplied path, then the system `java`, then every JVM
-    found on the machine (via minecraft_launcher_lib), choosing the highest
-    version that meets the minimum for this Minecraft release. Falls back to
-    plain `find_java()` so a too-old Java still surfaces Minecraft's own
-    (clearer) error rather than silently failing to launch."""
+    Within the system installations choose the lowest sufficient major. A
+    diagnostic fallback can still be returned; callers must verify suitability.
+    """
     required = required_java_major(version_id)
     exact = exact_java_major(version_id)
-    candidates: list[str] = []
+    seen = set()
+    fallback = None
+
+    def choose(candidates, expected=None):
+        nonlocal fallback
+        best, best_major = None, 10_000
+        for candidate in candidates:
+            if cancel_check:
+                cancel_check()
+            candidate = _normalize_java_path(candidate)
+            identity = os.path.normcase(os.path.realpath(candidate)) if candidate else ""
+            if not candidate or identity in seen:
+                continue
+            seen.add(identity)
+            maj = (java_major_version(candidate, force=True) if force_probe
+                   else java_major_version(candidate))
+            if cancel_check:
+                cancel_check()
+            if maj is None:
+                continue
+            if expected is not None and maj != expected.get(candidate):
+                continue
+            fallback = fallback or candidate
+            if maj >= required and (exact is None or maj == exact) and maj < best_major:
+                best, best_major = candidate, maj
+                if maj == required:
+                    break
+        return best
+
     if java_path:
-        candidates.append(_normalize_java_path(java_path))
-    sys_java = find_java()
+        explicit = choose([java_path])
+        if explicit:
+            return explicit
+    candidates: list[str] = []
+    sys_java = find_java(cancel_check=cancel_check) if cancel_check else find_java()
     if sys_java:
         candidates.append(sys_java)
+    candidates.extend(shutil.which(name) for name in ("java", "javaw"))
+    candidates.extend(_path_java_binaries())
     # JAVA_HOME is consulted after PATH, not before: an explicit PATH entry
     # (including the one the OS set for the user's JDK) stays the stronger
     # signal. Order only breaks exact-major ties anyway, since the lowest
@@ -255,38 +376,37 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
         from .winproc import patch_mll
         patch_mll()
         for d in mll.java_utils.find_system_java_versions():
-            candidates.append(os.path.join(d, "bin", "java"))
+            candidate = _normalize_java_path(d)
+            candidates.append(candidate if candidate != d else
+                              os.path.join(d, "bin", "java.exe" if os.name == "nt" else "java"))
     except Exception:
-        logging.getLogger(__name__).warning("background worker error", exc_info=True)
+        logging.getLogger(__name__).debug("system Java registry unavailable", exc_info=True)
+    candidates.extend(_local_java_binaries())
+    system = choose(candidates)
+    if system:
+        return system
 
     # Runtimes Cubeon downloaded itself, LAST. Every real source has been
     # tried by now, so a managed JRE can only ever be reached on a machine
-    # that has no usable system Java at all - which is exactly the case the
-    # user was prompted about before the install. Ordering it after the rest
+    # that has no suitable system Java. Keeping them in a separate group
     # is what guarantees installing one never changes what a user who already
     # has Java is running.
     try:
         from .jre import installed_runtimes
         managed = installed_runtimes()
-        for major in sorted(managed):
-            candidates.append(managed[major])
+        expected = {_normalize_java_path(path): major for major, path in managed.items()}
+        best = choose((managed[major] for major in sorted(managed)), expected)
+        if best:
+            return best
+    except InterruptedError:
+        raise
     except Exception:
+        if cancel_check:
+            cancel_check()
         logging.getLogger(__name__).debug("managed runtimes unavailable",
                                           exc_info=True)
 
-    best, best_major = None, 10_000
-    for c in candidates:
-        maj = java_major_version(c)
-        if maj is None:
-            continue
-        # Pick the *lowest* Java that still satisfies the requirement, not the
-        # highest: a too-new Java can itself break old Minecraft (removed
-        # modules, Nashorn, etc.), so "just enough" is the safe choice.
-        if maj >= required and (exact is None or maj == exact) and maj < best_major:
-            best, best_major = c, maj
-    if best:
-        return best
-    fallback = (_normalize_java_path(java_path) if java_path else None) or sys_java or "java"
+    fallback = fallback or sys_java or "java"
     # Honest breadcrumb: we're handing back a Java that may be too old, so
     # Minecraft's own (cryptic) class-version error has a paper trail in the
     # launcher log explaining exactly what was required vs. what was found.
@@ -651,7 +771,7 @@ def _restore_emptied_arguments(version_id: str) -> bool:
     (GC settings and such) are unrecoverable, but those are performance
     preferences, not launch requirements.
     """
-    json_path = os.path.join(MINECRAFT_DIR, "versions", version_id, version_id + ".json")
+    json_path = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id, version_id + ".json")
     if not os.path.isfile(json_path):
         return False
 
@@ -754,7 +874,7 @@ def _sanitize_client_json(version_id: str) -> None:
       * back the original up before the first rewrite, so there is a way back
         even if a future bug gets past the check above.
     """
-    json_path = os.path.join(MINECRAFT_DIR, "versions", version_id, version_id + ".json")
+    json_path = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id, version_id + ".json")
     if not os.path.isfile(json_path):
         return
 
@@ -977,6 +1097,7 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     paths.game_dir_for); omitted -> the shared root, which is what every
     non-launch caller and the tests still want."""
     from .versions import validate_launch_profile
+    from . import storage
     validate_launch_profile(version_id)
     _sanitize_client_json(version_id)
     # Undo the damage done by the sanitizer Cubeon used to ship, for anyone
@@ -1011,7 +1132,7 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         "resolutionHeight": str(height),
         # mll substitutes this into the profile's --gameDir. Without it every
         # instance shared one saves/ and config/ (see paths.INSTANCES_GAME_DIR).
-        "gameDirectory": game_dir or MINECRAFT_DIR,
+        "gameDirectory": game_dir or storage.game_dir(version_id) or MINECRAFT_DIR,
     }
     # Only hand mll a Java that actually exists. A typo'd / cleared Settings
     # path used to go straight into executablePath, and Popen then died with
@@ -1019,26 +1140,18 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     # "他他他"). A missing configured path now falls back to the same
     # resolution the Java check uses, so the game still starts on a machine
     # that plainly has Java.
-    java = None
-    if java_path:
-        candidate = _normalize_java_path(java_path)
-        if os.path.isfile(candidate) or shutil.which(candidate):
-            major = java_major_version(candidate)
-            exact = exact_java_major(version_id)
-            if (major is None or major >= required_java_major(version_id)) and (exact is None or major == exact):
-                java = candidate
-    if java is None:
-        try:
-            java = find_java_for_version(version_id, None)
-        except Exception:
-            java = find_java()
-    if java:
-        if exact_java_major(version_id) == 8 and java_major_version(java) != 8:
-            raise RuntimeError("Forge 1.8.9 requires Java 8. Install Java 8 from the launcher's Java download prompt and try again.")
-        options["executablePath"] = java
+    java = find_java_for_version(version_id, java_path, force_probe=True)
+    major = java_major_version(java)
+    required = required_java_major(version_id)
+    exact = exact_java_major(version_id)
+    if major is None or major < required or (exact is not None and major != exact):
+        from .jre import JreError
+        raise JreError(f"Java {exact or required} could not be started for this instance. "
+                       "Press Play again to prepare a working runtime automatically.")
+    options["executablePath"] = java
 
     try:
-        command = mll.command.get_minecraft_command(version_id, MINECRAFT_DIR, options)
+        command = mll.command.get_minecraft_command(version_id, runtime_dir(MINECRAFT_DIR), options)
     except KeyError as e:
         raise RuntimeError(
             f"This version's client.json has a malformed or non-standard entry "
@@ -1124,7 +1237,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     (returncode, last_lines) so a crash can be explained; a one-argument
     on_exit(returncode) is still accepted.
     """
-    from . import rust_engine
+    from . import rust_engine, storage
+    storage.assert_writable()
     if rust_engine.is_instance(version_id):
         from . import watchdog
         if watchdog.stale_session() is not None:
@@ -1159,9 +1273,15 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         # Resolved FIRST because the per-game-dir writes below (cosmetics)
         # must land in the folder this launch will actually read.
         game_dir = game_dir_for(version_id)
-        skin_enabled = bool(cfg.get("csl_enabled", True))
+        set_active_game_dir(game_dir)
+        from .mods import get_profile_dir as _storage_profile
+        active_profile = _storage_profile(mc_version, loader, version_id)
+        storage.reconcile_mod_removals(active_profile, loader)
+        skin_optout = storage.managed_removed(active_profile, "customskinloader")
+        skin_enabled = bool(cfg.get("csl_enabled", True)) and not skin_optout
         try:
-            csl.set_enabled(mc_version, loader, skin_enabled, version_id=version_id)
+            if not skin_optout:
+                csl.set_enabled(mc_version, loader, skin_enabled, version_id=version_id)
         except (OSError, ValueError, TypeError, KeyError) as error:
             raise RuntimeError("Couldn't apply the CustomSkinLoader setting. Close Minecraft and retry Play.") from error
 
@@ -1214,7 +1334,11 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     from .mods import get_profile_dir
     from . import cubeonfriends
     client_enabled = friends_enabled() and (cfg or {}).get("client_mod_enabled", True)
-    if not client_enabled:
+    client_optout = False
+    if storage.game_dir(version_id):
+        client_optout = storage.managed_removed(get_profile_dir(mc_version, loader, version_id), "cubeon-")
+        client_enabled = client_enabled and not client_optout
+    if not client_enabled and not client_optout:
         try:
             # Off: either a public build (no Friends backend at all) or the
             # user's Settings toggle. Both must also REMOVE any jar a
@@ -1223,7 +1347,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                 get_profile_dir(mc_version, loader, version_id), strict=True)
         except OSError as error:
             raise RuntimeError("Couldn't disable Cubeon Client. Close Minecraft and retry Play.") from error
-    else:
+    elif client_enabled:
         try:
             _profile_dir = get_profile_dir(mc_version, loader, version_id)
             friends_ok = cubeonfriends.ensure_installed(mc_version, loader,
@@ -1257,7 +1381,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # Already resolved at the top of the cfg block; this covers the callers
     # that launch without a config dict (a bare command build).
     if cfg is None:
-        game_dir = MINECRAFT_DIR
+        game_dir = game_dir_for(version_id)
 
     # Retire the old optional culling default even when the suite/client toggle
     # is now off. Stop on a failed migration; do not silently launch its old jar.
@@ -1279,7 +1403,10 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         from . import game_options
         boost_enabled = bool(cfg.get("fps_boost_enabled", True))
         try:
-            graphics = game_options.sync_fps_boost(boost_enabled, game_options.options_path(game_dir))
+            graphics = game_options.sync_fps_boost(
+                boost_enabled, game_options.options_path(game_dir),
+                sync_settings=bool(cfg.get("fps_boost_sync_settings", False)),
+                mc_version=mc_version)
             if graphics["changed"] and status_cb:
                 status_cb("FPS boost applied" if boost_enabled else "Previous graphics restored")
         except Exception:
@@ -1289,19 +1416,36 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             try:
                 report = perf_mods.ensure_installed(
                     mc_version, loader, status_cb=status_cb, version_id=version_id,
-                    repair_dependencies=False)
+                    repair_dependencies=False,
+                    optional_mods=cfg.get("fps_boost_optional_mods", []))
                 if report["installed"] and status_cb:
                     status_cb("FPS boost installed")
-                if report["failed"]:
+                if report["failed"] or report.get("unavailable"):
                     logging.getLogger(__name__).info("Performance setup: %s", report["detail"])
                 pruned = perf_mods.prune_retired_perf_mods(mc_version, loader, version_id=version_id)
                 if pruned and status_cb:
                     status_cb("Removed extra perf mods")
+            except Exception:
+                logging.getLogger(__name__).warning("FPS boost mod setup failed", exc_info=True)
+
+        # Existing mod settings still sync/restore with downloads disabled, or
+        # when an optional mod download fails. Keep this before the game spawn.
+        try:
+            from . import perf_mods
+            from .fps_mod_settings import sync_mod_settings
+            if boost_enabled:
                 for tuned in perf_mods.seed_renderer_options(mc_version, loader, version_id, game_dir):
                     if tuned["changed"]:
                         logging.getLogger(__name__).info("renderer options seeded: %s", tuned["detail"])
-            except Exception:
-                logging.getLogger(__name__).warning("FPS boost mod setup failed", exc_info=True)
+            mod_settings = sync_mod_settings(
+                game_dir, enabled=boost_enabled,
+                sync_settings=bool(cfg.get("fps_boost_sync_settings", False)))
+            if mod_settings["changed"] and status_cb:
+                status_cb("FPS renderer settings applied" if boost_enabled else "Previous renderer settings restored")
+            for error in mod_settings["errors"]:
+                logging.getLogger(__name__).warning("FPS renderer settings: %s", error)
+        except Exception:
+            logging.getLogger(__name__).warning("FPS renderer settings setup failed", exc_info=True)
 
     # EntityCulling ships with a whitelist that can hold a null/empty entry in
     # a legacy config, which crashes the game on its first tick (see
@@ -1456,6 +1600,10 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
                 except Exception:
                     logging.getLogger(__name__).warning("content staging failed", exc_info=True)
                 sync_mods_to_game(mc_version, loader, version_id)
+                from . import storage
+                if storage.game_dir(version_id):
+                    from .mods import get_profile_dir
+                    storage.reconcile_mod_removals(get_profile_dir(mc_version, loader, version_id), loader)
             process = subprocess.Popen(
                 command,
                 cwd=game_dir,

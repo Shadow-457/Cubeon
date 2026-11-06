@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Tags Cubeon players in the tab list: {@code [Cubeon]Shadow}.
+ * Tags Cubeon players in the tab list: a Cubeon cube logo beside the username.
  *
  * <p>Why this method and not the renderer: the tab list render path is the most
  * reshaped thing between the two eras this mod ships for - 1.20-1.21 renders

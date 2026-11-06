@@ -1,6 +1,7 @@
 """Exercise production HUD layout/input geometry with the bundled UI font."""
 from pathlib import Path
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -31,7 +32,7 @@ import java.awt.image.RescaleOp;
 public class UiTest {
  static void check(boolean value,String reason) { if(!value)throw new AssertionError(reason); }
  static class Canvas implements EmoteWheel.Canvas {
-  final BufferedImage image; final Graphics2D graphics; final Properties labels; int calls,quads;
+  final BufferedImage image; final Graphics2D graphics; final Properties labels; int calls,quads,greenTints;
   static final HashMap<String,BufferedImage> textures=new HashMap<>();
   static final int DISPLAY_SCALE=3;
   Canvas(int w,int h,Font font,Properties labels) {
@@ -42,6 +43,7 @@ public class UiTest {
    graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,RenderingHints.VALUE_INTERPOLATION_BILINEAR);
   }
   public void fill(int x0,int y0,int x1,int y1,int color) {
+   if(((color>>>8)&255)>Math.max((color>>>16)&255,color&255)+10)greenTints++;
    check(x0>=0&&y0>=0&&x1<=image.getWidth()/DISPLAY_SCALE&&y1<=image.getHeight()/DISPLAY_SCALE&&x1>=x0&&y1>=y0,"Drawing stays in the GUI: "+x0+","+y0+","+x1+","+y1);
    graphics.setColor(new Color(color,true));graphics.fillRect(x0,y0,x1-x0,y1-y0);calls++;
   }
@@ -49,6 +51,7 @@ public class UiTest {
   public String translate(String key) { return labels.getProperty(key,key); }
   public boolean textures(){return true;}
   public void image(String path,int x,int y,int w,int h,int u,int v,int rw,int rh,int tw,int th,int color){
+   if(((color>>>8)&255)>Math.max((color>>>16)&255,color&255)+10)greenTints++;
    check(x>=0&&y>=0&&x+w<=image.getWidth()/DISPLAY_SCALE&&y+h<=image.getHeight()/DISPLAY_SCALE,"Texture bounds: "+path);
    try {
     BufferedImage atlas=textures.get(path);
@@ -62,10 +65,11 @@ public class UiTest {
    }catch(IOException error){throw new RuntimeException(error);}
   }
   public void text(String value,int centerX,int y,int color) {
+   if(((color>>>8)&255)>Math.max((color>>>16)&255,color&255)+10)greenTints++;
    check(centerX-width(value)/2>=0&&centerX+(width(value)+1)/2<=image.getWidth()/DISPLAY_SCALE&&y>=0&&y+9<=image.getHeight()/DISPLAY_SCALE,"Text remains readable inside the GUI: "+value);
    graphics.setColor(new Color(color,true));graphics.drawString(value,centerX-width(value)/2,y+9);
   }
-  void save(String name)throws Exception { ImageIO.write(image,"png",new File(name)); }
+  void save(String name)throws Exception { if(Boolean.getBoolean("cubeon.ui.capture"))ImageIO.write(image,"png",new File(name)); }
  }
  static void bounds(HudMenu menu,int w,int h) {
   for(int id=0;id<HudMenu.ACTION_COUNT;id++) {
@@ -81,10 +85,19 @@ public class UiTest {
  public static void main(String[] args)throws Exception {
   Font font=Font.createFont(Font.TRUETYPE_FONT,new File(args[1])).deriveFont(10f);
   Properties labels=new Properties();try(var reader=new InputStreamReader(new FileInputStream(args[0]),StandardCharsets.UTF_8)){labels.load(reader);}
-  check(HudMenu.featureCount()==19&&HudMenu.overlayIndex(49)==-1,"Removed features leave no stale overlay actions");
+  check(HudMenu.featureCount()==22&&HudMenu.overlayIndex(49)==-1,"Menu motion control adds no stale overlay actions");
   check(HudMenu.nextBlurIntensity(1)==1.25f && HudMenu.nextBlurIntensity(2)==.25f,"Blur intensity advances and wraps predictably");
+  Canvas rim=new Canvas(120,80,font,labels);
+  MenuUi.panel(rim,20,16,80,48,10,0xC0202020,0xCCFFFFFF,1);
+  check((rim.image.getRGB(60*3+1,16*3+1)&255)>80,"Rounded panel has a visible border");
+  check((rim.image.getRGB(60*3,40*3)&255)<(rim.image.getRGB(60*3+1,16*3+1)&255),"Border preserves the dark interior");
+  float[] scales=new float[13];for(int i=0;i<scales.length;i++)scales[i]=new float[]{1,.75f,1.5f,1.25f,2}[i%5];
+  int[] saves={0};boolean[] motion={true};float[] plusStrength={1};
   HudMenu.Settings settings=new HudMenu.Settings(){
-   public boolean visible(int overlay){return overlay%2==0;}public float scale(int overlay){return new float[]{1,.75f,1.5f,1.25f,2}[overlay%5];}
+   public boolean visible(int overlay){return overlay%2==0;}public float scale(int overlay){return scales[overlay];}
+   public void setScale(int overlay,float value){scales[overlay]=value;}public void save(){saves[0]++;}
+   public boolean menuAnimations(){return motion[0];}
+   public float blurPlusStrength(){return plusStrength[0];}public void setBlurPlusStrength(float value){plusStrength[0]=value;}
    public boolean health(){return false;}public boolean animations(){return true;}public boolean wingDepth(){return true;}public boolean otherCosmetics(){return false;}public boolean cameraBlur(){return false;}public float blurIntensity(){return 1f;}
   };
   for(int[] size:new int[][]{{320,240},{520,304},{640,360},{960,540}}) {
@@ -101,7 +114,30 @@ public class UiTest {
     menu.activate(HudMenu.DETAIL+i);menu.layout(w,h);bounds(menu,w,h);
     menu.render(canvas,w,h,0,0,settings);
     check(menu.control(HudMenu.BACK)!=null,"Details always have Back");
-    if(i<13)check(menu.control(HudMenu.toggleAction(i)+1)!=null&&menu.control(HudMenu.toggleAction(i)+2)!=null,"Every overlay has move and independent size controls");
+    var strength=menu.control(HudMenu.BLUR_PLUS_STRENGTH);
+    if(strength!=null){
+     int saved=saves[0];check(menu.beginScale(strength.x()+10,strength.y()+25),"Plus strength accepts drag");
+     check(plusStrength[0]==.25f,"Plus strength reaches minimum");
+     menu.render(canvas,w,h,strength.x()+strength.w()+30,strength.y()+25,settings);
+     check(menu.selection()==HudMenu.BLUR_PLUS_STRENGTH,"Strength drag retains focus outside the control");
+     menu.dragScale(strength.x()+strength.w()+30);check(plusStrength[0]==2,"Plus strength clamps outside the track");
+     check(saves[0]==saved,"Strength drag avoids repeated disk writes");
+     menu.finishScale();check(saves[0]==saved+1,"Strength drag saves once on release");
+    }
+    if(i<13){
+     int action=HudMenu.toggleAction(i)+2;var slider=menu.control(action);
+     check(menu.control(action-1)!=null&&slider!=null,"Every overlay has Move and a size slider");
+     float untouched=scales[(i+1)%13];int saved=saves[0];
+     check(menu.beginScale(slider.x()+10,slider.y()+25),"Slider accepts pointer down");
+     check(scales[i]==.5f,"Slider reaches its minimum");
+     menu.dragScale(slider.x()+slider.w()+100);check(scales[i]==2,"Drag outside the track clamps to maximum");
+     menu.dragScale(slider.x()+slider.w()/2.0);check(scales[i]==1.25f,"Slider supports intermediate sizes");
+     check(saves[0]==saved,"Dragging does not write config per mouse event");
+     check(menu.finishScale()&&saves[0]==saved+1,"Release saves exactly once");
+     check(!menu.finishScale()&&saves[0]==saved+1,"Duplicate releases do not save");
+     check(menu.adjustScale(.01f)&&scales[i]==1.26f,"Arrow keys make fine slider adjustments");
+     check(scales[(i+1)%13]==untouched,"Sizing one overlay preserves every other size");
+    }
     menu.activate(HudMenu.BACK);menu.layout(w,h);
    }
    menu.activate(HudMenu.CATEGORY+4);menu.layout(w,h);
@@ -120,6 +156,7 @@ public class UiTest {
    check(menu.selection()==HudMenu.SEARCH,"Pointer restores hover selection");
    Canvas preview=new Canvas(w,h,font,labels);menu.render(preview,w,h,0,0,settings);
    check(preview.calls<2000&&preview.quads<600,"Catalogue drawing stays bounded per frame");
+   check(canvas.greenTints>0&&preview.greenTints>0,"K menu uses green accents on charcoal surfaces");
    preview.save("/tmp/cubeon-green-hud-"+h+".png");
    Canvas editor=new Canvas(w,h,font,labels);editor.fill(w/2-26,h/2-8,w/2+26,h/2+8,0xFF131711);
    editor.text("120 FPS",w/2,h/2-4,ClientUi.TEXT);
@@ -130,6 +167,9 @@ public class UiTest {
    check(!HudEditorChrome.done(w,h,left+12,h-28),"Help label cannot close the editor");
    HudEditorChrome.render(editor,w,h,"Move FPS",0,0,0,0,52,16,false);
    HudEditorChrome.render(editor,w,h,"Move FPS",0,0,w-52,h-16,52,16,false);
+   check(HudEditorChrome.overlaps(0,0,40,20,39,10,30,20),"Overlapping HUD rectangles are detected");
+   check(!HudEditorChrome.overlaps(0,0,40,20,40,0,30,20),"Touching edges leave room without an overlap warning");
+   HudEditorChrome.peer(editor,w,h,w-52,h-16,52,16,w-30,h-10,30,10);
    menu.activate(HudMenu.CATEGORY);menu.layout(w,h);menu.scroll(-100);menu.layout(w,h);
    var previous=menu.control(0);menu.layout(w+80,h);
    check(menu.control(0)!=null,"Resize preserves reachable first feature");
@@ -137,12 +177,25 @@ public class UiTest {
    Canvas wheelCanvas=new Canvas(w,h,font,labels);var wheel=new EmoteWheel();Thread.sleep(160);
    wheel.render(wheelCanvas,w,h,w/2,h/2-60,true,true);wheelCanvas.save("/tmp/cubeon-green-wheel-"+h+".png");
    check(wheelCanvas.calls<100&&wheelCanvas.quads<100,"Smooth wheel uses a bounded number of textured quads");
+   check(wheelCanvas.greenTints==0,"Emote glass and highlights are neutral grey");
+   int wheelRadius=Math.max(24,Math.min(116,Math.min((w-24)/2,(h-92)/2))),wheelY=h/2-5;
+   check(wheel.hit(w/2,wheelY)==EmoteWheel.STOP,"Center still stops an emote");
+   check(wheel.hit(w/2,wheelY+14)==EmoteWheel.EDIT,"Edit wheel is in the center");
+   check(wheel.hit(w/2,wheelY-14)==EmoteWheel.TOGGLE,"Show emotes remains reachable in the center");
+   check(wheel.hit(w/2+70,wheelY+wheelRadius+24)==EmoteWheel.NONE,"Removed footer has no stale hit target");
    for(int count=1;count<=8;count++){
     var names=java.util.Arrays.copyOf(EmoteState.NAMES,count);
     var variant=new EmoteWheel(names);
     Canvas variantCanvas=new Canvas(w,h,font,labels);variant.render(variantCanvas,w,h,0,0,true,true);
+    check(variant.hit(w/2,wheelY+14)==EmoteWheel.EDIT,"Every wheel size retains central editing");
+    variant.edit(true);variant.render(variantCanvas,w,h,0,0,true,true);
+    check(variantCanvas.greenTints==0,"Favorite selection and editor highlights remain grey");
    }
   }
+  motion[0]=false;
+  HudMenu still=new HudMenu();Canvas first=new Canvas(640,360,font,labels),second=new Canvas(640,360,font,labels);
+  still.render(first,640,360,0,0,settings);still.render(second,640,360,0,0,settings);
+  check(java.util.Arrays.equals(first.image.getRGB(0,0,1920,1080,null,0,1920),second.image.getRGB(0,0,1920,1080,null,0,1920)),"Disabled menu animations paint immediately and stay still");
   System.out.println("Custom font, feature catalogue, search, categories, all details, minimum GUI scale, text/draw bounds, keyboard/pointer focus, resize, drag toolbar/edge frames and wheel previews passed.");
  }
 }
@@ -150,9 +203,11 @@ public class UiTest {
             shared = ROOT / "mod/src/main/java/com/cubeon/client"
             sources = [harness, shared / "Json.java", shared / "Bridge.java", shared / "hud/HudFeatures.java",
                        *sorted((shared / "ui").glob("*.java")), *sorted((shared / "emotes").glob("*.java"))]
+            sources.extend(sorted((shared / "skins").glob("*.java")))
             result = subprocess.run(["javac", "--release", "17", "-d", str(folder), *map(str, sources)], capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run(["java", "-Djava.awt.headless=true",
+                                     *(["-Dcubeon.ui.capture=true"] if os.environ.get("CUBEON_UI_CAPTURE") == "1" else []),
                                      "-Dcubeon.ui.assets=" + str(ROOT / "mod/src/main/resources/assets/cubeon-client"),
                                      "-cp", str(folder), "UiTest", str(folder / "labels.properties"),
                                      str(ROOT / "mod/src/main/resources/assets/cubeon-client/font/ui.ttf")], capture_output=True, text=True, timeout=60)

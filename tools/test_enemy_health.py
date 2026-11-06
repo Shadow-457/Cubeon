@@ -67,6 +67,11 @@ public class LivingEntity {
     public boolean alive=true, spectator, invisible, sneaking, allied, occluded, custom, named;
     public float health=10, maximum=20;
     public Vec3d pos = new Vec3d(0,1,3);
+    public double lastRenderX, lastRenderY=1, lastRenderZ=3;
+    public Vec3d physicsPos;
+    public double getX() { return pos.x; }
+    public double getY() { return pos.y; }
+    public double getZ() { return pos.z; }
     public AbstractTeam team;
     public boolean isAlive() { return alive; }
     public boolean isSpectator() { return spectator; }
@@ -78,7 +83,7 @@ public class LivingEntity {
         double x=pos.x-other.pos.x,y=pos.y-other.pos.y,z=pos.z-other.pos.z;
         return x*x+y*y+z*z;
     }
-    public Vec3d getLerpedPos(float delta) { return pos; }
+    public Vec3d getLerpedPos(float delta) { return physicsPos == null ? pos : physicsPos; }
     public float getHeight() { return 1.8F; }
     public Box getBoundingBox() { return new Box(); }
     public AbstractTeam getScoreboardTeam() { return team; }
@@ -179,7 +184,11 @@ public class HealthTest {
     static MinecraftClient client = new MinecraftClient();
     static DrawContext draw = new DrawContext();
     static void require(boolean okay, String why) { if (!okay) throw new AssertionError(why); }
+    static boolean interpolationProbe;
     static void render() {
+        if (client.world != null && !interpolationProbe) for (var entity:client.world.entities) {
+            entity.lastRenderX=entity.pos.x; entity.lastRenderY=entity.pos.y; entity.lastRenderZ=entity.pos.z;
+        }
         draw.clear();
         EnemyHealthRenderer.render(draw, client, client.gameRenderer::project, 0.5F);
     }
@@ -251,6 +260,12 @@ public class HealthTest {
         int[] background=draw.fills.get(0), fill=draw.fills.get(1);
         require(Arrays.equals(background,new int[]{82,61,118,65,EnemyHealthBar.BACKGROUND}),"Bar is beneath projected name at GUI scale");
         require(fill[2]-fill[0]==17 && fill[3]-fill[1]==2,"Half health, thin inset fill");
+        // Render history and physics history differ during entity movement.
+        interpolationProbe=true;
+        enemy.lastRenderY=0; enemy.pos=new Vec3d(0,2,3); enemy.physicsPos=new Vec3d(0,-5,3);
+        render();
+        require(Arrays.equals(draw.fills.get(0),background),"Bar follows vanilla render interpolation, ignoring physics history");
+        interpolationProbe=false; enemy.physicsPos=null;
         enemy.pos=new Vec3d(0,1,1.5); render();
         require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==72 && draw.fills.get(0)[3]-draw.fills.get(0)[1]==8,"Near bar scales with name tag");
         enemy.pos=new Vec3d(0,1,6); render();
@@ -319,6 +334,7 @@ def mojang_source(source):
         'getEntitiesByClass': 'getEntitiesOfClass', 'getNameTagVisibilityRule': 'getNameTagVisibility',
         'isSneaking': 'isShiftKeyDown', 'isTeammate': 'isAlliedTo', 'canSee': 'hasLineOfSight',
         'squaredDistanceTo': 'distanceToSqr', 'getLerpedPos': 'getPosition',
+        'lastRenderX': 'xOld', 'lastRenderY': 'yOld', 'lastRenderZ': 'zOld',
         'getHeight': 'getBbHeight', 'getScoreboardTeam': 'getTeam',
         'getScaledWindowWidth': 'guiWidth', 'getScaledWindowHeight': 'guiHeight',
         'getWidth': 'width', 'fontHeight': 'lineHeight', 'textRenderer': 'font',
@@ -366,7 +382,7 @@ class EnemyHealthTests(unittest.TestCase):
                     path.write_text(source)
                     sources.append(str(path))
                 sources += [str(MAIN / 'java/com/cubeon/client/hud' / (name + '.java'))
-                            for name in ('EnemyHealthBar', 'CubeonHudConfig')]
+                            for name in ('EnemyHealthBar', 'CubeonHudConfig', 'HudFeatures')]
                 sources += [str(MAIN / 'java/com/cubeon/client' / name) for name in
                             ('Json.java', 'Bridge.java', 'emotes/EmoteState.java',
                              'emotes/EmotePose.java', 'emotes/EmoteFavorites.java')]
@@ -430,7 +446,12 @@ public class LegacyTest {
     static DrawContext draw = new DrawContext();
     static WorldRenderEvents.Context context = new WorldRenderEvents.Context();
     static void capture() { context.world=client.world; WorldRenderEvents.AFTER_ENTITIES.callback.accept(context); }
-    static void render() { draw.clear(); LegacyHealthProjection.render(draw,client); }
+    static void render() {
+        for(var entity:client.world.entities) {
+            entity.lastRenderX=entity.pos.x;entity.lastRenderY=entity.pos.y;entity.lastRenderZ=entity.pos.z;
+        }
+        draw.clear(); LegacyHealthProjection.render(draw,client);
+    }
     static void require(boolean okay,String why) { if(!okay) throw new AssertionError(why); }
     public static void main(String[] args) {
         LegacyHealthProjection.register(); CubeonHudConfig.get().showEnemyHealth=true;
@@ -464,7 +485,7 @@ public class LegacyTest {
                     path.write_text(source)
                     sources.append(str(path))
                 sources += [str(MAIN / 'java/com/cubeon/client/hud' / (name + '.java'))
-                            for name in ('EnemyHealthBar', 'CubeonHudConfig')]
+                            for name in ('EnemyHealthBar', 'CubeonHudConfig', 'HudFeatures')]
                 sources += [str(MAIN / 'java/com/cubeon/client' / name) for name in
                             ('Json.java', 'Bridge.java', 'emotes/EmoteState.java',
                              'emotes/EmotePose.java', 'emotes/EmoteFavorites.java')]
@@ -491,7 +512,8 @@ public class LegacyTest {
             self.assertIn('config.showEnemyHealth = !config.showEnemyHealth', screen, bracket['key'])
             self.assertIn('config.cosmeticAnimations = !config.cosmeticAnimations', screen, bracket['key'])
             layout = (MAIN / 'java/com/cubeon/client/ui/HudMenu.java').read_text()
-            self.assertIn('cubeonclient.hud.health', layout, bracket['key'])
+            self.assertIn('new Feature("health",', layout, bracket['key'])
+            self.assertIn('canvas.translate("cubeonclient.hud."+FEATURES[i].slot)', layout)
 
 
 if __name__ == '__main__':

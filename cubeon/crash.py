@@ -101,10 +101,16 @@ def _read_tail(path: str) -> str:
 def log_candidates() -> list[str]:
     """Crash evidence paths, newest and most specific first."""
     from .paths import CUBEON_HOME, MINECRAFT_DIR
-    out = _recent_files(os.path.join(MINECRAFT_DIR, "crash-reports"), (".txt",))
-    latest = os.path.join(MINECRAFT_DIR, "logs", "latest.log")
-    if os.path.isfile(latest):
-        out.append(latest)
+    from . import storage
+    from .paths import active_game_dir
+    roots = [active_game_dir(), MINECRAFT_DIR]
+    roots.extend(storage.game_dir(vid) for vid, _meta, _dir in storage.instance_profiles())
+    out = []
+    for directory in dict.fromkeys(roots):
+        out.extend(_recent_files(os.path.join(directory, "crash-reports"), (".txt",)))
+        latest = os.path.join(directory, "logs", "latest.log")
+        if os.path.isfile(latest):
+            out.append(latest)
     out.extend(_recent_files(CUBEON_HOME, (".log",)))
     seen, unique = set(), []
     for path in out:

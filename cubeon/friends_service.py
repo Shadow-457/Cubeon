@@ -231,6 +231,8 @@ class FriendsService:
         # GET /players - skin/cape/presence details for every Cubeon name this
         # launcher can vouch for; the in-game Friends screen's roster reads it.
         ("set_players_provider", "players_payload"),
+        ("set_skins_provider", "skins_payload"),
+        ("set_skin_handler", "skin_action"),
         ("set_emote_context_handler", "emote_context"),
         ("set_emote_handler", "play_emote"),
         ("set_emotes_provider", "emotes_payload"),
@@ -246,6 +248,8 @@ class FriendsService:
         self.client = client
         from .emotes import EmoteRelay
         self.emotes = EmoteRelay(client)
+        from .ingame_skins import InGameSkins
+        self.ingame_skins = InGameSkins(cfg, state)
         self._save_config = save_config or (lambda: _default_save_config(self.cfg))
 
         # Guards the session dict *reference* and the pending-invite map. Not
@@ -346,6 +350,12 @@ class FriendsService:
         # unregister, so a stop()/start() cycle must not subscribe twice or
         # every notification would arrive in duplicate.
         self._handlers_bound = False
+
+    def skins_payload(self, offset=0, kind="skin"):
+        return self.ingame_skins.snapshot(offset, kind)
+
+    def skin_action(self, body):
+        return self.ingame_skins.action(body)
 
     # =====================================================================
     # Lifecycle.

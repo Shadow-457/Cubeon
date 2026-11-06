@@ -2,36 +2,42 @@ package com.cubeon.client.hud.screen;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
+import net.minecraft.client.MinecraftClient;
 import org.lwjgl.glfw.GLFW;
 
 import com.cubeon.client.ui.ClientUi;
+import com.cubeon.client.ui.MenuUi;
 
 import com.cubeon.client.Bridge;
 import com.cubeon.client.ui.FriendsPanel;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 /** Friends messages use the launcher's encrypted history, never the server chat channel. */
 public final class FriendsChatScreen extends Screen {
+    private final SkinNative backdrop = new SkinNative();
+    private final Screen parent;
     private final FriendsPanel panel = new FriendsPanel(Bridge.get());
     private TextFieldWidget input;
-    public FriendsChatScreen() { super(Text.translatable("cubeonclient.friends.title")); }
+    public FriendsChatScreen() { this(null); }
+    public FriendsChatScreen(Screen parent) { super(Text.translatable("cubeonclient.friends.chat_title")); this.parent = parent; }
+    public static void open(Screen parent) { MinecraftClient.getInstance().setScreen(new FriendsChatScreen(parent)); }
     @Override protected void init() {
         if (input != null) panel.saveDraft(input.getText());
         panel.layout(this.width, this.height); panel.ensurePeer();
         input = new TextFieldWidget(textRenderer, panel.inputX(), panel.inputY(), panel.inputWidth(), 16,
                 Text.translatable("cubeonclient.friends.message"));
         input.setMaxLength(1000);
-        input.setDrawsBackground(false); input.setEditableColor(ClientUi.TEXT);
-        input.setRenderTextProvider((value, start) -> ClientUiFont.text(value).asOrderedText());
+        input.setDrawsBackground(false); input.setEditableColor(MenuUi.TEXT);
+
         input.setText(panel.draft());
         addDrawableChild(input); setInitialFocus(input);
     }
     @Override public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fill(0, 0, this.width, this.height, ClientUi.BACKDROP);
+        backdrop.draw(context, this.width, this.height, delta);
     }
     @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         
         super.render(context, mouseX, mouseY, delta);
-        panel.render(canvas(context), this.width, this.height, mouseX, mouseY);
+        panel.render(canvas(context), this.width, this.height, mouseX, mouseY, com.cubeon.client.hud.CubeonHudConfig.get().menuAnimations);
         input.render(context, mouseX, mouseY, delta);
     }
     private ClientUi.Canvas canvas(DrawContext context) { return new ClientUi.Canvas() {
@@ -42,10 +48,10 @@ public final class FriendsChatScreen extends Screen {
                 ClientUiDraw.image(context, path, x, y, w, h, u, v, regionW, regionH, textureW, textureH, color);
             }
             public void text(String value, int x, int y, int color) {
-                var label = ClientUiFont.text(value);
+                var label = Text.literal(value);
                 context.drawText(textRenderer, label, x - textRenderer.getWidth(label) / 2, y, color, false);
             }
-            public int width(String value) { return textRenderer.getWidth(ClientUiFont.text(value)); }
+            public int width(String value) { return textRenderer.getWidth(Text.literal(value)); }
             public String translate(String key) { return Text.translatable(key).getString(); }
         }; }
     @Override public void tick() {
@@ -86,6 +92,6 @@ public final class FriendsChatScreen extends Screen {
         panel.scroll(x, amount); return true;
     }
     @Override public void removed() { if (input != null) panel.saveDraft(input.getText()); panel.close(); }
-    @Override public void close() { if (this.client != null) this.client.setScreen(null); }
+    @Override public void close() { if (this.client != null) this.client.setScreen(parent); }
     @Override public boolean shouldPause() { return false; }
 }

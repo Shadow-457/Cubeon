@@ -5,8 +5,9 @@
       "file": "cubeon-client:font/cubeon_client.png",
       "ascent": 7,
       "chars": [
-        "\uE000"
-      ]
+        "\ue000"
+      ],
+      "height": 8
     }
   ]
 }

@@ -1,27 +1,9 @@
-"""
-The Settings tab, rewritten (2026-10-26).
+"""Retained launcher Settings, with short rows and optional advanced controls.
 
-What was wrong before: every setting carried a paragraph of explanation, rows
-were a mix of checkboxes, switches, loose buttons and boxed panels, and the
-account strip sat above everything and ate the height.
-
-What it is now:
-- A section rail keeps each destination focused and independently scrollable.
-  Account is a section here, not a strip above the rail.
-- ONE row pattern everywhere: a title, at most one short grey line, and the
-  control on the right. Rows live in a group card and are separated by hairline
-  dividers - no box-in-box, no loose checkboxes (every on/off is a switch).
-- Copy is short. Anything that needs a paragraph is a tooltip, not a wall of
-  text under the control.
-
-main.py still owns all logic/controls (the RAM slider and its colour math,
-legacy-version widgets, backup switches, FilePickers) - this module only
-arranges them. `build_settings_tab()` keeps its old signature (plus optional
-`account_pane` and `on_replay_onboarding`), so nothing is
-rewired.
+Main supplies the shared controls and actions. Build each section once, keep
+its scrolling independent, and preserve the established section deep links.
 """
 import flet as ft
-import threading
 import unicodedata
 
 from cubeon import i18n
@@ -29,70 +11,93 @@ from cubeon import motion
 from cubeon import osnotify
 from cubeon import thread_safe_ui
 from cubeon.theme import (
-    RADIUS, RADIUS_LG, attach_hover, ROW_HOVER, ACCENT_TINT, TEXT_FAINT,
+    RADIUS, RADIUS_LG, ROW_HOVER, ACCENT_TINT, TEXT_FAINT,
 )
 
-# Keep established deep-link keys while separating previously crowded groups.
+# Labels stay short; keys also serve existing links from the launcher.
 SECTIONS = [
     ("account", ft.Icons.PERSON_ROUNDED, "Account"),
     ("versions", ft.Icons.SPORTS_ESPORTS_ROUNDED, "Game"),
     ("memory", ft.Icons.MEMORY_ROUNDED, "Performance"),
     ("appearance", ft.Icons.PALETTE_ROUNDED, "Appearance"),
-    ("seasonal", ft.Icons.WB_SUNNY_ROUNDED, "Theme and decorations"),
+    ("seasonal", ft.Icons.WB_SUNNY_ROUNDED, "Theme"),
     ("notifications", ft.Icons.NOTIFICATIONS_OUTLINED, "Notifications"),
-    ("storage", ft.Icons.FOLDER_OUTLINED, "Files and backups"),
+    ("storage", ft.Icons.FOLDER_OUTLINED, "Files"),
     ("system", ft.Icons.SYSTEM_UPDATE_ROUNDED, "Launcher"),
     ("images", ft.Icons.PHOTO_LIBRARY_OUTLINED, "Screenshots"),
 ]
 
-# The rail's motion: the section tint fades and its icon lifts one step.
-# Deliberately the ONLY animation in this tab.
+# Selection changes the fill and text without moving the controls.
 RAIL_ANIM = ft.Animation(150, ft.AnimationCurve.EASE_OUT_CUBIC)
 
 
 def _apply_rail_state(item, active, *, ACCENT, ACCENT_TINT, TEXT, TEXT_DIM):
-    """Paint one rail row for its active/inactive state, IN PLACE.
-
-    Mutating (rather than rebuilding) is what lets the tint fade and the icon
-    scale: `animate`/`animate_scale` only mean anything on a control the
-    client already knows about.
-    """
-    item.bgcolor = ACCENT_TINT if active else None
+    """Keep the selection highlight correct after a pointer leaves the row."""
+    item._settings_active = active
+    item.bgcolor = (ACCENT_TINT if active else
+                    ROW_HOVER if item._settings_hovered else None)
     icon, label = item.content.controls[0], item.content.controls[1]
     icon.color = ACCENT if active else TEXT_DIM
-    icon.scale = 1.0 if active else 0.94
     label.color = TEXT if active else TEXT_DIM
     label.weight = ft.FontWeight.W_600 if active else ft.FontWeight.W_500
 
 
 def _rail_item(key, icon, label, active, on_click, *, ACCENT, ACCENT_TINT,
                ROW_HOVER, TEXT, TEXT_DIM):
-    return attach_hover(
-        ft.Container(
-            content=ft.Row(
-                [
-                    ft.Icon(icon, size=18,
-                            color=ACCENT if active else TEXT_DIM,
-                            scale=1.0 if active else 0.94,
-                            animate_scale=RAIL_ANIM),
-                    ft.Text(label, size=13.5,
-                            expand=True, max_lines=2,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                            color=TEXT if active else TEXT_DIM,
-                            weight=ft.FontWeight.W_600 if active else ft.FontWeight.W_500),
-                ],
-                spacing=12, tight=True,
-            ),
-            bgcolor=ACCENT_TINT if active else None,
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
-            ink=False,
-            on_click=on_click,
-            animate=RAIL_ANIM,
+    item = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(icon, size=18, color=ACCENT if active else TEXT_DIM),
+                ft.Text(label, size=13.5, expand=True, max_lines=2,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        color=TEXT if active else TEXT_DIM,
+                        weight=ft.FontWeight.W_600 if active else ft.FontWeight.W_500),
+            ],
+            spacing=10, tight=True,
         ),
-        ACCENT_TINT if active else None,
-        ROW_HOVER,
+        bgcolor=ACCENT_TINT if active else None,
+        border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
+        ink=False, on_click=on_click, animate=RAIL_ANIM,
+        data="settings-section-" + key,
     )
+    item._settings_active = active
+    item._settings_hovered = False
+
+    def hover_fill(hot):
+        item._settings_hovered = hot
+        item.bgcolor = (ACCENT_TINT if item._settings_active else
+                        ROW_HOVER if hot else None)
+
+    motion.polish(item, on_hover_fill=hover_fill)
+    previous_hover = item.on_hover
+
+    def hovered(event):
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            previous_hover(event)
+
+    item.on_hover = hovered
+    return item
+
+
+def _save_preference(cfg, key, value, *, set_status, error):
+    """Persist one preference without leaving an unsaved live value behind."""
+    from cubeon import config
+
+    with thread_safe_ui.TREE_LOCK:
+        existed, previous = key in cfg, cfg.get(key)
+        cfg[key] = value
+        try:
+            config.save_config(cfg)
+        except Exception:
+            if existed:
+                cfg[key] = previous
+            else:
+                cfg.pop(key, None)
+            set_status(i18n.t(error))
+            return False
+        return True
 
 
 def _row(title, subtitle, control, *, TEXT, TEXT_DIM):
@@ -204,7 +209,7 @@ def _language_picker(cfg, *, on_restart, set_status, BG, BORDER, ACCENT,
                 set_status(i18n.t("Couldn't save the language"))
                 return
             dropdown.visible = False
-            chevron.name = ft.Icons.EXPAND_MORE_ROUNDED
+            chevron.icon = ft.Icons.EXPAND_MORE_ROUNDED
             sync()
             thread_safe_ui.refresh(panel)
         set_status(i18n.t("Restart to apply") if notice.visible else native_text.value)
@@ -223,15 +228,17 @@ def _language_picker(cfg, *, on_restart, set_status, BG, BORDER, ACCENT,
                 labels = [ft.Text(native, size=14, color=TEXT, rtl=rtl, font_family=font(code))]
                 if native != english:
                     labels.append(ft.Text(english, size=11.5, color=TEXT_DIM, rtl=False, font_family="Inter"))
-                rows.append(ft.Container(
+                rows.append(ft.TextButton(
                     content=ft.Row([
                         ft.Column(labels, spacing=4, expand=True),
                         ft.Icon(ft.Icons.CHECK_ROUNDED, size=18, color=ACCENT,
                                 visible=code == selected()),
                     ], spacing=12),
-                    padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-                    bgcolor=ACCENT_TINT if code == selected() else None,
-                    border_radius=RADIUS, ink=False,
+                    style=ft.ButtonStyle(
+                        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
+                        bgcolor=ACCENT_TINT if code == selected() else None,
+                        overlay_color=ROW_HOVER,
+                        shape=ft.RoundedRectangleBorder(radius=RADIUS)),
                     on_click=lambda e, code=code: choose(code),
                     data="language-option-" + code,
                 ))
@@ -243,26 +250,31 @@ def _language_picker(cfg, *, on_restart, set_status, BG, BORDER, ACCENT,
     def toggle(e=None):
         with thread_safe_ui.TREE_LOCK:
             dropdown.visible = not dropdown.visible
-            chevron.name = ft.Icons.EXPAND_LESS_ROUNDED if dropdown.visible else ft.Icons.EXPAND_MORE_ROUNDED
+            chevron.icon = (ft.Icons.EXPAND_LESS_ROUNDED if dropdown.visible
+                            else ft.Icons.EXPAND_MORE_ROUNDED)
             if dropdown.visible:
                 search.value = ''
                 filter_choices()
             thread_safe_ui.refresh(panel)
 
     search.on_change = filter_choices
-    selector = ft.Container(
+    selector = ft.TextButton(
         content=ft.Row([
             ft.Icon(ft.Icons.LANGUAGE_ROUNDED, size=20, color=ACCENT),
             ft.Column([native_text, english_text], spacing=4, expand=True), chevron,
         ], spacing=12),
         on_click=toggle, data="language-picker-toggle",
-        padding=12, bgcolor=ft.Colors.with_opacity(.35, BG),
-        border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, ink=False,
+        style=ft.ButtonStyle(
+            padding=12, bgcolor=ft.Colors.with_opacity(.35, BG),
+            overlay_color=ROW_HOVER,
+            side=ft.BorderSide(1, BORDER),
+            shape=ft.RoundedRectangleBorder(radius=RADIUS)),
     )
     panel = ft.Column([
         ft.Text(i18n.t("Language"), size=14, color=TEXT, weight=ft.FontWeight.W_600, font_family=ui_font),
         selector, dropdown, notice,
-    ], spacing=12, data="language-picker")
+    ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        data="language-picker")
     sync()
     return panel
 
@@ -349,14 +361,14 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
                     [
                         ft.Text(flag, size=11.5, font_family=FONT_MONO,
                                 color=(TEXT_FAINT if dropped else ACCENT),
-                                width=232, selectable=True, rtl=False),
+                                expand=True, selectable=True, rtl=False),
                         ft.Column(
                             [ft.Text(note, size=11, color=TEXT_DIM),
                              *([ft.Text(i18n.t("Disabled in Settings") if not enabled.value
                                         else i18n.t("Not added on this machine"),
                                         size=10, color=TEXT_FAINT)]
                                if dropped else [])],
-                            spacing=4, expand=True, tight=True),
+                            spacing=4, expand=2, tight=True),
                     ],
                     spacing=12, vertical_alignment=ft.CrossAxisAlignment.START,
                 ),
@@ -404,7 +416,7 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
         content=ft.Row([
             ft.Column([
                 ft.Text(i18n.t("Use Cubeon's default Java flags"), size=13, color=TEXT),
-                ft.Text(i18n.t("Turn off to use only your custom flags. The RAM slider then stops setting the Java heap."),
+                ft.Text(i18n.t("Off lets your custom flags, game profile or Java choose the memory limit."),
                         size=11.5, color=TEXT_DIM),
             ], spacing=4, expand=True), enabled,
         ], spacing=12),
@@ -414,29 +426,28 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
         with thread_safe_ui.TREE_LOCK:
             open_state["v"] = not open_state["v"]
             rows.visible = open_state["v"]
-            chevron.name = (ft.Icons.EXPAND_MORE_ROUNDED if open_state["v"]
+            chevron.icon = (ft.Icons.EXPAND_MORE_ROUNDED if open_state["v"]
                             else ft.Icons.CHEVRON_RIGHT_ROUNDED)
             if open_state["v"]:
                 _rebuild()   # pick up a RAM change made since it was last opened
             thread_safe_ui.refresh(rows)
             thread_safe_ui.refresh(chevron)
 
-    header = attach_hover(
-        ft.Container(
-            content=ft.Row(
-                [chevron,
-                 ft.Text(i18n.t("Cubeon's default flags"), size=13, color=TEXT,
-                         weight=ft.FontWeight.W_600),
-                 ft.Container(expand=True),
-                 summary],
-                spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
-            ink=False, on_click=_toggle,
-            tooltip="The JVM options Cubeon passes to Java on every launch, "
-                    "and why each one is there",
+    header = ft.TextButton(
+        content=ft.Row(
+            [chevron,
+             ft.Text(i18n.t("Cubeon's default flags"), size=13, color=TEXT,
+                     weight=ft.FontWeight.W_600, expand=True),
+             summary],
+            spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        None, ROW_HOVER,
+        style=ft.ButtonStyle(
+            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
+            overlay_color=ROW_HOVER,
+            shape=ft.RoundedRectangleBorder(radius=RADIUS)),
+        on_click=_toggle,
+        tooltip="The JVM options Cubeon passes to Java on every launch, "
+                "and why each one is there",
     )
 
     for control in (ram_slider, custom_jvm_field):
@@ -473,10 +484,8 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
 
     _sync_memory()
     return ft.Container(
-        content=ft.Column([toggle_row, header, rows], spacing=0, tight=True),
-        bgcolor=ft.Colors.with_opacity(0.35, ACCENT_TINT),
-        border=ft.border.Border.all(1, BORDER),
-        border_radius=RADIUS,
+        content=ft.Column([toggle_row, header, rows], spacing=0, tight=True,
+                          horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
     )
 
 
@@ -519,7 +528,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        account_pane=None, on_replay_onboarding=None,
                        on_check_updates=None,
                        on_motion_change=None):
-    """Assembles the two-pane Settings tab from main.py's existing controls.
+    """Assemble Settings from the existing controls and callbacks.
 
     `save_width_height_java` is main.py's save_settings() minus the button
     click - called on field blur so width/height/java persist instantly.
@@ -536,7 +545,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # Labels are translated at build time; the KEYS are not - deep links (the
     # seasonal badge uses "seasonal") key off them. A language change lands on
     # the next start, like the rest of the chrome.
-    sections = [(key, icon, i18n.t(label)) for key, icon, label in SECTIONS]
+    sections = [(key, icon, i18n.t(label)) for key, icon, label in SECTIONS
+                if key != "account" or account_pane is not None]
     active_section = {"value": sections[0][0]}
 
     def row(title, subtitle, control):
@@ -554,8 +564,24 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     def pane(title, *children):
         return ft.Column(
-            [heading(title), ft.Container(height=4), *children],
-            spacing=16, visible=False,
+            [heading(title), *children], spacing=16, visible=False,
+            expand=True, scroll=ft.ScrollMode.AUTO,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        )
+
+    def advanced(label, content, *, data):
+        return ft.ExpansionTile(
+            title=ft.Text(i18n.t(label), size=13, color=TEXT,
+                          weight=ft.FontWeight.W_600),
+            controls=[content], maintain_state=True, dense=True,
+            expanded_cross_axis_alignment=ft.CrossAxisAlignment.STRETCH,
+            tile_padding=ft.padding.Padding.symmetric(horizontal=16, vertical=8),
+            controls_padding=0, icon_color=TEXT_DIM, collapsed_icon_color=TEXT_DIM,
+            bgcolor=SURFACE_HI, collapsed_bgcolor=SURFACE_HI,
+            shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
+            collapsed_shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
+            animation_style=ft.AnimationStyle(duration=0, reverse_duration=0),
+            data=data,
         )
 
     def compact(btn):
@@ -572,44 +598,55 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # Built here, like before: each reads and writes exactly one config key.
     auto_cleanup_switch = ft.Switch(
         value=bool(cfg.get("auto_delete_incomplete", True)),
-        active_color=ACCENT, scale=0.85,
+        active_color=ACCENT, scale=0.85, data="install-cleanup-enabled",
     )
 
     def _on_auto_cleanup_change(_e, sw=auto_cleanup_switch):
-        """Persist now, like every other control in this tab."""
-        cfg["auto_delete_incomplete"] = bool(sw.value)
-        try:
-            from cubeon import config as _config
-            _config.save_config(cfg)
-        except Exception:
-            set_status("Couldn't save the install-cleanup setting")
-            return
-        set_status("Unfinished installs will be removed on the next start"
-                   if sw.value else
-                   "Unfinished installs will be kept")
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            previous = bool(cfg.get("auto_delete_incomplete", True))
+            if _save_preference(cfg, "auto_delete_incomplete", bool(sw.value),
+                                set_status=set_status,
+                                error="Couldn't save the install-cleanup setting"):
+                set_status(i18n.t("Unfinished installs will be removed on the next start")
+                           if cfg["auto_delete_incomplete"] else
+                           i18n.t("Unfinished installs will be kept"))
+            else:
+                sw.value = previous
+            thread_safe_ui.refresh(sw)
 
     auto_cleanup_switch.on_change = _on_auto_cleanup_change
 
     motion_switch = ft.Switch(
         value=motion.transforms(), active_color=ACCENT, scale=0.85,
+        data="settings-motion-enabled",
+        tooltip=i18n.t("Hover lifts and list motion. Off leaves fades only."),
     )
 
     def _on_motion_change(_e, sw=motion_switch):
-        """Apply now, persist now. The level is consulted when an event fires,
-        so it takes effect on rows already on screen - no restart."""
-        level = motion.set_level("full" if sw.value else "reduced")
-        sw.value = motion.transforms()      # the truth, not the click
-        cfg["motion_level"] = level
-        if on_motion_change is not None:
-            on_motion_change()
-        try:
-            from cubeon import config as _config
-            _config.save_config(cfg)
-        except Exception:
-            set_status("Couldn't save the motion setting")
-            return
-        set_status("Full motion" if sw.value else
-                   "Motion reduced - fades only, nothing moves on its own")
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            previous_level = motion.level()
+            existed, previous = "motion_level" in cfg, cfg.get("motion_level")
+            level = motion.set_level("full" if sw.value else "reduced")
+            cfg["motion_level"] = level
+            try:
+                from cubeon import config as _config
+                _config.save_config(cfg)
+            except Exception:
+                if existed:
+                    cfg["motion_level"] = previous
+                else:
+                    cfg.pop("motion_level", None)
+                motion.set_level(previous_level)
+                set_status(i18n.t("Couldn't save the motion setting"))
+            else:
+                if on_motion_change is not None:
+                    on_motion_change()
+                set_status(i18n.t("Full motion") if sw.value else
+                           i18n.t("Motion reduced - fades only, nothing moves on its own"))
+            sw.value = motion.transforms()
+            thread_safe_ui.refresh(sw)
 
     motion_switch.on_change = _on_motion_change
 
@@ -624,40 +661,44 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # GAME
     # ======================================================================
     compact(tidy_btn)
+    for field in (width_field, height_field):
+        field.width = None
+        field.expand = True
+    game_window = block("Game window", group([
+        _body(ft.Row([width_field, ft.Text("×", color=TEXT_DIM), height_field],
+                     spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER)),
+    ]))
     versions_pane = pane(
         i18n.t("Game"),
-        block(i18n.t("Versions"), ft.Column(
+        game_window,
+        block("In game", group([
+            row("Cubeon Client", "Menu, HUD and Cubeon features", client_mod_cb),
+            row("CustomSkinLoader (CSL)", "Skin and cape loading", csl_cb),
+        ])),
+        ft.Text(i18n.t("Applies on the next launch."), size=11.5, color=TEXT_DIM),
+        advanced("Version list", ft.Column(
             [
                 group([
                     row("Show snapshots",
-                        "Include snapshot builds in the version list",
+                        "Include preview builds",
                         browse_online_row),
                     row("Legacy versions",
-                        "Older releases (1.8.9 is always available)",
+                        "1.8.9 is always available",
                         legacy_btn),
                 ]),
                 # Shown only while legacy is on (main.py toggles it).
                 legacy_note,
             ],
             spacing=8,
-        )),
-        block("In game", group([
-            row("Cubeon Client",
-                "In-game menu, HUD and Cubeon features. Applies on the next launch.",
-                client_mod_cb),
-            row("CustomSkinLoader (CSL)",
-                "Skin and cape loading. Applies on the next launch.",
-                csl_cb),
-        ])),
-        block(i18n.t("Maintenance"), group([
+        ), data="settings-version-options"),
+        advanced("Maintenance", group([
             row("Delete unfinished installs",
-                "Removes half-downloaded versions at startup",
+                "Clean up incomplete downloads at startup",
                 auto_cleanup_switch),
             row("Tidy up files",
-                "Merges stray assets, clears temp files. Worlds are never touched.",
+                "Clear temporary files and merge stray assets",
                 tidy_btn),
-        ])),
-        import_pane,
+        ]), data="settings-maintenance"),
     )
     import_pane.visible = True
 
@@ -666,6 +707,12 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # ======================================================================
     memory_status = ft.Text("", size=11.5, color=TEXT_DIM,
                             data="memory-limit-status")
+    ram_label.tooltip = i18n.t(
+        "In Minecraft's F3 screen, check the maximum after the slash on the Mem line. "
+        "Allocated shows the memory Java has reserved so far and can be lower.")
+    if len(ram_range_row.controls) >= 3:
+        ram_range_row.controls[1].expand = True
+        ram_range_row.controls[1].text_align = ft.TextAlign.CENTER
     performance_pane = pane(
         i18n.t("Performance"),
         block(i18n.t("Memory"), group([
@@ -683,23 +730,21 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                     ram_range_row,
                     ram_warning,
                     memory_status,
-                    ft.Text(i18n.t("In Minecraft's F3 screen, check the maximum after the slash on the Mem line. "
-                                   "Allocated shows the memory Java has reserved so far and can be lower."),
-                            size=11.5, color=TEXT_FAINT),
                 ],
                 spacing=8,
             )),
         ])),
-        block(i18n.t("Java"), group([
+        advanced("Advanced Java settings", group([
             _body(ft.Column(
                 [
                     java_path_field,
-                    ft.Text(f"Found: {detected_java or 'detected automatically'}",
-                            size=11.5, color=TEXT_FAINT, font_family=FONT_MONO),
-                    ft.Container(height=4),
+                    ft.Text(f"{i18n.t('Found')}: {detected_java}"
+                            if detected_java else i18n.t("Detected automatically"),
+                            size=11.5, color=TEXT_FAINT, font_family=FONT_MONO,
+                            rtl=False, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
+                            tooltip=detected_java),
                     custom_jvm_field,
-                    ft.Text(i18n.t("Extra flags go after Cubeon's defaults. "
-                            "Leave both fields blank unless you need them."),
+                    ft.Text(i18n.t("Leave blank to use automatic Java and default flags."),
                             size=11.5, color=TEXT_FAINT),
                     ft.Container(height=8),
                     # "Which flags does Cubeon apply by default?" - collapsed,
@@ -714,11 +759,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 ],
                 spacing=8,
             )),
-        ])),
+        ]), data="settings-java-advanced"),
     )
 
     # ======================================================================
-    # DISPLAY
+    # APPEARANCE
     # ======================================================================
     language_picker = _language_picker(
         cfg, on_restart=seasonal_restart_btn.on_click, set_status=set_status,
@@ -728,38 +773,31 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     launcher_rows = [
         _body(language_picker),
         row(i18n.t("Glass background"),
-            "Translucent window. Restart to apply.",
+            "Restart to apply",
             glass_cb),
     ]
     if custom_chrome_cb is not None:
         launcher_rows.append(row(
             i18n.t("Custom title bar"),
-            "Cubeon's own window frame. Restart to apply.",
+            "Restart to apply",
             custom_chrome_cb))
     launcher_rows.append(row(
         "Animations",
-        "Hover lifts and list motion. Off leaves fades only.",
+        "Off reduces movement",
         motion_switch))
 
-    display_pane = pane(
-        i18n.t("Display"),
-        block(i18n.t("Game window"), group([
-            row("Window size", "Resolution Minecraft opens at",
-                ft.Row([width_field, ft.Text("x", color=TEXT_DIM),
-                        height_field], spacing=12,
-                       vertical_alignment=ft.CrossAxisAlignment.CENTER)),
-        ])),
-        block(i18n.t("Launcher"), group(launcher_rows)),
-    )
+    appearance_pane = pane("Appearance", group(launcher_rows))
 
     # ======================================================================
     # SEASONAL
     # ======================================================================
+    seasonal_status_text.expand = True
+    seasonal_restart_note.expand = True
     seasonal_pane = pane(
-        i18n.t("Theme and decorations"),
+        i18n.t("Theme"),
         block(i18n.t("Look"), group([
             row("Seasonal look",
-                "Colours that follow the season in your timezone",
+                "Use colours for the current season",
                 seasonal_switch),
             _body(ft.Column(
                 [
@@ -782,30 +820,28 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             ), pad_v=10),
         ])),
         block(i18n.t("Extras"), group([
-            row("Play scenery", "Seasonal trees, grass and drifting particles on Play",
+            row("Play scenery", "Trees and seasonal effects on Play",
                 season_overlay_switch),
-            row("Seasonal buddy", "Wanders the frame, climbs edges and rests above Play",
+            row("Seasonal buddy", "A companion around the launcher",
                 season_pet_switch),
         ])),
     )
 
     # ======================================================================
-    # SYSTEM
+    # NOTIFICATIONS
     # ======================================================================
-    def _save_notify_setting(_e=None):
-        try:
-            from cubeon import config as _config
-            _config.save_config(cfg)
-        except Exception:
-            set_status("Couldn't save the notification setting")
-
     def _notify_switch(key):
         sw = ft.Switch(value=bool(cfg.get(key, True)), active_color=ACCENT,
-                       scale=0.85)
+                       scale=0.85, data=key)
 
         def _on_change(_e, k=key, s=sw):
-            cfg[k] = bool(s.value)
-            _save_notify_setting()
+            ft.context.disable_auto_update()
+            with thread_safe_ui.TREE_LOCK:
+                previous = bool(cfg.get(k, True))
+                if not _save_preference(cfg, k, bool(s.value), set_status=set_status,
+                                        error="Couldn't save the notification setting"):
+                    s.value = previous
+                thread_safe_ui.refresh(s)
 
         sw.on_change = _on_change
         return sw
@@ -826,88 +862,51 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     notify_backend = osnotify.backend_name()
 
-    # STABLE reads GitHub's /releases/latest (never a prerelease); BETA also
-    # sees prereleases. Two states, one click - a cycling chip, not a dropdown.
-    update_channel_chip = ft.Container(
-        data="update-channel",
-        content=ft.Row(
-            [
-                ft.Icon(ft.Icons.VERIFIED_ROUNDED, size=15, color=ACCENT),
-                ft.Text("STABLE", size=12, weight=ft.FontWeight.W_700,
-                        color=ACCENT),
-            ],
-            spacing=8, tight=True,
-        ),
-        bgcolor=ACCENT_TINT, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-        ink=False,
-        on_click=lambda e: _cycle_update_channel(),
-    )
-
-    def _paint_update_channel():
-        beta = str(cfg.get("update_channel") or "stable").lower() == "beta"
-        chip_row = update_channel_chip.content
-        chip_row.controls[0].icon = (ft.Icons.SCIENCE_ROUNDED if beta
-                                     else ft.Icons.VERIFIED_ROUNDED)
-        chip_row.controls[1].value = "BETA" if beta else "STABLE"
-        try:
-            update_channel_chip.update()
-        except Exception:
-            pass
-
-    def _cycle_update_channel():
-        beta = str(cfg.get("update_channel") or "stable").lower() == "beta"
-        cfg["update_channel"] = "stable" if beta else "beta"
-        try:
-            from cubeon import config as _config
-            _config.save_config(cfg)
-        except Exception:
-            set_status("Couldn't save the update channel")
-        _paint_update_channel()
-        set_status("Update channel: beta - prereleases will be offered too"
-                   if cfg["update_channel"] == "beta" else
-                   "Update channel: stable")
-
-    _paint_update_channel()
-
-    notify_test_btn = ft.Container(
-        content=ft.Text("Send test", color=TEXT, weight=ft.FontWeight.W_600,
-                        size=13),
-        bgcolor=ft.Colors.with_opacity(0.6, BG),
-        border=ft.border.Border.all(1, BORDER),
-        border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=8),
-        alignment=ft.Alignment.CENTER, ink=False,
-        on_click=_send_test_notification,
-    )
+    notify_test_btn = ft.TextButton(i18n.t("Send test"),
+                                   on_click=_send_test_notification)
 
     notification_rows = [
         row(i18n.t(label), sub, _notify_switch(key))
         for kind, key, label, sub in osnotify.KINDS
     ]
     sound_switch = ft.Switch(value=bool(cfg.get("ui_sounds", False)), active_color=ACCENT,
-                             scale=0.85)
+                             scale=0.85, data="settings-sound-enabled")
 
     def _sound_changed(e):
-        from cubeon import ui_sounds
-        cfg["ui_sounds"] = bool(sound_switch.value)
-        _save_notify_setting()
-        if sound_switch.value:
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            previous = bool(cfg.get("ui_sounds", False))
+            saved = _save_preference(cfg, "ui_sounds", bool(sound_switch.value),
+                                     set_status=set_status,
+                                     error="Couldn't save the sound setting")
+            if not saved:
+                sound_switch.value = previous
+            thread_safe_ui.refresh(sound_switch)
+            play_cue = saved and sound_switch.value
+        if play_cue:
+            from cubeon import ui_sounds
             ui_sounds.play("launch")
 
     sound_switch.on_change = _sound_changed
     notification_rows.append(row(
-        "Sound feedback", "Quiet cues when Minecraft starts or an action fails.", sound_switch))
+        "Sound feedback", "Quiet launch and error sounds", sound_switch))
     notification_rows.append(row(
         "Test notification",
         (f"Using {notify_backend}" if notify_backend
-         else "No desktop notifier found - these switches will do nothing"),
+         else "No desktop notifier found"),
         notify_test_btn))
+    notifications_pane = pane("Notifications", group(notification_rows))
+
+    # ======================================================================
+    # FILES AND BACKUPS
+    # ======================================================================
 
     backup_rows = [
         row("Automatic backups", "Runs while Cubeon is open",
             backup_enabled_switch),
-        _body(ft.Row([frequency_dropdown, keep_last_field], spacing=12), pad_v=12),
+        advanced("Backup schedule",
+                 _body(ft.Row([frequency_dropdown, keep_last_field], spacing=12), pad_v=12),
+                 data="settings-backup-schedule"),
         row("Include world saves", "Much larger backups", include_saves_switch),
         _body(ft.Column(
             [
@@ -928,30 +927,50 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     ]
 
     minecraft_files_pane.visible = True
-    system_pane = pane(
-        i18n.t("System"),
-        block("Welcome tour", group([
-            row("Replay onboarding", "See Cubeon's introduction again.",
-                ft.TextButton("Open tour", on_click=lambda e: on_replay_onboarding()))
-        ])) if on_replay_onboarding else ft.Container(visible=False),
-        block(i18n.t("Notifications"), group(notification_rows)),
-        block(i18n.t("Updates"), group([
-            row("Update channel",
-                "Stable is the default. Beta also offers prereleases on the next launch.",
-                update_channel_chip),
-            _body(ft.Text("A newer version shows Skip and Update when Cubeon starts. "
-                          "Update downloads, installs and reopens Cubeon automatically.", size=12,
-                          color=TEXT_DIM), pad_v=12),
-            *([row("Launcher updates", "Check again after reconnecting to the internet.",
-                   ft.TextButton("Check for updates", data="check-launcher-updates",
-                                 on_click=lambda e: on_check_updates()))]
-              if on_check_updates else []),
-        ])),
-        minecraft_files_pane,
-        block(i18n.t("Backups"), group(backup_rows)),
-        ft.Row([cubeon_web_link, minekube_badge], spacing=16,
-               vertical_alignment=ft.CrossAxisAlignment.CENTER),
+    storage_pane = pane("Files and backups", minecraft_files_pane,
+                        block("Backups", group(backup_rows)), import_pane)
+
+    # ======================================================================
+    # LAUNCHER
+    # ======================================================================
+    update_channel = ft.Dropdown(
+        value="beta" if str(cfg.get("update_channel") or "stable").lower() == "beta" else "stable",
+        options=[ft.dropdown.Option("stable", i18n.t("Stable")),
+                 ft.dropdown.Option("beta", i18n.t("Beta"))],
+        width=150, text_size=13, color=TEXT, bgcolor=SURFACE_HI,
+        border_color=BORDER, focused_border_color=ACCENT, border_radius=RADIUS,
+        data="update-channel",
     )
+
+    def _change_update_channel(e=None):
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            previous = ("beta" if str(cfg.get("update_channel") or "stable").lower() == "beta"
+                        else "stable")
+            value = update_channel.value
+            if value not in {"stable", "beta"}:
+                update_channel.value = previous
+            elif _save_preference(cfg, "update_channel", value, set_status=set_status,
+                                  error="Couldn't save the update channel"):
+                set_status(i18n.t("Update channel: beta - prereleases will be offered too")
+                           if value == "beta" else i18n.t("Update channel: stable"))
+            else:
+                update_channel.value = previous
+            thread_safe_ui.refresh(update_channel)
+
+    update_channel.on_select = _change_update_channel
+    launcher_pane = pane("Launcher", group([
+        row("Update channel", "Stable releases or beta previews", update_channel),
+        *([row("Launcher updates", "Check for a new version",
+               ft.TextButton(i18n.t("Check for updates"), data="check-launcher-updates",
+                             on_click=lambda e: on_check_updates()))]
+          if on_check_updates else []),
+        *([row("Replay onboarding", "Open the welcome tour",
+               ft.TextButton(i18n.t("Open tour"), data="replay-onboarding",
+                             on_click=lambda e: on_replay_onboarding()))]
+          if on_replay_onboarding else []),
+    ]), ft.Row([cubeon_web_link, minekube_badge], spacing=16,
+               vertical_alignment=ft.CrossAxisAlignment.CENTER))
 
     # ======================================================================
     # SCREENSHOTS
@@ -960,28 +979,22 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         from ui.screenshot_gallery import build_screenshot_gallery_tab
         screenshot_gallery, refresh_screenshot_gallery = build_screenshot_gallery_tab(page)
 
-    images_pane = ft.Container(content=screenshot_gallery, height=620)
-
-    # Reuse the controls and callbacks; regrouping must not mount a control twice.
-    welcome, notifications, updates, files, backups, links = system_pane.controls[2:]
-    game_window, launcher_appearance = display_pane.controls[2:]
-    if account_section is None:
-        account_section = pane("Account")
-    versions_pane.controls.append(game_window)
-    versions_pane.controls.remove(import_pane)
-    appearance_pane = pane('Appearance', launcher_appearance)
-    notifications_pane = pane('Notifications', notifications)
-    storage_pane = pane('Files and backups', files, backups, import_pane)
-    launcher_pane = pane('Launcher', updates, welcome, links)
+    images_pane = ft.Container(content=screenshot_gallery, expand=True)
     screenshots_pane = pane('Screenshots', images_pane)
-    panes = {'account': account_section, 'versions': versions_pane,
+    screenshots_pane.scroll = None  # The gallery owns its bounded thumbnail scroller.
+    panes = {'versions': versions_pane,
              'memory': performance_pane, 'appearance': appearance_pane,
              'seasonal': seasonal_pane, 'notifications': notifications_pane,
              'storage': storage_pane, 'system': launcher_pane,
              'images': screenshots_pane}
-    aliases = {'display': 'appearance', 'backups': 'storage', 'import': 'storage'}
+    if account_section is not None:
+        panes['account'] = account_section
+    aliases = {'display': 'appearance', 'backups': 'storage', 'import': 'storage',
+               'game': 'versions', 'performance': 'memory', 'theme': 'seasonal',
+               'files': 'storage', 'launcher': 'system', 'screenshots': 'images'}
     for key, p in panes.items():
         p.visible = (key == active_section["value"])
+        p.data = 'settings-pane-' + key
 
     # --- section rail ---------------------------------------------------------
     rail = ft.Column(spacing=4, tight=True,
@@ -989,24 +1002,24 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     rail_items = {}   # key -> the row Container, built once (see _rebuild_rail)
 
     def _select_section(key):
-        key = aliases.get(key, key)
-        if key not in panes:
-            return
-        active_section["value"] = key
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            key = aliases.get(key, key)
+            if key not in panes:
+                return
+            if key != active_section["value"]:
+                active_section["value"] = key
+                for k, p in panes.items():
+                    p.visible = (k == key)
+                _rebuild_rail()
+                thread_safe_ui.refresh(rail)
+                thread_safe_ui.refresh(pane_host)
         if key == 'images':
-            refresh_screenshot_gallery()
-        for k, p in panes.items():
-            p.visible = (k == key)
-        _rebuild_rail()
-        from cubeon import thread_safe_ui
-        thread_safe_ui.refresh(rail)
-        for p in panes.values():
-            thread_safe_ui.refresh(p)
-        # No fade on the pane itself: a dip-to-0-opacity-then-settle stuttered
-        # (it needs two flushes ~20ms apart that each re-sync the whole host).
+            if callable(refresh_screenshot_gallery):
+                refresh_screenshot_gallery()
 
     def _rebuild_rail():
-        # Built ONCE, then mutated, so the tint can fade and the icon can lift.
+        # Retain the controls and their keyboard targets across selections.
         if not rail_items:
             for key, icon, label in sections:
                 item = _rail_item(
@@ -1025,66 +1038,82 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     _rebuild_rail()
 
-    # Content and rail scroll independently, so every section stays reachable.
+    # Each retained section owns a viewport, so switching never inherits
+    # another section's scroll offset or clips the full-height gallery.
     pane_host = ft.Container(
-        content=ft.Column(
+        content=ft.Stack(
             [panes[k] for k, _, _ in sections],
-            spacing=8, expand=True, scroll=ft.ScrollMode.AUTO,
+            expand=True, fit=ft.StackFit.EXPAND,
         ),
         expand=True,
         padding=ft.padding.Padding.only(right=8),
     )
 
     rail_host = ft.Container(content=ft.Column([rail], scroll=ft.ScrollMode.AUTO,
-                                              expand=True), width=184)
+                                              expand=True), width=168)
     settings_tab = ft.Row(
         [
             rail_host,
             ft.Container(width=1, bgcolor=BORDER),
             pane_host,
         ],
-        spacing=24,
+        spacing=16,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH,
         expand=True,
     )
 
     # Mounted once in the launcher's retained Settings tab.
-    host = ft.Column([settings_tab], spacing=0, expand=True)
+    host = ft.Column([settings_tab], spacing=0, expand=True,
+                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
     # --- instant save on blur (width/height/java) ---------------------------
+    fields = (('width', width_field), ('height', height_field),
+              ('java_path', java_path_field), ('custom_jvm_flags', custom_jvm_field))
+
+    def field_values():
+        return tuple(str(field.value or '').strip() for _, field in fields)
+
+    saved_fields = {'values': field_values(), 'failed': False}
+
     def _save_on_blur(e=None):
-        """Persist width/height/java_path/custom flags.
+        """Save once per edit; keep failed edits retryable and the live config intact."""
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if field_values() == saved_fields['values'] and not saved_fields['failed']:
+                return True
+            previous = {key: (key in cfg, cfg.get(key)) for key, _ in fields}
+            try:
+                if save_width_height_java() is False:
+                    raise RuntimeError(i18n.t("Couldn't save settings"))
+            except Exception as ex:
+                for key, (existed, value) in previous.items():
+                    if existed:
+                        cfg[key] = value
+                    else:
+                        cfg.pop(key, None)
+                saved_fields['failed'] = True
+                set_status(f"{i18n.t('Could not save settings')}: {ex}")
+                return False
+            saved_fields.update(values=field_values(), failed=False)
+            set_status(i18n.t("Settings saved"))
+            return True
 
-        Guarded: this runs from on_blur AND on_submit. A rejected value or an
-        unwritable config file would otherwise raise straight out of the
-        handler - Flet swallows handler exceptions, so the field would look
-        dead with no feedback.
-        """
-        try:
-            save_width_height_java()
-        except Exception as ex:
-            set_status(f"Couldn't save settings: {ex}")
-            return
-        set_status("Settings saved")
+    for _, field in fields:
+        for event_name in ('on_blur', 'on_submit'):
+            previous = getattr(field, event_name)
 
-    width_field.on_blur = _save_on_blur
-    height_field.on_blur = _save_on_blur
-    java_path_field.on_blur = _save_on_blur
-    custom_jvm_field.on_blur = _save_on_blur
-    # Enter also saves. The previous submit handler is preserved, but each
-    # half is isolated so a failure in one can't stop the other.
-    for f in (width_field, height_field, java_path_field, custom_jvm_field):
-        prev = f.on_submit
+            def saved(event, previous=previous):
+                with thread_safe_ui.TREE_LOCK:
+                    error = None
+                    try:
+                        if callable(previous):
+                            previous(event)
+                    except Exception as ex:
+                        error = ex
+                    if _save_on_blur(event) and error is not None:
+                        set_status(f"{i18n.t('Settings saved')}. {error}")
 
-        def _submit(e, p=prev):
-            if p:
-                try:
-                    p(e)
-                except Exception:
-                    pass
-            _save_on_blur(e)
-
-        f.on_submit = _submit
+            setattr(field, event_name, saved)
 
     # Exposed so another surface can deep-link a section (the seasonal badge
     # uses it; a notification or a milestone card would too).

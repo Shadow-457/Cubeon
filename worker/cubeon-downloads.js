@@ -78,7 +78,6 @@ const UPDATE_FILES = {
   windows: FILES["/windowsdownload"],
   linux: FILES["/linuxdownload"],
   "linux-deb": FILES["/linuxdeb"],
-  macos: "Cubeon-macOS.zip",
 };
 const UPDATE_ORIGIN = "https://cubeon-downloads.hamza-457-shahbaz.workers.dev";
 const versionParts = (tag) => /^v?\d+\.\d+\.\d+$/.test(tag || "")

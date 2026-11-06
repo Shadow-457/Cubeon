@@ -67,6 +67,8 @@ MAX_SOURCE_BYTES = 8 * 1024 * 1024
 
 
 
+from .paths import instance_csl_path
+
 def _load_capes_meta() -> dict:
     if os.path.exists(CAPES_META_PATH):
         try:
@@ -251,8 +253,8 @@ def sync_local_cape_to_csl(cfg: dict) -> None:
         return
 
     try:
-        os.makedirs(CSL_LOCAL_CAPES_DIR, exist_ok=True)
-        dest = os.path.join(CSL_LOCAL_CAPES_DIR, f"{username}.png")
+        os.makedirs(instance_csl_path(CSL_LOCAL_CAPES_DIR), exist_ok=True)
+        dest = os.path.join(instance_csl_path(CSL_LOCAL_CAPES_DIR), f"{username}.png")
         if filename:
             src = get_custom_cape_path(filename)
             if not os.path.isfile(src):
@@ -275,7 +277,7 @@ def sync_local_cape_to_csl(cfg: dict) -> None:
                 # Publish a complete texture; CSL can read while sync runs.
                 import tempfile
                 fd, tmp = tempfile.mkstemp(prefix=".cubeon-cape-", suffix=".tmp",
-                                           dir=CSL_LOCAL_CAPES_DIR)
+                                           dir=instance_csl_path(CSL_LOCAL_CAPES_DIR))
                 try:
                     with os.fdopen(fd, "wb") as output:
                         output.write(data)
@@ -297,7 +299,7 @@ def _transparent_cape_sheet() -> Image.Image:
 
 def _remove_local_cape(username: str) -> None:
     try:
-        path = os.path.join(CSL_LOCAL_CAPES_DIR, f"{username}.png")
+        path = os.path.join(instance_csl_path(CSL_LOCAL_CAPES_DIR), f"{username}.png")
         if os.path.isfile(path):
             os.remove(path)
     except OSError:

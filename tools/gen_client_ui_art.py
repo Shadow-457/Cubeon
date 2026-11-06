@@ -1,6 +1,6 @@
 """Generate antialiased UI masks and Cubeon's existing cube mark (Pillow)."""
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 import json
 import math
 
@@ -18,12 +18,30 @@ def save(image, name):
     (TARGET / (name + ".mcmeta")).write_text(json.dumps({"texture": {"blur": True, "clamp": True}}) + "\n")
 
 
+def generate_rounded_rims():
+    """One GUI-pixel ring for each corner radius, without filling the panel interior."""
+    TARGET.mkdir(parents=True, exist_ok=True)
+    atlas = Image.new("RGBA", (128 * 16, 128))
+    for radius in range(1, 17):
+        outer = Image.new("L", (512, 512))
+        ImageDraw.Draw(outer).ellipse((0, 0, 511, 511), fill=255)
+        inner = Image.new("L", outer.size)
+        inset = 256 / radius
+        if radius > 1:
+            ImageDraw.Draw(inner).ellipse((inset, inset, 511 - inset, 511 - inset), fill=255)
+        ring = Image.new("RGBA", outer.size, "white")
+        ring.putalpha(ImageChops.subtract(outer, inner))
+        atlas.paste(ring.resize((128, 128), Image.Resampling.LANCZOS), ((radius - 1) * 128, 0))
+    save(atlas, "rounded-rims.png")
+
+
 def main():
     TARGET.mkdir(parents=True, exist_ok=True)
     size = 512
     rounded = Image.new("RGBA", (size, size))
     ImageDraw.Draw(rounded).ellipse((0, 0, size-1, size-1), fill="white")
     save(rounded.resize((128, 128), Image.Resampling.LANCZOS), "rounded.png")
+    generate_rounded_rims()
     icons = Image.new("RGBA", (128 * 11, 128))
     for pose, arms in enumerate(ARMS):
         icon = Image.new("RGBA", (512, 512))

@@ -48,6 +48,10 @@ CACHE = os.path.join(HOME, ".cubeon_launcher", "cache")
 # assets folder is a self-contained shippable (a packaged launcher reads ONLY
 # this location - see cubeonfriends.find_jar).
 ASSETS_JARS = os.path.join(ROOT, "assets", "jars")
+LOGO_ASSETS = {
+    "assets/cubeon-client/icon.png": Path(ROOT, "assets/icon_128.png"),
+    "assets/cubeon-client/textures/font/cubeon_client.png": Path(ROOT, "assets/icon_16.png"),
+}
 
 # What a healthy jar must contain. The two resources are the whole reason the mod
 # loads at all, the mixins are the one thing most likely to be missing if a
@@ -84,6 +88,10 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "assets/cubeon-client/icon.png",
                     "com/cubeon/client/CubeonClient.class",
                     "com/cubeon/client/WorldPlayers.class",
+                    "com/cubeon/client/TabLogo.class",
+                    "assets/cubeon-client/font/cubeon_client.json",
+                    "assets/cubeon-client/textures/font/cubeon_client.png",
+                    "com/cubeon/client/hud/TemporalBlur.class",
                     "com/cubeon/client/emotes/EmoteState.class",
                     "com/cubeon/client/emotes/EmotePose.class",
                     "com/cubeon/client/emotes/EmoteWheel.class",
@@ -96,12 +104,26 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/hud/screen/CubeonHudMenuScreen.class",
                     "com/cubeon/client/hud/screen/MoveOverlayScreen.class",
                     "com/cubeon/client/ui/ClientUi.class",
+                    "com/cubeon/client/ui/MenuUi.class",
                     "com/cubeon/client/ui/HudMenu.class",
+                    "com/cubeon/client/ui/SkinMenu.class",
+                    "com/cubeon/client/skins/SkinLibrary.class",
+                    "com/cubeon/client/skins/SkinPreview.class",
+                    "com/cubeon/client/skins/LiveSkin.class",
+    "com/cubeon/client/skins/LiveCape.class",
+    "com/cubeon/client/skins/LiveCapeTexture.class",
+                    "com/cubeon/client/skins/LiveSkinTexture.class",
+                    "com/cubeon/client/mixin/LiveSkinMixin.class",
+                    "com/cubeon/client/hud/screen/SkinLibraryScreen.class",
+    "com/cubeon/client/hud/screen/SkinNative.class",
+    "com/cubeon/client/mixin/SkinTitleMenuMixin.class",
                     "com/cubeon/client/ui/HudEditorChrome.class",
                     "assets/cubeon-client/font/ui.json",
                     "assets/cubeon-client/font/ui.ttf",
                     "assets/cubeon-client/font/OFL-Inter.txt",
                     "assets/cubeon-client/textures/ui/rounded.png",
+                    "assets/cubeon-client/textures/ui/rounded-rims.png",
+                    "com/cubeon/client/mixin/OwnNameTagMixin.class",
                     "assets/cubeon-client/textures/ui/icons.png",
                     "assets/cubeon-client/textures/ui/wheel-8.png",
                     "com/cubeon/client/TabListTag.class",
@@ -165,7 +187,7 @@ REQUIRED_ENTRIES_CAMERA_BLUR = (
 REQUIRED_ENTRIES += REQUIRED_ENTRIES_CAMERA_BLUR
 
 REMOVED_FEATURE_MARKERS = (b"/motionblur", b"motionblurmixin", b"motionblurstrength",
-                           b'"motionblur"', b"\x00\x0amotionblur", b"motion_blur", b"dynamiccrosshair",
+                           b'"motionblur"', b"\x00\x0amotionblur", b'"cubeonclient.hud.motion_blur"', b"dynamiccrosshair",
                            b"dynamic_crosshair", b"crosshairscale", b"crosshairmixin",
                            b"cubeon-client-crosshair", b"rendertargethighlight",
                            b"customreticle", b"reticlemode", b"reticlesize", b"minimap",
@@ -178,7 +200,9 @@ def removed_feature_entries(jar):
     for name in jar.namelist():
         path = name.encode("utf-8").lower()
         data = jar.read(name).lower() if name.endswith((".class", ".json", ".fsh")) else b""
-        if any(marker in path or marker in data for marker in REMOVED_FEATURE_MARKERS):
+        if (any(marker in path or marker in data for marker in REMOVED_FEATURE_MARKERS)
+                or re.search(rb"motion_blur(?!_plus)", path)
+                or re.search(rb"motion_blur(?!_plus)", data)):
             found.append(name)
     return found
 
@@ -300,7 +324,7 @@ def verify(jar_path, bracket=None):
                for entry in parsed.get("mixins", [])]
     if "cubeon-client.mixins.json" not in configs or any(
             hook not in client_hooks.get("client", [])
-            for hook in ("CosmeticLayersAccessor", "CosmeticElytraMixin")):
+            for hook in ("CosmeticLayersAccessor", "CosmeticElytraMixin", "SkinTitleMenuMixin", "OwnNameTagMixin")):
         return "cosmetic elytra hooks are not registered"
     if "cubeon-client.freelook.mixins.json" not in configs:
         return "freelook mixin config is not registered"
@@ -349,6 +373,17 @@ def verify(jar_path, bracket=None):
             return "camera blur setting is missing"
         if b"cameraBlurIntensity" not in jar.read("com/cubeon/client/hud/CubeonHudConfig.class"):
             return "camera blur intensity setting is missing"
+        for field in (b"temporalMotionBlur", b"temporalBlurStrength"):
+            if field not in jar.read("com/cubeon/client/hud/CubeonHudConfig.class"):
+                return "Motion blur+ setting is missing: " + field.decode()
+        for key in ("motion_blur_plus", "motion_blur_plus_hint", "motion_blur_plus_strength"):
+            if not labels.get("cubeonclient.hud." + key):
+                return "Motion blur+ label is missing: " + key
+        for entry in ("assets/cubeon-client/icon.png", "assets/cubeon-client/font/cubeon_client.json",
+                      "assets/cubeon-client/textures/font/cubeon_client.png"):
+            source = LOGO_ASSETS.get(entry, Path(MOD_DIR, "src/main/resources", entry))
+            if jar.read(entry) != source.read_bytes():
+                return "Cubeon logo resource is stale: " + entry
         if not labels.get("cubeonclient.hud.camera_blur"):
             return "camera blur setting label is missing"
         if not labels.get("cubeonclient.hud.blur_intensity") or not labels.get("cubeonclient.hud.blur_intensity_hint"):
@@ -409,6 +444,9 @@ def main(argv=None):
         print("unknown bracket(s): " + ", ".join(unknown))
         print("known: " + ", ".join(known))
         return 2
+
+    for entry, source in LOGO_ASSETS.items():
+        shutil.copyfile(source, Path(MOD_DIR, "src/main/resources", entry))
 
     if not regenerate_cosmetics():
         print("could not regenerate the cosmetics bundle; refusing to build "

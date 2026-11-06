@@ -1279,6 +1279,19 @@ async def main(page: ft.Page):
     _inspector_enabled = _insp_enabled(cfg)
 
     # --- Disk hygiene: tidy Cubeon's own folders, off the UI thread ---
+    from cubeon import storage as instance_storage
+    try:
+        instance_storage.initialize()
+        instance_storage.register_session()
+    except (OSError, ValueError, RuntimeError) as error:
+        _splash.content = ft.Column([
+            ft.Text("Minecraft files need attention", size=22),
+            ft.Text(str(error)),
+            ft.Text("Your game files have not been moved. Close Cubeon and resolve the issue before retrying."),
+            ft.TextButton("Exit", on_click=lambda _: _window_closer.request()),
+        ], tight=True)
+        page.update()
+        return
     # Idempotent and non-destructive (see cubeon/maintenance.py): it merges
     # stray game assets back into assets/objects/, drops superseded duplicates
     # from the global mod/content stores, archives foreign-launcher leftovers
@@ -1341,7 +1354,7 @@ async def main(page: ft.Page):
     # "the bytes never arrived" - see cubeon/versions.py for the exclusions
     # and the mtime grace period that protects a download in flight. Turn it
     # off in Settings > Game versions (auto_delete_incomplete).
-    if bool(cfg.get("auto_delete_incomplete", True)):
+    if bool(cfg.get("auto_delete_incomplete", True)) and not instance_storage.pending_versions():
         try:
             _cleaned_up = core.cleanup_unfinished_installs()
             if _cleaned_up:
@@ -2833,23 +2846,34 @@ async def main(page: ft.Page):
         # Internal mirror only. The visible readout is the compact hero tag.
 
     # FPS boost: the Play-menu toggle (moved out of Settings on 2026-10-15).
-    # ON = the launcher sets Minecraft's own speed-only graphics options at
-    # Performance defaults apply once; later in-game changes survive. OFF
-    # restores only unchanged boost settings from the per-instance backup.
-    # Render/simulation distances, VSync and the frame cap belong to the player.
+    # Normal defaults apply once. Opt-in sync enforces video settings on every
+    # launch; OFF restores unchanged values from the per-instance backup.
     fps_boost_switch = ft.Switch(
         value=bool(cfg.get("fps_boost_enabled", True)),
         active_color=ACCENT,
     )
 
     def on_fps_boost_change(e):
-        cfg["fps_boost_enabled"] = bool(fps_boost_switch.value)
-        core.save_config(cfg)
-        set_status("FPS boost " +
-                   ("on - performance defaults at next launch" if fps_boost_switch.value
-                    else "off - previous graphics restored at next launch"))
+        with thread_safe_ui.TREE_LOCK:
+            previous = cfg.get("fps_boost_enabled", True)
+            cfg["fps_boost_enabled"] = bool(fps_boost_switch.value)
+            try:
+                core.save_config(cfg)
+            except Exception:
+                cfg["fps_boost_enabled"] = previous
+                fps_boost_switch.value = previous
+                set_status("Couldn't save FPS boost settings. Try again.")
+            else:
+                set_status("FPS boost " +
+                           ("on - performance settings at next launch" if fps_boost_switch.value
+                            else "off - previous graphics restored at next launch"))
+            fps_boost_options.disabled = not bool(fps_boost_switch.value)
+            thread_safe_ui.refresh(fps_boost_tile)
 
     fps_boost_switch.on_change = on_fps_boost_change
+    from ui.fps_boost import build_boost_options
+    fps_boost_options = build_boost_options(
+        cfg, core.save_config, lambda message: set_status(message), accent=ACCENT, text_color=TEXT_DIM)
 
     # Switcher between Vanilla and each supported mod loader. The selected
     # segment is marked by a subtle green wash behind it plus green, semibold
@@ -3767,6 +3791,8 @@ async def main(page: ft.Page):
     _PLAY_CLICK_COOLDOWN = 0.35  # seconds
 
     def _main_action_click(e=None):
+        if instance_storage.blocked():
+            return
         """The one big button, three meanings: while an install is in flight
         it is Cancel, while a game is live it is Quit Game, otherwise it
         starts the normal play/download flow. Defined before play_button (it
@@ -4658,20 +4684,15 @@ async def main(page: ft.Page):
 
         threading.Thread(target=_work, daemon=True, name="quit-game").start()
 
-    def _begin_install_and_launch(version_id, username, ensure_java_major=None,
-                                  install_loader=None, icon_choice=None):
+    def _begin_install_and_launch(version_id, username, install_loader=None,
+                                  icon_choice=None):
         """Paints the busy state and hands off to the install worker.
 
-        Both a Play click and the Java prompt's accepted answer enter here.
-        The worker probes Java before writing files and releases its claim
-        before asking for a missing runtime, so declining cannot strand it.
-
-        `ensure_java_major` makes the worker install a managed runtime before
-        anything else; None means the worker will check the installed Java.
+        The worker verifies Java and prepares a managed fallback before
+        writing game files, using the same progress and cancellation controls.
         """
         # Claim the install slot for this version before painting anything
-        # busy. This is the single funnel for both ways in - a direct click
-        # and the Java prompt's "Install Java" answer - so a second press for
+        # busy. This is the single funnel for install/Play requests, so a second press for
         # the SAME version lands here too: the button can repaint itself
         # enabled out from under a click (a prefetch finishing, or
         # on_version_selected firing from the picker, a toggle, a rename, a
@@ -4680,7 +4701,7 @@ async def main(page: ft.Page):
         # double-downloads, and repaints over the first one's progress.
         #
         # The progress card and cancel button describe one attempt. Claim
-        # their slot atomically, including requests from the Java prompt.
+        # their slot atomically for every install/Play request.
         with thread_safe_ui.TREE_LOCK, _launch_state_lock:
             if state.get("updating_launcher"):
                 return False
@@ -4699,7 +4720,7 @@ async def main(page: ft.Page):
                 return False
             # A pack install (Modpacks tab / Import) is writing this version
             # right now. This is the second way in - on_play_click checks it
-            # too, but the Java prompt calls this function directly, so the
+            # too, but instance creation can enter here directly, so the
             # guard has to live here as well (and under the same lock as the
             # claim, so the two can't interleave).
             _pack_name = None
@@ -4758,7 +4779,6 @@ async def main(page: ft.Page):
         try:
             threading.Thread(
                 target=lambda: do_install_and_launch(version_id, username,
-                                                     ensure_java_major,
                                                      install_loader, icon_choice),
                 daemon=True).start()
         except Exception:
@@ -4774,64 +4794,9 @@ async def main(page: ft.Page):
 
         return True
 
-    def _prompt_for_java(version_id, username, mc_version, jstatus,
-                         install_loader=None, icon_choice=None):
-        """Asks whether Cubeon may download the Java this version needs.
-
-        Three answers, and each one must leave the launcher in a sane state:
-        Install goes ahead with the runtime fetched first, Not now cancels the
-        whole install (the user did not ask to install Minecraft, so installing
-        it anyway and then failing on Java would be worse), and a dismissed
-        dialog is treated exactly like Not now - an unanswered question is a
-        "no", never an implicit consent to a 50 MB download.
-        """
-        required = jstatus.get("required") or 17
-        found = jstatus.get("found")
-        if jstatus.get("exact"):
-            why = (f"Forge 1.8.9 needs Java {required}. "
-                   f"{'Java ' + str(found) + ' was found instead.' if found else 'No compatible Java runtime was found.'}")
-        elif found:
-            why = (f"This version needs Java {required} or newer, and the only "
-                   f"Java on this computer is {found}.")
-        else:
-            why = (f"This version needs Java {required} or newer, and no Java "
-                   f"was found on this computer.")
-        approx = "50-100 MB" if required >= 17 else "around 40 MB"
-        body = (f"{why}\n\n"
-                f"Cubeon can download a verified Java {required} runtime from "
-                f"Eclipse Adoptium or Azul ({approx}) and keep it alongside the launcher. It "
-                f"won't touch any Java you already have installed.")
-
-        def _install(dlg):
-            _close_dialog(dlg=dlg)
-            _begin_install_and_launch(version_id, username,
-                                      ensure_java_major=required,
-                                      install_loader=install_loader, icon_choice=icon_choice)
-
-        def _not_now(dlg):
-            _close_dialog(dlg=dlg)
-            set_button_mode("play" if version_id in state["installed"]
-                            else "download")
-            set_status("Ready")
-            page.update()
-
-        dlg = ft.AlertDialog(
-            modal=True, bgcolor=SURFACE,
-            title=ft.Text("Java isn't installed", color=TEXT,
-                          weight=ft.FontWeight.W_800),
-            content=ft.Container(
-                content=ft.Text(body, size=13, color=TEXT),
-                width=400,
-            ),
-            actions=[
-                ft.TextButton("Not now", on_click=lambda e: _not_now(dlg)),
-                ft.TextButton(f"Install Java {required}", on_click=lambda e: _install(dlg),
-                              style=ft.ButtonStyle(color=ACCENT)),
-            ],
-        )
-        _open_dialog(dlg)
-
     def on_play_click():
+        if instance_storage.blocked():
+            return False
         """
         This is called when the user clicks the main play/download button.
         It validates the username, saves config, and then starts the installation/launch process
@@ -4952,11 +4917,10 @@ async def main(page: ft.Page):
             except Exception:
                 _sync_play_button()
 
-    def do_install_and_launch(version_id, username, ensure_java_major=None,
-                              install_loader=None, icon_choice=None):
+    def do_install_and_launch(version_id, username, install_loader=None, icon_choice=None):
         """
         This runs in a background thread. It handles:
-          - Installing a managed Java runtime first, if the user agreed to one
+          - Verifying installed Java or preparing a managed runtime first
           - Installing the version if not already present
           - Installing Fabric if selected and supported
           - Launching the game with the chosen version
@@ -4968,7 +4932,7 @@ async def main(page: ft.Page):
         cancel = _cancel_event(version_id)
         icon_choice = dict(icon_choice if icon_choice is not None else
                            state.get("pending_instance_icon") or {})
-        java_prompt = None
+        resolved_java = None
         cancellable = {"on": True}  # disarmed once the launch phase begins
 
         def _check_cancel():
@@ -4990,14 +4954,8 @@ async def main(page: ft.Page):
                 # Java probes can take seconds per executable. Keep them off the
                 # click handler, cancellable, and before any game-file writes.
                 _check_cancel()
-                if not ensure_java_major:
-                    mc_version = core.resolve_mc_version(version_id)
-                    java_version_id = mc_version + "-forge" if loader_id == "forge" and mc_version == "1.8.9" else mc_version
-                    jstatus = core.jre.java_status(java_version_id, cfg.get("java_path"))
-                    _check_cancel()
-                    if not jstatus.get("ok") and jstatus.get("required"):
-                        java_prompt = (mc_version, jstatus, loader_id)
-                        return
+                mc_version = core.resolve_mc_version(version_id)
+                java_version_id = mc_version + "-forge" if loader_id == "forge" and mc_version == "1.8.9" else mc_version
                 installed_choice = instance_info.describe(
                     version_id, (state.get("installed_meta") or {}).get(version_id),
                     with_mods=False, play_store={})
@@ -5083,24 +5041,19 @@ async def main(page: ft.Page):
                     _save_new_instance_icon(icon_choice, "rust", version_id)
                 _paint_progress(force=True)
             else:
-                # --- The Java the user agreed to have fetched ---------------------
-                # Runs before anything else so the failure mode is the honest one
-                # ("couldn't install Java") rather than a half-downloaded Minecraft
-                # followed by a WinError 2 from the loader installer. The progress
-                # callbacks are reused, so this shows up in the same bar with the
-                # same cancel button. A JreError carries a message written for the
-                # user, so it is re-raised as-is and lands in the normal error path
-                # with that text instead of a traceback.
-                if ensure_java_major:
-                    _check_cancel()
+                # A working existing JVM wins; otherwise prepare the required
+                # runtime before game/loader files, with the same Cancel button.
+                _check_cancel()
+                with thread_safe_ui.TREE_LOCK:
                     progress_stage.value = "JAVA"
-                    thread_safe_ui.refresh(progress_stage)
                     progress_bar.data = 1
-                    core.jre.install_jre(
-                        int(ensure_java_major),
-                        progress_cb=lambda done, total: progress_cb(
-                            done / (total or 1)),
-                        status_cb=status_cb)
+                thread_safe_ui.refresh(progress_stage)
+                max_cb(1)
+                resolved_java = core.jre.ensure_java_for_version(
+                    java_version_id, cfg.get("java_path"),
+                    progress_cb=lambda done, total: progress_cb(done / (total or 1)),
+                    status_cb=status_cb, cancel_check=_check_cancel)
+                _check_cancel()
 
                 # Serialize filesystem writes for this version, with cancellable waits.
                 _check_cancel()
@@ -5118,12 +5071,9 @@ async def main(page: ft.Page):
                         if version_id not in state["installed"]:
                             core.install_version(version_id, progress_cb, status_cb,
                                                  max_cb, cancel_event=cancel,
-                                                 # The launch passes cfg's java path
-                                                 # as executablePath, so mll's own
-                                                 # runtime copy is dead weight -
-                                                 # see versions.install_version.
-                                                 explicit_java=bool(
-                                                     cfg.get("java_path")))
+                                                 # Java was verified above; skip
+                                                 # a second Mojang runtime copy.
+                                                 explicit_java=True)
                             state["installed"].add(version_id)
                             # Publish it immediately: a fresh install is a new
                             # instance, and the version panel is keyed on the full
@@ -5507,7 +5457,7 @@ async def main(page: ft.Page):
 
             game = core.launch_game(
                 target_version, username, cfg["ram_mb"], cfg["width"], cfg["height"],
-                cfg.get("java_path"), on_exit=on_exit,
+                cfg.get("java_path") if native else resolved_java, on_exit=on_exit,
                 # Clean numeric version, not the raw launch id - this is the
                 # same profile key the Mods tab and modpack installer use.
                 # Passing version_id here (as before) meant a TLauncher-style
@@ -5687,12 +5637,6 @@ async def main(page: ft.Page):
                 if state.get("launching_version") == version_id:
                     state["launching_version"] = None
             _reset_button_after_worker(version_id)
-            if java_prompt is not None:
-                async def _ask_java():
-                    with thread_safe_ui.TREE_LOCK:
-                        _prompt_for_java(version_id, username, *java_prompt,
-                                         icon_choice=icon_choice)
-                page.run_task(_ask_java)
 
     # --- Server status panel - the right column below the grass block was
     # dead space, and "is my server running" is a genuinely useful thing to
@@ -6219,8 +6163,8 @@ async def main(page: ft.Page):
     # (not the Cubeon data dir) and always stays clickable - it is harmless
     # when nothing is installed and is still the right folder to tidy up.
     def _open_minecraft_folder(e=None):
-        from cubeon.paths import MINECRAFT_DIR
-        _open_any_folder(MINECRAFT_DIR, "Minecraft folder")
+        from cubeon.paths import game_dir_for
+        _open_any_folder(game_dir_for(state.get("selected_version")), "Minecraft folder")
 
     folder_instance_btn = theme.attach_hover(
         ft.Container(
@@ -6385,6 +6329,7 @@ async def main(page: ft.Page):
                 ft.Text(i18n.t("FPS boost"), size=12.5, color=TEXT,
                         weight=ft.FontWeight.W_600),
                 fps_boost_switch,
+                fps_boost_options,
             ],
             spacing=8, tight=True,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -6393,9 +6338,8 @@ async def main(page: ft.Page):
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS,
         padding=ft.padding.Padding.only(left=12, right=4, top=4, bottom=4),
-        tooltip=("Applies performance defaults once. Your later video changes stay saved. "
-                 "Off restores previous unchanged graphics settings at next launch. "
-                 "Render distance, VSync and frame cap stay under your control."),
+        tooltip=("Adds compatible performance mods. Enable Sync game settings to reapply the video preset "
+                 "at every launch. Off restores previous unchanged graphics settings at next launch."),
         data="play-fps-tile",
     )
 
@@ -7282,22 +7226,24 @@ async def main(page: ft.Page):
             set_status(f"Couldn't open {label}: {ex}")
 
     from cubeon import paths as _paths
+    from cubeon import content as _folder_content
+    from cubeon import mods as _folder_mods
     _FOLDER_ROWS = [
-        ("Minecraft folder", "the game folder - versions, logs and options",
-         lambda: _paths.MINECRAFT_DIR),
-        ("Mods", "every jar Cubeon syncs into the game",
-         lambda: _paths.MODS_DIR),
+        ("Minecraft folder", "the selected instance's game files",
+         lambda: _paths.game_dir_for(state.get("selected_version"), create=False)),
+        ("Mods", "mods installed in the selected instance",
+         lambda: _folder_mods.resolve_profile_dir(state.get("selected_mc_version"), state.get("mod_loader"), state.get("selected_version"))),
         ("Resource packs", "texture packs the game reads",
-         lambda: _paths.RESOURCEPACKS_DIR),
+         lambda: _folder_content.resolve_content_profile_dir("resourcepack", state.get("selected_mc_version"), state.get("mod_loader"), state.get("selected_version"))),
         ("Shaders", "shaderpacks the game reads",
-         lambda: _paths.SHADERPACKS_DIR),
+         lambda: _folder_content.resolve_content_profile_dir("shader", state.get("selected_mc_version"), state.get("mod_loader"), state.get("selected_version"))),
         # Worlds are per instance now (paths.INSTANCES_GAME_DIR): open the
         # folder of the instance being played, not a shared saves/ that the
         # game no longer writes to.
         ("Worlds (saves)", "your singleplayer worlds",
-         lambda: os.path.join(_paths.active_game_dir(), "saves")),
+         lambda: os.path.join(_paths.game_dir_for(state.get("selected_version"), create=False), "saves")),
         ("Screenshots", "the game's screenshots folder",
-         lambda: os.path.join(_paths.MINECRAFT_DIR, "screenshots")),
+         lambda: os.path.join(_paths.game_dir_for(state.get("selected_version"), create=False), "screenshots")),
         ("Cubeon data", "config, logs and caches - not the game",
          lambda: _paths.CUBEON_HOME),
     ]
@@ -7323,7 +7269,7 @@ async def main(page: ft.Page):
             ),
             bgcolor="transparent", border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-            on_click=lambda e=None, g=getter, l=label: _open_any_folder(g(), l),
+            on_click=lambda e=None, g=getter, l=label: _open_instance_folder(g, l),
         )
         try:
             row.tooltip = getter()   # the real path, resolved at build time
@@ -7332,9 +7278,14 @@ async def main(page: ft.Page):
         theme.attach_hover(row, "transparent", ROW_HOVER)
         return row
 
+    def _open_instance_folder(getter, label):
+        _paths.game_dir_for(state.get("selected_version"), create=True)
+        _open_any_folder(getter(), label)
+
     minecraft_files_pane = ft.Column(
         [
             section_label("Minecraft files"),
+            ft.TextButton("Organize Minecraft files…", on_click=lambda e: _show_storage_migration()),
             ft.Container(height=4),
             ft.Text(
                 "Open the folders Cubeon and Minecraft use. Anything you drop "
@@ -8059,6 +8010,8 @@ async def main(page: ft.Page):
             set_button_mode("running")
 
     def switch_tab(key):
+        if instance_storage.blocked():
+            return
         """
         Switches the active tab. Updates the navigation buttons' appearance
         and replaces the content area with the chosen tab.
@@ -8531,6 +8484,26 @@ async def main(page: ft.Page):
     if "onboarded" not in cfg:
         _show_onboarding()
 
+    from ui.storage_migration import StorageMigration
+    _storage_prompt = None
+
+    def _show_storage_migration():
+        nonlocal _storage_prompt
+        if _storage_prompt is not None and _storage_prompt.phase in ("migrating", "restart"):
+            return
+        from cubeon.update_install import application_busy
+        from ui.install_feedback import any_busy as content_busy
+        def lock_ui(locked):
+            _app_root.disabled = locked
+            thread_safe_ui.refresh(_app_root)
+        _storage_prompt = StorageMigration(
+            page, busy=lambda: application_busy(state) or content_busy(),
+            restart=_on_restart_click,
+            exit_launcher=lambda e: _window_closer.request(),
+            set_locked=lock_ui,
+            instance_labels=cfg.get("version_labels"),
+        ).show()
+
 
 
     # AWAIT the finish reveal (same rationale as the splash above). Awaiting
@@ -8568,6 +8541,9 @@ async def main(page: ft.Page):
             await asyncio.sleep(0)
 
     page.run_task(_prewarm_content_tabs)
+    from cubeon import storage_layout as instance_layout
+    if _onboard_overlay is None and (instance_storage.needs_migration() or instance_layout.needed(cfg.get("version_labels"))):
+        _show_storage_migration()
 
     # The Cubeon name is automatic now: ensure_identity() mints the
     # secret-derived handle (no claim prompt) and the server binds it on the
@@ -8691,7 +8667,7 @@ async def main(page: ft.Page):
     def _backup_scheduler():
         while True:
             try:
-                if core.backup_module.is_due():
+                if not instance_storage.blocked() and not instance_storage.pending_versions() and core.backup_module.is_due():
                     set_status("Running scheduled backup", busy=True)
                     result = core.backup_module.create_backup()
                     set_status(result.message if result.ok else f"Backup failed: {result.message}")
@@ -9004,6 +8980,8 @@ async def main(page: ft.Page):
                 state["window_focused"] = False
             elif ev in ("focus", "restore", "show"):
                 state["window_focused"] = True
+                if ev == "focus" and not instance_storage.blocked() and active_tab.get("value") == "mods":
+                    threading.Thread(target=refresh_mods_list, name="mods-focus-refresh", daemon=True).start()
             # An invisible window must not animate. "hide" also means close on
             # this build (see below): pausing there is harmless - the session
             # is ending anyway - and it keeps a minimize from repainting for

@@ -425,6 +425,7 @@ def install_safe_stubs(verbose=False):
     # The worker's Java preflight must not execute a system JVM in UI fixtures.
     # Missing-Java tests override this safe result explicitly.
     core.jre.java_status = lambda *a, **k: {"ok": True, "required": 17, "found": 17}
+    core.jre.ensure_java_for_version = lambda *a, **k: "/usr/bin/java"
 
     # Redirect the one profile-dir choke point (which does makedirs + writes a
     # meta file) into a throwaway temp dir, and stub the disk-reading list calls,

@@ -131,6 +131,113 @@ class ManagementUI(unittest.TestCase):
         self.assertTrue(fallback.visible)
         self.assertTrue(switch.value)
 
+    def client_browse_tile(self):
+        self.refresh()
+        scope = env(self.fns['_render_browse_page'])
+        scope['browse_state'].update(token=('test', None), pages={0: []}, page=0)
+        self.fns['_render_browse_page']()
+        row = next(c for c in fz.walk(scope['browse_results_view']) if getattr(c, 'data', None) == 'cubeon-client-browse')
+        button = next(c for c in fz.walk(row) if getattr(c, 'data', None) == 'cubeon-client-install')
+        self.assertFalse(any(getattr(c, 'data', None) == 'cubeon-client-catalog' for c in fz.walk(self.root)))
+        return row, button
+
+    def test_client_install_restores_deleted_jar_off_thread_and_enables_preference(self):
+        self.cfg['client_mod_enabled'] = False
+        row, button = self.client_browse_tile()
+        self.assertEqual(button.content.controls[1].value, 'Install')
+        self.assertIsNone(row.on_click)
+        self.assertEqual(row.content.controls[0].src, 'icon_64.png')
+        with patch('ui.mods_tab.resolve_profile_dir', return_value='/profile-A') as resolve, \
+                patch('cubeon.cubeonfriends.ensure_installed', return_value=True) as install, \
+                patch.object(self.core, 'save_config'):
+            QueuedThread.jobs.clear()
+            button.on_click(None)
+            button.on_click(None)
+            self.assertEqual(len(QueuedThread.jobs), 1)
+            install.assert_not_called()
+            self.assertTrue(button.disabled)
+            self.core.list_mods = lambda *a, **k: [dict(filename='cubeon-client-1.jar', display_name='Cubeon Client', size_kb=10, enabled=True)]
+            QueuedThread.jobs.pop()()
+            resolve.assert_called_once_with('1.21.11', 'fabric', 'instance-A')
+            install.assert_called_once_with('1.21.11', 'fabric', '/profile-A')
+        self.assertTrue(self.cfg['client_mod_enabled'])
+        self.assertFalse(button.disabled)
+        self.assertEqual(button.content.controls[1].value, 'Reinstall')
+        self.assertIn('installed', button.tooltip)
+
+    def test_client_install_reports_failed_preference_save_and_can_retry(self):
+        self.cfg['client_mod_enabled'] = False
+        _, button = self.client_browse_tile()
+        QueuedThread.jobs.clear()
+        with patch.object(self.core, 'save_config', side_effect=OSError('disk full')):
+            button.on_click(None)
+        self.assertFalse(self.cfg['client_mod_enabled'])
+        self.assertEqual(QueuedThread.jobs, [])
+        self.assertEqual(button.content.controls[1].value, 'Try again')
+        self.assertIn('disk full', button.tooltip)
+        self.assertFalse(button.disabled)
+        with patch.object(self.core, 'save_config'):
+            button.on_click(None)
+        self.assertEqual(len(QueuedThread.jobs), 1)
+
+    def test_client_install_keeps_captured_instance_and_reports_missing_bundle(self):
+        _, button = self.client_browse_tile()
+        with patch('ui.mods_tab.resolve_profile_dir', return_value='/profile-A') as resolve, \
+                patch('cubeon.cubeonfriends.ensure_installed', return_value=False) as install:
+            QueuedThread.jobs.clear()
+            button.on_click(None)
+            self.dropdown.value = 'instance-B'
+            QueuedThread.jobs.pop()()
+            resolve.assert_called_once_with('1.21.11', 'fabric', 'instance-A')
+            install.assert_called_once_with('1.21.11', 'fabric', '/profile-A')
+            self.dropdown.value = 'instance-A'
+            button.on_click(None)
+            QueuedThread.jobs.pop()()
+        self.assertIn('unavailable', button.tooltip)
+        self.assertEqual(button.content.controls[1].value, 'Try again')
+        self.assertFalse(button.disabled)
+
+    def test_client_browse_uses_reinstall_and_only_compatible_mod_profiles(self):
+        self.client_row()
+        _, button = self.client_browse_tile()
+        self.assertEqual(button.content.controls[1].value, 'Reinstall')
+        self.active['type'] = 'shader'
+        self.assertIsNone(self.fns['_client_browse_entry']())
+        self.active['type'] = 'mod'
+        self.state.update(mod_loader='forge', selected_mc_version='1.8.9')
+        self.assertIsNotNone(self.fns['_client_browse_entry']())
+        self.state['selected_mc_version'] = '1.21.11'
+        self.assertIsNone(self.fns['_client_browse_entry']())
+
+    def test_client_browse_respects_query_filters_pagination_and_provider_cache(self):
+        self.client_browse_tile()
+        scope = env(self.fns['_render_browse_page'])
+        self.assertEqual(scope['browse_state']['pages'][0], [])
+        entry_scope = env(self.fns['_client_browse_entry'])
+        search = env(self.fns['_browse_query'])['mod_search_field']
+        search.value = 'cubeon'
+        self.assertIsNotNone(self.fns['_client_browse_entry']())
+        search.value = 'sodium'
+        self.assertIsNone(self.fns['_client_browse_entry']())
+        search.value = ''
+        entry_scope['active_category']['value'] = 'worldgen'
+        self.assertIsNone(self.fns['_client_browse_entry']())
+        entry_scope['active_category']['value'] = ''
+        scope['browse_state']['page'] = 1
+        self.assertIsNone(self.fns['_client_browse_entry']())
+
+    def test_bundled_client_is_available_while_loading_and_if_modrinth_fails(self):
+        self.core.get_recommended_mods = lambda **kw: (_ for _ in ()).throw(OSError('offline'))
+        QueuedThread.jobs.clear()
+        self.fns['load_recommended_mods']()
+        view = env(self.fns['_render_browse_page'])['browse_results_view']
+        self.assertTrue(any(getattr(c, 'data', None) == 'cubeon-client-browse' for c in view.controls))
+        self.assertFalse(view.disabled)
+        QueuedThread.jobs.pop(0)()
+        self.assertEqual(view.controls[0].data, 'cubeon-client-browse')
+        self.assertTrue(view._tile_mode)
+        self.assertFalse(view.disabled)
+
     def test_client_switch_uses_shared_settings_callback_and_ignores_stale_instance_row(self):
         settings = ft.Switch(value=True)
         calls = []
@@ -334,7 +441,7 @@ class ManagementUI(unittest.TestCase):
         self.assertEqual(len(QueuedThread.jobs), 1)
         QueuedThread.jobs.pop(0)()
         view = env(self.fns['_render_browse_page'])['browse_results_view']
-        self.assertEqual(len(view.controls), 24)
+        self.assertEqual(len(view.controls), 25)  # 24 provider results plus the local client
         first_rows = tuple(view.controls)
         self.assertTrue(view.build_controls_on_demand)
         self.assertEqual([(c['limit'], c['offset']) for c in calls], [(24, 0)])

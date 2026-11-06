@@ -158,7 +158,9 @@ check("the JVM runs inside it", "cwd=game_dir" in SRC)
 check("options.txt is the instance's",
       "game_options.options_path(game_dir)" in SRC)
 check("sodium's config is the instance's",
-      "perf_mods.sodium_config_path(game_dir)" in SRC)
+      any(isinstance(node, ast.Call) and getattr(node.func, "id", "") == "sync_mod_settings"
+          and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id == "game_dir"
+          for node in ast.walk(ast.parse(SRC))))
 check("entityculling's config is the instance's",
       "perf_mods.entityculling_config_path(game_dir)" in SRC)
 check("the active instance is recorded", "set_active_game_dir(game_dir)" in SRC)

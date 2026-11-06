@@ -38,8 +38,16 @@ def compact_status(text):
     return "Installing"
 
 
+_active_feedback = weakref.WeakSet()
+
+
+def any_busy():
+    return any(job.busy for job in list(_active_feedback))
+
+
 class InstallFeedback:
     def __init__(self):
+        _active_feedback.add(self)
         self.busy = False
         self.text = ""
         self.filename = None
@@ -67,6 +75,9 @@ class InstallFeedback:
 
     def start(self, filename=None, text="Finding file..."):
         with thread_safe_ui.TREE_LOCK:
+            from cubeon import storage
+            if storage.blocked():
+                return False
             if self.busy:
                 return False
             self.busy = True

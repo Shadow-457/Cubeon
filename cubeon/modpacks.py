@@ -74,6 +74,8 @@ import hashlib
 import json
 import logging
 import os
+from .storage import metadata_path
+from .storage import runtime_dir
 import re
 import shutil
 import tempfile
@@ -583,6 +585,9 @@ def _legacy_profile_is_empty(mc_version: str, loader: str) -> bool:
     set to merge into or overwrite. A profile with any jar (or content folder)
     is someone's instance and gets a private clone instead.
     """
+    from . import storage
+    if storage.enabled():
+        return False  # New packs always own an instance; no shared profile reuse.
     path = os.path.join(PROFILES_DIR, profile_key(mc_version, loader))
     try:
         for name in os.listdir(path):
@@ -642,7 +647,7 @@ def _find_installed_pack(name: str, mc_version: str, loader: str,
     # _modpack.json while its ownership sidecar remained. Retry that profile
     # instead of allocating pack-2.
     try:
-        for version_id in sorted(os.listdir(os.path.join(MINECRAFT_DIR, "versions"))):
+        for version_id in sorted(os.listdir(os.path.join(runtime_dir(MINECRAFT_DIR), "versions"))):
             meta = read_instance_meta(version_id) or {}
             if (str(meta.get("name") or "").strip().lower()
                     == str(name or "").strip().lower()
@@ -999,7 +1004,7 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         if existing:
             existing_vid = existing.get("version_id")
             existing_profile = existing.get("profile")
-            version_dir = os.path.join(MINECRAFT_DIR, "versions", str(existing_vid or ""))
+            version_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", str(existing_vid or ""))
             if isinstance(existing_profile, str) and existing_profile:
                 profile = existing_profile
             if existing_vid and os.path.isdir(version_dir):
@@ -1037,6 +1042,11 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         # a failed UPDATE cannot make a working pack disappear.
         if version_id:
             marker_dir = get_profile_dir(mc_version, loader_id, version_id)
+            from . import storage
+            if transaction and storage.manifest(version_id):
+                instance_folder = storage.folder_for(version_id)
+                transaction.capture(instance_folder / "instance.json")
+                transaction.capture(instance_folder / ".cubeon")
         elif profile == legacy_key:
             marker_dir = get_profile_dir(mc_version, loader_id)
         else:
@@ -1048,7 +1058,7 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         old_pack_jars = []
         if marker_dir:
             try:
-                with open(os.path.join(marker_dir, MODPACK_META_FILENAME),
+                with open(metadata_path(marker_dir, MODPACK_META_FILENAME),
                           "r", encoding="utf-8") as fh:
                     _old_meta = json.load(fh)
                 if isinstance(_old_meta, dict):
@@ -1059,10 +1069,10 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
             if transaction:
                 transaction.capture(marker_dir)
                 if version_id:
-                    version_folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+                    version_folder = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id)
                     transaction.capture(os.path.join(version_folder, version_id + ".json"))
                     transaction.capture(os.path.join(version_folder, INSTANCE_META_FILENAME))
-            _hide_pack_marker(os.path.join(marker_dir, MODPACK_META_FILENAME))
+            _hide_pack_marker(metadata_path(marker_dir, MODPACK_META_FILENAME))
 
         # 1) Minecraft version
         status_cb(f"Installing Minecraft {mc_version}")
@@ -1070,7 +1080,7 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         # Snapshot the versions folder so the sidecar can record which build
         # inputs THIS install created. The Instances sheet hides those, so a
         # pack shows up as one instance instead of "vanilla + loader + pack".
-        versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+        versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
         try:
             versions_before = set(os.listdir(versions_dir))
         except OSError:
@@ -1102,7 +1112,12 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                                          "pack_version": info["pack_version"]})
 
         if transaction:
-            version_folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+            version_folder = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id)
+            from . import storage
+            direct = storage.manifest(version_id)
+            if direct and version_id not in versions_before:
+                transaction.capture(storage.folder_for(version_id), created=True)
+                transaction.storage_created.append((version_id, storage.folder_for(version_id).name))
             if version_id != loader_version_id and version_id not in versions_before:
                 transaction.capture(version_folder, created=True)
             else:
@@ -1112,8 +1127,8 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         # A pack update can change the required loader build. Refresh only
         # its launch JSON, retaining its id, profile and user content.
         if version_id != loader_version_id:
-            source_json = os.path.join(MINECRAFT_DIR, "versions", loader_version_id, loader_version_id + ".json")
-            target_json = os.path.join(MINECRAFT_DIR, "versions", version_id, version_id + ".json")
+            source_json = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", loader_version_id, loader_version_id + ".json")
+            target_json = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id, version_id + ".json")
             with open(source_json, encoding="utf-8") as source:
                 launch_profile = json.load(source)
             launch_profile["id"] = version_id
@@ -1392,14 +1407,14 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
             meta["source_id"] = source_id
         try:
             from .atomicio import write_json as _write_json
-            _write_json(os.path.join(profile_dir, MODPACK_META_FILENAME), meta)
+            _write_json(metadata_path(profile_dir, MODPACK_META_FILENAME), meta)
         except OSError as ex:
             # A pack whose marker cannot be saved is not playable/listed, so
             # this must not be reported as a success. The atomic write leaves
             # any previous marker intact.
             raise ModpackError(
                 f"Couldn't save the modpack record: {ex}") from ex
-        if os.path.isfile(os.path.join(profile_dir, MODPACK_META_FILENAME)):
+        if os.path.isfile(metadata_path(profile_dir, MODPACK_META_FILENAME)):
             # The new marker is on disk: the hidden old one is obsolete.
             _drop_pack_marker_backup()
 
@@ -1524,6 +1539,7 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
     preserve_recovery = False
     try:
         transaction = PackTransaction()
+        transaction.storage_created = []
         return _install_from_zip_body(zip_path, progress_cb=_progress,
                                       status_cb=_status, max_cb=_maximum,
                                       icon_url=icon_url, source_id=source_id,
@@ -1533,6 +1549,9 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
         try:
             if transaction:
                 transaction.rollback()
+                from . import storage
+                for vid, ident in transaction.storage_created:
+                    storage.discard_registration(vid, ident)
         except OSError as ex:
             preserve_recovery = True
             raise ModpackError(str(ex)) from ex
@@ -1916,7 +1935,7 @@ def _read_mod_sidecar(profile_dir: str, filename: str) -> dict:
     The sidecar name is keyed off the enabled filename, so strip a trailing
     `.disabled` first (a toggled-off mod shares its enabled sidecar)."""
     base = filename[:-len(".disabled")] if filename.endswith(".disabled") else filename
-    path = os.path.join(profile_dir, base + MOD_META_SUFFIX)
+    path = metadata_path(profile_dir, base + MOD_META_SUFFIX)
     if not os.path.isfile(path):
         return {}
     try:
@@ -2786,10 +2805,9 @@ def list_installed_modpacks() -> list[dict]:
     newest marker.
     """
     packs: dict[tuple, dict] = {}
-    if not os.path.isdir(PROFILES_DIR):
-        return []
-    for key in sorted(os.listdir(PROFILES_DIR)):
-        meta_path = os.path.join(PROFILES_DIR, key, MODPACK_META_FILENAME)
+    from .mods import iter_profile_dirs
+    for key, directory in iter_profile_dirs():
+        meta_path = metadata_path(directory, MODPACK_META_FILENAME)
         if not os.path.isfile(meta_path):
             continue
         try:
@@ -2805,7 +2823,7 @@ def list_installed_modpacks() -> list[dict]:
             continue
         # Installs made before instance isolation have no recorded profile
         # key; the folder they sit in IS the key.
-        meta.setdefault("profile", key)
+        meta["profile"] = key
         identity = (str(meta.get("name") or "").strip().lower(),
                     str(meta.get("mc_version") or ""),
                     str(meta.get("loader") or "vanilla"))
@@ -2814,7 +2832,7 @@ def list_installed_modpacks() -> list[dict]:
             candidate, stamp = item
             vid = candidate.get("version_id")
             exists = bool(vid and os.path.isdir(
-                os.path.join(MINECRAFT_DIR, "versions", str(vid))))
+                os.path.join(runtime_dir(MINECRAFT_DIR), "versions", str(vid))))
             return (exists, stamp)
 
         previous = packs.get(identity)
@@ -2843,11 +2861,12 @@ def forget_modpack_for_version(version_id: str) -> bool:
     Play button that led nowhere. Call this alongside delete_version(vid)
     from the UI, not as a replacement for it.
     """
-    if not version_id or not os.path.isdir(PROFILES_DIR):
+    if not version_id:
         return False
+    from .mods import iter_profile_dirs
     found = False
-    for key in os.listdir(PROFILES_DIR):
-        meta_path = os.path.join(PROFILES_DIR, key, MODPACK_META_FILENAME)
+    for key, directory in iter_profile_dirs():
+        meta_path = metadata_path(directory, MODPACK_META_FILENAME)
         if not os.path.isfile(meta_path):
             continue
         try:

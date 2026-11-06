@@ -43,12 +43,31 @@ _MAX_IMAGE_BYTES = 64 * 1024 * 1024
 _RENDER_CACHE_DIR = os.path.join(CACHE_DIR, "screenshot_renders")
 
 
+def _folders():
+    from . import storage
+    result = {"": SCREENSHOTS_DIR}
+    seen = {os.path.realpath(SCREENSHOTS_DIR)}
+    for vid, meta, _profile in storage.instance_profiles():
+        folder = os.path.join(storage.game_dir(vid), "screenshots")
+        real = os.path.realpath(folder)
+        if real not in seen:
+            result[meta["id"]] = folder
+            seen.add(real)
+    return result
+
+
 def _safe_path(filename: str) -> str:
     """Resolve a screenshot filename without allowing path traversal."""
-    if not isinstance(filename, str) or not filename or os.path.basename(filename) != filename:
+    if not isinstance(filename, str) or not filename or os.path.basename(filename) != filename or "\\" in filename:
         raise ValueError("Invalid screenshot name")
-    path = os.path.realpath(os.path.join(SCREENSHOTS_DIR, filename))
-    root = os.path.realpath(SCREENSHOTS_DIR)
+    directory = SCREENSHOTS_DIR
+    if filename.startswith("@") and filename.count("@") >= 2:
+        _, ident, filename = filename.split("@", 2)
+        directory = _folders().get(ident)
+        if not directory or not filename or filename in (".", ".."):
+            raise ValueError("Invalid screenshot instance")
+    path = os.path.realpath(os.path.join(directory, filename))
+    root = os.path.realpath(directory)
     if os.path.commonpath((root, path)) != root:
         raise ValueError("Screenshot is outside the screenshots folder")
     return path
@@ -65,11 +84,14 @@ _LIST_CACHE = {"signature": None, "items": None}
 
 def _dir_signature() -> tuple | None:
     """(mtime_ns, inode) of the screenshots dir; None when it doesn't exist."""
-    try:
-        st = os.stat(SCREENSHOTS_DIR)
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_ino)
+    result = []
+    for key, folder in _folders().items():
+        try:
+            st = os.stat(folder)
+            result.append((key, folder, st.st_mtime_ns, st.st_ino))
+        except FileNotFoundError:
+            pass
+    return tuple(result)
 
 
 def list_screenshots() -> list[dict]:
@@ -87,10 +109,12 @@ def list_screenshots() -> list[dict]:
     signature = _dir_signature()
     if _LIST_CACHE["signature"] == signature and _LIST_CACHE["items"] is not None:
         return list(_LIST_CACHE["items"])
-    try:
-        names = os.listdir(SCREENSHOTS_DIR)
-    except OSError:
-        return []
+    names = []
+    for key, folder in _folders().items():
+        try:
+            names.extend(f"@{key}@{name}" if key else name for name in os.listdir(folder))
+        except OSError:
+            continue
     result = []
     for filename in names:
         if os.path.splitext(filename)[1].lower() not in _EXTENSIONS:
@@ -110,7 +134,7 @@ def list_screenshots() -> list[dict]:
             continue
         result.append({
             "filename": filename,
-            "name": os.path.splitext(filename)[0].replace("_", " "),
+            "name": os.path.splitext(os.path.basename(path))[0].replace("_", " "),
             "width": width,
             "height": height,
             "bytes": size,
@@ -196,6 +220,8 @@ def delete_screenshot(filename: str) -> None:
     file's cached renders are dropped too so a reused filename can't show
     the deleted picture.
     """
+    from . import storage
+    storage.assert_writable()
     path = _safe_path(filename)
     if not os.path.isfile(path):
         raise FileNotFoundError(filename)
@@ -212,12 +238,14 @@ def delete_screenshot(filename: str) -> None:
 
 def open_screenshots_folder() -> None:
     """Ask the desktop file manager to open the screenshots directory."""
-    os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+    from . import storage, paths
+    folder = os.path.join(paths.active_game_dir(), "screenshots") if storage.enabled() else SCREENSHOTS_DIR
+    os.makedirs(folder, exist_ok=True)
     if sys.platform.startswith("linux"):
-        command = ["xdg-open", SCREENSHOTS_DIR]
+        command = ["xdg-open", folder]
     elif sys.platform == "darwin":
-        command = ["open", SCREENSHOTS_DIR]
+        command = ["open", folder]
     else:
-        command = [os.path.abspath(SCREENSHOTS_DIR)]
+        command = [os.path.abspath(folder)]
     subprocess.Popen(command, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, start_new_session=True)

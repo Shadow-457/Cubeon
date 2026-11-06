@@ -403,6 +403,8 @@ check("a changed release rejects the old offer before downloading",
   res.status === 409 && world.assetFetches === fetches);
 res = await get("/updates/beta/arbitrary?version=2.0.10");
 check("unknown update assets cannot spend the token", res.status === 404 && world.apiCalls === 2);
+res = await get("/updates/beta/macos?version=2.0.10");
+check("untested macOS downloads are unavailable", res.status === 404 && world.apiCalls === 2);
 res = await get("/updates/stable", { method: "POST" });
 check("metadata accepts only GET", res.status === 404);
 world = fresh({ stableRelease: { ...betaRelease } });

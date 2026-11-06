@@ -43,7 +43,7 @@ mll = LazyModule("minecraft_launcher_lib")
 from .paths import SERVERS_DIR, APP_NAME, modrinth_headers, user_agent
 from .mod_loaders import SUPPORTED_LOADERS  # noqa: F401 (kept for callers that import it from here)
 from .versions import extract_mc_version
-from .launch import find_java, find_java_for_version, java_major_version, required_java_major
+from .launch import find_java
 from .mods import modrinth_search_index, rank_search_hits
 from . import local_cache
 from . import net
@@ -976,19 +976,10 @@ def start_server(version_id: str, ram_mb: int, java_path: str | None = None,
 
     server_dir = get_server_dir(version_id)
     jar_name = os.path.basename(_typed_jar_path(version_id, get_server_type(version_id)))
-    java = find_java_for_version(version_id, java_path)
-    # If the only Java we could find is too old, say so directly instead of
-    # letting Minecraft print "requires running the server with Java 25 or
-    # above" with no hint of how to fix it.
-    java_major = java_major_version(java)
-    required = required_java_major(version_id)
-    if java_major is not None and java_major < required:
-        raise RuntimeError(
-            f"This Minecraft version needs Java {required} or newer, but the "
-            f"best Java Cubeon found is Java {java_major} ({java}). Install a "
-            f"Java {required}+ JDK (e.g. from https://adoptium.net) and point "
-            f"Cubeon at it in Settings, or it'll fail to start."
-        )
+    from .jre import ensure_java_for_version
+    java = ensure_java_for_version(
+        version_id, java_path,
+        status_cb=(lambda text: on_output("[Java] " + text)) if on_output else None)
     command = [java, f"-Xmx{ram_mb}M", f"-Xms{min(ram_mb, 1024)}M"]
     if high_ping_optimization_enabled(version_id):
         command += HIGH_PING_JVM_FLAGS

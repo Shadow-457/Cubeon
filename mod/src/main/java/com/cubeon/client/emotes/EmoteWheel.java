@@ -11,6 +11,8 @@ public final class EmoteWheel {
     public interface Canvas extends ClientUi.Canvas { }
     public static final int STOP = -1, NONE = -2, TOGGLE = -3, EDIT = -4, DONE = -5;
     private static final int CENTER = 8, GUTTER = 9, RIM = 10;
+    private static final int TEXT=0xFFF5F5F5,DIM=0xFFC5C5C5,FAINT=0xFF939393,
+            GLASS=0x66343434,GLASS_HI=0xA0787878,BORDER=0x608A8A8A,BORDER_HI=0xB8CCCCCC;
     private record Span(int x, int y, int end, int kind) { }
     private final List<Span> spans = new ArrayList<>();
     private final float[] glow = new float[EmoteFavorites.MAX];
@@ -55,6 +57,13 @@ public final class EmoteWheel {
     private boolean notice(String key) { notice = key; noticeUntil = System.nanoTime()+2_000_000_000L; return false; }
     private double stepAngle() { return Math.PI*2/slots(); }
     private int libraryTop() { return cy-rowHeight*5/2; }
+    private int centerWidth() {
+        double inner=radius*.36;
+        return Math.max(28,Math.min(72,2*(int)Math.sqrt(Math.max(0,inner*inner-400))-4));
+    }
+    private boolean centerButton(double x,double y,int top) {
+        return x>=cx-centerWidth()/2 && x<cx+(centerWidth()+1)/2 && y>=cy+top && y<cy+top+12;
+    }
     public void layout(int width, int height) {
         cx = width / 2; cy = height / 2 - 5;
         cellWidth = Math.min(148, (width-32)/2); rowHeight = Math.min(32, (height-94)/5);
@@ -99,13 +108,11 @@ public final class EmoteWheel {
             int bottom = libraryTop()+rowHeight*5+20;
             return x >= cx-65 && x <= cx+65 && y >= bottom && y < bottom+20 ? DONE : NONE;
         }
+        if(centerButton(x,y,-20)) return TOGGLE;
+        if(centerButton(x,y,8)) return EDIT;
         double distance = Math.hypot(x - cx, y - cy);
         if (distance < radius * .37) return STOP;
         if (distance <= radius && distance >= radius * .40) return sector(x - cx, y - cy);
-        if (y >= cy+radius+17 && y < cy+radius+33) {
-            if (x >= cx-146 && x < cx-3) return TOGGLE;
-            if (x > cx+3 && x <= cx+146) return EDIT;
-        }
         return NONE;
     }
     public int selection() { return selection; }
@@ -113,15 +120,19 @@ public final class EmoteWheel {
     public void step(int direction) { focus(selection < 0 ? 0 : Math.floorMod(selection + direction, choices())); }
     public void render(Canvas canvas, int width, int height, int mouseX, int mouseY,
                        boolean enabled, boolean synced) {
+        render(canvas, width, height, mouseX, mouseY, enabled, synced, true);
+    }
+    public void render(Canvas canvas, int width, int height, int mouseX, int mouseY,
+                       boolean enabled, boolean synced, boolean animate) {
         layout(width, height);
         if (mouseX != lastX || mouseY != lastY) {
             selection = hit(mouseX, mouseY); lastX = mouseX; lastY = mouseY;
         }
         long now = System.nanoTime();
         float dt = Math.min(.1f, (now - lastFrame) / 1_000_000_000f); lastFrame = now;
-        float fade = Math.min(1, (now - opened) / 140_000_000f);
+        float fade = animate ? Math.min(1, (now - opened) / 140_000_000f) : 1;
         if (editing) { library(canvas, fade, now); return; }
-        float ease = 1 - (float)Math.exp(-dt * 18);
+        float ease = animate ? 1 - (float)Math.exp(-dt * 18) : 1;
         for (int i = 0; i < slots(); i++) glow[i] += ((selection == i && enabled ? 1 : 0) - glow[i]) * ease;
         if (canvas.textures()) {
             int cell = 512;
@@ -136,58 +147,62 @@ public final class EmoteWheel {
             int kind = span.kind();
             canvas.fill(cx + span.x(), cy + span.y(), cx + span.end(), cy + span.y() + 1, color(kind, enabled, fade));
         }
-        canvas.text(canvas.translate("cubeonclient.menu.emotes"), cx, cy - radius - 22, alpha(ClientUi.TEXT, fade));
+        // A soft reflection along the top edge gives the translucent surface
+        // a glass rim; the native screen supplies background frost where supported.
+        for(int row=3;row<=5;row++) {
+            int dx=(int)Math.sqrt(radius*radius-(radius-row)*(radius-row));
+            canvas.fill(cx-dx+2,cy-radius+row,cx+dx-2,cy-radius+row+1,alpha(0x18FFFFFF,fade));
+        }
+        canvas.text(canvas.translate("cubeonclient.menu.emotes"), cx, cy - radius - 22, alpha(TEXT, fade));
         for (int i = 0; i < slots(); i++) {
             double angle = i * stepAngle() - Math.PI / 2;
             int x = cx + (int)Math.round(Math.cos(angle) * radius * .72);
             int y = cy + (int)Math.round(Math.sin(angle) * radius * .72);
-            int color = alpha(enabled ? mix(ClientUi.DIM, ClientUi.ACCENT_HI, glow[i]) : ClientUi.FAINT, fade);
+            int color = alpha(enabled ? mix(DIM, TEXT, glow[i]) : FAINT, fade);
             icon(canvas, x, y - 7, radius / 116f, emote(i), color);
             canvas.text(Integer.toString(i+1), x, y + 12, color);
         }
         // The dead zone never chooses an emote. Clicking the center stops one.
-        int centerColor = alpha(ClientUi.TEXT, fade);
-        ClientUi.mark(canvas, cx - 9, cy - 24, fade);
-        canvas.text(canvas.translate(selection >= 0 ? "cubeonclient.emote." + favorites[selection]
-                : "cubeonclient.emotes.stop"), cx, cy - 2, centerColor);
-        canvas.text(canvas.translate(enabled ? "cubeonclient.emotes.choose" : "cubeonclient.state.off"),
-                cx, cy + 12, alpha(ClientUi.DIM, fade));
-        canvas.text(canvas.translate(synced ? "cubeonclient.emotes.synced" : "cubeonclient.emotes.local"),
-                cx, cy + radius + 4, alpha(synced ? ClientUi.ACCENT_HI : ClientUi.DIM, fade));
-        button(canvas, cx-146, cy+radius+17, 143, 16, TOGGLE,
-                enabled ? "cubeonclient.emotes.enabled" : "cubeonclient.emotes.disabled", fade);
-        button(canvas, cx+3, cy+radius+17, 143, 16, EDIT, "cubeonclient.emotes.edit", fade);
-        canvas.text(canvas.translate("cubeonclient.emotes.wheel_hint"), cx, height - 12, alpha(ClientUi.DIM, fade));
+        canvas.text(ClientUi.fit(canvas,canvas.translate(selection >= 0 ? "cubeonclient.emote." + favorites[selection]
+                : "cubeonclient.emotes.stop"),(int)(radius*.74)-6), cx, cy - 3, alpha(TEXT, fade));
+        int centerWidth=centerWidth();
+        button(canvas,cx-centerWidth/2,cy-20,centerWidth,12,TOGGLE,
+                enabled?"cubeonclient.state.on":"cubeonclient.state.off",fade);
+        button(canvas,cx-centerWidth/2,cy+8,centerWidth,12,EDIT,
+                centerWidth<60?"cubeonclient.emotes.edit_short":"cubeonclient.emotes.edit",fade);
     }
     private void library(Canvas canvas, float fade, long now) {
         int top = libraryTop();
-        canvas.text(canvas.translate("cubeonclient.emotes.edit"), cx, top-27, alpha(ClientUi.TEXT, fade));
-        canvas.text(favorites.length+" / "+EmoteFavorites.MAX, cx, top-13, alpha(ClientUi.DIM, fade));
+        canvas.text(canvas.translate("cubeonclient.emotes.edit"), cx, top-27, alpha(TEXT, fade));
+        canvas.text(favorites.length+" / "+EmoteFavorites.MAX, cx, top-13, alpha(DIM, fade));
         for (int i=0; i<EmoteState.NAMES.length; i++) {
             int left = cx-cellWidth+(i%2)*cellWidth, y = top+(i/2)*rowHeight;
             boolean chosen = favorite(i), hover = selection == i;
             ClientUi.panel(canvas, left+3, y+2, cellWidth-6, rowHeight-4, 5,
-                    hover ? ClientUi.SELECTED : ClientUi.SURFACE,
-                    chosen ? ClientUi.ACCENT : hover ? ClientUi.BORDER_HI : ClientUi.BORDER, fade);
-            icon(canvas, left+18, y+rowHeight/2, .5f, i, alpha(chosen ? ClientUi.ACCENT_HI : ClientUi.DIM, fade));
+                    hover ? GLASS_HI : GLASS,
+                    chosen ? BORDER_HI : hover ? BORDER_HI : BORDER, fade);
+            icon(canvas, left+18, y+rowHeight/2, .5f, i, alpha(chosen ? TEXT : DIM, fade));
             canvas.text(canvas.translate("cubeonclient.emote."+EmoteState.NAMES[i]),
-                    left+cellWidth/2+8, y+rowHeight/2-4, alpha(chosen ? ClientUi.TEXT : ClientUi.DIM, fade));
+                    left+cellWidth/2+8, y+rowHeight/2-4, alpha(chosen ? TEXT : DIM, fade));
         }
         canvas.text(canvas.translate(now < noticeUntil ? notice : "cubeonclient.emotes.favorites_hint"),
-                cx, top+rowHeight*5+6, alpha(now < noticeUntil ? ClientUi.ACCENT_HI : ClientUi.DIM, fade));
+                cx, top+rowHeight*5+6, alpha(now < noticeUntil ? TEXT : DIM, fade));
         button(canvas, cx-65, top+rowHeight*5+20, 130, 20, DONE, "cubeonclient.emotes.done", fade);
     }
     private int color(int kind, boolean enabled, float fade) {
         int color;
-        if (kind < CENTER) color = mix(kind % 2 == 0 ? 0xF80B0D0A : 0xF8131711, ClientUi.SELECTED, glow[kind]);
-        else if (kind == CENTER) color = selection == STOP ? ClientUi.SURFACE_HI : 0xF8050505;
-        else if (kind == GUTTER) color = ClientUi.BORDER;
-        else color = mix(ClientUi.BORDER_HI, ClientUi.ACCENT_HI, glow[kind - RIM]);
+        if (kind < CENTER) color = mix(kind % 2 == 0 ? GLASS : 0x70444444, GLASS_HI, glow[kind]);
+        else if (kind == CENTER) color = selection == STOP ? 0x80606060 : 0x70252525;
+        else if (kind == GUTTER) color = BORDER;
+        else color = mix(BORDER, BORDER_HI, glow[kind - RIM]);
         return alpha(color, fade);
     }
     private void button(Canvas canvas, int x, int y, int width, int height, int target, String key, float fade) {
-        ClientUi.button(canvas, x, y, width, height, canvas.translate(key), selection == target ? 1 : 0,
-                target == DONE, fade);
+        boolean hover=selection==target;
+        ClientUi.panel(canvas,x,y,width,height,Math.min(5,height/2),hover?GLASS_HI:GLASS,
+                hover?BORDER_HI:BORDER,fade);
+        canvas.text(ClientUi.fit(canvas,canvas.translate(key),width-8),x+width/2,y+(height-9)/2,
+                alpha(hover?TEXT:DIM,fade));
     }
     private static int alpha(int color, float opacity) {
         return (color & 0xFFFFFF) | (Math.round((color >>> 24) * opacity) << 24);

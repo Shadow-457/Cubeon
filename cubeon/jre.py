@@ -1,16 +1,9 @@
 """
 Java runtimes Cubeon downloads and manages itself.
 
-Until now Cubeon shipped no JRE: a user with no JDK installed was told
-"Java 17+ wasn't found" and had to go to adoptium.net by hand. That is a
-big ask for a launcher whose whole pitch is "it just works", and the Fabric
-installer case was worse - it EXECUTES a jar, so it died with a raw
-WinError 2 under the download button.
-
-When a version is about to be installed and no compatible Java exists,
-the launcher offers a verified Temurin or Azul Zulu JRE through a locally
-measured download route into ~/.cubeon_launcher/runtimes/<major>/.
-The user is asked first, and declining leaves everything as it was.
+Install first checks for a runnable, compatible Java. If none is available,
+Cubeon prepares a verified Temurin or Azul Zulu JRE through a locally measured
+download route into ~/.cubeon_launcher/runtimes/<major>/.
 
 Design notes that matter:
   - **A system Java always wins.** These runtimes are a fallback for a bare
@@ -63,13 +56,7 @@ class JreError(RuntimeError):
 
 
 def _platform_params() -> dict[str, str]:
-    """The Adoptium `os` / `architecture` query values for this machine.
-
-    Adoptium names these differently from Python: `windows` (not win32) and
-    `mac`, and it has no separate arm64 macOS target - both Apple silicon and
-    Intel macs are served the x64 build, which runs under Rosetta 2 and is
-    therefore correct, if not optimal, on every Mac we support.
-    """
+    """Vendor platform names, including native Apple silicon and Windows ARM."""
     if sys.platform.startswith("win"):
         os_name = "windows"
     elif sys.platform == "darwin":
@@ -78,11 +65,14 @@ def _platform_params() -> dict[str, str]:
         os_name = "linux"
     machine = (platform.machine() or "").lower()
     if machine in ("arm64", "aarch64"):
-        # Adoptium calls Linux arm64 "aarch64"; macOS has no arm64 target at
-        # all, so mac always takes the x64 build (Rosetta).
-        arch = "aarch64" if os_name == "linux" else "x64"
-    else:
+        arch = "aarch64"
+    elif machine in ("x86", "i386", "i486", "i586", "i686"):
+        arch = "x86"
+    elif machine in ("", "x64", "x86_64", "amd64"):
         arch = "x64"
+    else:
+        raise JreError(f"Managed Java is unavailable for this processor ({machine}). "
+                       "Choose a working Java installation in Settings.")
     return {"os": os_name, "architecture": arch}
 
 
@@ -228,10 +218,13 @@ def _probe_version(java_path: str) -> int | None:
         import subprocess
         from .winproc import hidden
         try:
-            out = subprocess.run([java_path, "-version"], capture_output=True,
-                                 text=True, timeout=15, **hidden()).stderr
+            result = subprocess.run([java_path, "-version"], capture_output=True,
+                                    text=True, timeout=8, **hidden())
         except (OSError, subprocess.SubprocessError):
             return None
+        if result.returncode != 0:
+            return None
+        out = (result.stderr or "") + "\n" + (result.stdout or "")
         m = re.search(r'version "([^"]+)"', out)
         if not m:
             return None
@@ -242,21 +235,29 @@ def _probe_version(java_path: str) -> int | None:
         head = raw.split(".")[0]
         return int(head) if head.isdigit() else None
     try:
-        return java_major_version(java_path)
+        return java_major_version(java_path, force=True)
     except Exception:
         return None
 
 
-def install_jre(major: int, progress_cb=None, status_cb=None) -> str:
+def install_jre(major: int, progress_cb=None, status_cb=None, *, cancel_check=None) -> str:
     """Coalesce installs of the same verified managed Java major."""
     major = int(major)
     if major not in SUPPORTED_MAJORS:
         raise JreError(f"Cubeon doesn't ship a Java {major} runtime.")
-    with _INSTALL_LOCKS[major]:
-        return _install_jre(major, progress_cb, status_cb)
+    lock = _INSTALL_LOCKS[major]
+    while True:
+        if cancel_check:
+            cancel_check()
+        if lock.acquire(timeout=.25):
+            break
+    try:
+        return _install_jre(major, progress_cb, status_cb, cancel_check=cancel_check)
+    finally:
+        lock.release()
 
 
-def _install_jre(major: int, progress_cb=None, status_cb=None) -> str:
+def _install_jre(major: int, progress_cb=None, status_cb=None, *, cancel_check=None) -> str:
     """Downloads and installs a managed JRE through the best available route.
 
     progress_cb(done, total) / status_cb(text) are the same shapes the
@@ -270,18 +271,31 @@ def _install_jre(major: int, progress_cb=None, status_cb=None) -> str:
     major = int(major)
     if major not in SUPPORTED_MAJORS:
         raise JreError(f"Cubeon doesn't ship a Java {major} runtime.")
-    existing = managed_java(major)
-    if existing:
-        return existing
-
     def _status(text):
+        if cancel_check:
+            cancel_check()
         if status_cb:
             status_cb(text)
+
+    def _progress(done, total):
+        if cancel_check:
+            cancel_check()
+        if progress_cb:
+            progress_cb(done, total)
+
+    if cancel_check:
+        cancel_check()
+    existing = managed_java(major)
+    if existing and _probe_version(existing) == major:
+        _status(f"Java {major} ready")
+        return existing
 
     _status(f"Choosing a Java {major} download route")
     try:
         assets = java_downloads.candidates(major, _platform_params(), lambda: _fetch_asset(major))
     except Exception as error:
+        if cancel_check:
+            cancel_check()
         raise JreError(f"Couldn't find a verified Java {major} download. {error}") from error
 
     final_dir = runtime_dir(major)
@@ -294,7 +308,7 @@ def _install_jre(major: int, progress_cb=None, status_cb=None) -> str:
     shutil.rmtree(staged_dir, ignore_errors=True)
     try:
         archive = java_downloads.download(assets, os.path.join(RUNTIMES_DIR, ".downloads"),
-                                         major, progress_cb, _status)
+                                         major, _progress, _status, cancel_check=cancel_check)
         _status(f"Unpacking Java {major}")
         home = _extract(archive, part_dir)
         java = os.path.join(part_dir, home, "bin", _java_binary())
@@ -350,7 +364,13 @@ def _install_jre(major: int, progress_cb=None, status_cb=None) -> str:
                 old_dir = None
         try:
             os.replace(staged, final_dir)
-        except OSError:
+            java = os.path.join(final_dir, "bin", _java_binary())
+            final_probe = _probe_version(java)
+            if final_probe != major:
+                shutil.rmtree(final_dir, ignore_errors=True)
+                raise JreError(f"Java {major} did not install correctly (verification failed). "
+                               "Retry the installation.")
+        except (OSError, JreError):
             if old_dir and not os.path.isdir(final_dir):
                 try:
                     os.replace(old_dir, final_dir)
@@ -360,44 +380,34 @@ def _install_jre(major: int, progress_cb=None, status_cb=None) -> str:
         shutil.rmtree(part_dir, ignore_errors=True)
         if old_dir:
             shutil.rmtree(old_dir, ignore_errors=True)
-    except JreError:
+    except (JreError, InterruptedError):
         shutil.rmtree(part_dir, ignore_errors=True)
         shutil.rmtree(staged_dir, ignore_errors=True)
         raise
     except Exception as ex:
         shutil.rmtree(part_dir, ignore_errors=True)
         shutil.rmtree(staged_dir, ignore_errors=True)
+        if cancel_check:
+            cancel_check()
         raise JreError(
             f"Installing Java {major} failed ({ex.__class__.__name__}). "
-            f"Nothing was changed - try again, or install Java yourself.") from ex
+            "Try again, or choose a working Java installation in Settings.") from ex
 
     java = managed_java(major)
     if not java:
         raise JreError(f"Java {major} did not install correctly.")
-    # Final belt-and-braces: the INSTALLED runtime (not just the staged copy)
-    # must run. If it somehow cannot, the install is not reported as done -
-    # and the machine is left without a half-trustworthy runtime pretending
-    # to work.
-    final_probe = _probe_version(java)
-    if final_probe != major:
-        shutil.rmtree(final_dir, ignore_errors=True)
-        raise JreError(
-            f"Java {major} did not install correctly (verification failed). "
-            f"Try again, or install Java yourself.")
+    # The installed path was verified before the old runtime was retired.
     _status(f"Java {major} ready")
     return java
 
 
-def java_status(mc_version: str, java_path: str | None = None) -> dict:
+def java_status(mc_version: str, java_path: str | None = None, *,
+                force_probe=False, cancel_check=None) -> dict:
     """Whether this machine can run `mc_version`, and if not, why.
 
-    Returns {"ok": bool, "required": int, "found": int|None}. "ok" is the
-    only thing the caller acts on; the rest is for the message.
-
-    The answer is derived from the SAME resolution the launcher will actually
-    use (find_java_for_version + the too-old probe mod_loaders.loader_java
-    does), not a second guess, so we never prompt for a Java the launcher
-    would then refuse to use.
+    Returns {"ok": bool, "required": int, "found": int|None}, plus "path"
+    on success and "exact" for legacy Forge. Installation and launch share
+    the same executable resolution and compatibility check.
     """
     from .launch import (exact_java_major, find_java_for_version, java_major_version,
                          required_java_major)
@@ -407,8 +417,17 @@ def java_status(mc_version: str, java_path: str | None = None) -> dict:
     if exact is not None:
         result["exact"] = True
     try:
-        java = find_java_for_version(mc_version, java_path)
+        options = {}
+        if force_probe:
+            options["force_probe"] = True
+        if cancel_check:
+            options["cancel_check"] = cancel_check
+        java = find_java_for_version(mc_version, java_path, **options)
+    except InterruptedError:
+        raise
     except Exception:
+        if cancel_check:
+            cancel_check()
         return result
     if not java or not (os.path.isfile(java) or shutil.which(java)):
         return result
@@ -416,14 +435,33 @@ def java_status(mc_version: str, java_path: str | None = None) -> dict:
         probed = java_major_version(java)
     except Exception:
         probed = None
-    # An unprobeable binary counts as usable, deliberately: a path we cannot
-    # run must not become a new way to fail, and the real check happens when
-    # the game starts.
-    if (probed is None or probed >= required) and (exact is None or probed == exact):
-        result.update(ok=True, found=probed)
+    if probed is not None and probed >= required and (exact is None or probed == exact):
+        result.update(ok=True, found=probed, path=java)
     else:
         result["found"] = probed
     return result
+
+
+def ensure_java_for_version(mc_version: str, java_path: str | None = None, *,
+                            progress_cb=None, status_cb=None, cancel_check=None) -> str:
+    """Use verified installed Java, or automatically prepare the required runtime."""
+    from .launch import required_java_major
+
+    def status(text):
+        if cancel_check:
+            cancel_check()
+        if status_cb:
+            status_cb(text)
+
+    required = required_java_major(mc_version)
+    status(f"Checking Java {required}")
+    report = java_status(mc_version, java_path, force_probe=True, cancel_check=cancel_check)
+    if report.get("ok") and report.get("path"):
+        status(f"Using Java {report['found']}")
+        return report["path"]
+    status(f"Preparing Java {required}")
+    return install_jre(required, progress_cb=progress_cb, status_cb=status,
+                       cancel_check=cancel_check)
 
 
 

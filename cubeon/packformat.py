@@ -38,6 +38,7 @@ one entry), and a zip is only REWRITTEN when a pack genuinely needs the fix.
 """
 import json
 import os
+from .storage import runtime_dir
 import threading
 import zipfile
 
@@ -132,7 +133,7 @@ def _format_from_jar(version_id: str | None) -> int | None:
     if version_id in _jar_format_cache:
         return _jar_format_cache[version_id]
 
-    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     candidates = []
     try:
         if os.path.isdir(versions_dir):
@@ -247,7 +248,7 @@ def installed_resource_formats(mc_version: str | None = None,
     EVERY installed version, so compatibility is not a property of one version
     - a pack has to satisfy all of them to never show up red in any of them."""
     formats = set()
-    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     try:
         names = sorted(os.listdir(versions_dir)) if os.path.isdir(versions_dir) else []
     except OSError:

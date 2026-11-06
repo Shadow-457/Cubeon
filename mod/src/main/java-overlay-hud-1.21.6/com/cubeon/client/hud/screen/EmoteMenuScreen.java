@@ -11,11 +11,12 @@ import org.lwjgl.glfw.GLFW;
 
 /** Circular emote picker. B opens; click or 1–8 plays; Esc/right click cancels. */
 public final class EmoteMenuScreen extends Screen {
+    private final SkinNative backdrop=new SkinNative();
     private final EmoteWheel wheel = new EmoteWheel(CubeonHudConfig.get().emoteFavorites);
     public EmoteMenuScreen() { super(Text.translatable("cubeonclient.menu.emotes")); }
     @Override protected void init() { wheel.layout(this.width, this.height); }
     @Override public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fill(0, 0, this.width, this.height, ClientUi.BACKDROP);
+        backdrop.frost(context,this.width,this.height,delta);
     }
     @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
@@ -32,7 +33,7 @@ public final class EmoteMenuScreen extends Screen {
             }
             public int width(String value) { return textRenderer.getWidth(ClientUiFont.text(value)); }
             public String translate(String key) { return Text.translatable(key).getString(); }
-        }, this.width, this.height, mouseX, mouseY, CubeonHudConfig.get().showEmotes, Bridge.get().emotesReady());
+        }, this.width, this.height, mouseX, mouseY, CubeonHudConfig.get().showEmotes, Bridge.get().emotesReady(), CubeonHudConfig.get().menuAnimations);
     }
     @Override public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 1) { close(); return true; }

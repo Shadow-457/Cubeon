@@ -1,6 +1,7 @@
 package com.cubeon.client.hud.blur;
 
 import com.cubeon.client.hud.CameraBlur;
+import com.cubeon.client.hud.TemporalBlur;
 import com.cubeon.client.hud.CubeonHudConfig;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.textures.GpuTexture;
@@ -17,13 +18,16 @@ import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
 import com.mojang.renderpearl.api.pipeline.ColorTargetState;
 import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-/** Native GPU pass: copy this scene once, then spatially sample it. No frame history. */
+/** Native GPU pass: copy this scene once, then spatially sample it. Motion blur+ adds time-based scene history. */
 public final class CameraBlurRenderer {
     private static RenderPipeline pipeline;
     private static GpuTexture scratch;
+    private static GpuTexture history;
+    private static boolean historyReady;
     private static Object resources;
     private static int width, height;
     private static GpuTextureView scratchView;
+    private static GpuTextureView historyView;
     private static GpuBuffer uniform;
     private static final java.nio.ByteBuffer DATA = java.nio.ByteBuffer.allocateDirect(16).order(java.nio.ByteOrder.nativeOrder());
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger("CubeonCameraBlur");
@@ -34,7 +38,7 @@ public final class CameraBlurRenderer {
 
     public static void beginFrame() {
         var client = Minecraft.getInstance();
-        if (resetRequested || !CubeonHudConfig.get().cameraMotionBlur || client.level == null || client.gui.screen() != null
+        if (resetRequested || !(CubeonHudConfig.get().cameraMotionBlur || CubeonHudConfig.get().temporalMotionBlur) || client.level == null || client.gui.screen() != null
                 || client.level != scene) {
             shutdown(); scene = client.level;
         }
@@ -44,19 +48,24 @@ public final class CameraBlurRenderer {
     public static void shutdown() {
         resetRequested = false;
         CameraBlur.INSTANCE.reset();
+        TemporalBlur.INSTANCE.reset();
         release(); failed = false; scene = null;
     }
 
     public static void render(GameRenderer renderer) {
         var client = Minecraft.getInstance();
-        if (failed || !CubeonHudConfig.get().cameraMotionBlur || client.level == null || client.gui.screen() != null) return;
+        if (failed || !(CubeonHudConfig.get().cameraMotionBlur || CubeonHudConfig.get().temporalMotionBlur) || client.level == null || client.gui.screen() != null) return;
+        boolean plus = CubeonHudConfig.get().temporalMotionBlur;
         var main = renderer.mainRenderTarget();
         if (main.width <= 0 || main.height <= 0) return;
         var camera = renderer.mainCamera();
         CameraBlur blur = CameraBlur.INSTANCE;
-        blur.update(System.nanoTime(), camera.yRot(), camera.xRot(), camera.getFov(),
+        long now = System.nanoTime();
+        blur.update(now, camera.yRot(), camera.xRot(), camera.getFov(),
                 (double)main.width / main.height, client.level, true, CubeonHudConfig.get().cameraBlurIntensity);
-        if (!blur.moving()) return;
+        if (plus) TemporalBlur.INSTANCE.update(now, camera.yRot(), camera.xRot(), camera.getFov(),
+                (double)main.width / main.height, client.level, true, CubeonHudConfig.get().temporalBlurStrength);
+        if (!plus && !blur.moving()) return;
         try {
             var device = RenderSystem.getDevice();
             var color = main.getColorTexture();
@@ -64,21 +73,33 @@ public final class CameraBlurRenderer {
             if (resources != client.getResourceManager() || width != main.width || height != main.height) release();
             if (pipeline == null) createPipeline();
             if (scratch == null) {
-                scratch = device.createTexture("Cubeon camera blur current scene", GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING, color.getFormat(), main.width, main.height, 1, 1);
+                scratch = device.createTexture("Cubeon camera blur current scene", GpuTexture.USAGE_COPY_SRC | GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING, color.getFormat(), main.width, main.height, 1, 1);
 
                 scratchView = device.createTextureView(scratch);
                 uniform = device.createBuffer(() -> "Cubeon camera blur exposure", GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_COPY_DST, 16);
                 resources = client.getResourceManager(); width = main.width; height = main.height;
             }
+            if (plus && history == null) {
+                history = device.createTexture("Cubeon camera blur history", GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING, color.getFormat(), main.width, main.height, 1, 1);
+                historyView = device.createTextureView(history);
+                historyReady = false;
+            }
+            float vectorX = plus ? 1 + (historyReady ? TemporalBlur.INSTANCE.weight() : 0) : blur.x();
+            float vectorY = plus ? 0 : blur.y();
             var encoder = device.createCommandEncoder();
             encoder.copyTextureToTexture(color, scratch, 0, 0, 0, 0, 0, width, height);
-            DATA.clear(); DATA.putFloat(blur.x()).putFloat(blur.y()).putFloat(0).putFloat(0).flip();
+            DATA.clear(); DATA.putFloat(vectorX).putFloat(vectorY).putFloat(0).putFloat(0).flip();
             encoder.writeToBuffer(uniform.slice(), DATA);
             try (var pass = encoder.createRenderPass(() -> "Cubeon camera blur", main.getColorTextureView(), java.util.Optional.empty())) {
                 pass.setPipeline(RenderSystem.getCompiledPipeline(pipeline));
                 pass.setUniform("InSampler", scratchView, RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
+                pass.setUniform("HistorySampler", (plus ? historyView : scratchView), RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
                 pass.setUniform("CameraBlur", uniform);
                 pass.draw(0, 3, 0, 1);
+            }
+            if (plus) {
+                encoder.copyTextureToTexture(scratch, history, 0, 0, 0, 0, 0, width, height);
+                historyReady = true;
             }
             encoder.submit();
         } catch (Exception | LinkageError error) {
@@ -94,6 +115,7 @@ public final class CameraBlurRenderer {
                 .withCull(false)
                 .withBindGroupLayout(BindGroupLayout.builder()
                         .withUniform("InSampler", UniformType.COMBINED_IMAGE_SAMPLER)
+                        .withUniform("HistorySampler", UniformType.COMBINED_IMAGE_SAMPLER)
                         .withUniform("CameraBlur", UniformType.UNIFORM_BUFFER).build())
                 .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
                 .withColorTargetState(ColorTargetState.DEFAULT)
@@ -101,9 +123,12 @@ public final class CameraBlurRenderer {
 
     }
     private static void release() {
+        historyReady = false; TemporalBlur.INSTANCE.reset();
         if (uniform != null) { try { uniform.close(); } catch (Exception | LinkageError ignored) {} uniform = null; }
         if (scratchView != null) { try { scratchView.close(); } catch (Exception | LinkageError ignored) {} scratchView = null; }
         if (scratch != null) { try { scratch.close(); } catch (Exception | LinkageError ignored) {} scratch = null; }
+        if (historyView != null) { try { historyView.close(); } catch (Exception | LinkageError ignored) {} historyView = null; }
+        if (history != null) { try { history.close(); } catch (Exception | LinkageError ignored) {} history = null; }
         // Keep the immutable descriptor: native caches key pipelines by identity.
         resources = null; width = height = 0;
     }

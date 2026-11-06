@@ -33,6 +33,7 @@ catalog; the scripts in `tools/` are the current inventory.
 | Area | Scripts |
 | --- | --- |
 | UI construction | `test_ui_smoke.py`, `test_version_ui.py`, `test_toast.py`, `test_render_compat.py` |
+| Instance storage/migration | `test_instance_storage.py`, `test_instance_game_dirs.py`, `test_modpack_integrity.py` |
 | Navigation and input | `test_tab_navigation.py`, `test_keyboard_shortcuts.py` |
 | Motion and scrolling | `test_motion.py`, `test_scrolling.py` |
 | Artwork and avatars | `test_mod_ui_stability.py`, `test_chat_avatar_stability.py`, `test_faces.py` |

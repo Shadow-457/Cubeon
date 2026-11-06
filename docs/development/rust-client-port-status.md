@@ -50,11 +50,14 @@ Rust source branch, with artifact/hash merging and preparer/CLI checks. It does
 not publish. The Linux, Windows and manifest jobs completed successfully.
 This run predates the new branding/full-client work.
 
-The pinned download destination remains `Shadow-457/Cubeon`, release tag
-`rust-26.3-beta.1`. No Rust runtime release has been published. The normal updater
-filters to numeric `vX.Y.Z` tags, so a Rust tag is outside its launcher channels.
-Publishing must use the revised, verified source/build; do not publish the old
-baseline as the completed full client port.
+The pinned download destination is `Shadow-457/Cubeon`, release tag
+[`rust-26.3-beta.1`](https://github.com/Shadow-457/Cubeon/releases/tag/rust-26.3-beta.1),
+published on 2026-11-06 from successful run `42064514681` at `f68ff468`.
+The Windows/Linux archives and manifest passed provenance, size and hash checks;
+their public download URLs work. The normal updater filters to numeric `vX.Y.Z`
+tags, so the Rust prerelease is outside its launcher channels; latest stable
+remains `v1.3.46`. This publishes the revised beta, with Windows gameplay and
+feature/performance work still subject to the limits described below.
 
 The main working checkout retains unrelated website/benchmark changes. The
 isolated source branch contains only Rust integration/source changes and a

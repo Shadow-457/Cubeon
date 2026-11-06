@@ -510,6 +510,8 @@ jobs:
 
   build-macos:
     name: Build macOS app
+    # Untested: retain the build recipe, but do not offer macOS releases yet.
+    if: ${{ false }}
     needs: release
     runs-on: macos-latest
     permissions:
@@ -562,7 +564,7 @@ jobs:
 
   publish:
     name: Verify assets + publish the release
-    needs: [ release, build-linux-appimage, build-windows-exe, build-macos ]
+    needs: [ release, build-linux-appimage, build-windows-exe ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -581,7 +583,7 @@ jobs:
           have="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
           missing=0
           for want in Cubeon-Windows-x64-Setup.exe \
-                      Cubeon-macOS.zip Cubeon-x86_64.AppImage \
+                      Cubeon-x86_64.AppImage \
                       Cubeon-Linux-x86_64-Setup.sh Cubeon-Linux-x86_64-Setup.AppImage; do
             if ! grep -qxF "$want" <<<"$have"; then
               echo "::error::$TAG is missing $want"

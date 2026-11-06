@@ -7,6 +7,7 @@ import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.scores.Team;
 import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.Vec3;
 import java.util.Comparator;
 import org.joml.Vector3f;
 
@@ -35,7 +36,11 @@ public final class EnemyHealthRenderer {
                 if (visibility == Team.Visibility.NEVER || visibility == Team.Visibility.HIDE_FOR_OTHER_TEAMS) continue;
             }
             if (!player.hasLineOfSight(enemy)) continue;
-            var anchor = enemy.getPosition(partialTick).add(0, enemy.getBbHeight() + 0.5, 0);
+            // Match vanilla's rendered entity interpolation, not physics/tick history.
+            Vec3 anchor = new Vec3(
+                    EnemyHealthBar.lerp(enemy.xOld, enemy.getX(), partialTick),
+                    EnemyHealthBar.lerp(enemy.yOld, enemy.getY(), partialTick) + enemy.getBbHeight() + 0.5,
+                    EnemyHealthBar.lerp(enemy.zOld, enemy.getZ(), partialTick));
             var name = client.gameRenderer.projectPointToScreen(anchor);
             var bottom = client.gameRenderer.projectPointToScreen(anchor.add(down.x, down.y, down.z));
             if (!EnemyHealthBar.onScreen(name.x, name.y, name.z)

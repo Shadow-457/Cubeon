@@ -12,13 +12,17 @@ public final class EnemyHealthBar {
 
     private EnemyHealthBar() {}
 
+    public static double lerp(double previous, double current, float delta) {
+        return previous + (current - previous) * delta;
+    }
+
     public static float fraction(float health, float maximum) {
         if (!Float.isFinite(health) || !Float.isFinite(maximum) || maximum <= 0) return 0;
         return Math.max(0, Math.min(1, health / maximum));
     }
 
     public static int color(float fraction) {
-        return fraction > 0.5F ? 0xFF65CD91 : fraction > 0.25F ? 0xFFEBC46A : 0xFFE87979;
+        return fraction > 0.5F ? 0xFF83C13D : fraction > 0.25F ? 0xFFEBC46A : 0xFFE87979;
     }
 
     /** Minecraft project methods return NDC, not GUI pixels. Reject behind-camera points. */

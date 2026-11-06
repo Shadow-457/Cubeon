@@ -27,7 +27,7 @@ substitute for current code.
 | Paths and configuration | `cubeon/paths.py`, `config.py`, `atomicio.py` |
 | Game installation and launch | `versions.py`, `mod_loaders.py`, `launch.py`, `jre.py`, `java_downloads.py` |
 | Native Rust beta | `rust_engine.py`; bundling in `tools/build_rust_engine.py` |
-| Instances | `instances.py`, `versions.py`, `content.py` |
+| Instances and storage migration | `instances.py`, `storage.py`, `storage_layout.py`, `versions.py`, `content.py`; `ui/storage_migration.py` |
 | Mods and packs | `mods.py`, `modpacks.py`, `global_mod_cache.py`, `content.py` |
 | Reviewed local mod imports | `local_mods.py`, `ui/local_mod_import.py` |
 | Content compatibility | `packformat.py`, `doctor.py`, `mod_dependencies.py`, `mod_resolver.py`, `content.py` |
@@ -37,6 +37,7 @@ substitute for current code.
 | Player emotes | `emotes.py`, `mod/src/main/java/com/cubeon/client/emotes/`, `worker/cubeon-friends.js` |
 | World sharing | `p2p.py`, `invites.py`, `server.py`, `minekube.py`, `gate.py` |
 | Cosmetics | `cosmetics.py`, `skins.py`, `capes.py`, `gallery.py`, `profile.py`, `appearance.py`, `appearance_scene.py` |
+| In-game cosmetics library | `ingame_skins.py`, `ingame_capes.py`; shared mod `skins/`, `ui/SkinMenu.java`, HUD-era `SkinLibraryScreen.java` |
 | Chat faces and artwork | `faces.py`, `icons.py`, `icon_loader.py`, `version_art.py` |
 | Activity and screenshots | `milestones.py`, `activity.py`, `library_stats.py`, `screenshot_gallery.py` |
 | UI infrastructure | `thread_safe_ui.py`, `background_refresh.py`, `dialogs.py`, `motion.py`, `theme.py`, `scrolling.py` |
@@ -330,8 +331,11 @@ keep builders consistent with the shared `THEME` contract.
 - `instances.describe()` is the single source of instance metadata (reads the last-played sidecar through
   the caller's `play_store`). Render from one `list_installed()` call; `mod_count()` is a cheap `scandir`.
   `mark_played()` records the instance that actually launched.
-- Play's Java preflight runs on the install worker before game-file writes. A missing-Java prompt
-  opens after releasing the claim and retains that attempt's loader/icon choices. Use
+- Play's Java preflight runs on the install worker before game-file writes. It uses a runnable,
+  compatible installed Java or automatically prepares the required managed runtime, through
+  `jre.ensure_java_for_version`, with the existing progress/Cancel controls. Version and loader
+  installs and Java server starts share that setup; verified callers skip mll's duplicate Java.
+  Keep the attempt's loader/icon choices and pass the resolved executable to launch. Use
   `resolve_mc_version` for renamed-instance Java/artwork, not a number parsed from its label.
   Healthy installed loaders do not require the online support catalogue to launch.
 - `jre.install_jre()` coalesces same-major installs and retains system-Java preference.
@@ -340,16 +344,26 @@ keep builders consistent with the shared `THEME` contract.
   Only vendor SHA-256-bearing JREs are accepted; Azul excludes JavaFX/CRaC/CRS
   and Linux musl builds. Routes include GitHub Releases, Azul CDN and matching
   Temurin archives at NJU/Tsinghua; mirrors use Adoptium's checksum.
-  Up to four local 128 KiB transfer samples rank estimated download time; route
+  Up to four local 128 KiB transfer samples rank estimated download time, separating
+  connection latency from transfer rate; failed samples remain fallback candidates. Route
   order caches for 30 minutes without IP/geolocation services. HTTPS redirects
   must stay on the explicit host allowlist. Failures/very slow routes fall back;
   `.downloads/<sha256>-<filename>[.part]` archives persist across retries and
-  same-artifact mirrors can resume them. Different vendors never share partial
-  bytes. Samples close their responses and reject HTML. Complete cached archives
+  same-artifact mirrors can resume them. Archives of at least 8 MiB use four bounded
+  range transfers under the shared download gate when supported; checksum/range-keyed
+  `.parts/` chunks survive interruption, and ignored ranges fall back to serial resume.
+  Retry selection learns actual transfer speed. Different vendors never share partial
+  bytes. Queued transfers and same-major install waits are cancellable. Samples close
+  their responses and reject HTML. Complete cached archives
   are rehashed before reuse. Staged/final executables must run and report the exact
-  requested major; macOS `Contents/Home` wrappers are promoted correctly.
-  `test_java_downloads.py` covers selection, bounds, failover, cancellation,
-  resume isolation and installation coalescing.
+  requested major before the old runtime is retired; failed replacement restores it.
+  macOS `Contents/Home` wrappers are promoted correctly. Explicit paths accept quoted
+  executables, JDK homes/bin folders and bundles; javaw resolves its console sibling.
+  NX/non-Java/failed-exit probes are rejected, later PATH entries and bounded local JDK
+  roots are checked, and usable system Java precedes managed Java. Install/launch probes
+  bypass the positive cache, which also fingerprints runtime dependencies.
+  `test_java_setup.py` and `test_java_downloads.py` cover selection, repair, bounds,
+  failover, cancellation, resume isolation and installation coalescing.
 - `versions.version_folder` and `validate_launch_profile` guard install/launch/delete paths before
   mll or sanitizers write: reject traversal, external directory/canonical-file symlinks and unsafe,
   cyclic or overly deep `inheritsFrom`/`jar` references. The tolerant scan also rejects external
@@ -380,12 +394,18 @@ keep builders consistent with the shared `THEME` contract.
   through `switch_tab("settings")`; the account chip's `_open_account_panel`
   compatibility callback opens its Account section without showing an overlay.
   Mount the Settings controls only in `tabs`, never also in `account_card`.
-- Settings separates Account, Game, Performance, Appearance, Theme and decorations,
-  Notifications, Files and backups, Launcher, and Screenshots. Fix problems is removed;
+- Settings separates Account, Game, Performance, Appearance, Theme,
+  Notifications, Files, Launcher, and Screenshots. Fix problems is removed;
   launch checks and the crash report's full Doctor are independent of Settings.
   Rail/content scroll independently. Existing `seasonal`, `images`, and
   `system` deep links select dedicated sections; `display` aliases Appearance.
-  Preserve controls/config keys and refresh the gallery on entry.
+  Preserve controls/config keys and refresh the gallery on entry. Advanced Java,
+  version options, maintenance and backup scheduling use native collapsed ExpansionTiles.
+  Each retained section has its own bounded scrolling viewport; Screenshots uses the
+  available height. Omit Account when its controls are absent. Language/flag disclosures
+  use native keyboard buttons; rail hover preserves selection. Failed settings-owned
+  saves restore live values/config key presence and remain retryable; Enter then blur
+  saves unchanged fields only once. Sound previews follow successful saves.
 - Settings → Game → In game exposes independent `client_mod_enabled` and `csl_enabled`
   switches, applied on the next launch; pack installation respects them too. CSL opt-out
   renames active JARs to `.jar.disabled` and records only its own moves in the profile's
@@ -401,6 +421,13 @@ keep builders consistent with the shared `THEME` contract.
   original disk snapshots stay intact for Doctor/dependency checks. With no client
   JAR, Installed retains an opt-in row for modded profiles. `test_mods_management_ui.py`
   and `test_ui_smoke.py` cover the row, duplicates, opt-in and Settings synchronization.
+- Mods → Browse includes Cubeon Client as a normal bundled mod tile, using the
+  real `icon_64.png`; no standalone promotion banner. First-page popular/matching
+  searches on supported Fabric/Quilt or Forge 1.8.9 profiles offer Install/Reinstall,
+  including while Modrinth loads or is offline. Keep provider pages/offsets intact.
+  The shared install feedback captures the instance, prevents duplicate work and
+  restores through `cubeonfriends.ensure_installed` off-thread; import
+  `resolve_profile_dir` from `cubeon.mods`, not the `launcher_core` facade.
 - The RAM slider updates `cfg["ram_mb"]` on every change so the next launch uses
   the displayed ceiling even without a release event. Disk saves happen on release
   or blur, tracked by `_ram_saved` so unchanged events skip writes and failed saves
@@ -537,12 +564,19 @@ keep builders consistent with the shared `THEME` contract.
   source fingerprints and license notices, never Mojang JARs/assets/generated data.
   Source checkouts reuse verified `build/rust-engine/<platform>` bundles, including
   same-beta rebuilds; distributed installs use Cubeon's pinned release manifest.
-  `.github/workflows/rust-beta.yml` builds on relevant pushes to `rust-beta-26.3`
-  and has a manual trigger, producing artifacts only. Baseline Linux/Windows
-  build, CLI and preparer checks passed. The Cubeon glass/title build and exporters
-  were rebuilt, packaged and installed locally on Linux; installed title/settings
-  captures and legacy-resource validation passed. Linux rendering/save/reopen is verified; Windows
-  gameplay, public release and measured FPS remain pending. **1000 FPS is a target**, not a measured claim.
+  `.github/workflows/rust-beta.yml` builds on relevant pushes to main and manual
+  dispatch, producing artifacts only. Run 42064514681 at f68ff468 completed Linux,
+  Windows, CLI, preparer and manifest verification; the pinned runtime release
+  [`rust-26.3-beta.1`](https://github.com/Shadow-457/Cubeon/releases/tag/rust-26.3-beta.1)
+  was published on 2026-11-06 from that run. Its public manifest and Windows/Linux
+  archives are accessible; GitHub asset sizes/digests match the verified CI files.
+  `tools/publish_rust_beta.py` verifies
+  downloaded CI provenance, archive/file hashes and both platforms before a preview;
+  explicit `--publish` creates the pinned prerelease without changing latest stable.
+  Release publication still requires the user's explicit instruction. Manifest 404s
+  mean an unavailable release; connection/other HTTP failures are reported separately.
+  Linux rendering/save/reopen is verified; Windows gameplay and
+  measured FPS remain pending. **1000 FPS is a target**, not a measured claim.
   See [Rust integration](../../docs/development/horizon-integration-plan.md).
 - Content install gating uses the selected INSTANCE's real loader (`ui/mods_tab._instance_mod_capable` ->
   `instances.describe`), not `state["mod_loader"]` (a sibling instance or armed install can make the
@@ -551,7 +585,7 @@ keep builders consistent with the shared `THEME` contract.
   keystroke used to rebuild all rows (~120 ms with 300 mods). The timer path runs `refresh_mods_list()`
   on a worker thread, so it takes `thread_safe_ui.TREE_LOCK`;
   `tools/test_mods_filter_debounce.py` locks the behaviour in.
-- **Per-instance game folders** (2026-10-28): every install launches with its own
+- **Legacy per-instance game folders** (2026-10-28): unmigrated installs launch with their own
   `--gameDir` = `paths.game_dir_for(version_id)` under
   `MINECRAFT_DIR/instances/<slug>/`. `saves/`, `config/`, `options.txt`,
   `servers.dat` are real per-instance entries; `mods/`, `resourcepacks/`,
@@ -566,6 +600,64 @@ keep builders consistent with the shared `THEME` contract.
   hand (import, backup, P2P config sharing) use `paths.active_game_dir()`,
   recorded at launch in `instances/active.json`. Locked in by
   `tools/test_instance_game_dirs.py`.
+- `storage.initialize()` records existing version IDs in `instances/storage.json`
+  before normal startup jobs and recovers interrupted content switches first.
+  New installs use `instances/<id>/minecraft/`. Content migration retains each
+  existing `instances/<slug>/` game directory, with manifest `game_subdir: "."`;
+  missing `game_subdir` means `minecraft` for prior nested-layout instances.
+  Resolve game paths through `storage.game_dir()`; never append `minecraft`
+  to an instance folder in a caller. Mods/packs bypass shared staging after
+  registration; `metadata_path()` sends receipts/sidecars/pack markers to
+  `<instance>/.cubeon/mods/` in either layout. Ordinary JARs need no sidecars.
+  `runtime_dir()` resolves `legacy` (root), `runtime` (old root/runtime) or
+  `instances` (root/instances/.runtime). New installs use `instances`; the
+  explicit organization step moves existing assets/libraries/versions there.
+  Unrelated Java folders stay intact. Use this resolver for runtime/mll calls.
+- The [content migration](../../docs/development/instance-storage-redesign.md)
+  changes **only mods/resourcepacks/shaderpacks** and their launcher metadata.
+  It must not scan/copy/reassign worlds, configs, options, server lists or runtime
+  downloads; root leftovers must not trigger an ownership prompt. Prompt inventory
+  reads content names/sizes; hashing starts after Migrate now. Verified copies
+  replace the three content folders in place, with original directories/links
+  retained under `backups/legacy-content/`. Journal intent precedes each switch;
+  failed/uncommitted switches roll back before startup jobs, committed instances
+  retain newer changes. Old broad-migration stages/journals are preserved but
+  cannot re-enable whole-game copying. Later/Pause/restart remain supported.
+  Normal writes stay blocked after a commit or failed rollback until restart.
+  Legacy maintenance cannot prune recovery originals. Instance deletion archives
+  its game folder under `backups/deleted-instances`. Backups resolve both layouts
+  without duplicate worlds; gallery discovery deduplicates retained shared links.
+  `instances/.layout-v2.json` guards a missing registry: fail closed instead of
+  silently reactivating legacy worlds. Restore the registry from backup.
+  `test_instance_storage.py` covers preservation of world/settings paths and
+  bytes/identities/timestamps, content ownership, popup, interruption and recovery.
+  Native Windows migration/restart validation remains a release prerequisite.
+- After every instance migrates and its content is verified independent,
+  `storage._archive_legacy_content()` renames only root `global_mods`,
+  `global_content`, `mods`, `resourcepacks`, `shaderpacks` into one
+  `backups/legacy-content/shared-<id>/` archive. Journal intent plus folder
+  identity supports resume even after rename but before progress is saved.
+  No shared cleanup during partial migration; links/missing instance content
+  block cleanup. `content_cleanup: 1` and `content_backup` persist completion.
+  `needs_migration()` includes unfinished cleanup so previously migrated installs
+  get **Finish cleanup**, without copying instances again. Old profiles are
+  recovery records; archived `recovery.json` explains restoring original root
+  names to reactivate legacy links. Never expand cleanup to arbitrary root files.
+- `storage_layout.py` owns the separately journaled folder/runtime organization
+  (`instances/layout-migration.json`), invoked by `storage.migrate()` only for an
+  `organize_instances` plan. It renames visible instance folders to readable
+  version/loader or custom names, then moves shared versions/assets/libraries
+  into `instances/.runtime/`. Whole-folder moves add no runtime copies/links.
+  Preserve manifest `id`/`profile` when renaming: registry values are **folder
+  names**, not those immutable IDs. Modpack rollback must capture the actual
+  folder name for `discard_registration`, even after removing the folder.
+  `previous_game_dirs` lets `active_game_dir()` resolve renamed folders before
+  checking old-path existence. Startup recovers interrupted renames/runtime
+  moves before normal jobs; registry commits preserve newer data on recovery.
+  `folder_for(create=False)` chooses the same readable name as creation without
+  depending on optional install metadata. Collision checks are case-insensitive.
+  UI offers **Organize folders** to already migrated installs; content migration
+  and cleanup are not repeated. Custom `version_labels` are passed into the plan.
 - `build_launch_command` only passes mll an `executablePath` that exists (`_normalize_java_path`); a
   missing/typo'd `java_path` falls back to `find_java_for_version`, never the raw config string
   (FileNotFoundError).
@@ -730,10 +822,15 @@ keep builders consistent with the shared `THEME` contract.
   additions. This fixes More Culling returning after removal; use profile resolution,
   never a global blacklist. `test_perf_mod_removal.py` covers repeated Play/sync,
   isolated siblings, renamed manual jars, store links and explicit reinstalls.
-- FPS Boost's automatic suite has five jobs: Sodium/Lithium on Fabric/Quilt,
+- FPS Boost's default suite has seven jobs: Sodium/Lithium on Fabric/Quilt,
   Embeddium + Canary/Radium on Forge, and Sodium/Lithium with older
   Embeddium/Radium fallbacks on NeoForge, plus ImmediatelyFast, EntityCulling
-  and FerriteCore. Queries require the exact Minecraft/native loader; curated
+  FerriteCore, ModernFix and BadOptimizations. `fps_boost_optional_mods` adds
+  only selected More Culling (`moreculling`), Enhanced Block Entities (`ebe`)
+  and Exordium (`exordium`); defaults are empty. Unchecking stops additions,
+  not already-installed jars. BadOptimizations must not be pruned as retired.
+  Missing builds return `unavailable`, distinct from lookup/download `failed`.
+  Queries require the exact Minecraft/native loader; curated
   Quilt builds query Fabric. Existing renderer/logic ports, disabled JARs and
   removals suppress competing additions. The client menu toggle is independent;
   Boost OFF skips new mods and restores eligible graphics even with downloads off.
@@ -741,7 +838,7 @@ keep builders consistent with the shared `THEME` contract.
   Older options use graphicsMode/fancyGraphics, numeric AO and unquoted clouds;
   old boost backups adopt newly supported graphics keys without replaying other
   settings. `test_perf_loader_support.py` verifies all four launch paths, forks,
-  removals, legacy encodings and restore. More Culling is excluded.
+  removals, legacy encodings and restore. More Culling is excluded by default.
   `.cubeon-moreculling-retirement.json` disables legacy Modrinth-managed copies
   once before sync, even with the client/suite toggles off; bytes and sidecars
   remain recoverable. Old sidecars cannot distinguish automatic from old browse
@@ -883,8 +980,9 @@ keep builders consistent with the shared `THEME` contract.
 - Client Settings uses shared `ui/HudMenu.java`/`HudIcon.java` across eight native
   adapters: searchable categories, paged cards and details retain the original
   five overlay action triplets; extras start at 25. `hud/HudFeatures` ordering
-  matches every native `Overlay` enum (13 overlays, 19 catalogue features).
+  matches every native `Overlay` enum (13 overlays, 20 catalogue features).
   Config extras/sprint default off; position/scale reset preserves visibility.
+  Menu motion defaults on; `menuAnimations` disables K/Friends/emote interface fades and tweens.
   Removed minimap/crosshair have no sampler, renderer or mixin; config load prunes
   obsolete extra slots while preserving the remaining saved choices. `ExtraHud`
   caches display strings and skips disabled world reads. Native font widths give
@@ -947,18 +1045,41 @@ keep builders consistent with the shared `THEME` contract.
   outside the render thread/selection monitor. Initial bind loads once, and
   generation guards reject an old binding's response. The renderer fixture
   delays the reader and verifies 1,000 snapshots return within 100 ms.
-- FPS boost is the Play-menu toggle. Launch calls `game_options.sync_fps_boost`
-  once per transition, backs up exact originals in `options.txt.cubeon-boost.json`
-  before writes, and OFF restores only values still matching the applied boost.
-  Later player edits survive relaunch and restore; render/simulation distances,
-  VSync and maxFps are never managed. Missing/corrupt backups never trigger guessed
-  vanilla resets. Do not replace Sodium's defaults with unsupported tuning claims.
+- FPS boost is the Play-menu toggle. `game_options.sync_fps_boost` applies once
+  normally; opt-in `fps_boost_sync_settings` enforces the version-aware preset
+  before every launch, including render/simulation 4/5, VSync off and unlimited
+  FPS (`maxFps:260`, including 26.3). `ui/fps_boost.py` owns its small sync and
+  optional-mod controls; changes persist with rollback on failed saves.
+  Sync off stops enforcing; Boost OFF selectively restores exact originals from
+  `options.txt.cubeon-boost.json`, including removal of newly seeded keys. Sync
+  keeps the original backup across relaunches and journals the prior applied
+  values until the options write commits. Fresh known releases seed valid keys
+  and, when available, the base JAR's `version.json` world_version to avoid old
+  option migrations. Unknown snapshots only edit existing keys. Missing/corrupt
+  backups never trigger guessed resets. `test_fps_boost_sync.py` covers these
+  paths, atomic-write failure, CRLF and UI save rollback. Do not replace Sodium's
+  defaults/driver workarounds with unsupported tuning claims.
+- `fps_mod_settings.sync_mod_settings` runs after mod preparation even with
+  downloads disabled. Opt-in sync enforces existing typed renderer/culling/defer
+  keys and safe ImmediatelyFast optimizations; it disables Iris/Oculus shaders
+  (`enableShaders`) and Cubeon camera/temporal blur without changing pack choices
+  or other HUD preferences. It leaves advanced driver flags, EntityCulling
+  workarounds and ImmediatelyFast `enhanced_batching` untouched. Originals live
+  in `config/.cubeon-fps-mod-settings.json`; sync OFF stops enforcement, Boost
+  OFF restores only still-matching values, and missing configs are not recreated.
+  Ambiguous/escaped Java property keys and continuation lines are left intact
+  with a reported error. Iris 1.11.7/Oculus 1.8.0 use exact `"false".equals(value)`;
+  write lowercase with no trailing spaces, and back up raw values for restoration.
+  `test_fps_mod_settings.py` covers retry, selective restore,
+  partial configs, property encodings and compatibility preservation.
 - `perf_mods.apply_max_fps_sodium()` seeds missing/partial configs with only
   `performance.chunk_builder_threads` (always exactly 2 as requested by the player;
   Sodium owns any hardware clamp).
   Sodium 0.4/0.8/0.9 actual Gson readers retain all other compiled defaults.
-  Launch passes `preserve_existing=True`, retaining existing builder counts and
-  driver/renderer workarounds; missing configs still seed two builders. Explicit
+  Ordinary launch passes `preserve_existing=True`, retaining existing builder
+  counts and driver/renderer workarounds; missing configs still seed two builders,
+  even with mod downloads disabled. Opt-in settings sync then enforces two.
+  Explicit
   tuning edits existing keys only; writes use `atomicio.write_json`.
   This fixes the first launch using Auto before Sodium generated its config.
 - Managed AuthMe settings are seeded before the first hosted-server spawn and
@@ -979,6 +1100,42 @@ keep builders consistent with the shared `THEME` contract.
   updated only after a successful load/save. Config I/O is UTF-8 explicitly.
 
 ### Chat, cosmetics, and account data
+
+- Fabric Minecraft title menu → Cosmetics (also K → Cosmetics) has Skins/Capes tabs and uses authenticated
+  `GET /skins?offset=` (12 uploaded skins plus Steve) and `POST /skin`
+  (import/lookup/apply/model/delete). `InGameSkins` is
+  launcher-owned by FriendsService; selecting a preview never applies it.
+  Apply checks the request's game working directory against `running_version`,
+  not the launcher's selected instance, and preserves CSL opt-out. A single
+  bounded Java worker owns HTTP/image decoding; confirmed Apply publishes
+  `LiveSkin`, whose bracket-selected `LiveSkinMixin`/`LiveSkinTexture` override
+  only the local player's body/model, retaining elytra and the original cape
+  until an explicit cape selection. Five `live-skin-*`
+  overlays follow legacy texture getters, util skin records, named texture
+  constructors, avatar assets and Mojang assets. Rebuild all 24 JARs after shared
+  skin UI changes. `SkinTitleMenuMixin` injects the native title-screen button;
+  HUD-era `SkinLibraryScreen.open` owns the Minecraft/Gui setScreen split.
+  Seven `skin-native-*` overlays follow the pre-1.20.5 panorama, 1.21
+  PlayerModelPart package change, 1.21.2 setter change, 1.21.6 GUI matrices/blur,
+  1.21.11 final Screen.client ownership and 26.x namespaces. Six wardrobe controls save native layer visibility while
+  preserving cape settings when toggling skin layers. The cape visibility
+  control uses bit 64; six skin-layer bits remain 0–5. The full-screen page uses Minecraft's default font;
+  never render the parent title menu behind it. `SkinPreview` caches its textured raster until skin/size/yaw/layers
+  changes; 64×32 sheets expand with Minecraft's mirrored left-limb layout.
+  `tools/test_ingame_skins.py` covers the real Java/Python API, persistence,
+  wrong-session refusal, failed saves, opt-out, public lookup, safe deletion,
+  corrected drag direction and GUI bounds. Active/default skins cannot be
+  deleted through this bridge; changing a preview never selects it for gameplay.
+  `GET /skins?kind=cape&offset=` and `POST /skin` with `kind:"cape"` use the
+  same authentication/session check. `InGameCapes` shares the skin service's
+  lock and the launcher cape setters: built-in Cubeon/None plus 12 uploads,
+  explicit Confirm, image import/export and inactive-cape deletion. Previews
+  are 64×32; only the applied cape includes a validated local `texture_path`,
+  read on the Java worker to preserve HD textures within the 1 MB HTTP budget.
+  The Cape tab loads on first visit and retains its page on return. `LiveCape`
+  and bracket-selected `LiveCapeTexture` update the local cape through the same
+  skin mixin, including legacy cape-visibility getters; peers/elytra remain intact.
+  No Cape hides locally, as in launcher Cosmetics; friends retain the shared cape.
 
 - Chat is BETA-labelled in the sidebar and tab heading. Chat and the companion mod consume one
   process-scoped FriendsService; keep adaptive polling, draft preservation, read markers, and optimistic
@@ -1190,11 +1347,17 @@ keep builders consistent with the shared `THEME` contract.
   The old `java-overlay-emotes-*` code is dormant and requires a server mod; do not enable it to
   implement ordinary-server emotes or change the base jar's `environment: client`.
   B or K → Emotes opens up to eight saved favorites; click or 1–8 plays and the center stops.
-  E / Edit wheel opens the ten-emote library (including Clap, Laugh, Sit, Celebrate);
+  E / the centered Edit wheel button opens the ten-emote library (including Clap, Laugh, Sit, Celebrate);
   selecting entries adds/removes favorites, Done/E/Esc/right click returns to the wheel.
   `emoteFavorites` stores ordered names, normalizes unknown/duplicate entries and keeps at least
   one and at most eight; old configs default to the original six plus Clap/Celebrate.
   Arrows/Tab + Enter work in both views. Shared `EmoteWheel` caches scanline runs per size/slot count.
+  Wheel/editor glass colors are local to `EmoteWheel`, with neutral grey highlights;
+  never change the shared HUD palette for them. ON/OFF and Edit sit inside the
+  center; the old bottom sync message, buttons and key hint have no drawing or hit
+  targets. HUD-era emote screens use native menu blur from 1.20.5 onward via
+  `SkinNative.frost` (Yarn) / `extractBlurredBackground` (26.x); 1.20–1.20.4 use
+  translucent glass without that native blur API. Cosmetics keeps its own backdrop.
   26.3 uses `InputConstants` keyboard scan codes and mouse IDs (left=1, right=3), not GLFW
   symbols or older 0/1 mouse IDs; B/K default bindings must use its native constants too.
   Custom 26.3 search fields must own `minecraft.textInputManager()` while focused,
@@ -1220,10 +1383,36 @@ keep builders consistent with the shared `THEME` contract.
   at its default origin (it opens the waist). `test_emote_models.py` sweeps blend ages, standing/
   crouched orientations, slim/classic shoulder origins and all four production injection bodies.
   HUD screens share the Minecraft-free `ui/ClientUi`, `HudMenu` cards and `HudEditorChrome` toolbars;
-  black/green tokens match the launcher. HUD rows and cosmetics/play tools form two panes, collapsing
-  to compact rows at small GUI sizes; twenty-two non-overlapping controls fit 320×240. Native `hud-*`
-  adapters retain input, preview matrices, per-overlay sizes and saves. `ClientUiFont` selects only
-  the screen's Inter subset (`font/ui.json`, `ui.ttf`, OFL); it never replaces Minecraft's default font.
+  K/Friends use `MenuUi` opaque charcoal panels, Cubeon green accents and
+  Minecraft's default font. K is centered, capped at 560×320 GUI pixels (80% width,
+  78% height); its adaptive card heights leave a gap above the pager. Friends is
+  centered, capped at 660×380 (84% of smaller windows), with 16px horizontal/12px
+  vertical margins. Rounded hover outlines sample `rounded-rims.png`; fills and
+  rims share the same capped 6px corner radius. Headers use `assets/icon_128.png`,
+  copied to the mod's `icon.png`; the Tab font bitmap is exactly `assets/icon_16.png`.
+  `build_mod_jars.py` refreshes both from these canonical launcher assets and verifies
+  the packaged bytes against them. The former mod icon was a K badge, not the logo.
+  The Tab badge is a separate E000 glyph from the official 16px cube bitmap,
+  font `cubeon-client:cubeon_client`; exactly one `tab-logo-*` overlay per bracket
+  isolates its native font style. The separating space and original player-name
+  component retain their default font and server styling. Their backdrop follows
+  `SkinNative.draw` on Yarn and panorama/default blur plus `0x9309090C` on 26.x;
+  there is no forced blur getter hook. Emote glass remains local to `EmoteWheel`.
+  `SkinTitleMenuMixin` adds Cosmetics and Chat title-menu buttons; parent-aware
+  `FriendsChatScreen.open(parent)` returns to the title/K menu on close, while G
+  uses no parent and returns to gameplay. Native screen access uses `gui.setScreen`
+  on 26.2+, `setScreen` in earlier eras. Shared chat wrapping/drafts/viewer ownership
+  remain independent of the menu styling.
+  **Own name tag** is saved as `showOwnNameTag` (default off), under Player in K.
+  Four `name-tag-*` overlays inject the typed renderer visibility method: LivingEntity
+  through 1.21.8 (distance argument from 1.21.2), PlayerLikeEntity from 1.21.9,
+  Avatar in 26.x. Only the local player's third-person label is overridden; F1,
+  invisibility, spectators and passengers suppress it. Other nameplates keep vanilla rules.
+  `tools/test_own_name_tag.py` exercises all four production guards; `test_hud_features.py`
+  covers the saved preference and default.
+  Native `hud-*` adapters retain input, preview matrices, per-overlay sizes and saves.
+  `ClientUiFont` selects only the Inter subset used by other screens (`font/ui.json`,
+  `ui.ttf`, OFL); it never replaces Minecraft's default font.
   Font styles use Identifier through 1.21.8, StyleSpriteSource.Font from Yarn 1.21.9, and
   FontDescription.Resource on 26.x. Regenerate the subset with `tools/gen_client_ui_font.py`.
   TTF provider file IDs are relative to `font/`: `cubeon-client:ui.ttf` resolves the bundled
@@ -1238,7 +1427,10 @@ keep builders consistent with the shared `THEME` contract.
   and native render pipelines from 1.21.6. Do not use whole-GUI-pixel spans in these screens;
   the span fallback is for Minecraft-free harnesses. Inter oversampling is 6; preview captures
   exercise the production atlas regions at 3x GUI scale, but remain separate from live gameplay.
-  `test_client_ui.py` exercises real geometry, font metrics, controls, resize and draw bounds.
+  `test_client_ui.py` exercises real geometry, font metrics, controls, resize, slider drag/save isolation, reduced motion and draw bounds.
+  `test_in_game_chat.py` captures are opt-in via `CUBEON_UI_CAPTURE=1`, like the shared UI harness.
+  It also checks central emote controls and grey wheel/editor colors; captures
+  are opt-in only with `CUBEON_UI_CAPTURE=1`, never produced by a normal test run.
 - `EmoteRelay` is owned by FriendsService; token-protected `/emotecontext`, `/emote`, `/emotes`
   carry room/send/snapshots. Bridge's existing thread drains local snapshots every 250ms in-world,
   keeps roster polling at 6s and renews the room every 20s. No network on model/key/tick threads,
@@ -1258,8 +1450,8 @@ keep builders consistent with the shared `THEME` contract.
   **Blur intensity** persists `cameraBlurIntensity` (default 1.0, clamped 0.25–2.0;
   nonfinite values restore 1.0). K cycles 25% steps through 200%, then 25%, and resets
   renderer state on changes. All eight native screens/renderers share this setting;
-  exposure and its vector cap scale together. `HudMenu` now has 24 controls and a
-  compact layout below 382 panel pixels; keep intensity reachable at the minimum GUI scale.
+  exposure and its vector cap scale together. `HudMenu` uses searchable feature
+  cards with separate details; keep intensity reachable at the minimum GUI scale.
   `hud/CameraBlur.java` measures rendered yaw/pitch velocity against nanoseconds and a fixed 8 ms
   exposure; smoothing and cut limits use seconds, not frame counts. The shader averages 12 samples
   of the current scene only, before GUI rendering; there is no previous-image accumulation.
@@ -1287,13 +1479,30 @@ keep builders consistent with the shared `THEME` contract.
   Off/menu/world-change/resize/reload/close release owned buffers; settings/reload request cleanup
   on the render thread. Reuse the immutable pipeline descriptor: native shader caches key it by
   object identity. Optional mixins use `required:false`/`defaultRequire:0`, renderer exceptions disable
-  only blur until reset, and idle/off frames execute no blur passes. Native resource caches stay
+  only blur until reset; Camera blur idle frames and both effects' off/menu frames
+  execute no blur passes. Native resource caches stay
   Minecraft-owned. `test_camera_blur.py --targets` checks 30–2000 FPS math and all mapped hooks;
   `test_camera_blur_lifecycle.py` exercises production adapters and resource/failure handling;
   `test_camera_blur_gpu.py` checks shader compilation/pixel readback using Linux EGL/PyOpenGL.
   These checks and the full 24-version build do not replace in-game/GPU visual review.
-- Old frame-accumulation blur and dynamic crosshair remain removed. Gson ignores `motionBlur`/
-  `motionBlurStrength` and drops them on the next HUD config save; they never enable the new blur.
+- **Motion blur+** is a separate opt-in `temporalMotionBlur` setting, with
+  `temporalBlurStrength` default 1, clamped 0.25–2; enabling it disables Camera blur
+  and vice versa in all eight native menus. `hud/TemporalBlur` uses nanosecond-based
+  short exposure (8ms × strength), capping previous-frame weight at 45% and
+  30% × strength, discarding history on world/camera/FOV cuts,
+  stalls, resize, reload, menus and invalid data. Only world frames enter history;
+  all HUDs remain outside the effect. GPU adapters reuse one additional history
+  texture/view with copy→blend→save-raw order and seed weight zero. Save scratch
+  into history, never the blended main target; scratch must allow COPY_SRC.
+  Legacy/post graphs blend main/history → swap, copy raw main → history through
+  an opaque-RGB `motion_scene` pass, then present swap → main. Recursive filtered
+  history caused long trails. Legacy post uses
+  an effect-owned history target; 1.21.2–1.21.4 bind a persistent external
+  `cubeon-client:history` SimpleFramebuffer to each frame graph (pooled internal
+  targets cannot preserve prior frames reliably). The strength slider saves once
+  on release; keyboard arrows adjust it without changing overlay sizes.
+- The obsolete blur implementation and dynamic crosshair remain removed. Gson ignores `motionBlur`/
+  `motionBlurStrength` and drops them on the next HUD config save; they never enable Motion blur+.
   `tools/build_mod_jars.py` rejects these old classes/fields/assets and requires the new optional hooks,
   setting, labels and exact shaders before copying a jar; `test_mod_matrix.py` checks all 24 bundles.
   The separate `CubeonHud.renderTargetHighlight` also drew an unconditional red plus when aiming at
@@ -1303,6 +1512,9 @@ keep builders consistent with the shared `THEME` contract.
   thin bars beneath names for visible enemy players/hostile mobs within 24 blocks (32 bars maximum).
   Exclude self, teammates, dead/invisible/sneaking/spectator entities, hidden team tags and walls.
   `EnemyHealthRenderer` has Yarn/Mojang copies; `EnemyHealthBar` shares clamping/colors/NDC-to-GUI math.
+  Anchor interpolation uses Yarn `lastRenderX/Y/Z` or Mojang `xOld/yOld/zOld`,
+  matching vanilla entity rendering; `getLerpedPos`/`getPosition` interpolate
+  physics history and caused vertical bouncing. Healthy bars use Cubeon green.
   Bars are 36×4 name-tag units (0.025 world units/unit), scaled with camera-facing projected label
   height, distance, FOV and GUI scale; fixed screen pixels look oversized relative to distant names.
   Sample the rotated camera-down vector, not world Y. Added mob names use that same scale through
@@ -1319,6 +1531,12 @@ keep builders consistent with the shared `THEME` contract.
   `cpsScale`, nullable) and keeps the old `scale` as the fallback, so an upgraded config and an older jar
   both keep their meaning. Read sizes through `scaleFor(slot)`/`CubeonHud.scaleOf(overlay)`; never apply
   `scale` directly. `resetPositions()` also resets sizes to 1.0 (it is labelled "Reset Positions & Sizes").
+- K → Configure uses a 0.50–2.00× size slider, with 0.01 keyboard adjustments and live per-overlay updates.
+  `setScaleForLive` never writes files; slider release/navigation/close saves the drag once.
+  Slider adapters follow the Click/MouseButtonEvent and 26.3 SDL button split.
+  MoveOverlayScreen explicitly previews the selected widget and other **enabled** HUDs through
+  `CubeonHud.renderPreview` at their independent positions/scales; muted frames turn amber on overlap.
+  Do not re-enable normal HUD callbacks in the editor, mutate peer visibility or duplicate selected draws.
 - Each overlay pushes its own matrix around its own draw (`CubeonHud.renderOverlay`) and divides its
   screen position by that same scale. A single transform around the whole HUD is wrong now: it would scale
   every widget by one overlay's size. Three matrix spellings exist by era (`getMatrices().push()` +
@@ -1531,7 +1749,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
 | Freelook / zoom | `test_freelook.py` (`--targets` needs mapped game JARs), `test_zoom.py`, full 24-version Gradle build |
 | Camera motion blur | `test_camera_blur.py --targets`, `test_camera_blur_lifecycle.py`, `test_camera_blur_gpu.py` (Linux EGL/PyOpenGL), full 24-version Gradle build |
-| Java downloads | `test_java_downloads.py`, `test_launch_fixes.py`, `test_net.py`, `test_forge189_client.py` |
+| Java setup and downloads | `test_java_setup.py`, `test_java_downloads.py`, `test_launch_fixes.py`, `test_net.py`, `test_forge189_client.py` |
 | Windows/startup | `test_winproc.py`, `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_source_runtime.py`, `test_startup_recovery.py`, `test_incident.py`, `test_wedge_watchdog.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py`, `test_forge189_client.py --targets --download-csl` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
@@ -1637,6 +1855,11 @@ requires retrying with normal system access, not changing unrelated app code.
   metadata and do not force-push over another change.
   Stable website stamps include English, Arabic, Russian and Ukrainian fallback
   homepage/download labels, preserving translated prefixes and archive URLs.
+- macOS is untested: homepage/download controls are native disabled grey buttons
+  in all four locales. CI retains the disabled macOS recipe; publish waits for
+  Windows/Linux only and does not require `Cubeon-macOS.zip`. Downloads Worker
+  update metadata excludes macOS; Darwin installer discovery returns unavailable.
+  Existing published assets are not removed by these local policy changes.
 - Publishing verifies the required assets. Test jobs are separate; a published release does not establish
   that every test or desktop smoke check passed.
 - Worker configuration is not proof of current deployment health. Preserve client/Worker protocol parity,

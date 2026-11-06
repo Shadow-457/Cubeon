@@ -115,9 +115,11 @@ for builder in ("build-linux-appimage", "build-windows-exe", "build-macos"):
     check(f"{builder} uploads to the path the version job set",
           "RELEASE_TAG: ${{ needs.release.outputs.tag }}" in block)
 pub = job_block("publish")
-check("publish waits for every builder",
+check("the untested macOS builder is disabled", "if: ${{ false }}" in job_block("build-macos"))
+check("publish does not wait for the disabled macOS builder", "build-macos" not in pub)
+check("publish waits for supported builders",
       all(f"- {b}" in pub.split("needs:")[1].split("\n")[0] or b in pub
-          for b in ("build-linux-appimage", "build-windows-exe", "build-macos")))
+          for b in ("build-linux-appimage", "build-windows-exe")))
 check("publish un-drafts (that is the whole point of the draft)",
       "--draft=false" in pub)
 check("the workflow pins GH_REPO at the top level (the publish job has no "
@@ -469,7 +471,7 @@ try:
 
     section("7. publish refuses an incomplete release")
     COMPLETE = ["Cubeon-Windows-x64-Setup.exe",
-                "Cubeon-macOS.zip", "Cubeon-x86_64.AppImage",
+                "Cubeon-x86_64.AppImage",
                 "Cubeon-Linux-x86_64-Setup.sh", "Cubeon-Linux-x86_64-Setup.AppImage",
                 "cubeon_1.1.3_amd64.deb"]
     (sim.state / "assets" / "v1.1.3").write_text(

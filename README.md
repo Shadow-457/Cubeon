@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/Shadow-457/Cubeon/releases"><img src="https://img.shields.io/github/v/release/Shadow-457/Cubeon?include_prereleases&amp;style=flat-square&amp;label=VERSION&amp;color=8a2be2&amp;labelColor=555555" alt="Latest Cubeon release" height="28"></a>
   <img src="https://img.shields.io/badge/MINECRAFT-Java_Edition-64a900?style=flat-square&amp;labelColor=555555" alt="Minecraft Java Edition" height="28">
-  <img src="https://img.shields.io/badge/PLATFORM-Windows_%7C_Linux_%7C_macOS-909090?style=flat-square&amp;labelColor=555555" alt="Windows, Linux, and macOS" height="28">
+  <img src="https://img.shields.io/badge/PLATFORM-Windows_%7C_Linux-909090?style=flat-square&amp;labelColor=555555" alt="Windows and Linux" height="28">
 </p>
 
 <p align="center">
@@ -25,8 +25,8 @@
 Apache 2.0 open-source desktop launcher for **Minecraft Java Edition**.
 The official website is **https://www.ylet.online/** and this is its official
 source repository. Cubeon manages game installations, modded instances,
-cosmetics, and local servers. It is built with Python and Flet for Linux,
-Windows, and macOS.
+cosmetics, and local servers. It is built with Python and Flet for Linux and Windows. macOS downloads are
+unavailable while the platform remains untested.
 
 ## Capabilities
 

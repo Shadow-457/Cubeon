@@ -34,6 +34,7 @@ public final class CubeonHudConfig {
 	public boolean showCps = false;
 	/** Compact bars anchored beneath nearby enemy names, opt-in. */
 	public boolean showEnemyHealth = false;
+	public boolean showOwnNameTag = false;
 	/** All new HUD widgets and movement/render features are opt-in. */
 	public java.util.Map<String, ExtraOverlay> extraOverlays = new java.util.HashMap<>();
 	public boolean autoSprint = false;
@@ -62,6 +63,8 @@ public final class CubeonHudConfig {
 	}
 	/** Keep cosmetics visible but skip all posing when disabled. */
 	public boolean cosmeticAnimations = true;
+	/** Opening, hover and navigation motion across the client menus. */
+	public boolean menuAnimations = true;
 	/** Layered curved Giant feathers; false selects the inexpensive flat mesh. */
 	public boolean wingDepth = true;
 	/** Saved opt-in for future peer cosmetics; current renderers remain local-only. */
@@ -70,6 +73,9 @@ public final class CubeonHudConfig {
 	public boolean cameraMotionBlur = false;
 	/** Exposure multiplier: 1 preserves the original blur, 0.25–2 adjusts intensity. */
 	public float cameraBlurIntensity = 1.0F;
+	/** Smooth temporal world exposure, separate from the lightweight camera blur. */
+	public boolean temporalMotionBlur = false;
+	public float temporalBlurStrength = 1.0F;
 	/** Receive and display player emotes, independent of decorative items. */
 	public boolean showEmotes = true;
 	/** Up to eight favorite names, ordered clockwise from the top of the wheel. */
@@ -208,6 +214,12 @@ public final class CubeonHudConfig {
 
 	/** Sets one overlay's size and saves. Unknown slots are ignored. */
 	public void setScaleFor(String slot, float value) {
+		setScaleForLive(slot, value);
+		save();
+	}
+
+	/** Live slider updates stay in memory; the owning screen saves on release. */
+	public void setScaleForLive(String slot, float value) {
 		float clamped = clampScale(value);
 		switch (slot) {
 			case "fps" -> fpsScale = clamped;
@@ -221,7 +233,6 @@ public final class CubeonHudConfig {
 				extra(slot).scale = clamped;
 			}
 		}
-		save();
 	}
 
 	/** Clears the per-overlay sizes, so every overlay uses {@link #scale} again. */
@@ -265,6 +276,9 @@ public final class CubeonHudConfig {
 			value.x = clamp01(value.x); value.y = clamp01(value.y);
 			if (value.scale != null) value.scale = clampScale(value.scale);
 		}
+		if (!Float.isFinite(temporalBlurStrength)) temporalBlurStrength = 1.0F;
+		temporalBlurStrength = Math.max(.25F, Math.min(2.0F, temporalBlurStrength));
+		if (temporalMotionBlur) cameraMotionBlur = false;
 		if (!Float.isFinite(cameraBlurIntensity)) cameraBlurIntensity = 1.0F;
 		cameraBlurIntensity = Math.max(.25F, Math.min(2.0F, cameraBlurIntensity));
 		emoteFavorites = com.cubeon.client.emotes.EmoteFavorites.normalize(emoteFavorites);

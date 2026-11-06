@@ -151,11 +151,8 @@ DEFAULT_CONFIG = {
     # choice about the jar.
     "client_mod_enabled": True,
     # With FPS Boost on, also make sure compatible performance mods
-    # that actually raise frame rate (Sodium, Lithium, ImmediatelyFast,
-    # EntityCulling and FerriteCore - fetched from Modrinth like any other mod)
-    # are present in the Fabric/Quilt profile. It does NOT touch Vsync/maxFps:
-    # those are the player's frame pacing, and a fresh install keeps
-    # Minecraft's own defaults (Vsync ON). See cubeon/game_options.py.
+    # (Sodium, Lithium, ImmediatelyFast, EntityCulling, FerriteCore, ModernFix
+    # and BadOptimizations) are present when compatible builds exist.
     # Native ports cover Forge/NeoForge; Quilt uses compatible Fabric builds.
     # Independent of the Cubeon Client menu/HUD switch. Turning this off
     # skips automatic mod additions; the FPS Boost graphics transition still runs.
@@ -163,9 +160,11 @@ DEFAULT_CONFIG = {
     "perf_mods_enabled": True,
     # Play's FPS Boost controls compatible mod additions and per-instance
     # graphics transitions. Apply once, preserve later in-game edits, and
-    # restore only unchanged boost values on OFF. Distances, VSync and FPS
-    # caps stay player-owned. The old max_fps_enabled key is migrated below.
+    # restore only unchanged boost values on OFF. The old max_fps_enabled key
+    # is migrated below. Explicit settings sync also manages distances/caps.
     "fps_boost_enabled": True,
+    "fps_boost_sync_settings": False,
+    "fps_boost_optional_mods": [],
     # How much the launcher animates: "full" (hover lifts, press dips, list
     # cascades, shimmering loading rows, the breathing bloom behind the Play
     # button) or "reduced" (colour and opacity fades only - nothing changes
@@ -414,15 +413,10 @@ def load_config() -> dict:
 
 
 def launch_java_path() -> "str | None":
-    """The Java the launcher will launch with, or None when it lets mll choose.
+    """Configured Java preference, or None for automatic installed/managed Java.
 
-    launch.build_launch_command hands this to minecraft_launcher_lib as
-    executablePath, so when it is set the copy of Java mll installs into the
-    game directory can never be the JVM that runs the game - which is what
-    lets a version install skip downloading it (see versions.install_version's
-    explicit_java). None means do NOT skip: without it mll's own command
-    builder falls back to exactly that runtime, and on a machine with no Java
-    of its own it is the only Java there is.
+    Installation verifies this preference through jre.ensure_java_for_version.
+    Launch receives a verified executablePath and skips mll's duplicate runtime.
     """
     try:
         return (load_config() or {}).get("java_path") or None

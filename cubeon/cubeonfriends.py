@@ -318,6 +318,11 @@ def ensure_installed(mc_version: str | None, loader: str | None,
     """
     if not profile_dir:
         return False
+    from . import storage
+    storage.assert_writable()
+    storage.reconcile_mod_removals(profile_dir, loader)
+    if storage.managed_removed(profile_dir, "cubeon-"):
+        return False
 
     supported = loader in ("fabric", "quilt") or (loader == "forge" and parse_mc_version(mc_version) == (1, 8, 9))
     if not mc_version or not supported:

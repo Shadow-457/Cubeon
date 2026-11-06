@@ -5,13 +5,11 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import net.minecraft.client.network.PlayerListEntry;
-import net.minecraft.text.Style;
 import net.minecraft.text.Text;
-import net.minecraft.text.TextColor;
 
 /**
  * Tags Cubeon players in the TAB LIST, so a friend reads as
- * {@code [Cubeon]Shadow} in green instead of a bare name.
+ * the Cubeon cube logo beside the original player name.
  *
  * <p>Yarn-mapped twin of {@code java-overlay-api-mojang/TabListTag}: same body,
  * Minecraft names spelled the Yarn way ({@code Text}/{@code PlayerListEntry}).
@@ -27,9 +25,6 @@ import net.minecraft.text.TextColor;
  * copy.
  */
 public final class TabListTag {
-
-    /** The Cubeon accent, the same green the Friends button and logo use. */
-    private static final TextColor CUBEON_GREEN = TextColor.fromRgb(0x83C13D);
 
     /** Cached Cubeon names, and the bridge revisions they were built from. */
     private static volatile Set<String> known =
@@ -93,18 +88,14 @@ public final class TabListTag {
                 return displayed;
             }
             return Text.empty()
-                    .append(Text.literal("[Cubeon]").setStyle(cubeonGreen()))
+                    .append(TabLogo.icon())
+                    .append(Text.literal(" "))
                     .append(displayed);
         } catch (Throwable ignored) {
             // getPlayerName is per-row per-frame: anything thrown here is a
             // crash-on-every-frame, not a one-off. An untagged row is free.
             return displayed;
         }
-    }
-
-    /** The exact Cubeon green as a Style. */
-    private static Style cubeonGreen() {
-        return Style.EMPTY.withColor(CUBEON_GREEN);
     }
 
     /** The Cubeon names this machine knows, rebuilt only when the bridge moves. */

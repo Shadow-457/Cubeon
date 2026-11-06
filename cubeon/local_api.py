@@ -81,6 +81,8 @@ _providers = {
     "syncclose": None,
     "askjoin": None,
     "players": None,
+    "skins": None,
+    "skin": None,
     # Worldgate: the host's optional LAN-world password (POST /worldgate) and
     # the joiner's answer to a challenge (POST /joinpassword). See
     # cubeon/worldgate.py for the protocol.
@@ -238,6 +240,14 @@ def set_players_provider(fn) -> None:
     _providers["players"] = fn
 
 
+def set_skins_provider(fn) -> None:
+    _providers["skins"] = fn
+
+
+def set_skin_handler(fn) -> None:
+    _providers["skin"] = fn
+
+
 def _write_token(port: int, token: str) -> None:
     os.makedirs(CUBEON_HOME, exist_ok=True)
     # 0600 BEFORE a single byte is written: `open()` used the default mode
@@ -306,7 +316,18 @@ class _Handler(BaseHTTPRequestHandler):
     def _dispatch_get(self):
         # /events carries a query string, so route on the path alone.
         parts = urlsplit(self.path)
-        if parts.path == "/emotes":
+        if parts.path == "/skins":
+            fn = _providers["skins"]
+            if not fn:
+                self._json({"ok": False, "error": "Update the Cubeon launcher to use in-game skins."}, 503)
+                return
+            try:
+                offset = int(parse_qs(parts.query).get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                offset = 0
+            kind = parse_qs(parts.query).get("kind", ["skin"])[0]
+            self._json(fn(offset, kind) if kind != "skin" else fn(offset))
+        elif parts.path == "/emotes":
             fn = _providers["emotes"]
             self._json(fn() if fn else {"room": "", "ready": False, "active": []})
         elif parts.path == "/friends":
@@ -430,7 +451,13 @@ class _Handler(BaseHTTPRequestHandler):
             body = {}
         route = urlsplit(self.path).path.lstrip("/")
 
-        if route in ("emotecontext", "emote"):
+        if route == "skin":
+            fn = _providers["skin"]
+            if fn is None:
+                self._json({"ok": False, "error": "Update the Cubeon launcher to use in-game skins."}, 503)
+            else:
+                self._call(lambda: fn(body))
+        elif route in ("emotecontext", "emote"):
             fn = _providers[route]
             if fn is None:
                 self._json({"ok": False, "error": "Emotes require an updated Cubeon launcher."}, 503)
