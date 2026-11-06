@@ -1580,6 +1580,17 @@ keep builders consistent with the shared `THEME` contract.
 
 ### Windows, Java, and packaging
 
+- Linux release packaging is pinned to `ubuntu-22.04`; do not restore a rolling
+  runner without checking CPU and glibc baselines. The 2026-11-06 v1.3.54 download
+  crashed on a Xeon E5-1650 at libpython3.11+0x2b5b5f: `vinserti128` in
+  `pymem_set_default_allocator` requires AVX2, before any Cubeon code runs.
+  `runtime_probe.py` / `--cubeon-runtime-check` exercise native runtime libraries
+  without UI/user data. `tools/check_linux_runtime.py` runs the frozen executable
+  under QEMU Nehalem in CI (`CUBEON_REQUIRE_CPU_CHECK=1`) before appimagetool;
+  local builds without QEMU test only the host CPU. This is a packaging/runtime
+  baseline failure, not evidence of Java, GPU or instance-storage corruption.
+  Build isolation uses absolute `CUBEON_BUILD_DIST` / `CUBEON_BUILD_WORK`, including
+  the spec/cache; PyInstaller data inputs must remain absolute with that spec path.
 - Startup launcher updates use one automatic public Worker metadata check per process; Settings →
   System → Check for updates can retry offline checks or check the selected channel immediately. A newer release opens
   `ui/update_prompt.py` with Skip / Update. `update_skipped_version` persists Skip;

@@ -54,6 +54,7 @@ export CUBEON_APPIMAGE_PATH="${APPIMAGE:-${CUBEON_APPIMAGE_PATH:-}}"
 exec "$HERE/usr/bin/Cubeon" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
+python tools/check_linux_runtime.py "$APPDIR/usr/bin/Cubeon"
 if [ -x dist/appimagetool ] || curl -sL -o dist/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage; then
   chmod +x dist/appimagetool
   APPIMAGE_EXTRACT_AND_RUN=1 dist/appimagetool "$APPDIR" dist/Cubeon-public-x86_64.AppImage

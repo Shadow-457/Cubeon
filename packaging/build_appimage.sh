@@ -4,8 +4,12 @@
 # flet_desktop MUST be collected (and its client tarball bundled at build
 # time) or the frozen app tries to pip-install/download at runtime and dies
 # before a window opens. See packaging/build_windows.py for the full story.
-set -e
+set -euo pipefail
 cd "$(dirname "$0")/.."
+BUILD_DIST="${CUBEON_BUILD_DIST:-$PWD/dist}"
+BUILD_WORK="${CUBEON_BUILD_WORK:-$PWD/build/linux}"
+mkdir -p "$BUILD_DIST" "$BUILD_WORK"
+export PYINSTALLER_CONFIG_DIR="$BUILD_WORK/cache"
 
 FLET_VERSION="$(python -c 'import flet_desktop.version; print(flet_desktop.version.version)')"
 CLIENT_TAR="$(python -c 'import flet_desktop; print(flet_desktop.get_artifact_filename())')"
@@ -19,9 +23,10 @@ fi
 echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
 
 python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
-  --add-data "assets:assets" \
-  --add-data "mod/brackets.json:mod" \
-  --add-data "packaging/install_linux.sh:setup" \
+  --distpath "$BUILD_DIST" --workpath "$BUILD_WORK/work" --specpath "$BUILD_WORK" \
+  --add-data "$PWD/assets:assets" \
+  --add-data "$PWD/mod/brackets.json:mod" \
+  --add-data "$PWD/packaging/install_linux.sh:setup" \
   --collect-data flet \
   --collect-submodules flet \
   --collect-binaries flet \
@@ -33,15 +38,15 @@ python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --collect-binaries flet_desktop \
   --collect-submodules cubeon.lang \
   --collect-submodules templates \
-  main.py
+  "$PWD/main.py"
 # NOTE: no --add-data for templates/ - the palettes ship as bytecode via
 # --collect-submodules only, so the artifact contains no readable .py source.
 
-APPDIR=dist/AppDir
+APPDIR="$BUILD_DIST/AppDir"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
-mv dist/Cubeon/* "$APPDIR/usr/bin/"
-rmdir dist/Cubeon
+mv "$BUILD_DIST/Cubeon/"* "$APPDIR/usr/bin/"
+rmdir "$BUILD_DIST/Cubeon"
 cp assets/icon_256.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/cubeon.png"
 cp assets/icon_256.png "$APPDIR/cubeon.png"
 cat > "$APPDIR/cubeon.desktop" <<'EOF'
@@ -60,6 +65,7 @@ export CUBEON_APPIMAGE_PATH="${APPIMAGE:-${CUBEON_APPIMAGE_PATH:-}}"
 exec "$HERE/usr/bin/Cubeon" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
+python tools/check_linux_runtime.py "$APPDIR/usr/bin/Cubeon"
 mkdir -p dist
 if [ -x dist/appimagetool ] || curl -sL -o dist/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage; then
   chmod +x dist/appimagetool
@@ -67,10 +73,10 @@ if [ -x dist/appimagetool ] || curl -sL -o dist/appimagetool https://github.com/
   # with APPIMAGE_EXTRACT_AND_RUN=1 (no FUSE), and the continuous build then
   # fails to resolve a RELATIVE AppDir ("no such file or directory: dist/AppDir")
   # even though it exists. $PWD is absolute, so this works either way.
-  APPIMAGE_EXTRACT_AND_RUN=1 dist/appimagetool "$PWD/$APPDIR" "$PWD/dist/Cubeon-x86_64.AppImage"
-  echo "Built dist/Cubeon-x86_64.AppImage"
+  APPIMAGE_EXTRACT_AND_RUN=1 dist/appimagetool "$APPDIR" "$BUILD_DIST/Cubeon-x86_64.AppImage"
+  echo "Built $BUILD_DIST/Cubeon-x86_64.AppImage"
 else
-  tar -czf dist/Cubeon-Linux-x86_64.tar.gz -C dist AppDir
-  echo "Built dist/Cubeon-Linux-x86_64.tar.gz"
+  tar -czf "$BUILD_DIST/Cubeon-Linux-x86_64.tar.gz" -C "$BUILD_DIST" AppDir
+  echo "Built $BUILD_DIST/Cubeon-Linux-x86_64.tar.gz"
 fi
 

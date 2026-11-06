@@ -19,6 +19,9 @@ import asyncio     # For the filtered client-spawn wrapper (subprocess streams)
 import subprocess  # Detached launcher fallback when execv cannot replace us
 import re          # For regular expressions (used to clean mod slugs and parse version strings)
 import sys         # For runtime platform detection and PyInstaller bundle paths
+if __name__ == '__main__' and '--cubeon-runtime-check' in sys.argv:
+    from runtime_probe import check
+    raise SystemExit(check())
 if __name__ == '__main__':
     from source_runtime import ensure_source_runtime
     ensure_source_runtime(__file__)

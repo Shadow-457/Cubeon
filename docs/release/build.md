@@ -50,9 +50,22 @@ use `--java8` and `--forge-version` for alternate cached runtime/profile paths.
 
 ## Linux
 
+Release builds use **Ubuntu 22.04**, not `ubuntu-latest`: a rolling runner can
+bundle a Python runtime that requires AVX2 and crashes on older x86-64 CPUs
+before launcher code runs. `tools/check_linux_runtime.py` exercises the frozen
+runtime and its native libraries before packing. CI installs `qemu-user` and
+sets `CUBEON_REQUIRE_CPU_CHECK=1`, requiring the probe to pass with a Nehalem CPU
+(no AVX). Local builds without QEMU check the host CPU only.
+
 ```bash
 bash packaging/build_appimage.sh
 ```
+
+For an isolated local build, set absolute `CUBEON_BUILD_DIST` and
+`CUBEON_BUILD_WORK` paths. Building on a newer distribution can increase the
+required glibc version; a successful local CPU probe does not certify the
+release's distribution compatibility. The hidden `--cubeon-runtime-check`
+argument runs offline without initializing the UI or accessing player data.
 
 With `dist/appimagetool` available, the script produces
 `dist/Cubeon-x86_64.AppImage`. Otherwise it produces
