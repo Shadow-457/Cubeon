@@ -82,6 +82,16 @@ keep builders consistent with the shared `THEME` contract.
   All client-crash recovery uses fresh interpreters: pre-paint and mid-session failures
   share the two-restart `CUBEON_GPU_RESTARTS` budget and llvmpipe → softpipe ladder;
   the inherited count enables fallback even if the marker could not be written.
+  Explicit GTK/EGL/Mesa environment choices bypass automatic rendering changes,
+  even with a stale software marker. `incident.capture_rendering_overrides()`
+  runs before fallback and retains `CUBEON_USER_RENDERING` across interpreter
+  replacements, distinguishing user choices from automatic retry values.
+  Unsetting WAYLAND_DISPLAY in a Wayland session with DISPLAY also opts out.
+  Both Java and Rust game children drop that internal flag.
+  On frozen Linux, `incident.client_environment()` restores LD_LIBRARY_PATH_ORIG
+  (or clears the bundled path when absent) for the native Flet child only. Its
+  engine resolves from its own directory; GTK/EGL/Mesa must use host libraries.
+  Never change the frozen Python process's library search path for this fix.
   Never call `ft.run` twice after a failed first frame. `test_source_runtime.py`,
   `test_startup_recovery.py` and the real-process wedge test cover these contracts.
 - Mutate shared control trees under `thread_safe_ui.TREE_LOCK`; request scoped repaints through

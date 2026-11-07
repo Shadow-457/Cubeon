@@ -26,6 +26,19 @@ chmod +x Cubeon-x86_64.AppImage
 ./Cubeon-x86_64.AppImage
 ```
 
+On Wayland, a native Flet display crash can sometimes be avoided by choosing
+XWayland explicitly, if your desktop provides it:
+
+```bash
+GDK_BACKEND=x11 ./Cubeon-x86_64.AppImage
+```
+
+Cubeon preserves explicit GTK/EGL/renderer environment choices through crash
+recovery, including when an old software-rendering fallback marker exists.
+Automatic recovery still has a two-restart limit. An `eglGetPlatformDisplayEXT`
+provider error can also indicate unavailable or mismatched EGL libraries in a
+container; a backend override does not repair missing system libraries.
+
 If you are running the source rather than a release, follow
 [Development setup](development/setup.md).
 

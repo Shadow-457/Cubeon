@@ -350,7 +350,7 @@ def _install_runtime(cancel, status_cb, progress_cb):
 
 def child_environment(username: str | None = None) -> dict:
     env = {k: v for k, v in os.environ.items() if not k.startswith("HORIZON_")}
-    for key in ("LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "LIBGL_DRM_DEVICE", "CUBEON_GPU_RESTARTS"):
+    for key in ("LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "LIBGL_DRM_DEVICE", "CUBEON_GPU_RESTARTS", "CUBEON_USER_RENDERING"):
         env.pop(key, None)
     if username is not None:
         env["CUBEON_RUST_PLAYER_NAME"] = username

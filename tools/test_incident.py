@@ -241,9 +241,9 @@ check("a junk attempt count falls back to llvmpipe, not an exception",
       inc.driver_for_attempt(None) == "llvmpipe"
       and inc.driver_for_attempt("x") == "llvmpipe")
 check("a retry forces software GL and names the driver",
-      inc.retry_environment(1)["LIBGL_ALWAYS_SOFTWARE"] == "1"
-      and inc.retry_environment(1)["GALLIUM_DRIVER"] == "llvmpipe"
-      and inc.retry_environment(2)["GALLIUM_DRIVER"] == "softpipe")
+      inc.retry_environment(1, {})["LIBGL_ALWAYS_SOFTWARE"] == "1"
+      and inc.retry_environment(1, {})["GALLIUM_DRIVER"] == "llvmpipe"
+      and inc.retry_environment(2, {})["GALLIUM_DRIVER"] == "softpipe")
 check("a retry env never forces a display backend on X11",
       "GDK_BACKEND" not in inc.retry_environment(
           1, {"XDG_SESSION_TYPE": "x11", "DISPLAY": ":0"}))
@@ -251,6 +251,43 @@ check("...but carries the Wayland->X11 roll on a Wayland session",
       inc.retry_environment(
           2, {"XDG_SESSION_TYPE": "wayland", "DISPLAY": ":0"}
       )["GDK_BACKEND"] == "x11")
+
+for key, value in (("GDK_BACKEND", "x11"), ("GDK_BACKEND", "wayland"),
+                   ("GALLIUM_DRIVER", "zink"), ("LIBGL_ALWAYS_SOFTWARE", "0"),
+                   ("EGL_PLATFORM", "x11"), ("GDK_GL", "gl")):
+    chosen = {key: value}
+    inc.capture_rendering_overrides(chosen)
+    check(f"explicit {key}={value} bypasses both automatic retries",
+          inc.retry_environment(1, chosen) == inc.retry_environment(2, chosen) == {}
+          and chosen[key] == value)
+automatic = {"XDG_SESSION_TYPE": "wayland", "DISPLAY": ":0", "WAYLAND_DISPLAY": "wayland-0"}
+inc.capture_rendering_overrides(automatic)
+automatic.update(inc.retry_environment(1, automatic))
+inc.capture_rendering_overrides(automatic)
+check("automatic values remain automatic after a fresh interpreter",
+      automatic[inc.USER_RENDERING_FLAG] == "0"
+      and inc.retry_environment(2, automatic)["GALLIUM_DRIVER"] == "softpipe")
+unset_wayland = {"XDG_SESSION_TYPE": "wayland", "DISPLAY": ":0"}
+inc.capture_rendering_overrides(unset_wayland)
+check("an unset Wayland display preserves manual XWayland selection",
+      inc.retry_environment(1, unset_wayland) == {}
+      and "WAYLAND_DISPLAY" not in unset_wayland)
+inc.capture_rendering_overrides(5)
+check("invalid recovery environment cannot raise", inc.retry_environment(1, 5) == {})
+
+bundle_env = {"LD_LIBRARY_PATH": "/app/_internal:/user/lib", "LD_LIBRARY_PATH_ORIG": "/user/lib", "GDK_BACKEND": "x11"}
+check("frozen Linux client restores the user's library path without mutating the launcher",
+      inc.client_environment(bundle_env, frozen=True, platform="linux")["LD_LIBRARY_PATH"] == "/user/lib"
+      and bundle_env["LD_LIBRARY_PATH"] == "/app/_internal:/user/lib")
+check("restoring the library path retains the explicit display backend",
+      inc.client_environment(bundle_env, frozen=True, platform="linux")["GDK_BACKEND"] == "x11")
+check("frozen Linux client clears the bundled path when no original existed",
+      "LD_LIBRARY_PATH" not in inc.client_environment({"LD_LIBRARY_PATH": "/app/_internal"}, frozen=True, platform="linux"))
+check("an explicitly empty original library path is retained",
+      inc.client_environment({"LD_LIBRARY_PATH": "/app/_internal", "LD_LIBRARY_PATH_ORIG": ""}, frozen=True, platform="linux")["LD_LIBRARY_PATH"] == "")
+check("source and Windows clients retain their existing library paths",
+      inc.client_environment(bundle_env, frozen=False, platform="linux") == bundle_env
+      and inc.client_environment(bundle_env, frozen=True, platform="win32") == bundle_env)
 
 # The one Mesa fact that decides whether this crash can be worked around at all.
 _gallium = inc.gallium_driver()

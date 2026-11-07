@@ -33,6 +33,7 @@ Every public function is total - a crash path must not be able to raise.
 import logging
 import os
 import signal
+import sys
 
 log = logging.getLogger(__name__)
 
@@ -117,8 +118,12 @@ def environment_facts(env=None) -> str:
         # "on" means this session was ALREADY the software-GL retry: if it
         # still crashed, llvmpipe is not the answer and the driver is not the
         # only suspect.
-        f"software_gl={'on' if _get('LIBGL_ALWAYS_SOFTWARE') else 'off'}",
+        f"software_gl={'on' if str(_get('LIBGL_ALWAYS_SOFTWARE') or '').lower() in ('1', 'true', 'yes', 'on') else 'off'}",
         f"gpu_restarts={_get('CUBEON_GPU_RESTARTS') or '0'}",
+        f"backend={_get('GDK_BACKEND') or 'auto'}",
+        f"renderer={_get('GALLIUM_DRIVER') or 'auto'}",
+        f"egl_platform={_get('EGL_PLATFORM') or 'auto'}",
+        f"rendering_overrides={_get('CUBEON_USER_RENDERING') or 'unset'}",
         flet_version(),
         client_binary(env),
         gallium_driver(),
@@ -283,10 +288,10 @@ def record_giving_up(attempts, kind="pre_paint_crash") -> None:
             "giving up after %s flet client %s(s) - see the 'flet session "
             "ended' records above for the exit status, the environment, the "
             "gallium/Mesa version and the client's own last output. The "
-            "client has now died on hardware GL and on both software "
-            "rasterizers (llvmpipe, then softpipe), so no environment Cubeon "
-            "can set will help: a graphics driver update is the usual fix for "
-            "a libgallium crash that reproduces on every attempt",
+            "automatic restart budget is exhausted. Explicit rendering "
+            "overrides were preserved. Check the selected display backend "
+            "and host/container EGL libraries for provider errors; a graphics "
+            "driver update may help a recurring libgallium crash",
             attempts, kind)
     except Exception:
         pass
@@ -391,13 +396,59 @@ def driver_for_attempt(attempts) -> str:
     return "softpipe" if attempts >= 2 else "llvmpipe"
 
 
+_RENDERING_KEYS = (
+    "GDK_BACKEND", "GDK_GL", "EGL_PLATFORM", "GALLIUM_DRIVER",
+    "LIBGL_ALWAYS_SOFTWARE", "LIBGL_DRM_DEVICE", "MESA_LOADER_DRIVER_OVERRIDE",
+)
+USER_RENDERING_FLAG = "CUBEON_USER_RENDERING"
+
+
+def client_environment(env, *, frozen=None, platform=None) -> dict:
+    """Keep the native Linux client out of PyInstaller's Python library path."""
+    out = dict(env)
+    frozen = getattr(sys, "frozen", False) if frozen is None else frozen
+    platform = sys.platform if platform is None else platform
+    if frozen and platform.startswith("linux"):
+        # The client ships its engine beside its executable. Its GTK/EGL/Mesa
+        # dependencies must resolve against the host, not Python's _internal
+        # directory. Restore the user's pre-bootloader path in this child only.
+        if "LD_LIBRARY_PATH_ORIG" in out:
+            out["LD_LIBRARY_PATH"] = out["LD_LIBRARY_PATH_ORIG"]
+        else:
+            out.pop("LD_LIBRARY_PATH", None)
+    return out
+
+
+def capture_rendering_overrides(env=None) -> None:
+    """Remember user choices before recovery sets anything; retain across exec."""
+    env = os.environ if env is None else env
+    try:
+        if env.get(USER_RENDERING_FLAG) in ("0", "1"):
+            return
+        explicit = any(key in env for key in _RENDERING_KEYS)
+        # Unsetting WAYLAND_DISPLAY while retaining a Wayland session label
+        # and an X display is also a deliberate XWayland selection.
+        explicit |= ((env.get("XDG_SESSION_TYPE") or "").lower() == "wayland"
+                     and bool(env.get("DISPLAY")) and not env.get("WAYLAND_DISPLAY"))
+        env[USER_RENDERING_FLAG] = "1" if explicit else "0"
+    except Exception:
+        pass
+
+
 def retry_environment(attempts, env=None) -> dict:
     """The complete environment for a software-GL retry. Never raises.
 
-    Applied by main.py ONLY when its `use_software_gl` marker exists, i.e.
-    after a client has already died - never to a first attempt.
+    Explicit user rendering choices bypass automatic driver/backend changes,
+    including a stale software marker. The captured flag distinguishes those
+    choices from values added by an earlier automatic recovery attempt.
     """
     env = os.environ if env is None else env
+    try:
+        flag = env.get(USER_RENDERING_FLAG)
+        if flag == "1" or (flag != "0" and any(key in env for key in _RENDERING_KEYS)):
+            return {}
+    except Exception:
+        return {}
     out = {
         "LIBGL_ALWAYS_SOFTWARE": "1",
         "GALLIUM_DRIVER": driver_for_attempt(attempts),

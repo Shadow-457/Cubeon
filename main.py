@@ -9204,6 +9204,7 @@ if __name__ == "__main__":
     from cubeon.logging_setup import setup_logging as _setup_logging
     _setup_logging()
     from cubeon import incident as _incident
+    _incident.capture_rendering_overrides()
 
     # Silence GTK's accessibility bridge on the flet client. It fails to
     # plug into AT-SPI on KDE/X11 and prints
@@ -9404,6 +9405,7 @@ if __name__ == "__main__":
         args, flet_env, pid_file = \
             _flet_desktop.__locate_and_unpack_flet_view(
                 page_url, assets_dir, hidden)
+        flet_env = _incident.client_environment(flet_env)
         # The flet.exe client must not flash its own console either
         # (asyncio passes kwargs to the underlying subprocess on Windows).
         from cubeon.winproc import hidden as _hidden_kw
@@ -9904,7 +9906,7 @@ if __name__ == "__main__":
                             pass
                         os.environ["CUBEON_GPU_RESTARTS"] = str(_gpu_restarts)
                         print(f"cubeon: client crashed mid-session (GPU "
-                              f"driver?) - restarting with software OpenGL "
+                              f"driver?) - restarting with the selected rendering environment "
                               f"(attempt {_gpu_restarts})")
                         time.sleep(1.5)  # let the WM/core dump settle
                         try:
@@ -9930,7 +9932,7 @@ if __name__ == "__main__":
                     if _retries <= _MAX_CLIENT_RETRIES:
                         os.environ["CUBEON_GPU_RESTARTS"] = str(_retries)
                         print(f"cubeon: client died before showing the window "
-                              f"(attempt {_retries}) - restarting with software OpenGL",
+                              f"(attempt {_retries}) - restarting with the selected rendering environment",
                               flush=True)
                         time.sleep(1.5)  # let the WM/core dump settle
                         try:

@@ -1550,7 +1550,7 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
     # CUBEON_* knobs sees a stale restart count as a knob.
     _game_env = {k: v for k, v in os.environ.items()
                  if k not in ("LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER",
-                              "LIBGL_DRM_DEVICE", "CUBEON_GPU_RESTARTS")}
+                              "LIBGL_DRM_DEVICE", "CUBEON_GPU_RESTARTS", "CUBEON_USER_RENDERING")}
     popen_kwargs["env"] = game_env if game_env is not None else _game_env
 
     from . import watchdog
