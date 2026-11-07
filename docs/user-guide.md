@@ -38,6 +38,10 @@ If you are running the source rather than a release, follow
    a compatible Minecraft version and a block or mob icon.
 4. Review memory and Java settings if needed, then select **Download & Play**.
 
+On the **Install** version step, use **Snapshots** and **Legacy** beside search
+to include preview builds and older versions. You can enable both together;
+the selected loader still determines which versions it supports.
+
 In **Instances**, use the small pencil on a card to choose its icon. The same
 panel offers **20 blocks** and **20 mob heads**. The small upload icon beside
 those choices adds your own PNG, JPG, WebP or animated GIF. Your selection is saved per
@@ -227,7 +231,9 @@ Microsoft/Mojang account.
   whose editor filled its unused pixels, or **Steve · 4 px** for wide arms.
   The choice is saved for that skin. Restart Minecraft after changing it.
 
-Screenshots live under Settings → Appearance. Stats shows playtime and
+Screenshots live under **Settings → Screenshots**. Its folder button opens the
+selected capture's folder, or the active instance's screenshots when no capture
+is selected. Stats shows playtime and
 activity comparisons; it does not measure the game's frame rate.
 
 ### Finding a mod
@@ -473,7 +479,7 @@ For migrated instances, worlds are in
 `~/.cubeon_minecraft/instances/<instance>/saves/`. Each world is a folder
 containing `level.dat`. Some instances have an inner `minecraft/` folder, so
 their worlds are in `minecraft/saves/`. The easiest route is to select the
-instance and choose **Settings → Files → Worlds (saves)**. A version you haven't
+instance, click **Folder** on Play, and open `saves/` (or `minecraft/saves/`). A version you haven't
 played may not have any world saves yet.
 
 **Open Mods Folder** opens the folder Minecraft reads: add a compatible JAR to

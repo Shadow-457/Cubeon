@@ -3228,18 +3228,13 @@ async def main(page: ft.Page):
         refresh_mods_list()
         on_version_selected()
 
-    # A row for the "Show snapshots" checkbox - lives in the Settings tab's
-    # Game versions card now (always visible there; it only affects what the
-    # online fetch includes, and toggling it re-fetches immediately).
-    browse_online_row = ft.Row(
-        [
-            ft.Switch(
-                value=False, active_color=ACCENT, scale=0.85,
-                on_change=lambda e: refresh_version_list(online=True),  # Reload versions when toggled
-            ),
-        ],
+    # Version catalogue filters live beside the New Instance version list.
+    show_snapshots = ft.Checkbox(
+        label="Snapshots", value=False, active_color=ACCENT,
+        tooltip="Include preview builds", data="install-filter-snapshots",
+        on_change=lambda e: refresh_version_list(online=True),
     )
-    show_snapshots = browse_online_row.controls[0]  # Reference to the checkbox
+    browse_online_row = ft.Row([show_snapshots])
 
     # --- Legacy versions + one-click version update ----------------------
     #
@@ -3278,77 +3273,26 @@ async def main(page: ft.Page):
         visible=False,
     )
 
-    legacy_btn_label = ft.Text(
-        "Legacy: on" if state.get("legacy_ok") else "Legacy",
-        size=12, color=ACCENT if state.get("legacy_ok") else TEXT_DIM,
-        weight=ft.FontWeight.W_600)
-
     def _set_legacy_ui(on):
-        """One place for the Legacy toggle's visible state. Persisted so the
-        choice survives a restart (a user who enabled legacy once shouldn't
-        watch the versions vanish again on next launch)."""
         state["legacy_ok"] = on
         cfg["legacy_versions"] = on
         try:
             core.save_config(cfg)
         except Exception:
-            pass  # a failed save keeps working for this session
+            pass
         legacy_note.visible = on
-        legacy_btn_label.value = "Legacy: on" if on else "Legacy"
-        legacy_btn_label.color = ACCENT if on else TEXT_DIM
-
-    def _do_enable_legacy(e=None, dlg=None):
-        _set_legacy_ui(True)
-        if dlg is not None:
-            _close_dialog(dlg)
-        # Synchronous, like the browse-online link: refresh_version_list ends
-        # in page.update(), which must stay on the UI thread.
-        refresh_version_list(online=True)
-        set_status("Legacy versions enabled")
+        legacy_btn.value = on
 
     def on_enable_legacy(e=None):
-        """The opt-in dialog. One clear sentence about what legacy costs,
-        then it never nags again this session (the note stays visible)."""
-        if state.get("legacy_ok"):
-            # Already on: clicking again hides legacy versions again.
-            _set_legacy_ui(False)
-            refresh_version_list()
-            set_status("Legacy versions hidden")
-            return
-        dlg = ft.AlertDialog(
-            modal=True, bgcolor=SURFACE,
-            title=ft.Text("Enable legacy versions?", color=TEXT, weight=ft.FontWeight.W_800),
-            content=ft.Container(
-                content=ft.Text(
-                    "Show additional older versions. Cubeon Client support "
-                    "varies by version and loader. 1.8.9 is already available.\n\n"
-                    "Show legacy versions in the list?",
-                    size=13, color=TEXT,
-                ),
-                width=380,
-            ),
-            actions=[
-                ft.TextButton(i18n.t("Cancel"), on_click=lambda e: _close_dialog(dlg)),
-                ft.TextButton("Enable legacy", on_click=lambda e: _do_enable_legacy(dlg=dlg),
-                              style=ft.ButtonStyle(color=ACCENT)),
-            ],
-        )
-        _open_dialog(dlg)
+        _set_legacy_ui(bool(legacy_btn.value))
+        refresh_version_list(online=True)
 
-    legacy_btn = ft.Container(
-        content=ft.Row(
-            [
-                ft.Icon(ft.Icons.HISTORY_ROUNDED, color=TEXT_DIM, size=14),
-                legacy_btn_label,
-            ],
-            spacing=8,
-        ),
-        on_click=on_enable_legacy,
-        ink=False,
-        border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-        tooltip="Show or hide additional older versions",
+    legacy_btn = ft.Checkbox(
+        label="Legacy", value=bool(state.get("legacy_ok")), active_color=ACCENT,
+        tooltip="Include older versions; 1.8.9 is already available. Client support varies.",
+        data="install-filter-legacy", on_change=on_enable_legacy,
     )
+    version_filters = ft.Row([show_snapshots, legacy_btn], spacing=12)
 
     # -----------------------------------------------------------------
     # THE VERSION PICKER - the dropdown's face and its search dialog.
@@ -3618,6 +3562,7 @@ async def main(page: ft.Page):
         on_pick=_pick_version,
         on_create=_create_new_instance,
         get_supported_versions=core.get_loader_minecraft_versions,
+        version_filters=version_filters,
         on_browse_online=lambda: refresh_version_list(online=True),
         # Install-time loader choice: the only place a loader can be picked
         # (2026-10-26). The Play card's switcher is gone.
@@ -7199,19 +7144,7 @@ async def main(page: ft.Page):
     )
 
     # ------------------------------------------------------------------
-    # MINECRAFT FILES - Settings > "Minecraft files"
-    #
-    # One place that opens the folders a player actually needs to find by hand:
-    # the game folder itself, mods, resource packs, shaders, worlds,
-    # screenshots and the launcher's own data (config/logs/cache). Before this
-    # the only folder button in the app was "Open backups folder" in Backups,
-    # so "where is my mods folder" had no answer inside Cubeon (the user asked
-    # for exactly this on 2026-10-18).
-    #
-    # Same opener as open_backups_folder - os.startfile on Windows, `open` on
-    # macOS, `xdg-open` elsewhere - and every failure lands in set_status
-    # instead of a traceback. Each folder is created first, because opening a
-    # path that does not exist yet is the one way this reads as broken.
+    # Desktop folder actions used by the Play card.
     # ------------------------------------------------------------------
     def _open_any_folder(folder, label):
         import subprocess
@@ -7228,101 +7161,10 @@ async def main(page: ft.Page):
         except Exception as ex:
             set_status(f"Couldn't open {label}: {ex}")
 
-    from cubeon import paths as _paths
-    from cubeon import content as _folder_content
-    from cubeon import mods as _folder_mods
-    _FOLDER_ROWS = [
-        ("Minecraft folder", "the selected instance's game files",
-         lambda: _paths.game_dir_for(state.get("selected_version"), create=False)),
-        ("Mods", "mods installed in the selected instance",
-         lambda: _folder_mods.resolve_profile_dir(state.get("selected_mc_version"), state.get("mod_loader"), state.get("selected_version"))),
-        ("Resource packs", "texture packs the game reads",
-         lambda: _folder_content.resolve_content_profile_dir("resourcepack", state.get("selected_mc_version"), state.get("mod_loader"), state.get("selected_version"))),
-        ("Shaders", "shaderpacks the game reads",
-         lambda: _folder_content.resolve_content_profile_dir("shader", state.get("selected_mc_version"), state.get("mod_loader"), state.get("selected_version"))),
-        # Worlds are per instance now (paths.INSTANCES_GAME_DIR): open the
-        # folder of the instance being played, not a shared saves/ that the
-        # game no longer writes to.
-        ("Worlds (saves)", "your singleplayer worlds",
-         lambda: os.path.join(_paths.game_dir_for(state.get("selected_version"), create=False), "saves")),
-        ("Screenshots", "the game's screenshots folder",
-         lambda: os.path.join(_paths.game_dir_for(state.get("selected_version"), create=False), "screenshots")),
-        ("Cubeon data", "config, logs and caches - not the game",
-         lambda: _paths.CUBEON_HOME),
-    ]
-
-    def _folder_button(label, hint, getter):
-        """A quiet, left-aligned row: name + hint, chevron on the right.
-        The tooltip is the real resolved path - the honest answer to "where
-        IS my mods folder" without opening anything."""
-        row = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, size=17, color=ACCENT_DIM),
-                    ft.Column(
-                        [ft.Text(label, size=13.5, color=TEXT,
-                                 weight=ft.FontWeight.W_600),
-                         ft.Text(hint, size=11.5, color=TEXT_DIM)],
-                        spacing=4, expand=True,
-                    ),
-                    ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=17, color=TEXT_DIM),
-                ],
-                spacing=12,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            bgcolor="transparent", border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-            on_click=lambda e=None, g=getter, l=label: _open_instance_folder(g, l),
-        )
-        try:
-            row.tooltip = getter()   # the real path, resolved at build time
-        except Exception:
-            row.tooltip = f"Open {label}"
-        theme.attach_hover(row, "transparent", ROW_HOVER)
-        return row
-
-    def _open_instance_folder(getter, label):
-        _paths.game_dir_for(state.get("selected_version"), create=True)
-        _open_any_folder(getter(), label)
-
-    minecraft_files_pane = ft.Column(
-        [
-            section_label("Minecraft files"),
-            ft.TextButton("Organize Minecraft files…", on_click=lambda e: _show_storage_migration()),
-            ft.Container(height=4),
-            ft.Text(
-                "Open the folders Cubeon and Minecraft use. Anything you drop "
-                "into Mods, Resource packs or Shaders is picked up on the next "
-                "launch.",
-                size=12, color=TEXT_DIM,
-            ),
-            ft.Container(height=12),
-            ft.Container(
-                content=ft.Column(
-                    [_folder_button(*row) for row in _FOLDER_ROWS],
-                    spacing=4,
-                ),
-                bgcolor=SURFACE_HI, border_radius=RADIUS, padding=8,
-                border=ft.border.Border.all(1, BORDER),
-            ),
-            ft.Container(height=12),
-            ft.Row(
-                [
-                    ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=15, color=TEXT_FAINT),
-                    ft.Text(
-                        "Hover a row to see its full path. These are the same "
-                        "folders the Mods, Cosmetics and Screenshots surfaces "
-                        "write to - nothing moves without telling you.",
-                        size=11.5, color=TEXT_FAINT, expand=True,
-                    ),
-                ],
-                spacing=8,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            ft.Container(height=8),
-        ],
-        spacing=4, visible=False,
-    )
+    minecraft_files_pane = ft.Column([
+        section_label("Minecraft files"),
+        ft.TextButton("Organize Minecraft files…", on_click=lambda e: _show_storage_migration()),
+    ], spacing=4, visible=False)
 
     restore_file_picker = ft.FilePicker()
 

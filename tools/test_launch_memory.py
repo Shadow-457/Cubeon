@@ -23,7 +23,8 @@ class LaunchMemoryTests(unittest.TestCase):
         self.root = Path(self.directory.name)
         for name, value in [('MINECRAFT_DIR', str(self.root)),
                             ('stable_uuid', lambda: 'test-uuid'),
-                            ('find_java_for_version', lambda *args: None)]:
+                            ('java_major_version', lambda *args, **kwargs: 25),
+                            ('find_java_for_version', lambda *args, **kwargs: '/fixture/java')]:
             patcher = patch.object(launch, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)

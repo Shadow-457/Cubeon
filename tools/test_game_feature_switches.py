@@ -180,6 +180,15 @@ class GameFeatureSwitches(unittest.TestCase):
         self.assertTrue((self.game / "CustomSkinLoader.jar").exists())
         self.assertFalse((self.game / "cubeon-client-1.jar").exists())
 
+    def test_settings_backup_does_not_override_a_manual_disabled_copy(self):
+        self.jar("CustomSkinLoader.jar")
+        self.toggle(False)
+        self.assertTrue(csl.disabled_by_setting(str(self.profile)))
+        self.jar("CustomSkinLoader-manual.jar.disabled")
+        self.assertFalse(csl.disabled_by_setting(str(self.profile)))
+        self.play({"csl_enabled": True, "client_mod_enabled": False})
+        self.assertFalse((self.game / "CustomSkinLoader.jar").exists())
+
     def test_locked_jar_blocks_spawn_instead_of_ignoring_opt_out(self):
         for name, identity, message in (("CustomSkinLoader.jar", "customskinloader", "CustomSkinLoader setting"),
                                         ("cubeon-client-1.jar", "cubeon-client", "disable Cubeon Client")):

@@ -8,6 +8,8 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.scoreboard.AbstractTeam;
 import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.world.RaycastContext;
 import java.util.Comparator;
 import org.joml.Vector3f;
 import java.util.function.Function;
@@ -30,6 +32,10 @@ public final class EnemyHealthRenderer {
         enemies.sort(Comparator.comparingDouble(player::squaredDistanceTo));
         var down = new Vector3f(0, -EnemyHealthBar.NAME_WORLD_HEIGHT, 0)
                 .rotate(client.gameRenderer.getCamera().getRotation());
+        var right = new Vector3f(EnemyHealthBar.WIDTH * 0.025F / 2, 0, 0)
+                .rotate(client.gameRenderer.getCamera().getRotation());
+        Vec3d camera = HealthCamera.position(client.gameRenderer.getCamera());
+        EnemyHealthBar.Fill fill = (x, y, x2, y2, color) -> CubeonHud.fillEnemyRect(context, x, y, x2, y2, color);
         int drawn = 0;
         for (LivingEntity enemy : enemies) {
             if (drawn == EnemyHealthBar.MAX_BARS) break;
@@ -37,12 +43,17 @@ public final class EnemyHealthRenderer {
                 var visibility = enemy.getScoreboardTeam().getNameTagVisibilityRule();
                 if (visibility == AbstractTeam.VisibilityRule.NEVER || visibility == AbstractTeam.VisibilityRule.HIDE_FOR_OTHER_TEAMS) continue;
             }
-            if (!player.canSee(enemy)) continue;
             // Match vanilla's rendered entity interpolation, not physics/tick history.
             Vec3d anchor = new Vec3d(
                     EnemyHealthBar.lerp(enemy.lastRenderX, enemy.getX(), tickDelta),
                     EnemyHealthBar.lerp(enemy.lastRenderY, enemy.getY(), tickDelta) + enemy.getHeight() + 0.5,
                     EnemyHealthBar.lerp(enemy.lastRenderZ, enemy.getZ(), tickDelta));
+            Vec3d eye = anchor.add(0, enemy.getEyeHeight(enemy.getPose()) - enemy.getHeight() - 0.5, 0);
+            float barOffset = (EnemyHealthBar.NAME_HEIGHT + 2 + EnemyHealthBar.HEIGHT / 2F) / EnemyHealthBar.NAME_HEIGHT;
+            Vec3d bar = anchor.add(down.x * barOffset, down.y * barOffset, down.z * barOffset);
+            if (!visible(client, camera, eye) || !visible(client, camera, bar)
+                    || !visible(client, camera, bar.add(right.x, right.y, right.z))
+                    || !visible(client, camera, bar.add(-right.x, -right.y, -right.z))) continue;
             Vec3d name = project.apply(anchor);
             // Sample camera-facing label height, including when looking up/down.
             Vec3d bottom = project.apply(anchor.add(down.x, down.y, down.z));
@@ -50,12 +61,12 @@ public final class EnemyHealthRenderer {
                     || !EnemyHealthBar.onScreen(bottom.x, bottom.y, bottom.z)) continue;
             float scale = EnemyHealthBar.labelScale(name.y, bottom.y, context.getScaledWindowHeight());
             if (!Float.isFinite(scale) || scale <= 0) continue;
-            int width = Math.max(2, Math.round(EnemyHealthBar.WIDTH * scale));
-            int height = Math.max(1, Math.round(EnemyHealthBar.HEIGHT * scale));
-            int center = EnemyHealthBar.screenX(name.x, context.getScaledWindowWidth());
-            int y = EnemyHealthBar.screenY(name.y, context.getScaledWindowHeight())
-                    + Math.round((EnemyHealthBar.NAME_HEIGHT + 2) * scale);
-            int x = center - width / 2;
+            float width = Math.max(2, EnemyHealthBar.WIDTH * scale);
+            float height = Math.max(1, EnemyHealthBar.HEIGHT * scale);
+            float center = EnemyHealthBar.preciseScreenX(name.x, context.getScaledWindowWidth());
+            float nameY = EnemyHealthBar.preciseScreenY(name.y, context.getScaledWindowHeight());
+            float y = nameY + (EnemyHealthBar.NAME_HEIGHT + 2) * scale;
+            float x = center - width / 2;
             if (x < 0 || x + width > context.getScaledWindowWidth()
                     || y + height > context.getScaledWindowHeight()) continue;
             // Add a mob name only when vanilla has no visible tag for it.
@@ -64,16 +75,17 @@ public final class EnemyHealthRenderer {
                     && hit.getEntity() == enemy)))) {
                 var label = enemy.getName();
                 CubeonHud.drawEnemyName(context, client, label, center,
-                        EnemyHealthBar.screenY(name.y, context.getScaledWindowHeight()), scale);
+                        nameY, scale);
             }
             float fraction = EnemyHealthBar.fraction(enemy.getHealth(), enemy.getMaxHealth());
-            context.fill(x, y, x + width, y + height, EnemyHealthBar.BACKGROUND);
-            int inset = height >= 3 && width >= 4 ? Math.max(1, Math.round(scale)) : 0;
-            inset = Math.min(inset, (height - 1) / 2);
-            int fill = Math.round((width - 2 * inset) * fraction);
-            if (fill > 0) context.fill(x + inset, y + inset, x + inset + fill, y + height - inset,
-                    EnemyHealthBar.color(fraction));
+            EnemyHealthBar.draw(fill, center, y, scale, fraction);
             drawn++;
         }
+    }
+
+    private static boolean visible(MinecraftClient client, Vec3d camera, Vec3d point) {
+        return client.world.raycast(new RaycastContext(camera, point,
+                RaycastContext.ShapeType.VISUAL, RaycastContext.FluidHandling.NONE, client.player))
+                .getType() == HitResult.Type.MISS;
     }
 }

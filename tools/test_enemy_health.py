@@ -18,6 +18,13 @@ GSON = next((Path.home() / '.gradle/caches/modules-2/files-2.1/com.google.code.g
 JOML = next((Path.home() / '.gradle/caches/modules-2/files-2.1/org.joml/joml').glob('*/*/joml-*.jar'), None)
 
 FIXTURES = {
+    'com/cubeon/client/hud/HealthCamera.java': '''
+package com.cubeon.client.hud;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.util.math.Vec3d;
+public class HealthCamera {
+    public static Vec3d position(MinecraftClient.Camera camera) { return camera.getPos(); }
+}''',
     'net/fabricmc/loader/api/FabricLoader.java': '''
 package net.fabricmc.loader.api;
 import java.nio.file.Path;
@@ -36,8 +43,12 @@ package com.cubeon.client.hud;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 public class CubeonHud {
-    public static void drawEnemyName(DrawContext draw, MinecraftClient client, String label, int center, int top, float scale) {
-        draw.labels.add(new int[]{center, top, Math.round(scale * 1000)});
+    public static void drawEnemyName(DrawContext draw, MinecraftClient client, String label, float center, float top, float scale) {
+        draw.labels.add(new int[]{Math.round(center), Math.round(top), Math.round(scale * 1000)});
+    }
+    public static void fillEnemyRect(DrawContext draw, float x,float y,float right,float bottom,int color) {
+        draw.precise.add(new float[]{x,y,right,bottom});
+        draw.fill(Math.round(x),Math.round(y),Math.round(right),Math.round(bottom),color);
     }
 }''',
     'net/minecraft/util/math/Vec3d.java': '''
@@ -85,6 +96,9 @@ public class LivingEntity {
     }
     public Vec3d getLerpedPos(float delta) { return physicsPos == null ? pos : physicsPos; }
     public float getHeight() { return 1.8F; }
+    public float getEyeHeight() { return 1.6F; }
+    public Object getPose() { return null; }
+    public float getEyeHeight(Object pose) { return 1.6F; }
     public Box getBoundingBox() { return new Box(); }
     public AbstractTeam getScoreboardTeam() { return team; }
     public String getName() { return "Enemy"; }
@@ -108,6 +122,13 @@ import java.util.function.Predicate;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.util.math.Box;
 public class ClientWorld {
+    public boolean cameraBlocked, barBlocked, edgeBlocked;
+    public net.minecraft.util.hit.HitResult raycast(net.minecraft.world.RaycastContext ray) {
+        boolean blocked = (cameraBlocked && ray.from.x > 5) || (barBlocked && ray.to.y > 2)
+                || (edgeBlocked && Math.abs(ray.to.x) > .1)
+                || entities.stream().anyMatch(entity -> entity.occluded);
+        return new net.minecraft.util.hit.HitResult(blocked);
+    }
     public List<LivingEntity> entities = new ArrayList<>();
     public <T extends LivingEntity> List<T> getEntitiesByClass(Class<T> type, Box box, Predicate<T> keep) {
         List<T> result = new ArrayList<>();
@@ -120,13 +141,34 @@ package net.minecraft.client.gui;
 import java.util.*;
 import net.minecraft.client.MinecraftClient.Font;
 public class DrawContext {
+    public List<float[]> precise = new ArrayList<>();
     public List<int[]> fills = new ArrayList<>();
     public List<int[]> labels = new ArrayList<>();
     public int getScaledWindowWidth() { return 200; }
     public int getScaledWindowHeight() { return 100; }
     public void fill(int x,int y,int x2,int y2,int color) { fills.add(new int[]{x,y,x2,y2,color}); }
     public void drawTextWithShadow(Font font,String label,int x,int y,int color) { labels.add(new int[]{x,y}); }
-    public void clear() { fills.clear(); labels.clear(); }
+    public void clear() { fills.clear(); labels.clear(); precise.clear(); }
+}''',
+    'net/minecraft/util/hit/HitResult.java': '''
+package net.minecraft.util.hit;
+public class HitResult {
+    public enum Type { MISS, BLOCK }
+    private final boolean blocked;
+    public HitResult(boolean blocked) { this.blocked=blocked; }
+    public Type getType() { return blocked ? Type.BLOCK : Type.MISS; }
+}''',
+    'net/minecraft/world/RaycastContext.java': '''
+package net.minecraft.world;
+import net.minecraft.util.math.Vec3d;
+import net.minecraft.entity.LivingEntity;
+public class RaycastContext {
+    public enum ShapeType { VISUAL }
+    public enum FluidHandling { NONE }
+    public final Vec3d from,to;
+    public RaycastContext(Vec3d from,Vec3d to,ShapeType block,FluidHandling fluid,LivingEntity player) {
+        this.from=from; this.to=to;
+    }
 }''',
     'net/minecraft/util/hit/EntityHitResult.java': '''
 package net.minecraft.util.hit;
@@ -152,7 +194,9 @@ public class MinecraftClient {
     }
     public static class Camera {
         public org.joml.Quaternionf rotation = new org.joml.Quaternionf();
+        public Vec3d position = new Vec3d(0,1.6,0);
         public org.joml.Quaternionf getRotation() { return rotation; }
+        public Vec3d getPos() { return position; }
     }
     public static class Projection {
         public double depth=0.5, horizontal=0;
@@ -260,6 +304,31 @@ public class HealthTest {
         int[] background=draw.fills.get(0), fill=draw.fills.get(1);
         require(Arrays.equals(background,new int[]{82,61,118,65,EnemyHealthBar.BACKGROUND}),"Bar is beneath projected name at GUI scale");
         require(fill[2]-fill[0]==17 && fill[3]-fill[1]==2,"Half health, thin inset fill");
+        // Subpixel motion is retained instead of snapping names/bars each frame.
+        float previousX=draw.precise.get(0)[0];
+        client.gameRenderer.horizontal=.0005; render();
+        require(draw.precise.get(0)[0]>previousX && draw.precise.get(0)[0]-previousX<.1F,
+                "Small camera movement keeps fractional bar position");
+        client.gameRenderer.horizontal=0;
+        // Crossing the former 2/3-pixel height threshold cannot collapse the fill.
+        float previousFillHeight=0;
+        for(int i=0;i<=20;i++) {
+            enemy.pos=new Vec3d(0,1,3/(.60+i*.0025)); render();
+            var preciseFill=draw.precise.get(1);
+            float fillHeight=preciseFill[3]-preciseFill[1];
+            require(fillHeight>=.999F,"Distant health fill stays visible");
+            if(i>0) require(Math.abs(fillHeight-previousFillHeight)<.02F,"Smooth resize without inset flicker");
+            previousFillHeight=fillHeight;
+        }
+        enemy.pos=new Vec3d(0,1,3);
+        client.gameRenderer.camera.position=new Vec3d(8,1.6,0);
+        client.world.cameraBlocked=true; hidden(enemy,"Camera wall occlusion, even with player line of sight");
+        client.world.cameraBlocked=false;
+        client.gameRenderer.camera.position=new Vec3d(0,1.6,0);
+        client.world.barBlocked=true; hidden(enemy,"Label hidden behind wall above visible eyes");
+        client.world.barBlocked=false;
+        client.world.edgeBlocked=true; hidden(enemy,"Bar edge hidden behind wall");
+        client.world.edgeBlocked=false;
         // Render history and physics history differ during entity movement.
         interpolationProbe=true;
         enemy.lastRenderY=0; enemy.pos=new Vec3d(0,2,3); enemy.physicsPos=new Vec3d(0,-5,3);
@@ -328,6 +397,7 @@ def mojang_source(source):
         'net.minecraft.util.math.Vec3d': 'net.minecraft.world.phys.Vec3',
         'net.minecraft.util.math.Box': 'net.minecraft.world.phys.AABB',
         'net.minecraft.util.hit.EntityHitResult': 'net.minecraft.world.phys.EntityHitResult',
+        'net.minecraft.util.hit.HitResult': 'net.minecraft.world.phys.HitResult',
         'MinecraftClient': 'Minecraft', 'DrawContext': 'GuiGraphicsExtractor',
         'ClientWorld': 'ClientLevel', 'PlayerEntity': 'Player', 'Monster': 'Enemy',
         'AbstractTeam': 'Team', 'VisibilityRule': 'Visibility', 'Vec3d': 'Vec3', 'Box': 'AABB',
@@ -340,6 +410,9 @@ def mojang_source(source):
         'getWidth': 'width', 'fontHeight': 'lineHeight', 'textRenderer': 'font',
         'drawTextWithShadow': 'text', 'currentScreen': 'screen', 'crosshairTarget': 'hitResult',
         'hudHidden': 'hideGui', 'project(': 'projectPointToScreen(', '::project': '::projectPointToScreen',
+        'net.minecraft.world.RaycastContext': 'net.minecraft.world.level.ClipContext',
+        'RaycastContext': 'ClipContext', 'ShapeType': 'Block', 'FluidHandling': 'Fluid',
+        'raycast(': 'clip(', 'getPos()': 'getPosition()',
         'client.world': 'client.level', 'public ClientLevel world': 'public ClientLevel level',
         'expand(': 'inflate(', 'getCamera()': 'getMainCamera()', 'getRotation()': 'rotation()',
     }
@@ -352,12 +425,13 @@ def mojang_source(source):
                      ('package net.minecraft.scoreboard;', 'package net.minecraft.world.scores;'),
                      ('package net.minecraft.util.math;', 'package net.minecraft.world.phys;'),
                      ('package net.minecraft.util.hit;', 'package net.minecraft.world.phys;'),
+                     ('package net.minecraft.world;', 'package net.minecraft.world.level;'),
                      ('package net.minecraft.client.level;', 'package net.minecraft.client.multiplayer;'),
                      ('import net.minecraft.util.math.*;', 'import net.minecraft.world.phys.*;')]:
         source = source.replace(old, new)
     source = source.replace('int y,int color) { labels.add', 'int y,int color,boolean shadow) { labels.add')
     source = source.replace('client.gameRenderer::projectPointToScreen, 0.5F',
-                            '0.5F, client.screen == null && !client.options.hideGui, client.gameRenderer.camera.rotation')
+                            '0.5F, client.screen == null && !client.options.hideGui, client.gameRenderer.camera.rotation, client.gameRenderer.camera.getPosition()')
     source = source.replace('getBoundingAABB', 'getBoundingBox')
     return source
 

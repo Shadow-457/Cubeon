@@ -12,6 +12,22 @@ public final class EnemyHealthBar {
 
     private EnemyHealthBar() {}
 
+    @FunctionalInterface
+    public interface Fill {
+        void draw(float x, float y, float right, float bottom, int color);
+    }
+
+    /** Preserve subpixel motion and a visible fill without integer-size jumps. */
+    public static void draw(Fill fill, float center, float top, float scale, float fraction) {
+        float width = Math.max(2, WIDTH * scale);
+        float height = Math.max(1, HEIGHT * scale);
+        float x = center - width / 2;
+        float inset = Math.max(0, Math.min(scale, (height - 1) / 2));
+        fill.draw(x, top, x + width, top + height, BACKGROUND);
+        if (fraction > 0) fill.draw(x + inset, top + inset,
+                x + inset + (width - 2 * inset) * fraction, top + height - inset, color(fraction));
+    }
+
     public static double lerp(double previous, double current, float delta) {
         return previous + (current - previous) * delta;
     }
@@ -37,6 +53,14 @@ public final class EnemyHealthBar {
 
     public static int screenY(double ndc, int height) {
         return (int) Math.round((1 - ndc) * 0.5 * height);
+    }
+
+    public static float preciseScreenX(double ndc, int width) {
+        return (float) ((ndc + 1) * 0.5 * width);
+    }
+
+    public static float preciseScreenY(double ndc, int height) {
+        return (float) ((1 - ndc) * 0.5 * height);
     }
 
     /** Keep bar and label proportions together under distance, FOV and GUI scaling. */

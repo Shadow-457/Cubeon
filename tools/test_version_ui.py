@@ -75,19 +75,21 @@ from cubeon import instances as instance_info                 # noqa: E402
 from cubeon.mod_loaders import find_installed_loader_version
 import cubeon.mods as mods_mod                                # noqa: E402
 
-# Two mods in the Fabric (26.1.2) profile so the card shows a count. The stub
-# layer redirects get_profile_dir into a throwaway temp dir; list_mods reads
-# resolve_profile_dir, so seed that (both are under the sandbox HOME anyway).
-profile = mods_mod.resolve_profile_dir("26.1.2", "fabric")
-os.makedirs(profile, exist_ok=True)
-for name in ("sodium.jar", "lithium.jar"):
-    with open(os.path.join(profile, name), "wb") as fh:
-        fh.write(b"j")
-# And a launch one hour ago so the card has a "last played" chip.
+# A launch one hour ago so the card has a "last played" chip.
 instance_info.mark_played(FABRIC_ID, when=time.time() - 3600)
 
 page = app_driver.DriverPage()
 stubs.app.run_sync(page)
+# Register the instance before seeding its mods. An unregistered candidate
+# folder changes when files appear because storage avoids name collisions.
+from cubeon import storage
+storage.folder_for(FABRIC_ID, create=True,
+                   meta={"mc_version": "26.1.2", "loader": "fabric"})
+profile = mods_mod.resolve_profile_dir("26.1.2", "fabric", FABRIC_ID)
+os.makedirs(profile, exist_ok=True)
+for name in ("sodium.jar", "lithium.jar"):
+    with open(os.path.join(profile, name), "wb") as fh:
+        fh.write(b"j")
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 driver.open_tab("play")
 

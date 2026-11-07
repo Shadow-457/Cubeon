@@ -676,21 +676,6 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             row("CustomSkinLoader (CSL)", "Skin and cape loading", csl_cb),
         ])),
         ft.Text(i18n.t("Applies on the next launch."), size=11.5, color=TEXT_DIM),
-        advanced("Version list", ft.Column(
-            [
-                group([
-                    row("Show snapshots",
-                        "Include preview builds",
-                        browse_online_row),
-                    row("Legacy versions",
-                        "1.8.9 is always available",
-                        legacy_btn),
-                ]),
-                # Shown only while legacy is on (main.py toggles it).
-                legacy_note,
-            ],
-            spacing=8,
-        ), data="settings-version-options"),
         advanced("Maintenance", group([
             row("Delete unfinished installs",
                 "Clean up incomplete downloads at startup",

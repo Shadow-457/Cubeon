@@ -286,8 +286,11 @@ def build_with_gradle(bracket, jar_name, gradle, jvm_home):
 def verify(jar_path, bracket=None):
     """Checks a built jar is one Fabric will actually load. Returns an error."""
     required = list(REQUIRED_ENTRIES)
-    if bracket and any(str(o).startswith("health-") for o in bracket.get("overlays", [])):
+    overlays = set(bracket.get("overlays", [])) if bracket else set()
+    if overlays.intersection({"health-legacy", "health-counter", "health-progress"}):
         required.append("com/cubeon/client/hud/LegacyHealthProjection.class")
+    if overlays.intersection({"health-camera-classic", "health-camera-final"}):
+        required.append("com/cubeon/client/hud/HealthCamera.class")
     if bracket and bracket.get("mappings") == "none":
         required.extend(REQUIRED_ENTRIES_26X)
     if bracket and any(str(o).startswith("zoom-")

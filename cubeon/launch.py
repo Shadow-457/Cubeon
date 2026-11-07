@@ -1277,7 +1277,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         from .mods import get_profile_dir as _storage_profile
         active_profile = _storage_profile(mc_version, loader, version_id)
         storage.reconcile_mod_removals(active_profile, loader)
-        skin_optout = storage.managed_removed(active_profile, "customskinloader")
+        skin_optout = (storage.managed_removed(active_profile, "customskinloader")
+                       and not csl.disabled_by_setting(active_profile))
         skin_enabled = bool(cfg.get("csl_enabled", True)) and not skin_optout
         try:
             if not skin_optout:

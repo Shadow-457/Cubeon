@@ -120,7 +120,7 @@ public final class CubeonHud {
         com.cubeon.client.hud.screen.FriendsToastRenderer.render(graphics, client, screenW, screenH);
 
 		EnemyHealthRenderer.render(graphics, client, deltaTracker.getGameTimeDeltaPartialTick(false),
-				client.gui.screen() == null && !client.gui.hud.isHidden(), client.gameRenderer.mainCamera().rotation());
+				client.gui.screen() == null && !client.gui.hud.isHidden(), client.gameRenderer.mainCamera().rotation(), client.gameRenderer.mainCamera().position());
 	}
 
 	/** Counts press edges of the attack/use bindings once per frame. */
@@ -464,12 +464,24 @@ public final class CubeonHud {
 
     /** Mob labels use the same projected scale as vanilla player name tags. */
     public static void drawEnemyName(GuiGraphicsExtractor graphics, Minecraft client, net.minecraft.network.chat.Component label,
-                                     int center, int top, float scale) {
+                                     float center, float top, float scale) {
         graphics.pose().pushMatrix();
         try {
+            graphics.pose().translate(center, top);
             graphics.pose().scale(scale, scale);
-            graphics.text(client.font, label, Math.round(center / scale) - client.font.width(label) / 2,
-                Math.round(top / scale), 0xFFE4E7EB, true);
+            graphics.text(client.font, label, -client.font.width(label) / 2, 0, 0xFFE4E7EB, true);
+        } finally {
+            graphics.pose().popMatrix();
+        }
+    }
+
+    /** Unit quads keep health-bar coordinates fractional until native rasterization. */
+    public static void fillEnemyRect(GuiGraphicsExtractor graphics, float x, float y, float right, float bottom, int color) {
+        graphics.pose().pushMatrix();
+        try {
+            graphics.pose().translate(x, y);
+            graphics.pose().scale(right - x, bottom - y);
+            graphics.fill(0, 0, 1, 1, color);
         } finally {
             graphics.pose().popMatrix();
         }

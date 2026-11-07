@@ -174,7 +174,8 @@ class VersionPicker:
     def __init__(self, page, *, get_selected, label_for, on_pick, on_browse_online,
                  get_instances=None, get_pack_name=None, on_open=None,
                  loaders=None, instance_exists=None, get_icon=None, on_set_icon=None,
-                 get_supported_versions=None, on_create=None, on_upload_icon=None):
+                 get_supported_versions=None, on_create=None, on_upload_icon=None,
+                 version_filters=None):
         self.page = page
         self.get_selected = get_selected
         self.label_for = label_for or (lambda _v: None)
@@ -240,6 +241,10 @@ class VersionPicker:
             prefix_icon=ft.Icons.SEARCH_ROUNDED,
             on_change=lambda e: self.rebuild(),
             visible=False,  # only worth showing once there's a long online list
+        )
+        self.version_filters = ft.Column(
+            [version_filters] if version_filters is not None else [],
+            spacing=0, visible=False,
         )
 
         self.offline_notice = ft.Container(
@@ -413,6 +418,7 @@ class VersionPicker:
                     self.step_label,
                     ft.Container(height=8),
                     self.filter_field,
+                    self.version_filters,
                     self.loader_row,
                     self.offline_notice,
                     self.retry_link,
@@ -518,6 +524,7 @@ class VersionPicker:
         self.next_button.visible = new
         self.list.visible = not new or self._new_step != 1
         self.filter_field.visible = bool(versions and not native and self._online and not self._offline)
+        self.version_filters.visible = bool(versions and not native and self.version_filters.controls)
         self.loader_row.visible = bool(new and self._new_step == 1)
         self.version_heading.visible = False
         self.install_hint.visible = bool(versions and native)

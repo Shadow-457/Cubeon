@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "tools"), str(ROOT)]
 import _sandbox_home
 _sandbox_home.isolate()
+import flet as ft
 import app_driver
 from cubeon import atomicio, thread_safe_ui, instances
 from cubeon.theme import ACCENT, ACCENT_TINT
@@ -80,6 +81,24 @@ class NewInstanceTests(unittest.TestCase):
             self.assertEqual(self.committed, [("1.20.1", "fabric", "block-tnt")])
             self.assertFalse(p.is_open())
 
+    def test_catalogue_filters_belong_to_version_step(self):
+        filters = ft.Row([ft.Checkbox(label="Snapshots"), ft.Checkbox(label="Legacy")])
+        p = self.picker(version_filters=filters)
+        with patch.object(threading.Thread, "start"):
+            p._browse()
+            self.assertFalse(p.version_filters.visible)
+            p._set_install_loader("vanilla")
+            p._next()
+            self.assertTrue(p.version_filters.visible)
+            self.assertIs(p.version_filters.controls[0], filters)
+            p._pick("1.20.1")
+            p._next()
+            self.assertFalse(p.version_filters.visible)
+            p._back()
+            self.assertTrue(p.version_filters.visible)
+            p._back()
+            self.assertFalse(p.version_filters.visible)
+
     def test_default_fabric_reaches_install_without_a_loader_click(self):
         p = self.picker()
         with patch.object(threading.Thread, "start"):
@@ -142,8 +161,11 @@ class NewInstanceTests(unittest.TestCase):
         scope["_fetch"]()
         state["legacy_ok"] = True
         scope["_fetch"]()
+        scope["show_snapshots"].value = True
+        scope["_fetch"]()
         self.assertEqual(called, [{"include_snapshots": False, "include_old": False},
-                                  {"include_snapshots": False, "include_old": True}])
+                                  {"include_snapshots": False, "include_old": True},
+                                  {"include_snapshots": True, "include_old": True}])
 
     def test_icon_saved_to_resulting_loader_instance(self):
         tree = ast.parse((ROOT / "main.py").read_text())

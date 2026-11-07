@@ -26,6 +26,7 @@ import io
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 
 from PIL import Image, ImageOps
@@ -236,16 +237,51 @@ def delete_screenshot(filename: str) -> None:
                 pass
 
 
-def open_screenshots_folder() -> None:
-    """Ask the desktop file manager to open the screenshots directory."""
+def open_screenshots_folder(filename: str | None = None) -> str:
+    """Open the selected capture's folder, or the active screenshots directory.
+
+    Run off the UI thread: desktop helpers may take time to hand off the request.
+    A failed helper must reach the caller instead of reporting a successful open.
+    """
     from . import storage, paths
-    folder = os.path.join(paths.active_game_dir(), "screenshots") if storage.enabled() else SCREENSHOTS_DIR
+    if filename is not None:
+        folder = os.path.dirname(clipboard_path(filename))
+    else:
+        folder = os.path.join(paths.active_game_dir(), "screenshots") if storage.enabled() else SCREENSHOTS_DIR
+    folder = os.path.abspath(folder)
     os.makedirs(folder, exist_ok=True)
-    if sys.platform.startswith("linux"):
+    if sys.platform == "win32":
+        os.startfile(folder)  # type: ignore[attr-defined]
+        return folder
+    elif sys.platform.startswith("linux"):
         command = ["xdg-open", folder]
     elif sys.platform == "darwin":
         command = ["open", folder]
     else:
-        command = [os.path.abspath(folder)]
-    subprocess.Popen(command, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, start_new_session=True)
+        raise OSError(f"Opening folders is unsupported on {sys.platform}")
+
+    env = os.environ.copy()
+    if sys.platform.startswith("linux") and getattr(sys, "frozen", False):
+        # PyInstaller prepends its bundled libraries; system file managers need
+        # the original search path rather than Cubeon's bundled libraries.
+        original = env.pop("LD_LIBRARY_PATH_ORIG", None)
+        if original is not None:
+            env["LD_LIBRARY_PATH"] = original
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
+
+    # A file avoids pipe backpressure if a helper keeps the file manager alive.
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL,
+                                   stderr=errors, start_new_session=True, env=env)
+        try:
+            code = process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            # Some desktop helpers remain attached to the open file manager.
+            # Leave it running; opening a folder must never close its window.
+            return folder
+        if code:
+            errors.seek(0)
+            detail = errors.read(1024).decode("utf-8", errors="replace").strip()
+            raise OSError(detail or f"{command[0]} exited with status {code}")
+    return folder

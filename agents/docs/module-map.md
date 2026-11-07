@@ -324,6 +324,12 @@ keep builders consistent with the shared `THEME` contract.
   loader instead of implying the release does not exist. `test_version_ui.py` exercises the 1.8 path.
   Fabric discovery uses the official `meta.fabricmc.net` service through mll; the Legacy preference
   does not switch to the separate Legacy Fabric project, which is not an integrated loader.
+- Snapshot and Legacy checkboxes live together on New Instance → Install's Java version step;
+  they refetch the catalogue immediately, preserve Legacy across restarts, and stay hidden on
+  loader/icon/Rust steps. Settings → Files retains only the storage organization action;
+  Play's Folder and Settings → Screenshots provide folder access.
+- Launch distinguishes CSL backups recorded by the Settings switch from manually disabled
+  copies: `csl.disabled_by_setting` permits restoring only the former when CSL is enabled again.
 - The Play card shows its loader as the compact hero tag; the bulky loader readout is unmounted.
   `loader_readout` / `loader_note` and `loader_toggle` survive as internal mirrors of `state["mod_loader"]`
   for the launch path and the smoke/ version tests. The card always shows Folder / Rename / Delete; there
@@ -632,6 +638,12 @@ keep builders consistent with the shared `THEME` contract.
   `test_instance_storage.py` covers preservation of world/settings paths and
   bytes/identities/timestamps, content ownership, popup, interruption and recovery.
   Native Windows migration/restart validation remains a release prerequisite.
+- Screenshot gallery's folder button opens the selected capture's validated directory,
+  falling back to the active instance when nothing is selected. Run desktop helpers
+  off the UI thread, report nonzero exits, use `os.startfile` for Windows folders,
+  and restore PyInstaller's original Linux library path for system file managers.
+  A helper still attached to its file manager after the bounded wait must stay alive.
+  `tools/test_screenshot_gallery.py` covers these paths and the button's retry gate.
 - After every instance migrates and its content is verified independent,
   `storage._archive_legacy_content()` renames only root `global_mods`,
   `global_content`, `mods`, `resourcepacks`, `shaderpacks` into one
@@ -1524,6 +1536,11 @@ keep builders consistent with the shared `THEME` contract.
   never read the GUI's orthographic projection or reuse a frame across worlds. Hold the captured world
   weakly so returning to the title screen cannot retain it. `test_enemy_health.py`
   runs the real renderers, Gson config and legacy projectors with recorded draws and cached JOML.
+- Enemy-health occlusion rays originate at the actual camera and test interpolated eyes plus
+  bar center/edges against visual block shapes. Fractional bar/name coordinates reach native
+  HUD draws through pose transforms; rounding before scaling causes jitter and disappearing fills.
+  Yarn `health-camera-classic` uses `Camera.getPos()`, while 1.21.11's `health-camera-final`
+  uses `getCameraPos()`. Overlay source directories are additive; never layer duplicate classes.
   On 26.x, the HUD passes menu/F1 visibility and camera rotation into the shared renderer:
   `screen`/`options.hideGui` moved to `gui.screen()`/`gui.hud.isHidden()` in 26.2, and
   `GameRenderer.getMainCamera()` became `mainCamera()`.

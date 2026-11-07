@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 1.4.0 — Stable: launcher fixes and simpler settings
+
+- Fixed screenshot-folder opening and show file-manager errors in the gallery.
+- Fixed enemy health-bar movement, thin fills and visibility behind walls.
+  Rebuilt all 24 supported Fabric/Quilt companion versions.
+- Removed the folder-shortcuts panel from Settings; Play keeps its Folder action.
+- Combined Snapshot and Legacy filters on New Instance → Install.
+- Restoring CustomSkinLoader in Settings re-enables the backup made by that switch.
+- Includes the recent instance-storage, client-menu and Linux CPU startup fixes.
+- Corrected Linux release dependencies to use the runtime libraries needed by the bundled app.
+
+### Other changes since 1.3.45
+
 - Refined in-game Client Settings with searchable categories, compact switches,
   consistent feature cards and Configure panels. Added opt-in clock, Java RAM/GPU
   frame readings, potion icons/timers, coordinates, compass, biome, day/light,

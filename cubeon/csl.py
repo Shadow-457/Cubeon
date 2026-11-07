@@ -259,6 +259,22 @@ def _is_csl(mod, directory, loader):
     return str(metadata.get("id") or "").lower().replace("-", "").replace("_", "") == CSL_MODRINTH_SLUG
 
 
+def disabled_by_setting(directory: str) -> bool:
+    """Whether all disabled CSL files are backups owned by our Settings switch."""
+    from .file_safety import entry_name
+    try:
+        with open(os.path.join(directory, ".cubeon-csl-disabled.json"), encoding="utf-8") as source:
+            entries = json.load(source)["jars"]
+        backups = {entry_name(entry["disabled"], extensions=(".jar.disabled",))
+                   for entry in entries}
+        disabled = {name for name in os.listdir(directory)
+                    if name.lower().startswith("customskinloader")
+                    and name.endswith(".jar.disabled")}
+        return bool(disabled) and disabled.issubset(backups)
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
 def set_enabled(mc_version: str | None, loader: str | None, enabled: bool, *,
                 version_id: str | None = None) -> int:
     """Keep CSL opt-out JARs as backups and restore only those backups on opt-in."""

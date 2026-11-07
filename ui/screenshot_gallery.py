@@ -279,12 +279,41 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
         dialogs.open_dialog(page, confirm)
 
     def _open_folder(e=None):
+        with thread_safe_ui.TREE_LOCK:
+            if folder_button.disabled:
+                return
+            filename = state.get("selected")
+            folder_button.disabled = True
+            status.value = "Opening screenshots folder…"
+            thread_safe_ui.refresh(folder_button)
+            thread_safe_ui.refresh(status)
+
+        def _finish(message):
+            with thread_safe_ui.TREE_LOCK:
+                status.value = message
+                folder_button.disabled = False
+                thread_safe_ui.refresh(folder_button)
+                thread_safe_ui.refresh(status)
+
+        def _open():
+            try:
+                store.open_screenshots_folder(filename)
+                message = "Screenshots folder open requested."
+            except Exception as ex:
+                message = f"Couldn't open folder: {ex}"
+            _finish(message)
+
         try:
-            store.open_screenshots_folder()
-            status.value = "Opened the screenshots folder."
+            threading.Thread(target=_open, daemon=True,
+                             name="cubeon-screenshot-folder").start()
         except Exception as ex:
-            status.value = f"Couldn't open folder: {ex}"
-        thread_safe_ui.refresh(status)
+            _finish(f"Couldn't open folder: {ex}")
+
+    folder_button = ft.IconButton(
+        icon=ft.Icons.FOLDER_OPEN_ROUNDED, icon_color=TEXT_DIM,
+        tooltip="Open screenshots folder", on_click=_open_folder,
+        data="screenshot-folder",
+    )
 
     gallery_header = ft.Row([
         ft.Container(
@@ -322,8 +351,7 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
         ),
         ft.IconButton(icon=ft.Icons.REFRESH_ROUNDED, icon_color=TEXT_DIM,
                       tooltip=i18n.t("Refresh"), on_click=_refresh),
-        ft.IconButton(icon=ft.Icons.FOLDER_OPEN_ROUNDED, icon_color=TEXT_DIM,
-                      tooltip="Open screenshots folder", on_click=_open_folder),
+        folder_button,
     ])
 
     gallery_body = ft.Container(

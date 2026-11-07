@@ -41,7 +41,7 @@ system, artifact, and results. Do not mark untested platforms as verified.
 - [ ] Follow the repository's release workflow. A push to `main` can start it;
       do not create a second tag or release for the same version.
 - [ ] Watch the build jobs and the asset-verification/publish job.
-- [ ] Verify all six required assets exist before making a draft public.
+- [ ] Verify all five required Windows/Linux assets exist before making a draft public.
 - [ ] Keep beta versions as prereleases; they must not become the stable download.
 - [ ] Deploy changed Workers using their own configuration and credentials.
       Packaging the launcher does not deploy them.

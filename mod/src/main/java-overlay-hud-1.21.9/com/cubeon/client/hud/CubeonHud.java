@@ -460,13 +460,25 @@ public final class CubeonHud {
 
     /** Mob labels use the same projected scale as vanilla player name tags. */
     public static void drawEnemyName(DrawContext context, MinecraftClient client, net.minecraft.text.Text label,
-                                     int center, int top, float scale) {
+                                     float center, float top, float scale) {
         context.getMatrices().pushMatrix();
         try {
+            context.getMatrices().translate(center, top);
             context.getMatrices().scale(scale, scale);
             context.drawTextWithShadow(client.textRenderer, label,
-                Math.round(center / scale) - client.textRenderer.getWidth(label) / 2,
-                Math.round(top / scale), 0xFFE4E7EB);
+                -client.textRenderer.getWidth(label) / 2, 0, 0xFFE4E7EB);
+        } finally {
+            context.getMatrices().popMatrix();
+        }
+    }
+
+    /** Unit quads keep health-bar coordinates fractional until native rasterization. */
+    public static void fillEnemyRect(DrawContext context, float x, float y, float right, float bottom, int color) {
+        context.getMatrices().pushMatrix();
+        try {
+            context.getMatrices().translate(x, y);
+            context.getMatrices().scale(right - x, bottom - y);
+            context.fill(0, 0, 1, 1, color);
         } finally {
             context.getMatrices().popMatrix();
         }
