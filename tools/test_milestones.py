@@ -99,7 +99,7 @@ print("\n3. play session: crash survival + double-credit guard")
 os.makedirs(os.path.dirname(milestones._GAME_LOG_PATH), exist_ok=True)
 open(milestones._GAME_LOG_PATH, "wb").close()
 # No game-log evidence -> nothing credited (under-credit, never mint hours).
-milestones.begin_play_session(pid=4242, started_at=100.0)
+milestones.begin_play_session(pid=4242, started_at=100.0, profile="Survival", version="1.21.1")
 check("session record persisted", os.path.isfile(milestones.PLAY_SESSION_PATH))
 if os.path.exists(milestones._GAME_LOG_PATH):
     os.unlink(milestones._GAME_LOG_PATH)  # no evidence at all this time
@@ -126,6 +126,29 @@ check("log-bounded playtime credited",
       abs(credited - 600.0) < 0.001, str(credited))
 check("credited time landed in the store",
       abs(milestones.load_state()["seconds_played"] - before - 600.0) < 0.001)
+check("completed games become local session records", len(milestones.load_state()["session_history"]) == 1)
+check("the longest session is kept", milestones.load_state()["longest_session_seconds"] == 600)
+milestones.begin_play_session(pid=4242, started_at=1000.0, session_id="server-test", profile="Creative", version="1.20.1")
+server_log = os.path.join(milestones.CUBEON_HOME, "game-server-test.log")
+with open(server_log, "w", encoding="utf-8") as stream:
+    stream.write("[Client thread/INFO]: Connecting to play.example.net, 25565\n"
+                 "[Client thread/INFO]: Connecting to play.example.net, 25565\n"
+                 "[Client thread/INFO]: Connecting to localhost, 25566\n"
+                 "[Client thread/INFO]: Connecting to invalid.example, 99999\n"
+                 "[Client thread/INFO]: token secret-not-a-server\n")
+os.utime(server_log, (1300,1300))
+milestones.end_play_session(now=1400, session_id="server-test")
+row = milestones.load_state()["session_history"][0]
+check("session metadata survives until game exit", row["profile"] == "Creative" and row["version"] == "1.20.1")
+check("only valid unique connection addresses are recorded", row["servers"] == ["play.example.net", "localhost:25566"])
+check("shorter games do not reduce the longest session", milestones.load_state()["longest_session_seconds"] == 600)
+copied = milestones.snapshot()
+copied["session_history"].clear()
+check("UI snapshots cannot mutate persisted activity", len(milestones.load_state()["session_history"]) == 2)
+milestones.end_play_session(now=1400, session_id="server-test")
+check("duplicate exits do not duplicate session rows", len(milestones.load_state()["session_history"]) == 2)
+milestones._state = None
+check("session metadata survives a fresh store load", milestones.load_state()["session_history"][0]["servers"] == ["play.example.net", "localhost:25566"])
 
 # Reconciler: a session orphaned by a dead launcher gets credited.
 milestones.begin_play_session(pid=4242, started_at=100.0)
@@ -136,6 +159,7 @@ check("reconciler credits an orphaned session",
       abs(milestones.load_state()["seconds_played"] - before - 600.0) < 0.001)
 check("reconciler cleared the record",
       not os.path.exists(milestones.PLAY_SESSION_PATH))
+check("reconciled legacy games retain unique session rows", len(milestones.load_state()["session_history"]) == 3)
 
 # Reconciler with the game STILL running: record must survive (the polling
 # watcher credits it later) and nothing may be credited yet.

@@ -338,7 +338,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             entry = next((s for s in core.list_custom_skins()
                           if s.get("filename") == filename), {})
             variant = "alex_" if entry.get("slim") else "steve_"
-        out = os.path.join(folder, f"_thumb_{variant}{filename}.png")
+        suffix = "png"
+        if kind == "cape":
+            entry = next((c for c in core.list_custom_capes() if c.get("filename") == filename), {})
+            suffix = "gif" if entry.get("animated") else "png"
+        out = os.path.join(folder, f"_thumb_{variant}{filename}.{suffix}")
         src = os.path.join(folder, filename)
         try:
             # The preview depends on the sheet and arm model, so an up-to-date
@@ -575,13 +579,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     def set_active_cape(filename):
         if cfg.get("active_cape") == filename and not cfg.get("hide_cubeon_cape"):
-            return
+            return True
         try:
             core.set_active_cape(cfg, filename)
         except Exception as ex:
             cape_status.value = f"Couldn't switch cape: {ex}"
             _refresh_status(cape_status)
-            return
+            return False
         if filename:
             render_cape_preview_for(filename)
             entry = next((c for c in core.list_custom_capes()
@@ -596,6 +600,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         sync_cape_selection()
         thread_safe_ui.refresh(capes_list_col)
         _refresh_status(cape_status)
+        return True
 
     def hide_cape():
         """The Cape pane's None card: no cape on this player's screen."""
@@ -683,7 +688,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 src=cached,
                 lazy_thumb=None if cached else ("cape", c["filename"]),
                 label=c["name"],
-                sublabel="",
+                sublabel="Animated GIF" if c.get("animated") else "",
                 active=is_active,
                 on_use=lambda e, fn=c["filename"]: set_active_cape(fn),
                 on_delete=lambda e, fn=c["filename"]: delete_cape(fn),
@@ -709,25 +714,32 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         # Threaded for the same reason as handle_skin_files; also replaces
         # the bare page.update() (unsafe from a worker thread) with
         # control-level thread_safe_ui refreshes.
-        cape_upload_button.disabled = True
-        cape_status.value = "Uploading..."
-        _refresh_status(cape_status)
-        thread_safe_ui.refresh(cape_upload_button)
+        with thread_safe_ui.TREE_LOCK:
+            if cape_upload_button.disabled:
+                return
+            cape_upload_button.disabled = True
+            cape_status.value = "Uploading..."
+            _refresh_status(cape_status)
+            thread_safe_ui.refresh(cape_upload_button)
 
         def _work():
             try:
                 display_name = os.path.splitext(picked.name)[0]
                 entry = core.add_custom_cape(picked.path, display_name)
-                set_active_cape(entry["filename"])
-                msg = f"Uploaded and set '{entry['name']}' as active cape."
+                with thread_safe_ui.TREE_LOCK:
+                    applied = set_active_cape(entry["filename"])
+                    msg = f"Uploaded and set '{entry['name']}' as active cape." if applied else cape_status.value
+                    refresh_capes_list()
+                    thread_safe_ui.refresh(capes_list_col)
             except ValueError as ve:
                 msg = str(ve)
             except Exception as ex:
                 msg = f"Upload failed: {ex}"
-            cape_status.value = msg
-            cape_upload_button.disabled = False
-            _refresh_status(cape_status)
-            thread_safe_ui.refresh(cape_upload_button)
+            with thread_safe_ui.TREE_LOCK:
+                cape_status.value = msg
+                cape_upload_button.disabled = False
+                _refresh_status(cape_status)
+                thread_safe_ui.refresh(cape_upload_button)
 
         threading.Thread(target=_work, daemon=True,
                          name="ux-cape-upload").start()
@@ -744,7 +756,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         core.run_file_picker(
             page, cape_file_picker,
             on_files=handle_cape_files,
-            dialog_title="Choose a cape image",
+            dialog_title="Choose a cape image or GIF",
             allow_multiple=False,
             allowed_extensions=[
                 "png", "jpg", "jpeg", "webp", "gif", "bmp",
@@ -766,6 +778,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         padding=ft.padding.Padding.symmetric(vertical=8, horizontal=10),
         alignment=ft.Alignment.CENTER,
         ink=False,
+        tooltip="Upload an image or animated GIF up to 8 MB",
         on_click=open_cape_picker,
     ), None, SURFACE_HI)
 

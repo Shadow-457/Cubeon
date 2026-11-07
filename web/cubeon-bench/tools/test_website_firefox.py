@@ -30,6 +30,7 @@ SUITE = r"""
   function choose(s,value){$(s).value=value;$(s).dispatchEvent(new Event('change',{bubbles:true}))}
   function state(){const cv=$('#ec'),pixels=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;let hash=2166136261;for(let i=0;i<pixels.length;i+=4)for(let j=0;j<4;j++){const b=j<3?Math.round(pixels[i+j]*pixels[i+3]/255):pixels[i+3];hash=Math.imul(hash^b,16777619)}return {w:cv.width,h:cv.height,hash:hash>>>0}}
   function native(id){
+    click('[data-anim-view="sheet"]'); // Inspect source sheets; animations default to one frame.
     const cv=$('#ec'),reference=expected[id],pixels=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data,original=atob(reference.pixels);
     assert(cv.width===reference.w&&cv.height===reference.h,'PNG dimensions: '+id);
     for(let i=0;i<pixels.length;i+=4){
@@ -130,9 +131,10 @@ SUITE = r"""
       pass('cube face isolation, grass/log textures, face editing, rotation, zoom, and reset');
 
       await open('block/water_still');native('block/water_still');await preview();
-      const water=$('.pv-face-front'),first=water.style.backgroundImage,img=new Image();img.src=first.slice(5,-2);await img.decode();
-      assert(img.width===16&&img.height===16,'Animation strip stretched onto the cube');
-      await until(()=>water.style.backgroundImage!==first,'Animation did not advance');
+      const water=$('.pv-face-front canvas'),first=water.toDataURL();
+      assert(water.width===16&&water.height===16,'Animation strip stretched onto the cube');
+      await until(()=>water.toDataURL()!==first,'Animation did not advance');
+      assert(water===$('.pv-face-front canvas'),'Animation replaced its drawing surface');
       await open('item/diamond_sword');native('item/diamond_sword');await preview();
       assert(document.querySelectorAll('.pv-item-edge').length>0,'Transparent item needs edge geometry');snapshot('item-preview');
       await open('entity/player/wide/steve','skin');native('entity/player/wide/steve');await preview();
@@ -146,7 +148,7 @@ SUITE = r"""
       assert(getComputedStyle(area).scrollbarWidth==='thin','Custom Firefox scrollbar width');
       document.documentElement.dataset.theme='dark';assert(getComputedStyle(area).scrollbarColor!==light,'Scrollbar theme did not change');snapshot('custom-scrollbars');
       const tabs=fixture('block/stone');tabs.open=window.MinecraftTextures.entries.filter(e=>e.cat==='block').slice(0,20).map(e=>e.id);tabs.cur=tabs.open[0];await window.Ed.open(tabs);
-      $('#edTabs').scrollLeft=300;assert($('#edTabs').scrollLeft>0,'Open texture tabs must scroll');
+      $('#textureTabs').scrollLeft=300;assert($('#textureTabs').scrollLeft>0,'Open texture tabs must scroll');
       window.Ed.close();click('[data-go="library"]');choose('#libCat','block');
       await Promise.all(Array.from(document.querySelectorAll('#lib-grid canvas')).map(c=>window.MinecraftTextures.load(c.dataset.texture)));
       await sleep(40);snapshot('texture-library');

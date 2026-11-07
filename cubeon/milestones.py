@@ -19,6 +19,8 @@ import json
 import os
 import threading
 import time
+import copy
+import re
 
 from .paths import CUBEON_HOME
 from .atomicio import write_json
@@ -50,6 +52,9 @@ def _defaults() -> dict:
         "friends_count_high": 0,
         "sessions_played": 0,
         "activity": {},
+        "session_history": [],
+        "longest_session_seconds": 0,
+        "best_streak_days": 0,
     }
 
 
@@ -71,6 +76,7 @@ def load_state() -> dict:
                 if k in data:
                     base[k] = data[k]
         base["activity"] = activity.clean_history(base.get("activity"))
+        base["session_history"] = activity.clean_sessions(base.get("session_history"))
         _state = base
         if data is None:
             _save_state_locked()
@@ -82,6 +88,13 @@ def save_state() -> None:
     hundred bytes) and safe to call from any thread (serialized by _lock)."""
     with _lock:
         _save_state_locked()
+
+
+def snapshot() -> dict:
+    """A consistent UI snapshot while a game watcher updates the counters."""
+    load_state()
+    with _lock:
+        return copy.deepcopy(_state)
 
 
 def _save_state_locked() -> None:
@@ -99,14 +112,11 @@ def _save_state_locked() -> None:
         pass
 
 
-def add_play_seconds(seconds: float, started_at: float | None = None, *, completed=False) -> None:
+def add_play_seconds(seconds: float, started_at: float | None = None, *, completed=False, session=None) -> None:
     """Credits in-game time. Clamps negatives (a broken clock must not be
     able to subtract playtime) and huge single credits (an absurd record
     must not dominate the stat)."""
-    try:
-        seconds = float(seconds)
-    except (TypeError, ValueError):
-        return
+    seconds = activity.nonnegative(seconds)
     if not (seconds > 0):
         return
     seconds = min(seconds, 86400.0 * 14)  # two weeks of one 'session' is a bug
@@ -114,6 +124,8 @@ def add_play_seconds(seconds: float, started_at: float | None = None, *, complet
     with _lock:
         st["seconds_played"] += seconds
         activity.record_playtime(st, seconds, started_at, completed=completed)
+        if completed:
+            activity.record_session(st, seconds, started_at, session)
         _save_state_locked()
 
 
@@ -162,11 +174,12 @@ def _read_play_sessions():
 
 
 def begin_play_session(pid: int, started_at: float | None = None,
-                       session_id: str | None = None) -> None:
+                       session_id: str | None = None, *, profile="", version="") -> None:
     with _session_lock:
         records = _read_play_sessions()
         records[session_id or "legacy"] = {"started": float(started_at or time.time()),
-                                           "pid": int(pid or 0), "session_id": session_id}
+                                           "pid": int(pid or 0), "session_id": session_id,
+                                           "profile": profile, "version": version}
         _write_play_session({"sessions": records})
 
 
@@ -202,8 +215,33 @@ def end_play_session(now: float | None = None, session_id: str | None = None) ->
         _write_play_session({"sessions": records})
         seconds = _play_session_elapsed(rec, time.time() if now is None else now)
     if seconds > 0:
-        add_play_seconds(seconds, rec["started"], completed=True)
+        add_play_seconds(seconds, rec["started"], completed=True, session={
+            "id": rec.get("session_id"), "profile": rec.get("profile"), "version": rec.get("version"),
+            "servers": _session_servers(rec)})
     return seconds
+
+
+def _session_servers(rec):
+    """Only Minecraft's connection lines, from at most 256 KiB of local log."""
+    session_id = rec.get("session_id")
+    path = os.path.join(CUBEON_HOME, f"game-{session_id}.log") if session_id else _GAME_LOG_PATH
+    try:
+        with open(path, "rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 256 * 1024))
+            text = stream.read(256 * 1024).decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    servers = []
+    for host, port in re.findall(r": Connecting to ([A-Za-z0-9_.:\[\]-]{1,253}),\s*(\d{1,5})\s*$", text, re.MULTILINE):
+        if not 0 < int(port) <= 65535:
+            continue
+        server = host if int(port) == 25565 else f"{host}:{port}"
+        if server not in servers:
+            servers.append(server)
+        if len(servers) == 8:
+            break
+    return servers
 
 
 def reconcile_play_session(pid_alive=None) -> None:

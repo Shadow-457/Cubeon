@@ -52,11 +52,12 @@
     return state;
   }
   function bootstrap(state) {
-    var small = Object.assign({}, state, {localDatabase: true, projects: state.projects.map(function (p) {
+    function info(p) {
       var info = Object.assign({}, p);
       delete info.edits; delete info.packMeta; delete info.textures; delete info.originalDescription;
       return info;
-    })});
+    }
+    var small = Object.assign({}, state, {localDatabase: true, projects: state.projects.map(info), trash: (state.trash || []).map(info)});
     try { localStorage.setItem('cb-data', JSON.stringify(small)); } catch (_) {}
   }
   async function flush() {
@@ -109,9 +110,24 @@
       tx.oncomplete = resolve; tx.onerror = tx.onabort = function () { reject(tx.error); };
     });
   }
+  async function commitWorkspace(state, assets) {
+    if (!await flush()) throw new Error('Save your current workspace before restoring a backup.');
+    var db = await database;
+    if (!db) throw new Error('Workspace restore requires local database storage. Serve the app over localhost or HTTPS.');
+    signal('saving');
+    try {
+      await new Promise(function (resolve, reject) {
+        var tx = db.transaction(['workspace', 'pack-files'], 'readwrite');
+        tx.objectStore('workspace').put(state, 'state');
+        Object.keys(assets).forEach(function (id) { tx.objectStore('pack-files').put(assets[id], id); });
+        tx.oncomplete = resolve; tx.onerror = tx.onabort = function () { reject(tx.error || new Error('The backup could not be saved. Your existing workspace is unchanged.')); };
+      });
+      fileCache.clear(); bootstrap(state); signal('saved');
+    } catch (error) { signal('error', error); throw error; }
+  }
   window.addEventListener('pagehide', function () { flush(); });
   document.addEventListener('visibilitychange', function () { if (document.hidden) flush(); });
   window.LocalStore = {ready: database, loadState: loadState, saveState: saveState, flush: flush,
     putFiles: putFiles, getFiles: getFiles, cleanFiles: cleanFiles, mode: function () { return mode; },
-    status: function () { return status; }};
+    status: function () { return status; }, commitWorkspace: commitWorkspace};
 })();

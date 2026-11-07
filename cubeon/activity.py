@@ -4,6 +4,7 @@ import math
 import time
 
 HISTORY_DAYS = 400
+MAX_SESSIONS = 1000
 METRICS = ("seconds_played", "sessions_played", "sessions_hosted")
 PERIODS = (
     ("recent_week", "Last 7 days"),
@@ -19,6 +20,71 @@ def nonnegative(value):
         return value if math.isfinite(value) and value > 0 else 0.0
     except (TypeError, ValueError, OverflowError):
         return 0.0
+
+
+def duration_label(seconds):
+    seconds = nonnegative(seconds)
+    minutes = int(seconds // 60)
+    if not minutes:
+        return "<1m" if seconds else "0m"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:,}h {minutes}m" if hours and minutes else f"{hours:,}h" if hours else f"{minutes}m"
+
+
+def _label(value, limit=120):
+    return " ".join(value.split())[:limit] if isinstance(value, str) else ""
+
+
+def clean_sessions(value):
+    """Bounded, local completed-session rows; old totals are never backfilled."""
+    if not isinstance(value, list):
+        return []
+    sessions, seen = [], set()
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        identity = _label(row.get("id"), 80)
+        started, seconds = nonnegative(row.get("started")), nonnegative(row.get("seconds"))
+        try:
+            datetime.fromtimestamp(started)
+            datetime.fromtimestamp(started + seconds)
+        except (ValueError, OverflowError, OSError):
+            continue
+        if not identity or identity in seen or not started or not 0 < seconds <= 86400 * 14:
+            continue
+        servers = row.get("servers")
+        servers = list(dict.fromkeys(_label(server, 253) for server in servers if _label(server, 253)))[:8] if isinstance(servers, list) else []
+        sessions.append({"id": identity, "started": started, "seconds": seconds,
+                         "profile": _label(row.get("profile")) or "Minecraft",
+                         "version": _label(row.get("version"), 80) or "—",
+                         "servers": servers})
+        seen.add(identity)
+    return sorted(sessions, key=lambda row: row["started"], reverse=True)[:MAX_SESSIONS]
+
+
+def streaks(state, *, today=None):
+    today = today or date.today()
+    played = sorted(date.fromisoformat(key) for key, row in clean_history(state.get("activity")).items()
+                    if nonnegative(row.get("seconds_played")) and date.fromisoformat(key) <= today)
+    best, run, previous = 0, 0, None
+    for day in played:
+        run = run + 1 if previous and day == previous + timedelta(days=1) else 1
+        best = max(best, run)
+        previous = day
+    current = run if played and played[-1] >= today - timedelta(days=1) else 0
+    return current, max(best, int(nonnegative(state.get("best_streak_days"))))
+
+
+def record_session(state, seconds, started_at, context=None):
+    import uuid
+    context = context or {}
+    started = nonnegative(started_at) or time.time() - seconds
+    row = {"id": context.get("id") or uuid.uuid4().hex, "started": started, "seconds": seconds,
+           "profile": context.get("profile"), "version": context.get("version"),
+           "servers": context.get("servers")}
+    state["session_history"] = clean_sessions([row, *clean_sessions(state.get("session_history"))])
+    state["longest_session_seconds"] = max(nonnegative(state.get("longest_session_seconds")), seconds)
+    state["best_streak_days"] = streaks(state)[1]
 
 
 def clean_history(value):

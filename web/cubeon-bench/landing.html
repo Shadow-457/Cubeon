@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cubeon Bench — Small pixels. Big possibilities.</title>
+  <meta name="description" content="Make Minecraft your own. Draw textures, animate frames, and design skins in Cubeon Bench, a free creation studio that works in your browser and offline.">
+  <meta name="theme-color" content="#f6f7f2">
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('bench-landing-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')}catch(_){document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}</script>
+  <link rel="icon" href="icons/bench-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="icons/bench-maskable-512.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preload" href="fonts/Inter.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="landing.css">
+  <script src="landing.js" defer></script>
+</head>
+<body>
+  <svg class="icon-definitions" aria-hidden="true"><defs>
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="pixel" viewBox="0 0 24 24"><path d="M12 3 21 8l-9 5-9-5ZM3 8v9l9 5 9-5V8M12 13v9"/></symbol>
+    <symbol id="draw" viewBox="0 0 24 24"><path d="m4 20 1-4L16 5l3 3L8 19ZM14 7l3 3"/></symbol>
+    <symbol id="frames" viewBox="0 0 24 24"><rect x="3" y="7" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12M8 11l5 3-5 3Z"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="rotate" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2 7M20 4v7h-7"/></symbol>
+    <symbol id="pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="moon" viewBox="0 0 24 24"><path d="M20 14a8 8 0 0 1-10-10 8 8 0 1 0 10 10Z"/></symbol>
+    <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/></symbol>
+  </defs></svg>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="wordmark" href="landing.html" aria-label="Cubeon Bench home"><img src="icons/bench-logo.png" alt="" width="36" height="36"><span>cubeon <b>bench</b><span class="brand-period">.</span></span></a>
+    <nav aria-label="Main navigation"><a href="#workspace">The workspace</a><a href="#possibilities">What you can make</a><a href="#questions">Questions</a></nav>
+    <button class="landing-theme" id="landingTheme" type="button" aria-label="Switch to dark theme" aria-pressed="false"><svg><use href="#moon"/></svg></button><a class="button button-small" href="index.html">Open Bench <svg><use href="#arrow"/></svg></a>
+  </header>
+  <main id="main">
+    <div class="hero-scroll" id="heroScroll"><section class="hero section-width" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow intro"><span class="live-dot"></span> Your Minecraft creation studio</p>
+        <h1 class="intro" id="hero-title">Small pixels.<br><span>Big possibilities.</span></h1>
+        <p class="hero-description intro">A new look for the world you love. Draw textures, bring them to life, and make a skin that feels like you.</p>
+        <div class="hero-actions intro"><a class="button" href="index.html">Open your bench <svg><use href="#arrow"/></svg></a><a class="text-link" href="#workspace">Take a look around <span>↘</span></a></div>
+        <p class="hero-note intro"><svg><use href="#check"/></svg> Free to create. No account needed.</p>
+        <div class="scroll-chapters" aria-label="Creative workflow"><span class="active" data-chapter="0">01 <b>Draw</b></span><span data-chapter="1">02 <b>Animate</b></span><span data-chapter="2">03 <b>Make it yours</b></span></div>
+      </div>
+      <div class="hero-art" id="heroArt">
+        <div class="art-grid" aria-hidden="true"></div>
+        <div class="scene-fallback" aria-hidden="true"><div class="fallback-canvas"><div class="pixel-flower"><i></i><i></i><i></i><i></i><i></i></div></div></div>
+        <canvas id="heroScene" tabindex="0" role="img" aria-label="Scroll to watch a texture being painted, unfold into animation frames, and become a 3D pixel flower. Drag or use arrows to change its angle."></canvas>
+        <div class="art-label"><span class="label-cross">+</span><span id="artStageLabel">The first pixel is yours.</span><span class="label-cross">+</span></div>
+        <button class="scene-pause" id="scenePause" type="button" aria-label="Pause preview animation" aria-pressed="false" hidden><svg><use href="#pause"/></svg></button>
+        <div class="scene-controls"><div class="scene-palettes" role="group" aria-label="Sculpture palette"><button type="button" data-palette="meadow" aria-label="Meadow palette" aria-pressed="true" title="Meadow"><span></span></button><button type="button" data-palette="stone" aria-label="Stone palette" aria-pressed="false" title="Stone"><span></span></button><button type="button" data-palette="ember" aria-label="Ember palette" aria-pressed="false" title="Ember"><span></span></button></div><span id="sceneHint">Try a palette. Drag to explore.</span></div>
+        <div class="art-caption" aria-hidden="true"><span id="scrollStageCount">01 / Draw your idea</span><span>Keep scrolling ↓</span></div>
+      </div>
+      <div class="hero-scroll-cue" aria-hidden="true"><span>Scroll to create</span><span class="scroll-line"><i id="scrollProgress"></i></span><span>↓</span></div>
+    </section></div>
+    <div class="studio-facts section-width reveal"><span><svg><use href="#pixel"/></svg> Built for Minecraft Java</span><span><b>3,964</b> textures to start from</span><span>Works in your browser <i>and offline</i></span></div>
+
+    <section class="workspace-section" id="workspace" aria-labelledby="workspace-title">
+      <div class="section-width">
+        <div class="section-heading reveal"><p class="eyebrow">A place to get into it</p><h2 id="workspace-title">Find your flow.<br>Make something yours.</h2><p>A proper workspace for your next “what if.”<br>Your canvas, colors, and animation frames, all within reach.</p></div>
+        <div class="workspace-demo reveal">
+          <div class="demo-toolbar"><span class="demo-wordmark"><img src="icons/bench-logo.png" width="24" height="24" alt=""> The bench</span><div class="demo-tabs" role="tablist" aria-label="Explore the editor"><button type="button" role="tab" id="tab-draw" data-demo="draw" aria-selected="true" aria-controls="panel-draw"><svg><use href="#draw"/></svg>Draw</button><button type="button" role="tab" id="tab-animate" data-demo="animate" aria-selected="false" aria-controls="panel-animate" tabindex="-1"><svg><use href="#frames"/></svg>Animate</button><button type="button" role="tab" id="tab-preview" data-demo="preview" aria-selected="false" aria-controls="panel-preview" tabindex="-1"><svg><use href="#pixel"/></svg>Preview</button></div><span class="demo-status"><i></i> Yours to make</span></div>
+          <div class="demo-screen"><div role="tabpanel" id="panel-draw" aria-labelledby="tab-draw"><img src="landing-assets/editor-draw.webp" data-light-src="landing-assets/editor-draw.webp" data-dark-src="landing-assets/editor-draw-dark.webp" width="1440" height="900" alt="Bench's drawing workspace with a grass texture, paint tools, and colors from the texture." loading="lazy"></div><div role="tabpanel" id="panel-animate" aria-labelledby="tab-animate" hidden><img src="landing-assets/editor-animate.webp" data-light-src="landing-assets/editor-animate.webp" data-dark-src="landing-assets/editor-animate-dark.webp" width="1440" height="900" alt="Animation frames with thumbnails, timing, and a large editable canvas in Bench." loading="lazy"></div><div role="tabpanel" id="panel-preview" aria-labelledby="tab-preview" hidden><img src="landing-assets/editor-preview.webp" data-light-src="landing-assets/editor-preview.webp" data-dark-src="landing-assets/editor-preview-dark.webp" width="1440" height="900" alt="A Minecraft block rendered in Bench's 3D preview." loading="lazy"></div></div>
+        </div>
+        <div class="demo-description reveal"><p id="demoCaption">Pick a color. Put down a pixel. See where it takes you.</p><a class="text-link" href="index.html">Try it for yourself <svg><use href="#arrow"/></svg></a></div>
+      </div>
+    </section>
+
+    <section class="possibilities section-width" id="possibilities" aria-labelledby="possibilities-title">
+      <div class="possibility-heading reveal"><div><p class="eyebrow">From one pixel to your whole world</p><h2 id="possibilities-title">Start small.<br>Make it personal.</h2></div><p>Refresh a favorite block, make the water move differently, or start a whole new pack. The next idea is yours.</p></div>
+      <div class="feature-grid">
+        <article class="feature reveal"><div class="feature-art texture-art" aria-hidden="true"><div class="texture-tiles"><img src="textures/block/oak_planks.png" alt=""><img src="textures/block/moss_block.png" alt=""><img src="textures/block/stone.png" alt=""><img src="textures/block/bricks.png" alt=""></div><div class="mini-cursor"><svg><use href="#draw"/></svg></div></div><span class="feature-number">01 / Textures</span><h3>A fresh take on familiar.</h3><p>Start with Minecraft’s textures. Paint, pick exact colors, and preview your changes on a block.</p></article>
+        <article class="feature reveal"><div class="feature-art animation-art" aria-hidden="true"><div class="pixel-flower"><i></i><i></i><i></i><i></i><i></i></div><div class="mini-timeline"><span></span><span></span><span></span><span></span><span></span></div></div><span class="feature-number">02 / Animation</span><h3>Give your pixels a pulse.</h3><p>Build it frame by frame. Copy, reorder, set the timing, and press Play to bring your texture to life.</p></article>
+        <article class="feature reveal"><div class="feature-art skin-art" aria-hidden="true"><div class="skin-head"><img src="textures/entity/player/wide/steve.png" alt=""></div><div class="skin-chip">A little more you.</div></div><span class="feature-number">03 / Skins</span><h3>Show up as yourself.</h3><p>Make your own 64 × 64 skin. Use the skin guide and see your character from every angle.</p></article>
+      </div>
+    </section>
+
+    <div class="creative-marquee" aria-hidden="true"><div>ONE PIXEL AT A TIME. <span>MAKE IT YOURS.</span> ONE PIXEL AT A TIME. <span>MAKE IT YOURS.</span></div></div>
+    <section class="local-section section-width reveal" aria-labelledby="local-title"><div class="local-mark" aria-hidden="true"><svg><use href="#pixel"/></svg><span>Yours.</span></div><div><p class="eyebrow">Keep your creative space</p><h2 id="local-title">On your device.<br>On your terms.</h2><p>Your projects save in your browser. Install Bench for offline use, and export a workspace backup whenever you want a portable copy.</p><div class="local-benefits"><span><svg><use href="#check"/></svg>No account required</span><span><svg><use href="#check"/></svg>Offline ready</span><span><svg><use href="#check"/></svg>Real PNG and ZIP exports</span></div></div></section>
+
+    <section class="questions section-width" id="questions" aria-labelledby="questions-title"><div class="reveal"><p class="eyebrow">Before you pull up a chair</p><h2 id="questions-title">Good questions.</h2></div><div class="faq-list reveal">
+      <details><summary>Is Bench free to use?<span>+</span></summary><p>Yes. Open the editor and start creating. You don’t need an account.</p></details>
+      <details><summary>Can I bring my own resource pack?<span>+</span></summary><p>Yes. Import a Minecraft Java resource-pack ZIP, edit its textures, and export a new ZIP. Bench keeps the other files in your imported pack.</p></details>
+      <details><summary>Does it work without internet?<span>+</span></summary><p>After opening Bench online and preparing offline support in Settings, you can work without a connection. You can also install it as an app from a supported browser.</p></details>
+      <details><summary>Where are my projects saved?<span>+</span></summary><p>In this browser on this device. Export a workspace backup to move your work or keep a copy. Clearing your browser’s site data removes local projects, so keep a backup.</p></details>
+      <details><summary>How do I use what I’ve made?<span>+</span></summary><p>Export your pack as a ZIP for Minecraft Java Edition, or download your skin as a PNG. You can also export individual textures.</p></details>
+    </div></section>
+    <section class="final-invitation reveal"><div class="section-width"><span class="eyebrow">Your next idea starts here</span><h2>Pull up a pixel.</h2><p>You bring the idea. We’ll keep a bench ready.</p><a class="button" href="index.html">Let’s make something <svg><use href="#arrow"/></svg></a><span class="invitation-pixel" aria-hidden="true"></span></div></section>
+  </main>
+  <footer class="site-footer section-width"><a class="wordmark" href="landing.html"><img src="icons/bench-logo.png" alt="" width="28" height="28"><span>cubeon <b>bench</b><span class="brand-period">.</span></span></a><span>A little studio for a world of ideas.</span><a href="index.html">Open the app <span>↗</span></a><small>Not affiliated with Mojang or Microsoft.</small></footer>
+</body>
+</html>

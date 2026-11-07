@@ -232,6 +232,7 @@ class FriendsService:
         # launcher can vouch for; the in-game Friends screen's roster reads it.
         ("set_players_provider", "players_payload"),
         ("set_skins_provider", "skins_payload"),
+        ("set_cape_provider", "cape_payload"),
         ("set_skin_handler", "skin_action"),
         ("set_emote_context_handler", "emote_context"),
         ("set_emote_handler", "play_emote"),
@@ -353,6 +354,9 @@ class FriendsService:
 
     def skins_payload(self, offset=0, kind="skin"):
         return self.ingame_skins.snapshot(offset, kind)
+
+    def cape_payload(self, game_dir):
+        return self.ingame_skins.capes.live_state(game_dir)
 
     def skin_action(self, body):
         return self.ingame_skins.action(body)

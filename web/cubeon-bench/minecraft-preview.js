@@ -61,11 +61,11 @@
     ctx.putImageData(data, 0, 0);
   }
 
-  function crop(doc, time, full) {
-    doc.ctx.putImageData(doc.data, 0, 0);
+  function crop(doc, time, full, canvas) {
     var f = full ? {x: 0, y: 0, w: doc.w, h: doc.h, index: 0} : MT.frame(doc.e, time, doc.w, doc.h);
-    var cv = document.createElement('canvas'); cv.width = f.w; cv.height = f.h;
-    var ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false;
+    var cv = canvas || document.createElement('canvas');
+    if (cv.width !== f.w || cv.height !== f.h) {cv.width = f.w; cv.height = f.h;}
+    var ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height); ctx.imageSmoothingEnabled = false;
     window.TextureAnimation.paintFrame(ctx, doc.cv, f, 0, 0, cv.width, cv.height);
     return cv;
   }
@@ -73,21 +73,32 @@
   function updateMaterial(m, time) {
     var frame = m.full ? {index: 0} : MT.frame(m.doc.e, time, m.doc.w, m.doc.h);
     var overlayFrame = m.overlay ? MT.frame(m.overlay.e, time, m.overlay.w, m.overlay.h) : {index: 0};
-    var key = [frame.index, Math.round((frame.mix || 0) * 20), overlayFrame.index, Math.round((overlayFrame.mix || 0) * 20)].join(':');
+    var key = [m.doc.version, frame.index, frame.step, Math.round((frame.mix || 0) * 20), m.overlay && m.overlay.version, overlayFrame.index, overlayFrame.step, Math.round((overlayFrame.mix || 0) * 20)].join(':');
     if (key === m.key) return;
-    m.key = key; m.canvas = crop(m.doc, time, m.full); tint(m.canvas, m.tint);
+    m.key = key; m.canvas = crop(m.doc, time, m.full, m.canvas); if(m.doc.viewTint!==false)tint(m.canvas, m.tint);
     if (m.overlay) {
-      var overlay = crop(m.overlay, time); tint(overlay, '#91bd59');
+      var overlay = m.overlayCanvas = crop(m.overlay, time, false, m.overlayCanvas); if(m.overlay.viewTint!==false)tint(overlay, '#91bd59');
       m.canvas.getContext('2d').drawImage(overlay, 0, 0, m.canvas.width, m.canvas.height);
     }
-    m.url = m.canvas.toDataURL(); m.w = m.canvas.width; m.h = m.canvas.height;
-    m.elements.forEach(function (el) { el.style.backgroundImage = 'url("' + m.url + '")'; });
+    m.w = m.canvas.width; m.h = m.canvas.height;
+    if (m.animated) m.surfaces.forEach(function (surface) {paintSurface(m, surface);});
+    else {
+      m.url = m.canvas.toDataURL();
+      m.elements.forEach(function (el) { el.style.backgroundImage = 'url("' + m.url + '")'; });
+    }
+  }
+  function paintSurface(material, surface) {
+    var cv = surface.canvas, ctx = cv.getContext('2d'), u = surface.uv, scale = material.w / 64;
+    ctx.clearRect(0, 0, cv.width, cv.height); ctx.imageSmoothingEnabled = false;
+    if (u) ctx.drawImage(material.canvas, u[0]*scale, u[1]*scale, u[2]*scale, u[3]*scale, 0, 0, cv.width, cv.height);
+    else ctx.drawImage(material.canvas, 0, 0, cv.width, cv.height);
   }
 
   Preview.prototype.material = async function (spec, current, full) {
     var doc = spec.id === current.id ? current : await this.getDoc(spec.id);
     var overlay = spec.overlay ? await this.getDoc(spec.overlay) : null;
-    var m = {doc: doc, overlay: overlay, tint: spec.tint, full: full, elements: [], key: null};
+    var m = {doc: doc, overlay: overlay, tint: spec.tint, full: full, elements: [], surfaces: [], key: null,
+      animated: !full && !!(doc.e.animation || overlay && overlay.e.animation)};
     updateMaterial(m, 0); return m;
   };
 
@@ -107,7 +118,12 @@
       el.dataset.texture = m.doc.e.src;
       el.style.width = s[0] + 'px'; el.style.height = s[1] + 'px';
       el.style.left = -s[0] / 2 + 'px'; el.style.top = -s[1] / 2 + 'px';
-      el.style.backgroundImage = 'url("' + m.url + '")';
+      if (m.animated) {
+        var canvas = document.createElement('canvas'), scale = m.w / 64;
+        canvas.className = 'pv-texture'; canvas.setAttribute('aria-hidden', 'true');
+        canvas.width = u ? u[2]*scale : m.w; canvas.height = u ? u[3]*scale : m.h;
+        var surface = {canvas:canvas, uv:u};m.surfaces.push(surface);paintSurface(m, surface);el.appendChild(canvas);
+      } else el.style.backgroundImage = 'url("' + m.url + '")';
       if (u) {
         var scale = m.w / 64, kx = s[0] / (u[2] * scale), ky = s[1] / (u[3] * scale);
         el.style.backgroundSize = m.w * kx + 'px ' + m.h * ky + 'px';

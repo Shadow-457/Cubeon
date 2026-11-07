@@ -8,6 +8,8 @@ public final class SkinPreview {
     private int width, height, angle, layers;
     private SkinLibrary.Skin skin;
     private SkinLibrary.Skin cape;
+    private int capeFrame=-1;
+    private int[] capePixels;
     private int[] raster;
     private double[] depth;
     private double sin, cos, scale;
@@ -21,8 +23,11 @@ public final class SkinPreview {
                        int x, int y, int w, int h, int yaw, int mask) {
         if (value == null || w < 1 || h < 1) return;
         // Only re-rasterize when skin, model, rotation or viewport actually changes.
-        if (value != skin || selectedCape != cape || w != width || h != height || yaw != angle || mask != layers) {
+        int frame=selectedCape!=null && selectedCape.animation()!=null?selectedCape.animation().previewIndex():-1;
+        if (value != skin || selectedCape != cape || w != width || h != height || yaw != angle || mask != layers || frame!=capeFrame) {
             skin = value; cape = selectedCape; width = w; height = h; angle = yaw; layers = mask;
+            capeFrame=frame;
+            capePixels=cape==null?null:frame<0?cape.pixels():cape.animation().preview(frame);
             raster = new int[w * h]; depth = new double[w * h]; Arrays.fill(depth, -Double.MAX_VALUE);
             sin = Math.sin(Math.toRadians(yaw)); cos = Math.cos(Math.toRadians(yaw));
             scale = Math.min(w / 23.0, h / 37.0);
@@ -88,7 +93,7 @@ public final class SkinPreview {
             if(z<depth[index]) continue;
             int tx=Math.max(0,Math.min(texture.width()-1,(int)(wa*a[3]+wb*b[3]+wc*c[3])));
             int ty=Math.max(0,Math.min(texture.height()-1,(int)(wa*a[4]+wb*b[4]+wc*c[4])));
-            int color=texture.pixels()[ty*texture.width()+tx]; if((color>>>24)<128) continue;
+            int color=(texture==cape?capePixels:texture.pixels())[ty*texture.width()+tx]; if((color>>>24)<128) continue;
             int r=Math.min(255,(int)(((color>>16)&255)*shade));
             int g=Math.min(255,(int)(((color>>8)&255)*shade));
             int bl=Math.min(255,(int)((color&255)*shade));

@@ -70,10 +70,10 @@
       assert(archive['extras/reference.bin'].length === 6291456 && parse(archive['pack.mcmeta']).pack.pack_format === 34, 'Restarted project cannot export its complete resource pack');
       pass('large edits, imported binary files, models, and playable ZIP export after a full browser restart');
     } else {
-      assert($('#cubeonAuth').disabled && $('#cubeonAuth').textContent.includes('Coming soon') && !$('#google'), 'Google auth was not replaced by disabled Cubeon sign-in');
+      assert(!$('#cubeonAuth') && !$('#google') && $('#guest').textContent.includes('Open my bench'), 'Local app should open without an unfinished sign-in flow');
       snapshot('local-welcome');
       await window.enterApp({name: 'Studio'}); await until(() => $('#app').classList.contains('on'), 'App did not open');
-      assert(document.querySelectorAll('#home-lib canvas[data-texture]').length === 6, 'Texture library is missing from the home page');
+      assert(!$('#home-lib') && $('[data-go="library"]'), 'Texture browsing belongs in the Library view');
       window.CB.D.set.calm = true; window.CB.renderAll();
       click('[data-go="settings"]');
       const profileFile = new File([await solidPNG(48, '#4488bb')], 'profile.png', {type: 'image/png'});
@@ -83,7 +83,7 @@
       click('#removeProfilePicture'); await save(); assert(!$('#avb img') && $('#removeProfilePicture').hidden, 'Removing the profile picture did not restore initials');
       fileInput('#profilePicker', profileFile); await until(() => window.CB.D.profile.picture && !$('#uploadProfilePicture').disabled, 'Profile picture did not reload');
       snapshot('custom-profile-picture');
-      pass('local profile-picture upload/removal and disabled Cubeon sign-in marked Coming soon');
+      pass('local profile-picture upload/removal and working account-free welcome');
       click('[data-new]');
       assert(!$('#mpal') && !$('#spal'), 'Palette selection should be removed');
       input('#mn', 'Studio pack'); input('#mdescription', 'Studio colors\nA handmade resource pack.'); input('#mcreator', 'Studio maker'); input('#mpackversion', '2.3.4'); input('#mminecraft', '1.21.1', 'change');

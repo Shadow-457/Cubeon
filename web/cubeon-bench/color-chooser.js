@@ -109,7 +109,7 @@
     this.$('colorCursor').style.left = this.s * 100 + '%'; this.$('colorCursor').style.top = (1 - this.v) * 100 + '%';
     this.$('colorHue').value = Math.round(this.h); this.$('colorHueValue').value = Math.round(this.h) + '°';
     this.$('colorAlpha').value = this.alpha; this.$('colorAlphaValue').value = this.alpha + '%';
-    this.$('colorAlpha').style.backgroundImage = 'linear-gradient(to right,rgba(' + values.join(',') + ',0),' + this.hex + '),conic-gradient(#d9d9d9 25%,#fff 0 50%,#d9d9d9 0 75%,#fff 0)';
+    this.$('colorAlpha').style.backgroundImage = 'linear-gradient(to right,rgba(' + values.join(',') + ',0),' + this.hex + '),conic-gradient(var(--checker-a) 25%,var(--checker-b) 0 50%,var(--checker-a) 0 75%,var(--checker-b) 0)';
     this.$('colorAlpha').style.backgroundSize = '100% 100%,10px 10px';
     this.$('colorPreview').style.backgroundColor = 'rgba(' + values.join(',') + ',' + alpha + ')';
     if (active !== this.$('colorHex')) this.$('colorHex').value = this.hex.toUpperCase();

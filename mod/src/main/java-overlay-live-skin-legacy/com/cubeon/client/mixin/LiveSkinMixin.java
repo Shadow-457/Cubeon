@@ -28,15 +28,18 @@ public abstract class LiveSkinMixin {
     @Inject(method="getCapeTexture",at=@At("RETURN"),cancellable=true,require=1)
     private void cubeon$cape(CallbackInfoReturnable<Identifier> callback) {
         var cape=LiveCape.get();
-        if(!cubeon$local()||cape==null) return;
-        if(cape.hidden()) { callback.setReturnValue(null); return; }
-        var texture=LiveCapeTexture.texture(); if(texture!=null) callback.setReturnValue(texture);
+        if(!cubeon$local()) return;
+        if(cape==null) { LiveCapeTexture.texture(); return; }
+        var texture=LiveCapeTexture.texture();
+        if(cape.hidden()) { callback.setReturnValue(null); return; } if(texture!=null) callback.setReturnValue(texture);
     }
     @Inject(method="canRenderCapeTexture",at=@At("RETURN"),cancellable=true,require=1)
     private void cubeon$capeVisible(CallbackInfoReturnable<Boolean> callback) {
         var cape=LiveCape.get();
-        if(!cubeon$local()||cape==null) return;
+        if(!cubeon$local()) return;
+        if(cape==null) { LiveCapeTexture.texture(); return; }
+        var texture=LiveCapeTexture.texture();
         if(cape.hidden()) callback.setReturnValue(false);
-        else if(LiveCapeTexture.texture()!=null) callback.setReturnValue(true);
+        else if(texture!=null) callback.setReturnValue(true);
     }
 }

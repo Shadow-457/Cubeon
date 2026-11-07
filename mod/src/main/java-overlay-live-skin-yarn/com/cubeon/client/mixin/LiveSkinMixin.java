@@ -20,9 +20,9 @@ public abstract class LiveSkinMixin {
     private void cubeon$skin(CallbackInfoReturnable<SkinTextures> callback) {
         if(!cubeon$local()) return;
         var skin=LiveSkin.get(); var cape=LiveCape.get();
-        if(skin==null&&cape==null) return;
+        if(skin==null&&cape==null) { LiveCapeTexture.texture(); return; }
         var texture=skin==null?null:LiveSkinTexture.texture();
-        var capeTexture=cape==null||cape.hidden()?null:LiveCapeTexture.texture();
+        var capeTexture=LiveCapeTexture.texture();
         var original=callback.getReturnValue(); if(original==null) return;
         var newCape=cape==null?original.capeTexture():cape.hidden()?null:capeTexture==null?original.capeTexture():capeTexture;
         callback.setReturnValue(new SkinTextures(texture==null?original.texture():texture, original.textureUrl(), newCape,

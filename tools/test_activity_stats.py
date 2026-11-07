@@ -119,21 +119,54 @@ switch = inspect.getclosurevars(driver.tabs()["stats"].on_click).nonlocals["swit
 switch("stats")
 controls = every_control(driver.page)
 charts = {control.data: control for control in controls if hasattr(control, "cubeon_series")}
-check("Stats contains one simple histogram", list(charts) == ["activity-histogram"])
+check("Stats contains one playtime timeline", list(charts) == ["activity-histogram"])
 histogram = charts["activity-histogram"]
-check("the default histogram is exactly seven days", len(histogram.cubeon_series) == 1 and len(histogram.cubeon_series[0][1]) == 7)
+check("the default timeline is exactly thirty days", len(histogram.cubeon_series) == 1 and len(histogram.cubeon_series[0][1]) == 30)
 stats_root = inspect.getclosurevars(switch).nonlocals["_tab_views"]["stats"]
 stats_controls = list(walk(stats_root))
 check("Library and Cosmetics sections are gone from Stats",
       not any(getattr(control, "value", None) in ("LIBRARY", "COSMETICS", "Library", "Cosmetics") for control in stats_controls))
-check("Stats has no period dropdowns or collection progress bars",
-      not any(isinstance(control, (ft.Dropdown, ft.ProgressBar)) for control in stats_controls))
+check("session table, search and pagination are gone from Stats",
+      not any(str(control.data).startswith("stats-session") or isinstance(control, ft.Dropdown)
+              for control in stats_controls))
 toggle = next((control for control in controls
                if isinstance(control, ft.Checkbox)
                and "previous" in (control.label or "").lower()), None)
 check("the old previous-week comparison toggle stays gone", toggle is None)
-check("the simple seven-day histogram is the only series",
+check("the playtime timeline is the only series",
       len(histogram.cubeon_series) == 1)
+
+from ui.stats_tab import _chart_values
+month = activity.range_summary(fixture, 30)
+weekly, labels = _chart_values(month, True)
+check("weekly groups preserve all thirty days of playtime", abs(sum(weekly)-sum(month["hours"])) < .0001 and 4 <= len(weekly) <= 6)
+grouping = next(control for control in stats_controls if control.data == "stats-chart-grouping")
+grouping.selected_index = 1
+grouping.on_change(types.SimpleNamespace(control=grouping))
+check("Week toggle updates the actual timeline", len(histogram.cubeon_series[0][1]) == len(weekly))
+grouping.selected_index = 0
+grouping.on_change(types.SimpleNamespace(control=grouping))
+check("Day toggle restores all thirty points", len(histogram.cubeon_series[0][1]) == 30)
+check("four overview cards are present", len([control for control in stats_controls if str(control.data).startswith("stats-metric:")]) == 4)
+dashboard = next(control for control in stats_controls if control.data == "stats-dashboard")
+check("Stats has only overview, timeline and server activity",
+      len(dashboard.content.controls) == 2 and not any(str(control.data).startswith("stats-most-played") or str(control.data).startswith("stats-ranking") for control in stats_controls))
+fixture["session_history"] = [{"id": f"session-{index}", "started": time.time()-index*3600, "seconds": 900,
+                               "profile": "Survival" if index % 2 else "Creative", "version": "1.21.1" if index % 2 else "26.3",
+                               "servers": ["play.example.net"] if index % 2 else []} for index in range(61)]
+refresh_stats = inspect.getclosurevars(switch).nonlocals["_cb"]("stats", "refresh")
+refresh_stats()
+check("server panel counts actual connected sessions", any(getattr(control, "value", None) == "30 sessions" for control in walk(stats_root)))
+
+valid = fixture["session_history"][0]
+dirty_sessions = [None, {}, valid, valid, dict(valid, id="broken", seconds=float("nan")), dict(valid, id="large", seconds=86400*15)]
+check("malformed and duplicate session rows are ignored", len(activity.clean_sessions(dirty_sessions)) == 1)
+check("session history has a fixed retention bound", len(activity.clean_sessions([dict(valid, id=str(index), started=valid["started"]-index) for index in range(1100)])) == 1000)
+check("duration labels handle empty and short sessions", [activity.duration_label(value) for value in (0, 30, 3600, 3660, float("nan"))] == ["0m", "<1m", "1h", "1h 1m", "0m"])
+streak_fixture = {"activity": {(today-timedelta(days=index)).isoformat(): {"seconds_played": 60} for index in (0,1,2,4,5)}}
+check("current and best streak follow consecutive played days", activity.streaks(streak_fixture, today=today) == (3,3))
+check("yesterday keeps an active streak", activity.streaks(streak_fixture, today=today+timedelta(days=1)) == (3,3))
+check("a missed day ends the current streak", activity.streaks(streak_fixture, today=today+timedelta(days=2)) == (0,3))
 
 collections = {"versions": 4, "mods": 93, "packs": 0, "content": 0, "plugins": 6, "skins": 1, "capes": 6}
 collection_badges = activity.earned_badges(fixture, collections)

@@ -3,14 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cubeon Bench (Beta)</title>
+<title>Cubeon Bench — Minecraft texture studio</title>
 <base href="/cubeon-bench/">
 <script>if(location.protocol==='file:')document.querySelector('base').remove();</script>
 <meta name="description" content="Create Minecraft textures, skins and resource packs in Cubeon Bench. Projects save locally in your browser; export a ZIP to back up or share your work.">
 <link rel="canonical" href="https://www.ylet.online/cubeon-bench">
-<link rel="icon" href="/assets/favicon.png" type="image/png" sizes="256x256">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;800&display=swap" rel="stylesheet">
+<link rel="icon" href="icons/bench-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="icons/bench-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/bench-maskable-512.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#628B38">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <script>(function(){var t=null;try{t=localStorage.getItem('cb-theme')}catch(e){}if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)})()</script>
 <script src="textures-manifest.js"></script>
 <script src="minecraft-textures.js"></script>
@@ -18,6 +21,8 @@
 <script src="texture-codec.js"></script>
 <script src="texture-animation.js"></script>
 <script src="vendor/fflate.js"></script>
+<script src="archive.js"></script>
+<script src="ui-dialog.js"></script>
 <script src="resource-packs.js"></script>
 <script src="motion.js"></script>
 <style>
@@ -498,6 +503,8 @@ body.inapp .theme{display:none}
 @media (prefers-reduced-motion:reduce){.btn.loading::after{animation:none}}
 </style>
 <link rel="stylesheet" href="workbench.css">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="studio.css">
 </head>
 <body>
 <button class="theme" id="theme" type="button" aria-label="Toggle dark theme">
@@ -507,25 +514,21 @@ body.inapp .theme{display:none}
 <main class="shell">
   <section class="left">
     <div class="brand">
-      <svg viewBox="0 0 512 512" aria-hidden="true"><g stroke="#2A3D18" stroke-width="16" stroke-linejoin="round"><path d="M256 20 484 140 256 262 28 140Z" fill="#A4D168"/><path d="M28 140 256 262V490L28 375Z" fill="#628B38"/><path d="M256 262 484 140V375L256 490Z" fill="#3D5A24"/></g></svg>
-      <span>Cubeon <b>Bench</b> <i class="beta-badge">Beta</i></span>
+      <img class="bench-logo" src="icons/bench-logo.png" width="48" height="48" alt="" aria-hidden="true">
+      <span>Cubeon <b>Bench</b></span>
     </div>
 
     <div class="form">
       <h1>Welcome to the bench.</h1>
-      <p class="sub">Create Minecraft textures. Your work saves locally on this device.</p>
+      <p class="sub">Your Minecraft texture studio. Make skins and resource packs, online or offline.</p>
       <div class="actions">
-        <button class="btn cubeon-auth" id="cubeonAuth" type="button" disabled aria-label="Sign in with Cubeon. Coming soon.">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5 21 7.5v9l-9 5-9-5v-9Z"/><path d="m3 7.5 9 5 9-5M12 12.5v9"/></svg>
-          <span>Sign in with Cubeon</span><span class="coming-soon">Coming soon</span>
-        </button>
-        <div class="divider">or</div>
-        <button class="btn guest" id="guest" type="button"><span>Continue as guest</span><i class="beta-badge">Beta</i></button>
+        <button class="btn guest" id="guest" type="button"><span>Open my bench</span></button>
+        <p class="mu" style="font-size:13px;line-height:1.6">No account needed. Autosaved on your device.</p>
       </div>
       <p class="status" id="status" role="status" aria-live="polite"></p>
     </div>
 
-    <p class="legal">Projects and imported packs stay in this browser on this device. Export a ZIP to back up or share your pack. <a href="/">Back to Cubeon Launcher</a></p>
+    <p class="legal">Projects and imported packs stay in this browser on this device. Export a ZIP to back up or share your pack. <a href="landing.html">Explore Bench</a> · <a href="/">Back to Cubeon Launcher</a></p>
 
     <div class="onb-wrap" id="onb">
       <div class="pbar" aria-hidden="true"><i></i><i></i></div>
@@ -549,7 +552,7 @@ body.inapp .theme{display:none}
 
 
         <section class="step" data-s="load">
-          <svg class="cl" viewBox="0 0 512 512" aria-hidden="true"><g stroke="#2A3D18" stroke-width="16" stroke-linejoin="round"><path d="M256 20 484 140 256 262 28 140Z" fill="#A4D168"/><path d="M28 140 256 262V490L28 375Z" fill="#628B38"/><path d="M256 262 484 140V375L256 490Z" fill="#3D5A24"/></g></svg>
+          <img class="cl bench-logo" src="icons/bench-logo.png" width="112" height="112" alt="" aria-hidden="true">
           <h2 id="ltxt">Building your bench</h2>
           <div class="lbar"><i></i></div>
         </section>
@@ -573,8 +576,9 @@ body.inapp .theme{display:none}
 
 <div id="app">
   <aside class="sb">
-    <div class="sbb"><svg viewBox="0 0 512 512" aria-hidden="true"><g stroke="#2A3D18" stroke-width="16" stroke-linejoin="round"><path d="M256 20 484 140 256 262 28 140Z" fill="#A4D168"/><path d="M28 140 256 262V490L28 375Z" fill="#628B38"/><path d="M256 262 484 140V375L256 490Z" fill="#3D5A24"/></g></svg><span>Cubeon <b>Bench</b></span></div>
+    <div class="sbb"><img class="bench-logo" src="icons/bench-logo.png" width="40" height="40" alt="" aria-hidden="true"><span>Cubeon <b>Bench</b></span></div>
     <button class="newb" type="button" data-new><i data-i="plus"></i>New project</button>
+    <p class="workspace-label">Workspace</p>
     <nav class="nv" aria-label="Main">
       <button class="nvb" type="button" data-go="home" aria-current="page"><i data-i="home"></i>Home</button>
       <button class="nvb" type="button" data-go="projects" aria-current="false"><i data-i="proj"></i>Projects</button>
@@ -588,8 +592,10 @@ body.inapp .theme{display:none}
     <header class="top">
       <label class="srch"><i data-i="search"></i><input id="q" type="search" placeholder="Search projects and blocks" autocomplete="off" aria-label="Search"></label>
       <div class="tr">
+        <button class="connection-badge" type="button" id="connectionBadge" data-ready="false" aria-label="Offline access settings">Online</button>
+        <button class="ibtn" id="appHelp" type="button" aria-label="Help and keyboard shortcuts" title="Help · F1">?</button>
         <button class="ibtn newm" type="button" data-new aria-label="New project"><i data-i="plus"></i></button>
-        <button class="ibtn" type="button" data-import aria-label="Import resource pack ZIP" title="Import resource pack ZIP"><i data-i="upload"></i></button>
+        <button class="ibtn" type="button" data-import aria-label="Import resource pack or skin" title="Import pack or skin"><i data-i="upload"></i></button>
         <button class="ibtn" id="tTop" type="button" aria-label="Toggle theme"><i data-i="moon" data-c="moon"></i><i data-i="sun" data-c="sun"></i></button>
         <button class="avb" id="avb" type="button" aria-label="Profile menu"></button>
       </div>
@@ -611,13 +617,12 @@ body.inapp .theme{display:none}
           <div><div class="strip" id="st-s"></div><div class="lbl" id="st-l"></div></div>
         </div>
       </div>
-      <div class="card sec" id="streak"></div>
       <div class="sec"><div class="sh"><h3>Recent projects</h3><button class="link" type="button" data-go="projects">See all</button></div><div class="grid" id="home-grid"></div></div>
-      <div class="sec"><div class="sh"><h3>Texture library</h3><button class="link" type="button" data-go="library">Browse folders</button></div><div class="lg" id="home-lib"></div></div>
+      <div class="card sec" id="streak"></div>
       <div class="two sec">
         <div class="card"><h4>Quick tips</h4>
-          <div class="row"><span class="ic"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.5 3.5 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5.2 1.800 1 2.500 2 2.500C11 8 10.500 5.500 12 3Z"></path></svg></span><span>Touch a project once a day to keep your streak alive.</span></div>
-          <div class="row"><span class="ic"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M4 12h16M12 4v16"></path></svg></span><span>16×16 is the vanilla size. Go 32×32 or 64×64 for packs with more detail.</span></div>
+          <div class="row"><span class="ic"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.5 3.5 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5.2 1.800 1 2.500 2 2.500C11 8 10.500 5.500 12 3Z"></path></svg></span><span>Edit a texture to build your streak. Each texture counts once per day.</span></div>
+          <div class="row"><span class="ic"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M4 12h16M12 4v16"></path></svg></span><span>Use original resolution for vanilla pixels, or scale up for more detail.</span></div>
           <div class="row"><span class="ic"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2s0-2 1.5-2h2a4 4 0 0 0 4-4 9 9 0 0 0-9-10Z"></path><circle cx="8" cy="11" r="1"></circle><circle cx="12" cy="7.5" r="1"></circle><circle cx="16" cy="11" r="1"></circle></svg></span><span>Choose any color, or sample a pixel directly from a texture.</span></div>
         </div>
         <div class="card"><h4>On your bench</h4>
@@ -630,10 +635,10 @@ body.inapp .theme{display:none}
     </section>
 
     <section class="view" id="v-projects">
-      <div class="sh vh"><h3 class="vt">Projects</h3>
+      <div class="sh vh"><div><h3 class="vt">Projects</h3><p class="page-subtitle">Your skins, resource packs, and works in progress.</p></div>
         <div class="fl">
-          <button class="gb" type="button" data-import>Import .zip</button>
-          <div class="sgs" id="ft"><button class="sg" type="button" data-v="all" aria-pressed="true">All</button><button class="sg" type="button" data-v="skin" aria-pressed="false">Skins</button><button class="sg" type="button" data-v="pack" aria-pressed="false">Packs</button></div>
+          <button class="gb" type="button" data-import>Import pack or skin</button>
+          <div class="sgs" id="ft"><button class="sg" type="button" data-v="all" aria-pressed="true">All</button><button class="sg" type="button" data-v="skin" aria-pressed="false">Skins</button><button class="sg" type="button" data-v="pack" aria-pressed="false">Packs</button><button class="sg" type="button" data-v="favorite" aria-pressed="false">Favorites</button></div>
           <div class="sgs" id="sort"><button class="sg" type="button" data-v="recent" aria-pressed="true">Recent</button><button class="sg" type="button" data-v="name" aria-pressed="false">Name</button></div>
         </div>
       </div>
@@ -641,7 +646,7 @@ body.inapp .theme{display:none}
     </section>
 
     <section class="view" id="v-library">
-      <div class="sh vh"><h3 class="vt">Texture library</h3><span class="mu">Browse your Minecraft textures by folder.</span></div>
+      <div class="sh vh"><div><h3 class="vt">Texture library</h3><p class="page-subtitle">3,964 original Minecraft textures. Pick one and make it yours.</p></div></div>
       <div class="library-tools"><label class="folder-label" for="libCat">Folder <select class="folder-select" id="libCat" aria-label="Library texture category"></select></label><span class="mu" id="libCount"></span></div>
       <nav class="folder-nav" id="libFolders" aria-label="Library texture folders"></nav>
       <div class="lg" id="lib-grid"></div>
@@ -649,30 +654,45 @@ body.inapp .theme{display:none}
     </section>
 
     <section class="view" id="v-settings">
-      <div class="sh vh"><h3 class="vt">Settings</h3></div>
+      <div class="sh vh settings-heading"><div><h3 class="vt">Settings</h3><p class="page-subtitle">Make the studio yours. Keep your work protected.</p></div><button class="gb logout-button" type="button" id="lo"><i data-i="out"></i><span>Log out</span></button></div>
+<div class="settings-layout"><nav class="settings-nav" aria-label="Settings sections"><button type="button" data-settings="profile" aria-current="page">Profile</button><button type="button" data-settings="appearance" aria-current="false">Appearance</button><button type="button" data-settings="editor" aria-current="false">Editor</button><button type="button" data-settings="workspace" aria-current="false">Workspace</button><button type="button" data-settings="offline" aria-current="false">Offline & install</button><button type="button" data-settings="backups" aria-current="false">Backups</button><button type="button" data-settings="trash" aria-current="false">Trash</button></nav>
       <div class="set">
-        <div class="card"><h4>Profile</h4>
+        <div class="card" data-settings-page="profile"><h4>Profile</h4>
           <div class="pf-row"><span id="setAv"></span><div style="flex:1;min-width:0"><div class="field m0"><input id="pname" maxlength="18" autocomplete="off" aria-label="Display name" value="Builder"></div>
             <div class="cs" id="pcol" style="margin-top:12px"><button class="c" type="button" data-v="#A4D168" style="background:#A4D168" aria-label="Green" aria-pressed="true"></button><button class="c" type="button" data-v="#7ADCE6" style="background:#7ADCE6" aria-label="Aqua" aria-pressed="false"></button><button class="c" type="button" data-v="#FFAA55" style="background:#FFAA55" aria-label="Orange" aria-pressed="false"></button><button class="c" type="button" data-v="#C9A7FF" style="background:#C9A7FF" aria-label="Purple" aria-pressed="false"></button></div></div></div>
           <div class="profile-picture-actions"><button class="gb" id="uploadProfilePicture" type="button">Choose profile picture</button><button class="link" id="removeProfilePicture" type="button" hidden>Remove picture</button><input type="file" id="profilePicker" accept="image/png,image/jpeg,image/webp" hidden><small class="mu">PNG, JPG or WebP · stored on this device</small></div>
-          <div class="fr"><div><b>Cubeon account</b><br><small class="mu">Sign-in is coming soon.</small></div><button class="gb auth-soon" type="button" disabled>Coming soon</button></div>
           <div class="fr"><div><b>Local workspace</b><br><small class="mu">Projects and imported files are saved on this device.</small></div><span class="local-badge" id="localStatus" role="status">Opening local storage…</span></div>
           <div class="fr"><div><b>Storage</b><br><small class="mu" id="localUsage">Checking available space…</small><br><small class="mu" id="localProtection">Export ZIP backups to keep a portable copy.</small></div><button class="gb" type="button" id="protectStorage">Protect local saves</button></div>
         </div>
-        <div class="card"><h4>Appearance</h4>
+        <div class="card" data-settings-page="appearance" hidden><h4>Appearance</h4>
           <div class="fr"><b>Theme</b><div class="sgs" data-k="theme"><button class="sg" type="button" data-v="system" aria-pressed="false">System</button><button class="sg" type="button" data-v="light" aria-pressed="false">Light</button><button class="sg" type="button" data-v="dark" aria-pressed="false">Dark</button></div></div>
           <div class="fr"><div><b>Reduce motion</b><br><small class="mu">Calms animations across the app.</small></div><button class="tg" type="button" role="switch" aria-checked="false" data-k="calm" aria-label="Reduce motion"></button></div>
         </div>
-        <div class="card"><h4>Editor defaults</h4>
+        <div class="card" data-settings-page="editor" hidden><h4>Editor defaults</h4>
+          <div class="fr"><div><b>In-game colors</b><br><small class="mu">Show grass, leaves, and water with their natural Minecraft tint.</small></div><button class="tg" type="button" role="switch" aria-checked="true" data-k="naturalColors" aria-label="Show natural Minecraft colors by default"></button></div>
           <div class="fr"><b>Texture scale</b><div class="sgs" data-k="size"><button class="sg" type="button" data-v="16" aria-pressed="false">Original</button><button class="sg" type="button" data-v="32" aria-pressed="false">2×</button><button class="sg" type="button" data-v="64" aria-pressed="false">4×</button></div></div>
           <div class="fr"><b>Show pixel grid</b><button class="tg" type="button" role="switch" aria-checked="false" data-k="grid" aria-label="Show pixel grid"></button></div>
         </div>
-        <div class="card"><h4>Workspace</h4>
+        <div class="card" data-settings-page="workspace" hidden><h4>Workspace</h4>
           <div class="fr"><div><b>Remember this workspace</b><br><small class="mu">Open your bench next time on this device.</small></div><button class="tg" type="button" role="switch" aria-checked="false" data-k="remember" aria-label="Remember this workspace"></button></div>
           <div class="fr"><div><b>Replay onboarding</b><br><small class="mu">Walk through the setup again.</small></div><button class="gb" type="button" id="replay">Replay</button></div>
-          <div class="fr"><b>Log out</b><button class="gb" type="button" id="lo">Log out</button></div>
-          <div class="fr"><div><b>Delete all projects</b><br><small class="mu">This can’t be undone.</small></div><button class="dg" type="button" id="clr">Delete all</button></div>
+          <div class="fr"><div><b>Move all projects to Trash</b><br><small class="mu">Restore them below whenever you need them.</small></div><button class="dg" type="button" id="clr">Move all to Trash</button></div>
         </div>
+        <div class="card" id="offlineCard" data-settings-page="offline" hidden><h4>Your studio, offline</h4>
+          <p class="offline-status" id="offlineStatus" role="status">Preparing offline access…</p>
+          <div class="workspace-buttons"><button class="gb" type="button" id="prepareOffline">Prepare offline access</button><button class="gb" type="button" id="installApp">Install Cubeon Bench</button><button class="gb" type="button" id="updateApp" hidden>Save and update app</button></div>
+          <small class="mu">Install on this device or keep using your browser. Your projects stay in the same browser profile.</small>
+        </div>
+        <div class="card" data-settings-page="backups" hidden><h4>Backups</h4>
+          <p class="offline-status" id="backupStatus">Back up every project, texture edit, and imported file in one ZIP.</p>
+          <div class="workspace-buttons"><button class="gb primary-action" type="button" id="backupWorkspace">Download workspace backup</button><button class="gb" type="button" id="restoreWorkspace">Restore backup</button></div>
+          <input type="file" id="workspaceImport" accept=".zip,application/zip" hidden>
+          <small class="mu">Restore on any device. Existing projects are preserved; restored projects are added as copies.</small>
+        </div>
+        <div class="card" data-settings-page="trash" hidden><h4>Trash</h4>
+          <div class="fr"><span class="mu" id="trashCount">0 projects in Trash</span><button class="dg" type="button" id="emptyTrash">Empty Trash</button></div><div id="trashList"></div>
+        </div>
+      </div>
       </div>
     </section>
   </main>
@@ -709,6 +729,9 @@ body.inapp .theme{display:none}
     </div>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="workspace-task" id="workspaceTask" hidden role="status" aria-live="polite"><div><span id="workspaceTaskLabel"></span><button type="button" id="workspaceTaskClose" hidden aria-label="Dismiss backup status">×</button></div><progress id="workspaceTaskProgress" max="1" value="0" aria-label="Workspace backup progress"></progress></div>
+  <div class="app-drop-zone" id="dropZone" hidden>Drop it on your bench<span>Resource-pack ZIP · 64×64 skin PNG · workspace backup</span></div>
+  <button type="button" class="update-notice" id="updateNotice" hidden>New version ready · Save and update</button>
   <div class="ed" id="ed" role="dialog" aria-label="Texture editor">
     <header class="edt">
       <button class="ibtn" id="edBack" type="button" aria-label="Back to home"><i data-i="back"></i></button>
@@ -716,12 +739,22 @@ body.inapp .theme{display:none}
       <div class="edn"><b id="edName"></b><span class="mu" id="edSave" role="status" aria-live="polite">Saved locally</span><span class="mu" id="edPath"></span></div>
       <div class="edsr"><label class="srch"><i data-i="search"></i><input id="edQ" type="search" placeholder="Search all textures" autocomplete="off" aria-label="Search textures"></label><div class="edres" id="edRes"></div></div>
       <div class="tr">
+        <div class="editor-history" role="group" aria-label="Edit history">
         <button class="ibtn" id="edUndo" type="button" aria-label="Undo"><i data-i="undo"></i></button>
         <button class="ibtn" id="edRedo" type="button" aria-label="Redo"><i data-i="redo"></i></button>
-        <button class="ibtn" id="edExport" type="button" aria-label="Export Minecraft resource pack ZIP" title="Export resource pack ZIP"><i data-i="download"></i></button>
+        </div>
+        <button class="ibtn" id="edContext" type="button" aria-label="Texture actions" aria-haspopup="true" aria-expanded="false" aria-controls="textureMenu"><i data-i="dots"></i></button>
+        <button class="gb editor-export" id="edExport" type="button" aria-label="Export Minecraft resource pack ZIP" title="Export resource pack ZIP"><i data-i="download"></i><span>Export</span></button>
         <button class="ibtn edm" id="edR" type="button" aria-label="Tools"><i data-i="pen"></i></button>
       </div>
     </header>
+        <div class="editor-action-menu" id="textureMenu" hidden><h5>Texture actions</h5><div class="texture-files"><button class="gb" type="button" id="textureImport">Replace PNG</button><button class="gb" type="button" id="textureExport">Save PNG</button></div><input type="file" id="texturePicker" accept="image/png,.png" hidden><div class="acts">
+          <button class="gb" type="button" data-a="fh"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16M4 8l5 4-5 4ZM20 8l-5 4 5 4Z"></path></svg>Flip H</button>
+          <button class="gb" type="button" data-a="fv"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16M8 4l4 5 4-5ZM8 20l4-5 4 5Z"></path></svg>Flip V</button>
+          <button class="gb" type="button" data-a="rot"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.200"></path><path d="M20 4v5h-5"></path></svg>Rotate</button>
+          <button class="gb" type="button" data-a="clear"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4h6v3"></path></svg>Clear</button>
+          <button class="gb" type="button" data-a="reset" style="grid-column:1/-1">Reset to original</button>
+        </div></div>
     <div class="edmn">
       <aside class="edl" id="edLeft">
         <div class="edlh"><label class="folder-label" for="edCat">Minecraft folders</label><span class="mu" id="edCount"></span><select class="folder-select" id="edCat" aria-label="Texture category"></select></div>
@@ -729,71 +762,103 @@ body.inapp .theme{display:none}
         <div class="edg" id="edGrid"></div>
         <div class="edpg" id="edPager"></div>
       </aside>
-      <section class="edc" id="edC">
-        <div class="edarea" id="edArea"><div class="edwrap" id="edWrap"><canvas id="ec"></canvas><canvas id="eo"></canvas></div></div>
+      <section class="edc" id="edC" aria-label="Canvas workspace">
+        <div class="canvas-bar" id="canvasBar" hidden>
+          <div class="canvas-document"><b id="canvasTextureName"></b><small id="canvasDocumentMeta"></small></div>
+          <button class="gb canvas-animate" id="canvasAnimate" type="button" hidden><i data-i="pack"></i>Create animation</button>
+          <button class="gb animation-rail-toggle" id="edFramesToggle" type="button" aria-label="Animation frames" aria-controls="edFrames" aria-expanded="false" title="Animation frames" hidden><i data-i="pack"></i>Frames</button>
+        </div>
+        <div class="edarea" id="edArea" tabindex="0" role="region" aria-label="Drawing canvas"><div class="edwrap" id="edWrap"><canvas id="ec" tabindex="0" aria-label="Editable texture"></canvas><canvas id="eo"></canvas></div></div>
         <div class="edempty" id="edEmpty"><b>No texture open</b><span>Pick one from the list on the left, or search for it above.</span></div>
-        <div class="face-bar" id="faceBar" style="display:none"><div class="sgs"><button class="sg" type="button" data-face="top">Top</button><button class="sg" type="button" data-face="sides" aria-pressed="true">Sides</button><button class="sg" type="button" data-face="bottom">Bottom</button></div></div>
-        <div class="edhud mu" id="edHud"></div>
+        <div class="canvas-footer" id="canvasFooter" hidden>
+          <div class="canvas-guidance"><b id="canvasToolName">Pencil</b><span id="canvasToolHint">Drag to paint pixels. Choose a color in the tools panel.</span><button class="canvas-control" id="canvasHelp" type="button" aria-label="Canvas and animation help" title="Canvas and animation guide">?</button></div>
+          <div class="canvas-controls"><div class="edhud mu" id="edHud"></div><div class="face-bar" id="faceBar" style="display:none"><div class="sgs"><button class="sg" type="button" data-face="top">Top</button><button class="sg" type="button" data-face="sides" aria-pressed="true">Sides</button><button class="sg" type="button" data-face="bottom">Bottom</button></div></div><div class="canvas-navigation" role="group" aria-label="Canvas navigation">
+            <div class="canvas-zoom"><button class="canvas-control" id="canvasZoomOut" type="button" aria-label="Zoom out">−</button><output id="canvasZoomValue" aria-label="Canvas zoom">100%</output><button class="canvas-control" id="canvasZoomIn" type="button" aria-label="Zoom in">+</button></div>
+            <button class="canvas-control" type="button" id="edFit" title="Fit the whole texture in view"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4H4v4M16 4h4v4M4 16v4h4M20 16v4h-4"/></svg>Fit</button>
+          </div></div>
+        </div>
         <div class="pv" id="edPv"><div class="pv-shadow" id="pvShadow"></div><div class="pvs" id="pvS"><div class="pvw" id="pvW"></div></div><div id="pvT"></div><div class="pvh">Drag to rotate · scroll to zoom</div><div class="pvc"><button class="gb" type="button" id="pvAuto">Auto-rotate: on</button><button class="gb" type="button" id="pvReset">Reset view</button></div></div>
       </section>
+      <aside class="animation-rail" id="edFrames" aria-label="Animation frames" hidden>
+        <div class="animation-rail-content animation-studio" id="edAnimation">
+          <div class="animation-rail-header"><b>Animation</b><button class="animation-move animation-rail-close" id="edFramesClose" type="button" aria-label="Close animation frames"><i data-i="close"></i></button></div>
+          <p class="animation-intro">Pick a frame, draw, then press Play.</p>
+          <small class="mu animation-hint" id="animHint" hidden></small>
+          <div id="animBody" class="animation-body" hidden>
+            <div class="animation-preview"><canvas id="animPreview" width="96" height="96" aria-label="Animation preview"></canvas><div><b id="animCount"></b><small id="animSize" class="mu"></small><button class="gb" id="animPlay" type="button" aria-pressed="false">Play</button></div></div>
+            <div class="animation-frame-heading"><span id="animFrameLabel"></span></div>
+            <small class="animation-reorder-hint mu">Drag to reorder.</small>
+            <div class="animation-frames" id="animFrames" role="group" aria-label="Animation frame sequence"></div>
+            <div class="animation-frame-settings">
+              <div class="acts animation-actions"><button class="gb" type="button" data-anim-action="add" title="Copy this frame, then paint the new one"><i data-i="plus"></i>Add frame</button></div>
+              <div class="animation-simple-time"><label for="animSeconds">Frame duration</label><div><input class="pack-input" id="animSeconds" type="number" min="0.05" max="300" step="0.05" value="0.1" aria-label="Frame duration in seconds"><span>s</span></div></div>
+              <details class="animation-options"><summary>More options</summary>
+                <div class="animation-clipboard-actions" role="group" aria-label="Frame clipboard">
+                  <button class="gb" type="button" data-frame-action="copy" aria-keyshortcuts="Control+C Meta+C" title="Copy frame · Ctrl / ⌘ C in the frame panel">Copy frame</button>
+                  <button class="gb" type="button" data-frame-action="paste" aria-keyshortcuts="Control+V Meta+V" title="Paste frame · Ctrl / ⌘ V in the frame panel">Paste frame</button>
+                  <button class="gb" type="button" data-frame-action="duplicate" aria-keyshortcuts="Control+D Meta+D" title="Duplicate frame · Ctrl / ⌘ D">Duplicate frame</button>
+                </div>
+                <label class="animation-native-time" for="animTime">Minecraft ticks<input class="pack-input" id="animTime" type="number" min="1" max="6000" step="1" value="2" aria-describedby="animTimeHint"></label>
+                <small class="mu animation-hint" id="animTimeHint"></small><button class="gb animation-all-time" id="animAllTime" type="button">Use duration for all frames</button>
+                <div class="animation-move-actions"><span>Move frame</span><button class="animation-move" id="animEarlier" type="button" data-anim-action="move" data-direction="-1" aria-label="Move frame earlier"><i data-i="chevl"></i></button><button class="animation-move" id="animLater" type="button" data-anim-action="move" data-direction="1" aria-label="Move frame later"><i data-i="chevr"></i></button></div>
+                <div class="fr2"><span>Blend between frames</span><button class="tg" id="animInterpolate" type="button" role="switch" aria-checked="false" aria-label="Blend between animation frames"></button></div>
+                <div class="sgs animation-view" id="animView" role="group" aria-label="Texture editing view"><button class="sg" type="button" data-anim-view="frame" aria-pressed="true">One frame</button><button class="sg" type="button" data-anim-view="sheet" aria-pressed="false">Full sheet</button></div>
+                <button class="gb animation-remove" id="animRemove" type="button" data-anim-action="remove" aria-label="Remove selected frame" aria-keyshortcuts="Delete Backspace" title="Remove frame · Delete in the frame panel"><i data-i="trash"></i>Remove frame</button>
+                <div class="fr2"><span>Animated texture</span><button class="tg" id="animToggle" type="button" role="switch" aria-checked="false" aria-label="Animated texture" title="Turning off keeps only the selected frame. Undo restores the animation."></button></div>
+              </details>
+            </div>
+          </div>
+          <span class="sr-only" id="animReorderStatus" role="status" aria-live="polite"></span>
+        </div>
+      </aside>
       <aside class="edr" id="edRight">
-        <div class="rc pack-actions"><h5 id="edPackLabel">Texture pack</h5><button class="gb" id="edDetails" type="button"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></svg>Pack details</button><span class="mu local-note">Saved locally · export a ZIP to share</span></div>
-        <div class="rc"><h5>Tools</h5><div class="tbs" id="edTools">
-          <button class="tb" type="button" data-t="pencil" aria-pressed="true"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 1-4L16 5l3 3L8 19Z"></path></svg>Pencil<kbd>B</kbd></button>
-          <button class="tb" type="button" data-t="eraser" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20H9L3.500 14.500a2 2 0 0 1 0-3L12 3a2 2 0 0 1 3 0l6 6a2 2 0 0 1 0 3L13 20"></path><path d="m7 11 6 6"></path></svg>Eraser<kbd>E</kbd></button>
+        <div class="rc"><h5>Paint</h5><p class="tool-guide" id="toolGuide" hidden></p><div class="tbs" id="edTools">
+          <div class="tool-primary" role="group" aria-label="Paint tools">
+          <button class="tb" type="button" data-t="pencil" aria-pressed="true"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 1-4L16 5l3 3L8 19Z"></path></svg>Draw<kbd>B</kbd></button>
+          <button class="tb" type="button" data-t="eraser" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20H9L3.500 14.500a2 2 0 0 1 0-3L12 3a2 2 0 0 1 3 0l6 6a2 2 0 0 1 0 3L13 20"></path><path d="m7 11 6 6"></path></svg>Erase<kbd>E</kbd></button>
           <button class="tb" type="button" data-t="fill" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12 12 5l7 7-7 7Z"></path><path d="M19 15c1 1.500 2 2.500 2 3.500a2 2 0 0 1-4 0c0-1 1-2 2-3.500Z"></path></svg>Fill<kbd>G</kbd></button>
-          <button class="tb" type="button" data-t="pick" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 1-4 9-9 3 3-9 9Z"></path><path d="M15 5a2.100 2.100 0 0 1 3-3l4 4a2.100 2.100 0 0 1-3 3"></path></svg>Picker<kbd>I</kbd></button>
-          <button class="tb" type="button" data-t="line" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19 19 5"></path><circle cx="5" cy="19" r="1.500" fill="currentColor"></circle><circle cx="19" cy="5" r="1.500" fill="currentColor"></circle></svg>Line<kbd>L</kbd></button>
-          <button class="tb" type="button" data-t="rect" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="1"></rect></svg>Box<kbd>R</kbd></button>
-          <button class="tb" type="button" data-t="light" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"></path></svg>Lighten<kbd>U</kbd></button>
-          <button class="tb" type="button" data-t="dark" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.500 4a8.500 8.500 0 1 0 10.500 10.500Z"></path></svg>Darken<kbd>D</kbd></button>
+          <button class="tb" type="button" data-t="pick" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 1-4 9-9 3 3-9 9Z"></path><path d="M15 5a2.100 2.100 0 0 1 3-3l4 4a2.100 2.100 0 0 1-3 3"></path></svg>Pick<kbd>I</kbd></button>
+          </div>
+          <details class="editor-disclosure more-paint-tools" id="morePaintTools"><summary>More tools</summary><div class="tbs">
+            <button class="tb" type="button" data-t="line" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19 19 5"></path><circle cx="5" cy="19" r="1.500" fill="currentColor"></circle><circle cx="19" cy="5" r="1.500" fill="currentColor"></circle></svg>Line<kbd>L</kbd></button>
+            <button class="tb" type="button" data-t="rect" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="1"></rect></svg>Box<kbd>R</kbd></button>
+            <button class="tb" type="button" data-t="ellipse" aria-pressed="false"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg>Ellipse<kbd>O</kbd></button>
+            <button class="tb" type="button" data-t="select" aria-pressed="false"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" aria-hidden="true"><rect x="4" y="4" width="16" height="16"/></svg>Select<kbd>M</kbd></button>
+            <button class="tb" type="button" data-t="light" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"></path></svg>Lighten<kbd>U</kbd></button>
+            <button class="tb" type="button" data-t="dark" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.500 4a8.500 8.500 0 1 0 10.500 10.500Z"></path></svg>Darken<kbd>D</kbd></button>
+          </div></details>
         </div></div>
-        <div class="rc"><h5>Brush</h5>
+        <div class="rc"><h5>Color</h5>
+          <div class="chosen-color"><button type="button" id="edCol" class="color-trigger" aria-label="Open custom color chooser" aria-haspopup="dialog" aria-expanded="false" aria-controls="colorChooser"><span></span><b>Choose color</b></button></div>
+          <div class="lb2">Colors in this texture <span id="textureColorCount"></span></div><div class="texture-palette" id="texturePalette"></div><button type="button" class="link" id="texturePaletteMore" hidden>More colors</button>
+          <details class="editor-disclosure" id="colorOptions"><summary>More colors & opacity</summary>
+            <div class="colr"><label for="edHex">Hex color</label><input id="edHex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Hex color" value=""></div>
+            <div class="fr2 opacity-row"><label for="edAlpha">Opacity</label><input type="range" id="edAlpha" min="0" max="100" value="100" aria-label="Opacity"><output id="edAlphaValue" for="edAlpha">100%</output></div><div class="lb2">Studio palette</div><div class="pal" id="edPal"></div><div class="lb2">Recent</div><div class="pal" id="edRec"></div>
+          </details>
+          <div class="fr2" id="tintRow" hidden><span>In-game colors</span><button class="tg" id="tintToggle" type="button" role="switch" aria-checked="true" aria-label="Show natural Minecraft colors"></button></div>
+        </div>
+        <div class="rc options-card"><details class="editor-disclosure" id="brushOptions"><summary>Brush settings</summary>
+          <div class="fr2"><label for="brushCustom">Custom size</label><input id="brushCustom" type="number" min="1" max="32" value="1" aria-label="Brush size in pixels"></div>
           <div class="fr2"><span>Size</span><div class="sgs" id="edSize"><button class="sg" type="button" data-v="1" aria-pressed="true">1</button><button class="sg" type="button" data-v="2" aria-pressed="false">2</button><button class="sg" type="button" data-v="3" aria-pressed="false">3</button></div></div>
           <div class="fr2"><span>Mirror left–right</span><button class="tg" type="button" role="switch" aria-checked="false" data-e="mx" aria-label="Mirror left to right"></button></div>
           <div class="fr2"><span>Mirror top–bottom</span><button class="tg" type="button" role="switch" aria-checked="false" data-e="my" aria-label="Mirror top to bottom"></button></div>
-        </div>
-        <div class="rc"><h5>Color</h5>
-          <div class="colr"><button type="button" id="edCol" class="color-trigger" aria-label="Open custom color chooser" aria-haspopup="dialog" aria-expanded="false" aria-controls="colorChooser"><span></span></button><input id="edHex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Hex color" value=""></div>
-          <div class="fr2 opacity-row"><label for="edAlpha">Opacity</label><input type="range" id="edAlpha" min="0" max="100" value="100" aria-label="Opacity"><output id="edAlphaValue" for="edAlpha">100%</output></div>
-          <div class="pal" id="edPal"></div>
-          <div class="lb2">Recent</div><div class="pal" id="edRec"></div>
-        </div>
-        <div class="rc animation-panel" id="edAnimation" hidden>
-          <h5>Animation</h5>
-          <div class="fr2"><span>Animated texture</span><button class="tg" id="animToggle" type="button" role="switch" aria-checked="false" aria-label="Animated texture"></button></div>
-          <small class="mu animation-hint" id="animHint">Frames play in Minecraft at 20 ticks per second.</small>
-          <div id="animBody" hidden>
-            <div class="animation-preview"><canvas id="animPreview" width="96" height="96" aria-label="Animation preview"></canvas><div><b id="animCount"></b><small id="animSize" class="mu"></small><button class="gb" id="animPlay" type="button" aria-pressed="false">Play</button></div></div>
-            <div class="animation-frame-heading"><span id="animFrameLabel"></span><div><button class="animation-move" id="animEarlier" type="button" data-anim-action="move" data-direction="-1" aria-label="Move frame earlier"><i data-i="chevl"></i></button><button class="animation-move" id="animLater" type="button" data-anim-action="move" data-direction="1" aria-label="Move frame later"><i data-i="chevr"></i></button></div></div>
-            <div class="animation-frames" id="animFrames" role="group" aria-label="Animation frames"></div>
-            <div class="acts animation-actions"><button class="gb" type="button" data-anim-action="add"><i data-i="plus"></i>Add frame</button><button class="gb" id="animRemove" type="button" data-anim-action="remove"><i data-i="trash"></i>Remove</button></div>
-            <div class="fr2 animation-time"><label for="animTime">Frame time</label><div><input class="pack-input" id="animTime" type="number" min="1" max="6000" step="1" value="2" aria-describedby="animTimeHint"><span class="mu">ticks</span></div></div>
-            <small class="mu animation-hint" id="animTimeHint"></small><button class="gb animation-all-time" id="animAllTime" type="button">Apply timing to all frames</button>
-            <div class="fr2"><span>Blend between frames</span><button class="tg" id="animInterpolate" type="button" role="switch" aria-checked="false" aria-label="Blend between animation frames"></button></div>
-            <div class="sgs animation-view" id="animView" role="group" aria-label="Texture editing view"><button class="sg" type="button" data-anim-view="frame" aria-pressed="true">Frame</button><button class="sg" type="button" data-anim-view="sheet" aria-pressed="false">Sprite sheet</button></div>
-          </div>
-        </div>
-        <div class="rc"><h5>View</h5>
+
+        </details></div>
+        <div class="rc options-card"><details class="editor-disclosure" id="viewOptions"><summary>Canvas settings</summary><div class="canvas-extra-controls"><button class="canvas-control" id="canvasPan" type="button" aria-label="Pan canvas" aria-pressed="false" title="Drag to move the canvas"><i data-i="hand"></i><span>Hand</span></button><button class="canvas-control" id="canvasGrid" type="button" aria-label="Toggle pixel grid" aria-pressed="true" title="Show pixel grid"><i data-i="grid"></i><span>Grid</span></button></div>
           <div class="fr2"><span>Zoom</span><input type="range" id="edZoom" min="0.125" max="48" step="0.125" value="16" aria-label="Zoom"></div>
-          <div class="fr2"><span>Pixel grid</span><button class="tg" type="button" role="switch" aria-checked="false" data-e="grid" aria-label="Pixel grid"></button></div>
+
           <div class="fr2" id="rowUV"><span>Skin guide</span><button class="tg" type="button" role="switch" aria-checked="false" data-e="uv" aria-label="Skin guide"></button></div>
-          <div class="fr2"><span></span><button class="gb" type="button" id="edFit">Fit to screen</button></div>
-        </div>
-        <div class="rc"><h5>Texture</h5><div class="acts">
-          <button class="gb" type="button" data-a="fh"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16M4 8l5 4-5 4ZM20 8l-5 4 5 4Z"></path></svg>Flip H</button>
-          <button class="gb" type="button" data-a="fv"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16M8 4l4 5 4-5ZM8 20l4-5 4 5Z"></path></svg>Flip V</button>
-          <button class="gb" type="button" data-a="rot"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.200"></path><path d="M20 4v5h-5"></path></svg>Rotate</button>
-          <button class="gb" type="button" data-a="clear"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4h6v3"></path></svg>Clear</button>
-          <button class="gb" type="button" data-a="reset" style="grid-column:1/-1">Reset to original</button>
-        </div></div>
+
+
+        </details></div>
+        <div class="rc pack-actions"><h5 id="edPackLabel">Texture pack</h5><button class="gb" id="edDetails" type="button"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></svg>Pack details</button><span class="mu local-note">Saved locally · export a ZIP to share</span></div>
       </aside>
     </div>
     <footer class="edb" id="edTabs" role="tablist" aria-label="Open textures"></footer>
   </div>
 </div>
 
-<input type="file" id="packImport" accept=".zip,application/zip" hidden>
+<input type="file" id="packImport" accept=".zip,.png,application/zip,image/png" hidden>
 <div class="pack-task" id="packTask" role="status" aria-live="polite" hidden>
   <div><span id="packTaskLabel"></span><button class="task-close" id="packTaskClose" type="button" aria-label="Dismiss pack status" hidden>×</button></div>
   <progress id="packTaskProgress" max="1" value="0" aria-label="Pack import or export progress"></progress>
@@ -939,7 +1004,7 @@ body.inapp .theme{display:none}
     cur=i;var s=steps[seq[i]];s.classList.toggle('rev',dir<0);s.classList.add('on');
     segs.forEach(function(g,k){g.classList.toggle('on',k<=Math.min(i,1))});
     nxt.textContent=i===1?'Build my bench':'Continue';
-    back.textContent=i===0?'Back to login':'Back';
+    back.textContent=i===0?'Back to welcome':'Back';
     nav.classList.toggle('hide',i>=2);
     bench('ripple');
   }
@@ -984,6 +1049,7 @@ body.inapp .theme{display:none}
   var P={home:'<path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1Z"/>',proj:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',cube:'<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',set:'<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',plus:'<path d="M12 5v14M5 12h14"/>',search:'<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/>',dots:'<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>',out:'<path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M15 8l4 4-4 4M19 12H9"/>',copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4h6v3"/>',pen:'<path d="m4 20 1-4L16 5l3 3L8 19Z"/>',open:'<path d="M7 17 17 7M9 7h8v8"/>',grid:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/>',pal:'<path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2s0-2 1.5-2h2a4 4 0 0 0 4-4 9 9 0 0 0-9-10Z"/><circle cx="8" cy="11" r="1"/><circle cx="12" cy="7.5" r="1"/><circle cx="16" cy="11" r="1"/>',moon:'<path d="M20 14.5A8.5 8.5 0 0 1 9.500 4a8.500 8.500 0 1 0 10.500 10.500Z"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',item:'<path d="M4 20 14 10"/><path d="M7 6.5c4-3 10-2.5 13 3.5"/>',back:'<path d="M19 12H5M11 6l-6 6 6 6"/>',undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',redo:'<path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',eraser:'<path d="M20 20H9L3.500 14.500a2 2 0 0 1 0-3L12 3a2 2 0 0 1 3 0l6 6a2 2 0 0 1 0 3L13 20"/><path d="m7 11 6 6"/>',fill:'<path d="M5 12 12 5l7 7-7 7Z"/><path d="M19 15c1 1.500 2 2.500 2 3.500a2 2 0 0 1-4 0c0-1 1-2 2-3.500Z"/>',pick:'<path d="m4 20 1-4 9-9 3 3-9 9Z"/><path d="M15 5a2.100 2.100 0 0 1 3-3l4 4a2.100 2.100 0 0 1-3 3"/>',line:'<path d="M5 19 19 5"/><circle cx="5" cy="19" r="1.500" fill="currentColor"/><circle cx="19" cy="5" r="1.500" fill="currentColor"/>',rect:'<rect x="4" y="6" width="16" height="12" rx="1"/>',close:'<path d="M6 6l12 12M18 6 6 18"/>',mirror:'<path d="M12 4v16M4 8l5 4-5 4ZM20 8l-5 4 5 4Z"/>',flipv:'<path d="M4 12h16M8 4l4 5 4-5ZM8 20l4-5 4 5Z"/>',rot:'<path d="M20 12a8 8 0 1 1-3-6.200"/><path d="M20 4v5h-5"/>',chevl:'<path d="m15 5-7 7 7 7"/>',chevr:'<path d="m9 5 7 7-7 7"/>',flame:'<path d="M12 3c.5 3.5 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5.2 1.800 1 2.500 2 2.500C11 8 10.500 5.500 12 3Z"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 20c1-4 4-6 8-6s7 2 8 6"/>',pack:'<path d="M12 3 21 8l-9 5-9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/>'};
   P.download='<path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/>';
   P.upload='<path d="M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4"/>';
+  P.hand='<path d="M8 13V6a2 2 0 0 1 4 0v6-8a2 2 0 0 1 4 0v8-6a2 2 0 0 1 4 0v9c0 4-3 7-7 7h-1c-2 0-4-1-5-3l-4-5a2 2 0 0 1 3-3l2 2Z"/>';
   function ic(k,c){return '<svg class="i '+(c||'')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+P[k]+'</svg>'}
   $$('[data-i]').forEach(function(el){el.outerHTML=ic(el.dataset.i,el.dataset.c)});
   var PL={meadow:{n:'Meadow',c:['#B9E57C','#A4D168','#628B38','#3D5A24']},stone:{n:'Stone',c:['#CDD1D4','#ADB2B7','#737A80','#4B5157']},ember:{n:'Ember',c:['#FFC27A','#F7903F','#C75A2C','#80331A']},ocean:{n:'Ocean',c:['#9BE8EC','#5CC6D8','#2F93AB','#1D5C78']}};
@@ -992,7 +1058,7 @@ body.inapp .theme{display:none}
   function hash(str){var h=2166136261;for(var i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
   function drawBlock(cv,d){return MT.draw(cv,d)}
   function drawThumb(cv,p){
-    if(p.thumb){var im=new Image();im.onload=function(){cv.width=cv.height=16;var ctx=cv.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.drawImage(im,0,0,16,16)};im.src=p.thumb;return}
+    if(p.thumb){var im=new Image();im.onload=function(){cv.width=cv.height=16;var ctx=cv.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.drawImage(im,0,0,16,16);var id=p.thumbTexture||p.texture||p.block||'block/grass_block_top',color=p.type==='skin'?null:MT.tintColor(id);if(color&&D.set.naturalColors!==false&&(!p.tintView||p.tintView[id]!==false))ctx.putImageData(MT.tintImage(ctx.getImageData(0,0,16,16),color),0,0)};im.src=p.thumb;return}
     if(p.type==='skin'){
       cv.width=cv.height=16;
       MT.load('entity/player/wide/steve').then(function(img){var ctx=cv.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.drawImage(img,8,8,8,8,0,0,16,16)});
@@ -1000,13 +1066,14 @@ body.inapp .theme{display:none}
   }
   function ago(t){var s=(Date.now()-t)/1000;if(s<60)return 'Just now';if(s<3600)return ((s/60)|0)+' min ago';if(s<86400)return ((s/3600)|0)+' h ago';if(s<604800)return ((s/86400)|0)+' d ago';return new Date(t).toLocaleDateString()}
 
-  var D={storageVersion:1,profile:{name:'Builder',color:'#A4D168',picture:''},onboarded:false,signedIn:false,projects:[],activity:{},set:{remember:true,theme:'system',calm:false,size:16,pal:'meadow',grid:true}};
+  var D={storageVersion:2,profile:{name:'Builder',color:'#A4D168',picture:''},onboarded:false,signedIn:false,projects:[],trash:[],activity:{},textureActivity:{},set:{remember:true,theme:'system',calm:false,size:16,pal:'meadow',grid:true,naturalColors:true}};
   var hydrated=false,ready,lastStorageRead=0,lastSaveError='';
   function hydrate(j){
     if(!j)return;
     Object.assign(D.profile,j.profile);Object.assign(D.set,j.set);
     D.projects=(j.projects||[]).map(function(p){p.type=p.type==='skin'?'skin':'pack';p.pal=PL[p.pal]?p.pal:'meadow';p.size=p.size||16;return p});
-    D.activity=j.activity||{};D.onboarded=!!j.onboarded;D.signedIn=!!j.signedIn;
+    D.trash=j.trash||[];D.lastBackup=j.lastBackup||0;
+    D.textureActivity=j.textureActivity||{};D.activity={};Object.keys(D.textureActivity).forEach(function(day){D.activity[day]=D.textureActivity[day].length});D.onboarded=!!j.onboarded;D.signedIn=!!j.signedIn;
     if(!PL[D.set.pal])D.set.pal='meadow';
   }
   function save(){
@@ -1045,7 +1112,7 @@ body.inapp .theme{display:none}
   function match(p){return !q||p.name.toLowerCase().indexOf(q)>-1}
   function hasPicture(){return typeof D.profile.picture==='string'&&/^data:image\/(png|jpeg|webp);base64,/.test(D.profile.picture)}
   function avatar(sz){return '<span class="av'+(hasPicture()?' av-photo':'')+'" style="background:'+D.profile.color+';width:'+sz+'px;height:'+sz+'px;font-size:'+((sz*.45)|0)+'px">'+(hasPicture()?'<img src="'+esc(D.profile.picture)+'" width="'+sz+'" height="'+sz+'" alt="">':esc((D.profile.name.trim()[0]||'B').toUpperCase()))+'</span>'}
-  function card(p){var scale=p.type==='skin'?'64×64':p.size===16?'Original textures':(p.size/16)+'× textures';return '<article class="pc" tabindex="0" data-id="'+p.id+'"><div class="th"><canvas data-t="'+p.id+'"></canvas></div><div class="pi"><b class="pn">'+esc(p.name)+'</b><span class="pm">'+T[p.type]+' · '+scale+'</span><span class="pt">'+ago(p.edited)+'</span></div><button class="dots" type="button" aria-label="Project menu">'+ic('dots')+'</button></article>'}
+  function card(p){var scale=p.type==='skin'?'64×64':p.size===16?'Original textures':(p.size/16)+'× textures';return '<article class="pc" tabindex="0" aria-label="Open '+esc(p.name)+'" data-id="'+esc(p.id)+'">'+(p.favorite?'<span class="favorite-mark">★ Favorite</span>':'')+'<div class="th"><canvas data-t="'+esc(p.id)+'"></canvas></div><div class="pi"><b class="pn">'+esc(p.name)+'</b><span class="pm">'+T[p.type]+' · '+scale+'</span><span class="pt">'+ago(p.edited)+' · '+Object.keys(p.edits||{}).length+' edited</span></div><button class="dots" type="button" aria-label="Project menu for '+esc(p.name)+'">'+ic('dots')+'</button></article>'}
   var ADD='<button class="pc add" type="button" data-new>'+ic('plus')+'New project</button>';
   var SK='<article class="pc sk"><div class="th"></div><div class="pi"><span style="width:70%"></span><span style="width:45%;height:10px"></span></div></article>';
   function paint(root){
@@ -1067,16 +1134,15 @@ body.inapp .theme{display:none}
     var gr=$('#home-grid'),arr=D.projects.filter(match).sort(function(a,b){return b.edited-a.edited}).slice(0,4);
     if(skel)gr.innerHTML=SK+SK+SK+SK;
     else if(arr.length)gr.innerHTML=arr.map(card).join('')+ADD;
-    else gr.innerHTML='<div class="empty"><b>'+(D.projects.length?'Nothing matches “'+esc(q)+'”':'No projects yet')+'</b><br>'+(D.projects.length?'Try a different search.':'Pick a block below, or hit New project.')+'</div>'+ADD;
-    $('#home-lib').innerHTML=tiles(['block/grass_block_top','block/stone','block/oak_log','block/diamond_ore','item/diamond_sword','entity/creeper/creeper'].map(function(id){return MT.resolve(id)}));
+    else gr.innerHTML=D.projects.length?'<div class="empty"><b>Nothing matches “'+esc(q)+'”</b><br>Try a different search.</div>':'<button class="first-project" type="button" data-new>'+ic('plus')+'<span><b>Create your first project</b><small>Start a skin or resource pack. Your work saves automatically.</small></span>'+ic('chevr')+'</button>';
     paint($('#v-home'));
   }
   function renderProjects(){
     var gr=$('#pj-grid');
-    var a=D.projects.filter(function(p){return (ftype==='all'||p.type===ftype)&&match(p)});
+    var a=D.projects.filter(function(p){return (ftype==='all'||p.type===ftype||ftype==='favorite'&&p.favorite)&&match(p)});
     a.sort(sort==='name'?function(x,y){return x.name.localeCompare(y.name)}:function(x,y){return y.edited-x.edited});
     if(skel)gr.innerHTML=SK+SK+SK;
-    else gr.innerHTML=a.map(card).join('')+(a.length?'':'<div class="empty"><b>Nothing here</b><br>No projects match these filters.</div>')+ADD;
+    else gr.innerHTML=a.length?a.map(card).join('')+ADD:D.projects.length?'<div class="empty"><b>No projects match these filters.</b><br>Try another filter or create a project.</div>'+ADD:'<button class="first-project" type="button" data-new>'+ic('plus')+'<span><b>Create your first project</b><small>Start a skin or resource pack.</small></span>'+ic('chevr')+'</button>';
     paint(gr);
   }
   function renderLibrary(){
@@ -1105,7 +1171,8 @@ body.inapp .theme{display:none}
     refreshStorage();
   }
   function dkey(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)}
-  function bump(n){var k=dkey(new Date());D.activity[k]=(D.activity[k]||0)+(n||1)}
+  function bump(){}
+  function recordTextureEdit(project,texture){var k=dkey(new Date()),key=project.id+':'+texture,items=D.textureActivity[k]||(D.textureActivity[k]=[]);if(!items.includes(key)){items.push(key);D.activity[k]=items.length;renderStreak()}}
   function lvl(n){return n<=0?0:n===1?1:n<=3?2:n<=6?3:4}
   function renderStreak(){
     var W=53,today=new Date();today.setHours(12,0,0,0);
@@ -1116,7 +1183,7 @@ body.inapp .theme{display:none}
         dt=new Date(start);dt.setDate(start.getDate()+w*7+d);
         if(dt>today){cells+='<i class="hc fut"></i>';continue}
         k=dkey(dt);n=D.activity[k]||0;total+=n;if(n)days++;
-        cells+='<i class="hc l'+lvl(n)+(k===dkey(today)?' today':'')+'" style="--w:'+w+'" title="'+(n?n+(n===1?' action':' actions'):'No activity')+' on '+dt.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})+'"></i>';
+        cells+='<i class="hc l'+lvl(n)+(k===dkey(today)?' today':'')+'" style="--w:'+w+'" title="'+(n?n+(n===1?' texture edited':' textures edited'):'No textures edited')+' on '+dt.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})+'"></i>';
       }
       var m0=new Date(start);m0.setDate(start.getDate()+w*7);
       if(m0.getMonth()!==lm&&w-last>=3){months+='<span style="grid-column:'+(w+1)+'">'+m0.toLocaleDateString(undefined,{month:'short'})+'</span>';last=w}
@@ -1127,14 +1194,16 @@ body.inapp .theme{display:none}
     var keys=Object.keys(D.activity).filter(function(x){return D.activity[x]>0}).sort(),run=0,best=0,prev=null;
     keys.forEach(function(x){var t=new Date(x+'T12:00:00');run=(prev&&Math.round((t-prev)/864e5)===1)?run+1:1;if(run>best)best=run;prev=t});
     var cols='style="grid-template-columns:repeat('+W+',var(--cs))"';
-    $('#streak').innerHTML='<div class="sth"><div><h3>Activity</h3><span class="mu">'+total+(total===1?' action':' actions')+' in the last year</span></div>'+
+    var editedToday=(D.textureActivity[dkey(today)]||[]).length;
+    $('#streak').innerHTML='<div class="sth"><div><h3>Activity <span class="today-count" id="editedToday">'+editedToday+(editedToday===1?' texture edited today':' textures edited today')+'</span></h3><span class="mu">'+total+(total===1?' texture edited':' textures edited')+' in the last year</span></div>'+
       '<div class="stk"><div><b>'+ic('flame')+cur+'</b><span>Current streak</span></div><div><b>'+best+'</b><span>Longest streak</span></div><div><b>'+days+'</b><span>Active days</span></div></div></div>'+
       '<div class="hmw"><div class="hm-d"><span style="grid-row:1">Mon</span><span style="grid-row:3">Wed</span><span style="grid-row:5">Fri</span></div>'+
       '<div class="hms" id="hms"><div class="hmm" '+cols+'>'+months+'</div><div class="hm" '+cols+'>'+cells+'</div></div></div>'+
       '<div class="lgd"><span>Less</span><i class="hc l0"></i><i class="hc l1"></i><i class="hc l2"></i><i class="hc l3"></i><i class="hc l4"></i><span>More</span></div>';
     var sc=$('#hms');if(sc)sc.scrollLeft=sc.scrollWidth;
   }
-  function renderAll(){renderUser();renderStreak();renderHome();renderProjects();renderLibrary();syncSet()}
+  function renderAll(){renderUser();renderStreak();renderHome();renderProjects();renderLibrary();syncSet();document.dispatchEvent(new Event('cb-render'))}
+  function settingsPage(key){$$('[data-settings-page]').forEach(function(card){var entering=card.hidden&&card.dataset.settingsPage===key;card.hidden=card.dataset.settingsPage!==key;if(entering)Motion.surface(card)});$$('[data-settings]').forEach(function(button){button.setAttribute('aria-current',button.dataset.settings===key?'page':'false')});}
   function go(v){
     view=v;closePop();
     $$('.view').forEach(function(s){s.classList.toggle('on',s.id==='v-'+v)});
@@ -1154,11 +1223,12 @@ body.inapp .theme{display:none}
   pop.addEventListener('click',function(e){var b=e.target.closest('[data-a]');if(!b)return;var f=popH[b.dataset.a];closePop();if(f)f()});
   document.addEventListener('click',function(e){if(!pop.contains(e.target)&&!e.target.closest('.dots,.usr,.avb'))closePop()});
 
-  function profPop(a){openPop(a,'<div class="phd">'+avatar(48)+'<div><b>'+esc(D.profile.name)+'</b><br><small class="mu">Local workspace</small></div></div><button class="pit" type="button" data-a="picture">'+ic('user')+'Change profile picture</button><button class="pit" type="button" data-a="s">'+ic('set')+'Settings</button><button class="pit" type="button" data-a="o">'+ic('out')+'Back to welcome</button>',{picture:function(){go('settings');$('#profilePicker').value='';$('#profilePicker').click()},s:function(){go('settings')},o:logout})}
-  function projMenu(a,id){openPop(a,'<button class="pit" type="button" data-a="open">'+ic('open')+'Open</button><button class="pit" type="button" data-a="ren">'+ic('pen')+'Rename</button><button class="pit" type="button" data-a="dup">'+ic('copy')+'Duplicate</button><button class="pit dgr" type="button" data-a="del">'+ic('trash')+'Delete</button>',{
+  function profPop(a){openPop(a,'<div class="phd">'+avatar(48)+'<div><b>'+esc(D.profile.name)+'</b><br><small class="mu">Local workspace</small></div></div><button class="pit" type="button" data-a="picture">'+ic('user')+'Change profile picture</button><button class="pit" type="button" data-a="s">'+ic('set')+'Settings</button><button class="pit profile-logout" type="button" data-a="o"'+(loggingOut?' disabled':'')+'>'+ic('out')+'Log out</button>',{picture:function(){go('settings');$('#profilePicker').value='';$('#profilePicker').click()},s:function(){go('settings')},o:logout})}
+  function projMenu(a,id){var current=find(id);openPop(a,'<button class="pit" type="button" data-a="open">'+ic('open')+'Open</button><button class="pit" type="button" data-a="ren">'+ic('pen')+'Rename</button><button class="pit" type="button" data-a="fav">★ '+(current.favorite?'Remove favorite':'Add to favorites')+'</button><button class="pit" type="button" data-a="exp">'+ic('download')+'Export '+(current.type==='skin'?'PNG':'pack ZIP')+'</button><button class="pit" type="button" data-a="dup">'+ic('copy')+'Duplicate</button><button class="pit dgr" type="button" data-a="del">'+ic('trash')+'Move to Trash</button>',{
     open:function(){openProj(id)},ren:function(){setTimeout(function(){rename(id)},30)},
+    fav:function(){current.favorite=!current.favorite;save();renderAll()},exp:function(){ResourcePacks.exportProject(current)},
     dup:function(){var p=find(id),n=JSON.parse(JSON.stringify(p));n.id='p'+Date.now().toString(36)+((Math.random()*1e4)|0);n.name=p.name+' copy';n.edited=Date.now();D.projects.unshift(n);bump();save();renderAll();toast('Duplicated “'+p.name+'”.')},
-    del:function(){var p=find(id);D.projects=D.projects.filter(function(x){return x.id!==id});save().then(function(ok){if(ok)return LocalStore.cleanFiles(D.projects)}).catch(function(){});renderAll();toast('Deleted “'+p.name+'”.')}})}
+    del:function(){Workspace.removeProject(id)}})}
   function rename(id){
     var el=$('#v-'+view+' .pc[data-id="'+id+'"] .pn');if(!el)return;
     var p=find(id),inp=document.createElement('input'),done=false;
@@ -1183,7 +1253,7 @@ body.inapp .theme{display:none}
   }
   function openNew(o){
     closePop();var p=o.project||{};
-    M={editId:p.id||'',type:p.type||o.type||'pack',size:p.size||D.set.size,pal:p.pal||D.set.pal,block:o.block||'',texture:o.texture||'',
+    M={editId:p.id||'',type:p.type||o.type||D.set.projectType||'pack',size:p.size||D.set.size,pal:p.pal||D.set.pal,block:o.block||'',texture:o.texture||'',
       icon:p.icon||'',hasIcon:!!p.hasIcon||!!p.icon,iconRemoved:!!p.iconRemoved,iconReady:Promise.resolve(),iconToken:0,returnFocus:document.activeElement};
     nameDirty=!!o.name||!!p.name;$('#mn').value=p.name||o.name||('Untitled '+(D.projects.length+1));
     $('#mt').textContent=M.editId?'Pack details':'New project';$('#mcreate').textContent=M.editId?'Save details':'Create project';$('#mcreate').disabled=false;
@@ -1246,6 +1316,7 @@ body.inapp .theme{display:none}
   /* app-wide clicks */
   app.addEventListener('click',function(e){
     var t=e.target,b;
+    if(b=t.closest('[data-settings]')){settingsPage(b.dataset.settings);return}
     if(b=t.closest('.dots')){e.stopPropagation();projMenu(b,b.closest('.pc').dataset.id);return}
     if(b=t.closest('.pc[data-id]')){if(!t.closest('input'))openProj(b.dataset.id);return}
     if(t.closest('[data-import]')){$('#packImport').value='';$('#packImport').click();return}
@@ -1258,7 +1329,7 @@ body.inapp .theme{display:none}
   });
   app.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.classList&&e.target.classList.contains('pc')&&e.target.dataset.id)openProj(e.target.dataset.id)});
   $('#q').addEventListener('input',function(){q=this.value.trim().toLowerCase();libPage=0;renderHome();renderProjects();renderLibrary()});
-  $('#packImport').addEventListener('change',function(){var file=this.files[0];if(file)ResourcePacks.importFile(file).catch(function(){});});
+  $('#packImport').addEventListener('change',function(){var file=this.files[0];if(!file)return;if(/\.cubeon\.zip$/i.test(file.name))Workspace.importBackup(file);else if(/\.png$/i.test(file.name))Workspace.importSkin(file);else ResourcePacks.importFile(file).catch(function(){});});
   $('#packTaskClose').addEventListener('click',function(){$('#packTask').hidden=true;});
   $('#libCat').innerHTML=MT.options();
   $('#libCat').addEventListener('change',function(){libFolder=this.value;libPage=0;renderLibrary()});
@@ -1279,10 +1350,10 @@ body.inapp .theme{display:none}
     else if(b=t.closest('#pcol .c')){D.profile.color=b.dataset.v}
     else if(b=t.closest('.tg')){D.set[b.dataset.k]=!D.set[b.dataset.k]}
     else if(t.closest('#lo')){logout();return}
-    else if(t.closest('#replay')){logout();setTimeout(function(){window.startOnb()},450);return}
+    else if(t.closest('#replay')){logout().then(function(ok){if(ok)setTimeout(function(){window.startOnb()},450)});return}
     else if(b=t.closest('#clr')){
-      if(!b.classList.contains('arm')){b.classList.add('arm');b.textContent='Click again to confirm';setTimeout(function(){b.classList.remove('arm');b.textContent='Delete all'},3000);return}
-      D.projects=[];clean=true;b.classList.remove('arm');b.textContent='Delete all';toast('All projects deleted.');
+      if(!b.classList.contains('arm')){b.classList.add('arm');b.textContent='Click again to confirm';setTimeout(function(){b.classList.remove('arm');b.textContent='Move all to Trash'},3000);return}
+      D.projects.forEach(function(p){p.deleted=Date.now()});D.trash=D.projects.concat(D.trash);D.projects=[];b.classList.remove('arm');b.textContent='Move all to Trash';toast('All projects moved to Trash.');
     }else return;
     var saved=save();if(clean)saved.then(function(ok){if(ok)return LocalStore.cleanFiles(D.projects)}).catch(function(){});renderAll();
   });
@@ -1305,12 +1376,24 @@ body.inapp .theme{display:none}
   });
   $('#removeProfilePicture').addEventListener('click',async function(){D.profile.picture='';renderUser();if(await save())toast('Profile picture removed.');});
 
-  function logout(){
-    D.signedIn=false;save();
-    closePop();closeNew();app.classList.remove('on');document.body.classList.remove('inapp','calm');
-    var sh=$('.shell');sh.style.display='';if(window.exitOnb)window.exitOnb();
-    requestAnimationFrame(function(){requestAnimationFrame(function(){sh.classList.remove('out')})});
-    if(window.bench)window.bench.start();
+  var loggingOut=false;
+  async function logout(){
+    if(loggingOut)return false;
+    loggingOut=true;closePop();
+    var button=$('#lo'),wasSignedIn=D.signedIn;
+    button.disabled=true;button.querySelector('span').textContent='Saving…';
+    try{
+      D.signedIn=false;
+      var saved=save();await LocalStore.flush();
+      if(!await saved){D.signedIn=wasSignedIn;toast('Could not log out because your workspace could not be saved. Try again or export a backup.');return false;}
+      closeNew();app.classList.remove('on');document.body.classList.remove('inapp','calm');
+      var sh=$('.shell');sh.style.display='';if(window.exitOnb)window.exitOnb();
+      requestAnimationFrame(function(){requestAnimationFrame(function(){sh.classList.remove('out');$('#guest').focus()})});
+      if(window.bench)window.bench.start();
+      toast('Logged out. Your projects are saved on this device.');
+      return true;
+    }catch(error){D.signedIn=wasSignedIn;toast('Could not log out. Try again or export a backup.');return false;}
+    finally{loggingOut=false;button.disabled=false;button.querySelector('span').textContent='Log out';}
   }
   function showApp(fast){
     var sh=$('.shell');
@@ -1325,9 +1408,8 @@ body.inapp .theme{display:none}
     try{await ready;}catch(error){toast(error.message);return;}
     S=S||{};
     var tp={'Skin':'skin','Texture pack':'pack'}[S.make]||'pack',pk=D.set.pal;
-    if(S.name){D.profile.name=S.name;D.set.size=S.size||D.set.size;}
+    if(S.name){D.profile.name=S.name;D.set.size=S.size||D.set.size;}if(S.make)D.set.projectType=tp;
     try{D.set.theme=localStorage.getItem('cb-theme')||'system'}catch(e){}
-    if(!D.projects.length&&S.name){var n=Date.now();D.projects.push({id:'p'+n.toString(36),name:(tp==='skin'?'My first skin':'My first texture pack'),type:tp,size:D.set.size,pal:pk,block:'',created:n,edited:n});bump()}
     D.onboarded=true;D.signedIn=true;save();
     showApp(false);
   };
@@ -1337,7 +1419,7 @@ body.inapp .theme{display:none}
     if(D.signedIn&&D.onboarded&&D.set.remember!==false){try{D.set.theme=localStorage.getItem('cb-theme')||'system'}catch(e){}showApp(true);}
   });
   ready.catch(function(error){storageStatus({state:'error',error:error.message});toast(error.message)});
-  window.CB={D:D,ready:ready,save:save,find:find,bump:bump,ic:ic,PL:PL,BL:BL,drawBlock:drawBlock,hash:hash,toast:toast,esc:esc,renderAll:renderAll,openDetails:function(p){openNew({project:p})}};
+  window.CB={D:D,ready:ready,save:save,find:find,bump:bump,recordTextureEdit:recordTextureEdit,ic:ic,PL:PL,BL:BL,drawBlock:drawBlock,hash:hash,toast:toast,esc:esc,renderAll:renderAll,go:go,settingsPage:settingsPage,newProject:openNew,openDetails:function(p){openNew({project:p})},applyWorkspace:function(state){hydrate(state);applyTheme(D.set.theme);renderAll()}};
   window.cbReturning=function(){return D.onboarded};
 })();
 </script>
@@ -1345,5 +1427,8 @@ body.inapp .theme{display:none}
 <script src="color-chooser.js"></script>
 <script src="animation-controls.js"></script>
 <script src="editor.js"></script>
+<script src="editor-layout.js"></script>
+<script src="workspace.js"></script>
+<script src="app-shell.js"></script>
 </body>
 </html>

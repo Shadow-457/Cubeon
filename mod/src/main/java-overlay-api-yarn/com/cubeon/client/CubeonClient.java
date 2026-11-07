@@ -39,6 +39,7 @@ public class CubeonClient implements ClientModInitializer {
     public void onInitializeClient() {
         Bridge bridge = Bridge.get();
         bridge.setToastSink(CubeonClient::announce);
+        bridge.setCapeSink(com.cubeon.client.skins.CapeAnimation::accept);
         bridge.start();
         // Cosmetics are built on Fabric API's renderer registration event. Fabric
         // API is a recommended dependency, not a required one (see

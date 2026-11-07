@@ -61,6 +61,8 @@ from test_mod_bridge import find_jdk, _java_version  # noqa: E402
 MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/Json.java",
     "mod/src/main/java/com/cubeon/client/Bridge.java",
+    "mod/src/main/java/com/cubeon/client/skins/CapeAnimation.java",
+    "mod/src/main/java/com/cubeon/client/skins/CapeFrames.java",
     "mod/src/main/java/com/cubeon/client/emotes/EmoteState.java",
     "mod/src/main/java/com/cubeon/client/emotes/EmotePose.java",
     "mod/src/main/java/com/cubeon/client/emotes/EmoteRoom.java",

@@ -39,6 +39,10 @@ Automatic recovery still has a two-restart limit. An `eglGetPlatformDisplayEXT`
 provider error can also indicate unavailable or mismatched EGL libraries in a
 container; a backend override does not repair missing system libraries.
 
+Linux releases restore the original library search path for Minecraft and native
+helpers, keeping the launcher's bundled Python libraries separate from system
+OpenGL and Vulkan dependencies. This preserves normal hardware rendering.
+
 If you are running the source rather than a release, follow
 [Development setup](development/setup.md).
 
@@ -235,8 +239,14 @@ Microsoft/Mojang account.
   views still depend on their compatible skin support and service/cache refresh.
   The **Capes** tab offers **Cubeon Cape**, **No Cape**, and your uploaded capes.
   Import or drop a cape image, rotate the player to preview it, then choose
-  **CONFIRM** to save and update it immediately. HD capes retain their original
-  resolution in game. Cape pages stay loaded when switching tabs. Custom cape
+  **CONFIRM** to save and update it immediately. Animated GIFs keep their frames,
+  timing, transparency and loop count, including when Minecraft starts. Uploads
+  fit any image shape onto the cape; files must be at most 8 MB, with up to 500
+  GIF frames and 64 million decoded pixels. Animated sheets are limited to
+  128×64; still HD capes retain their original resolution in game. Animation
+  requires the updated Fabric Cubeon Client; clients without it show the first
+  frame through CustomSkinLoader. Keep Cubeon open while playing.
+  Cape pages stay loaded when switching tabs. Custom cape
   choices and No Cape affect your own screen; friends still see the shared
   Cubeon cape, as with the launcher's Cape pane.
 - **Skin arms:** each uploaded skin has an **Auto / Alex / Steve** control.
@@ -246,8 +256,12 @@ Microsoft/Mojang account.
 
 Screenshots live under **Settings → Screenshots**. Its folder button opens the
 selected capture's folder, or the active instance's screenshots when no capture
-is selected. Stats shows playtime and
-activity comparisons; it does not measure the game's frame rate.
+is selected. **Stats** shows total playtime, the last seven days, your longest
+recorded session and daily streak. Its last-30-days chart switches between
+**Day** and **Week**. **Where you play** counts games with recorded server
+connections, using the latest 1,000 completed games. Existing total playtime
+stays intact. Stats updates after the game closes and does not measure the
+game's frame rate.
 
 ### Finding a mod
 

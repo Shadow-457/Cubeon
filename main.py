@@ -241,7 +241,7 @@ from ui.mods_tab import build_mods_tab  # Imports the mods_tab builder function
 from ui import toast as cubeon_toast  # Top-right slide-in notifications (replaces bottom snackbars)
 from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab builder function
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
-from ui.stats_tab import build_stats_tab  # Stats tab: playtime/library/cosmetics counters
+from ui.stats_tab import build_stats_tab  # Stats tab: playtime overview and server activity
 from ui.activity_widgets import build_badges
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
 from ui.import_section import build_import_section  # Settings -> Import: scan a folder, import what it finds
@@ -6516,9 +6516,8 @@ async def main(page: ft.Page):
                             "browse": browse}
 
     # -----------------------------------------------------------------
-    # STATS TAB - one clean screen of counters (playtime, library,
-    # cosmetics). Read-only scans of state that already exists; see
-    # ui/stats_tab.py.
+    # STATS TAB - responsive playtime overview, timeline and server activity.
+    # Read-only snapshots of existing state; see ui/stats_tab.py.
     # -----------------------------------------------------------------
     def _build_stats_tab():
         content, refresh = build_stats_tab(

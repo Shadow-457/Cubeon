@@ -2,7 +2,6 @@ package com.cubeon.client.skins;
 
 import com.cubeon.client.Bridge;
 import com.cubeon.client.Json;
-import java.io.ByteArrayInputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -11,43 +10,34 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import javax.imageio.ImageIO;
 
 /** Immutable library pages and one asynchronous action at a time. No render-thread I/O. */
 public final class SkinLibrary implements AutoCloseable {
     public record Skin(String id, String name, boolean slim, String model, byte[] png, int[] pixels,
-                       int width, int height, boolean hidden, byte[] texturePng) {
+                       int width, int height, boolean hidden, byte[] texturePng, CapeFrames animation, String gifPath) {
         static Skin read(Object value) throws Exception {
             if (!(value instanceof Map<?, ?> raw)) throw new IllegalArgumentException("Invalid skin.");
             Object encoded = raw.get("png");
             if (!(encoded instanceof String text) || text.length() > 65536) throw new IllegalArgumentException("Invalid skin image.");
             byte[] png = Base64.getDecoder().decode(text);
-            var image = ImageIO.read(new ByteArrayInputStream(png));
-            if (image == null || image.getWidth() != 64 || (image.getHeight() != 64 && image.getHeight() != 32))
-                throw new IllegalArgumentException("Invalid skin dimensions.");
+            var image = CapeFrames.decodePng(png, true);
             byte[] texture = png;
             if (image.getHeight() == 32 && raw.get("texture_path") instanceof String path) {
-                Path file = Path.of(path);
-                if (!file.isAbsolute() || java.nio.file.Files.isSymbolicLink(file)
-                        || java.nio.file.Files.size(file) > 8 * 1024 * 1024)
-                    throw new IllegalArgumentException("Invalid cape source.");
-                texture = java.nio.file.Files.readAllBytes(file);
-                var full = ImageIO.read(new ByteArrayInputStream(texture));
-                if (full == null || full.getWidth() < 64 || full.getWidth() > 1024
-                        || Integer.bitCount(full.getWidth()) != 1 || full.getWidth() != full.getHeight() * 2)
-                    throw new IllegalArgumentException("Invalid cape source dimensions.");
+                texture = CapeFrames.localPng(path);
             }
             String id = String.valueOf(raw.get("id")), name = String.valueOf(raw.get("name"));
             return new Skin(id, name, Boolean.TRUE.equals(raw.get("slim")), String.valueOf(raw.get("model")),
                     png, image.getRGB(0, 0, 64, image.getHeight(), null, 0, 64),
-                    64, image.getHeight(), Boolean.TRUE.equals(raw.get("hidden")), texture);
+                    64, image.getHeight(), Boolean.TRUE.equals(raw.get("hidden")), texture, CapeFrames.read(raw.get("animation")),
+                    raw.get("gif_path") instanceof String file?file:null);
         }
     }
     public record State(List<Skin> items, Skin applied, String selected, int offset, int total,
                         int pageSize, boolean busy, String status, boolean support) {
         public Skin selectedSkin() {
+            if(applied!=null && applied.id().equals(selected)) return applied;
             for (Skin skin : items) if (skin.id().equals(selected)) return skin;
-            return applied != null && applied.id().equals(selected) ? applied : null;
+            return null;
         }
     }
     private final ThreadPoolExecutor worker = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
@@ -97,10 +87,13 @@ public final class SkinLibrary implements AutoCloseable {
             var pointer = Class.forName("org.lwjgl.PointerBuffer");
             var save = dialogs.getMethod("tinyfd_saveFileDialog", CharSequence.class, CharSequence.class,
                     pointer, CharSequence.class);
-            Object picked = save.invoke(null, capes()?"Export Minecraft cape PNG":"Export Minecraft skin PNG", capes()?"cape.png":"skin.png", null, "PNG image");
+            boolean gif=capes() && skin.gifPath()!=null;
+            String suffix=gif?".gif":".png";
+            Object picked = save.invoke(null, gif?"Export animated cape GIF":capes()?"Export Minecraft cape PNG":"Export Minecraft skin PNG",
+                    capes()?"cape"+suffix:"skin.png", null, gif?"GIF image":"PNG image");
             if (!(picked instanceof String file) || file.isBlank()) return Map.of("cancelled", true);
-            Path destination = Path.of(file.endsWith(".png") ? file : file + ".png");
-            java.nio.file.Files.write(destination, skin.texturePng());
+            Path destination = Path.of(file.toLowerCase(java.util.Locale.ROOT).endsWith(suffix) ? file : file + suffix);
+            java.nio.file.Files.write(destination, gif?CapeFrames.localGif(skin.gifPath()):skin.texturePng());
             return Map.of("cancelled", true, "status", capes()?"Cape exported.":"Skin exported.");
         }, false, false);
     }

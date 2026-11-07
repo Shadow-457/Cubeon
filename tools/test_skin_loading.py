@@ -29,11 +29,11 @@ import ui.appearance_preview as preview_ui
 NATIVE_POPEN = subprocess.Popen
 
 
-def build(page):
-    return skin_ui.build_skin_section(page, {'active_back_item': 'back_ember_wings'},
+def build(page, cfg=None, cape_file_picker=None):
+    return skin_ui.build_skin_section(page, cfg if cfg is not None else {'active_back_item': 'back_ember_wings'},
         section_label=section_label, pixel_divider=pixel_divider, **THEME,
         mc_version='1.20.1', mc_loader='fabric', assets_dir=str(ROOT / 'assets'),
-        file_picker=ft.FilePicker(), cape_file_picker=ft.FilePicker())
+        file_picker=ft.FilePicker(), cape_file_picker=cape_file_picker or ft.FilePicker())
 
 
 def tab(root, name):
@@ -121,6 +121,57 @@ async def native(page):
                 c.on_hover(SimpleNamespace(data='false'))
     await asyncio.sleep(2)
     print('NATIVE_SKIN_PASS', flush=True)
+    await page.window.close()
+
+
+async def native_gif(page):
+    """Upload through the real UI and inspect animated native card pixels."""
+    from PIL import ImageGrab
+    from cubeon import capes, paths
+    fz.install_safe_stubs()
+    page.title = 'Cubeon GIF Cape Check'
+    page.bgcolor = THEME['BG']
+    page.theme_mode = ft.ThemeMode.DARK
+    page.scroll = ft.ScrollMode.AUTO
+    page.window.width = 1000
+    page.window.height = 740
+    thread_safe_ui.install(page)
+    cfg = {'username': 'GifUiTester'}
+    picker = ft.FilePicker()
+    root = build(page, cfg, picker)
+    page.add(root)
+    thread_safe_ui.mark_mounted(page)
+    tab(root, 'Cape').on_click(None)
+    source = Path(paths.CUBEON_HOME) / 'Native GIF.gif'
+    source.parent.mkdir(parents=True, exist_ok=True)
+    frames = [Image.new('RGBA', (20, 32), color) for color in ('magenta', 'cyan', 'yellow')]
+    frames[0].save(source, 'GIF', save_all=True, append_images=frames[1:], duration=200, loop=0)
+    picked = SimpleNamespace(name=source.name, path=str(source))
+    picker.on_result(SimpleNamespace(files=[picked]))
+    deadline = time.monotonic() + 15
+    while not cfg.get('active_cape') and time.monotonic() < deadline:
+        await asyncio.sleep(.05)
+    assert cfg.get('active_cape'), 'GIF upload did not select a cape.'
+    assert capes.animation_info(cfg['active_cape'])['count'] == 3
+    await asyncio.sleep(4)
+    out = ROOT / 'archive/ui-captures/gif-capes-launcher'
+    out.mkdir(parents=True, exist_ok=True)
+    seen = set()
+    for index in range(12):
+        await asyncio.sleep(.13)
+        capture = ImageGrab.grab(xdisplay=os.environ['DISPLAY']).convert('RGB')
+        counts = capture.getcolors(capture.width*capture.height) or []
+        for count, rgb in counts:
+            if count > 200 and rgb in ((255,0,255), (0,255,255), (255,255,0)):
+                seen.add(rgb)
+        if index < 3:
+            capture.save(out / f'frame-{index}.png')
+    assert len(seen) == 3, f'Native cape card did not paint all GIF colors: {seen}'
+    apply_none = next(c for c in fz.walk(root) if isinstance(c, ft.Container)
+                      and c.tooltip == 'Apply None (No cape on your screen)')
+    apply_none.cubeon_keyboard_button.on_click(None)
+    assert cfg.get('hide_cubeon_cape') and cfg.get('active_cape') is None
+    print('NATIVE_GIF_PASS: upload, saved animation, all three painted GIF frames and hide.', flush=True)
     await page.window.close()
 
 
@@ -249,13 +300,14 @@ async def native_drag(page):
 
 
 if __name__ == '__main__':
-    if '--native' in sys.argv or '--native-drag' in sys.argv:
+    if '--native' in sys.argv or '--native-drag' in sys.argv or '--native-gif' in sys.argv:
         os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
         os.environ['GALLIUM_DRIVER'] = 'llvmpipe'
         failures = []
         async def checked_native(page):
             try:
-                await (native_drag if '--native-drag' in sys.argv else native)(page)
+                callback = native_gif if '--native-gif' in sys.argv else native_drag if '--native-drag' in sys.argv else native
+                await callback(page)
             except Exception:
                 failures.append(True)
                 traceback.print_exc()

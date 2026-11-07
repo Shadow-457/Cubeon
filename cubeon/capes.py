@@ -36,12 +36,14 @@ only has to be a real, decodable image; shape is not a precondition:
 
 """
 import json
+import io
 import os
 import re
-import shutil
 import uuid
+import tempfile
+import threading
 
-from PIL import Image
+from PIL import Image, ImageSequence
 
 from .paths import CAPES_DIR, CSL_LOCAL_CAPES_DIR
 from .config import save_config
@@ -64,6 +66,10 @@ _VALID_CAPE_WIDTHS = {64, 128, 256, 512, 1024}
 # Hard input limit. Real capes are tiny; anything past this is either a
 # camera photo or an accident, and both are better rejected than decoded.
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
+MAX_GIF_FRAMES = 500
+MAX_SOURCE_PIXELS = 16_000_000
+MAX_DECODED_PIXELS = 64_000_000
+_LOCK = threading.RLock()
 
 
 
@@ -131,17 +137,99 @@ def validate_cape_file(path: str) -> tuple[bool, str]:
     "not an image", "unreadable", and "absurdly large".
     """
     try:
-        if os.path.getsize(path) > MAX_SOURCE_BYTES:
-            return False, "That file is too large (over 8 MB)."
-        with Image.open(path) as img:
-            img.verify()  # structural check only
+        _decode_cape(path)
         return True, ""
-    except Exception:
-        return False, "Couldn't read that file as an image"
+    except ValueError as error:
+        return False, str(error)
+
+
+def _decode_cape(path):
+    """Decode every composited GIF frame before publishing any library files."""
+    try:
+        if os.path.getsize(path) > MAX_SOURCE_BYTES:
+            raise ValueError("That file is too large (over 8 MB).")
+        with Image.open(path) as source:
+            pixels = source.width * source.height
+            if pixels > MAX_SOURCE_PIXELS:
+                raise ValueError("Choose an image with fewer than 16 million pixels.")
+            animated = source.format == "GIF" and source.n_frames > 1
+            count = source.n_frames if animated else 1
+            if count > MAX_GIF_FRAMES or pixels * count > MAX_DECODED_PIXELS:
+                raise ValueError("Choose a shorter GIF or one with smaller frames.")
+            frames, durations = [], []
+            loop = source.info.get("loop")
+            for frame in ImageSequence.Iterator(source) if animated else (source,):
+                sheet = _to_cape_sheet(frame.convert("RGBA"))
+                if animated and sheet.width > 128:
+                    sheet = sheet.resize((128, 64), Image.Resampling.NEAREST)
+                frames.append(sheet)
+                durations.append(max(10, min(655350, int(frame.info.get("duration", 100) or 100))))
+            return frames, durations, loop
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError("Couldn't read that file as an image. Try another image or GIF.") from error
+
+
+def _write_bytes(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".cubeon-cape-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+
+
+def _png_bytes(image):
+    output = io.BytesIO()
+    image.save(output, "PNG")
+    return output.getvalue()
+
+
+def _gif_bytes(frames, durations, loop):
+    indexed = []
+    for frame in frames:
+        picture = frame.convert("RGB").quantize(colors=255)
+        picture.putpalette(picture.getpalette()[:765] + [0, 0, 0])
+        picture.paste(255, mask=frame.getchannel("A").point(lambda alpha: 255 if alpha < 128 else 0))
+        indexed.append(picture)
+    output = io.BytesIO()
+    indexed[0].save(output, "GIF", save_all=True, append_images=indexed[1:],
+                    duration=durations, disposal=2, transparency=255, background=255, optimize=False,
+                    **({"loop": loop} if loop is not None else {}))
+    return output.getvalue()
+
+
+def animation_info(filename):
+    """Small validated manifest; frames stay on disk outside HTTP responses."""
+    path = get_custom_cape_path(filename) + ".frames.json"
+    try:
+        if os.path.islink(path) or os.path.getsize(path) > 64 * 1024:
+            raise ValueError("That GIF cape needs to be imported again.")
+        with open(path, encoding="utf-8") as stream:
+            data = json.load(stream)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as error:
+        raise ValueError("That GIF cape needs to be imported again.") from error
+    if (not isinstance(data, dict) or data.get("schema") != 1
+            or type(data.get("count")) is not int or not 2 <= data["count"] <= MAX_GIF_FRAMES
+            or data.get("width") not in (64, 128) or data.get("height") != data["width"] // 2
+            or not isinstance(data.get("durations"), list) or len(data["durations"]) != data["count"]
+            or any(type(d) is not int or not 10 <= d <= 655350 for d in data["durations"])
+            or data.get("loop") is not None and (type(data["loop"]) is not int or not 0 <= data["loop"] <= 65535)):
+        raise ValueError("That GIF cape needs to be imported again.")
+    return data
 
 
 def list_custom_capes() -> list[dict]:
-    return _load_capes_meta()["capes"]
+    with _LOCK:
+        return _load_capes_meta()["capes"]
 
 
 def add_custom_cape(src_path: str, display_name: str) -> dict:
@@ -149,56 +237,82 @@ def add_custom_cape(src_path: str, display_name: str) -> dict:
 
     Returns the new cape's metadata entry ({"filename", "name"}).
     """
-    ok, err = validate_cape_file(src_path)
-    if not ok:
-        raise ValueError(err)
-
-    try:
-        with Image.open(src_path) as img:
-            # copy() because PIL reuses one buffer across seeks/opens.
-            sheet = _to_cape_sheet(img.convert("RGBA").copy())
-    except Exception:
-        raise ValueError("Couldn't read that file as an image")
-
-    safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", display_name.strip()) or "cape"
+    frames, durations, loop = _decode_cape(src_path)
+    safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", display_name.strip())[:64] or "cape"
     filename = f"{safe_name}_{uuid.uuid4().hex[:8]}.png"
     os.makedirs(CAPES_DIR, exist_ok=True)
     dest = os.path.join(CAPES_DIR, filename)
-    sheet.save(dest, "PNG")
-
-    entry = {"filename": filename, "name": display_name.strip() or safe_name}
-
-    meta = _load_capes_meta()
-    meta["capes"].append(entry)
-    _save_capes_meta(meta)
+    entry = {"filename": filename, "name": display_name.strip()[:80] or safe_name}
+    files = {dest: _png_bytes(frames[0])}
+    if len(frames) > 1:
+        width, height = frames[0].size
+        atlas = Image.new("RGBA", (width, height * len(frames)))
+        for index, frame in enumerate(frames):
+            atlas.paste(frame, (0, index * height))
+        files[dest + ".frames.png"] = _png_bytes(atlas)
+        files[dest + ".gif"] = _gif_bytes(frames, durations, loop)
+        files[dest + ".frames.json"] = json.dumps({"schema": 1, "count": len(frames),
+            "width": width, "height": height, "durations": durations, "loop": loop}).encode("utf-8")
+        if any(len(data) > MAX_SOURCE_BYTES for data in files.values()):
+            raise ValueError("Choose a shorter or simpler GIF (the saved cape must fit in 8 MB).")
+        entry["animated"] = True
+    with _LOCK:
+        try:
+            for path, data in files.items():
+                _write_bytes(path, data)
+            meta = _load_capes_meta()
+            meta["capes"].append(entry)
+            _save_capes_meta(meta)
+        except Exception:
+            for path in files:
+                if os.path.isfile(path):
+                    os.remove(path)
+            raise
     return entry
 
 
 def delete_custom_cape(filename: str) -> None:
-    meta = _load_capes_meta()
-    meta["capes"] = [c for c in meta["capes"] if c["filename"] != filename]
-    _save_capes_meta(meta)
     path = os.path.join(CAPES_DIR, filename)
-    if os.path.exists(path):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+    get_custom_cape_path(filename)  # validate before changing metadata
+    with _LOCK:
+        meta = _load_capes_meta()
+        meta["capes"] = [c for c in meta["capes"] if c["filename"] != filename]
+        _save_capes_meta(meta)
+        for suffix in ("", ".frames.png", ".frames.json", ".gif"):
+            try:
+                os.remove(path + suffix)
+            except FileNotFoundError:
+                pass
 
 
 def get_custom_cape_path(filename: str) -> str:
+    if (not isinstance(filename, str) or not filename.endswith(".png")
+            or filename.startswith(".") or any(c in filename for c in "/\\\x00")):
+        raise ValueError("Choose a cape from your library.")
     return os.path.join(CAPES_DIR, filename)
 
 
 def set_active_cape(cfg: dict, filename: str | None) -> None:
-    cfg["active_cape"] = filename
-    # Picking any cape (a custom one, or the shared Cubeon cape via None) means
-    # "wear a cape", so it also lifts the Cape pane's None/hide choice.
-    cfg["hide_cubeon_cape"] = False
-    # Sync before saving so the recorded "name we wrote under" lands in the
-    # same save - mirrors skins.set_active_skin().
-    sync_local_cape_to_csl(cfg)
-    save_config(cfg)
+    if filename is not None:
+        path = get_custom_cape_path(filename)
+        if not os.path.isfile(path) or os.path.islink(path):
+            raise ValueError("That cape is no longer in your library.")
+        info = animation_info(filename)
+        entry = next((entry for entry in list_custom_capes() if entry.get("filename") == filename), {})
+        if entry.get("animated") and info is None:
+            raise ValueError("That GIF cape needs to be imported again.")
+        if info:
+            atlas = path + ".frames.png"
+            try:
+                if os.path.islink(atlas) or os.path.getsize(atlas) > MAX_SOURCE_BYTES:
+                    raise ValueError("Invalid animation atlas")
+                with Image.open(atlas) as image:
+                    if image.format != "PNG" or image.size != (info["width"], info["height"] * info["count"]):
+                        raise ValueError("Invalid animation atlas")
+                    image.verify()
+            except (OSError, ValueError) as error:
+                raise ValueError("That GIF cape needs to be imported again.") from error
+    _set_selection(cfg, {"active_cape": filename, "hide_cubeon_cape": False})
 
 
 def set_hide_cubeon_cape(cfg: dict, hide: bool) -> None:
@@ -210,11 +324,44 @@ def set_hide_cubeon_cape(cfg: dict, hide: bool) -> None:
     renders. Implemented as a fully transparent LocalSkin cape, which beats the
     Worker's cape in CSL's load order (see the ORDER CONTRACT in cubeon/csl.py).
     """
-    cfg["hide_cubeon_cape"] = bool(hide)
+    changes = {"hide_cubeon_cape": bool(hide)}
     if hide:
-        cfg["active_cape"] = None
-    sync_local_cape_to_csl(cfg)
-    save_config(cfg)
+        changes["active_cape"] = None
+    _set_selection(cfg, changes)
+
+
+def _set_selection(cfg, changes):
+    """A failed configuration save restores the prior cape and owned mirrors."""
+    with _LOCK:
+        keys = ("active_cape", "hide_cubeon_cape", "csl_synced_cape_name")
+        before = {key: cfg[key] for key in keys if key in cfg}
+        mirrors = {}
+        folder = instance_csl_path(CSL_LOCAL_CAPES_DIR)
+        for name in (cfg.get("username"), cfg.get("csl_synced_cape_name")):
+            if isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_]{3,16}", name):
+                path = os.path.join(folder, name + ".png")
+                if os.path.isfile(path):
+                    with open(path, "rb") as stream:
+                        mirrors[path] = stream.read()
+                else:
+                    mirrors[path] = None
+        try:
+            cfg.update(changes)
+            sync_local_cape_to_csl(cfg)
+            save_config(cfg)
+        except Exception:
+            for key in keys:
+                if key in before:
+                    cfg[key] = before[key]
+                else:
+                    cfg.pop(key, None)
+            for path, data in mirrors.items():
+                if data is None:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                else:
+                    _write_bytes(path, data)
+            raise
 
 
 def sync_local_cape_to_csl(cfg: dict) -> None:
@@ -259,9 +406,10 @@ def sync_local_cape_to_csl(cfg: dict) -> None:
             src = get_custom_cape_path(filename)
             if not os.path.isfile(src):
                 return
-            shutil.copyfile(src, dest)
+            with open(src, "rb") as source:
+                _write_bytes(dest, source.read())
         elif hide:
-            _transparent_cape_sheet().save(dest, "PNG")
+            _write_bytes(dest, _png_bytes(_transparent_cape_sheet()))
         elif use_default:
             # Respect a cape placed here by hand, just as the skin mirror does.
             if previous != username and os.path.isfile(dest):
@@ -314,6 +462,17 @@ def render_cape_preview(filename: str, out_path: str, scale: int = 10) -> str:
     relative to the sheet's own resolution and always grabs the same panel.
     """
     src_path = get_custom_cape_path(filename)
+    info = animation_info(filename)
+    if info:
+        with Image.open(src_path + ".frames.png") as source:
+            frames = []
+            n = info["width"] // 64
+            for index in range(info["count"]):
+                y = index * info["height"]
+                back = source.crop((n, y + n, 11 * n, y + 17 * n)).convert("RGBA")
+                frames.append(back.resize((10 * scale, 16 * scale), Image.Resampling.NEAREST))
+        _write_bytes(out_path, _gif_bytes(frames, info["durations"], info["loop"]))
+        return out_path
     with Image.open(src_path) as img:
         img = img.convert("RGBA")
         n = max(1, img.width // 64)  # HD scale factor (1 for a vanilla 64x32)

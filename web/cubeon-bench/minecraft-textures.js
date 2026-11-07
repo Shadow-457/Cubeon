@@ -37,8 +37,15 @@
       return new Promise(function (ok, fail) {
         var img = new Image();
         img.onload = function () { ok(img); };
-        img.onerror = function () { fail(new Error('Could not load ' + e.src)); };
         var sourceId = e.src.replace(/^textures\//, '').replace(/\.png$/, '');
+        img.onerror = function () {
+          if (e.url || img.src.startsWith('data:')) { fail(new Error('Could not load ' + e.src)); return; }
+          localSources().then(function () {
+            var source = window.MINECRAFT_TEXTURE_SOURCES[sourceId];
+            if (!source) { fail(new Error('Could not load ' + e.src)); return; }
+            img.src = source;
+          }, fail);
+        };
         img.src = e.url || (location.protocol === 'file:' ? window.MINECRAFT_TEXTURE_SOURCES[sourceId] : e.src);
       });
     }));
@@ -49,9 +56,11 @@
     e = typeof e === 'string' ? resolve(e) : e;
     if (!e) throw new Error('Texture not found.');
     if (e.url || location.protocol !== 'file:') {
-      var response = await fetch(e.url || e.src);
-      if (!response.ok) throw new Error('Could not read ' + e.src);
-      return new Uint8Array(await response.arrayBuffer());
+      try {
+        var response = await fetch(e.url || e.src);
+        if (!response.ok) throw new Error('Could not read ' + e.src);
+        return new Uint8Array(await response.arrayBuffer());
+      } catch (error) { if (e.url) throw error; }
     }
     await localSources();
     var encoded = window.MINECRAFT_TEXTURE_SOURCES[e.id], raw = atob(encoded.split(',')[1]);
@@ -60,6 +69,19 @@
 
   function release(imported) {
     imported.forEach(function (e) { if (e.url) { images.delete(e.url); URL.revokeObjectURL(e.url); } });
+  }
+  function tintColor(e) {
+    e=typeof e==='string'?resolve(e):e;if(!e||e.namespace&&e.namespace!=='minecraft')return null;
+    var name=e.id.replace(/^minecraft:/,'');
+    if(/^block\/(grass_block_(top|side_overlay)|short_grass|tall_grass_(top|bottom)|fern|large_fern_(top|bottom)|vine|sugar_cane)$/.test(name))return '#91bd59';
+    if(/^block\/(oak|jungle|acacia|dark_oak|mangrove)_leaves$/.test(name))return '#77ab2f';
+    if(name==='block/spruce_leaves')return '#619961';if(name==='block/birch_leaves')return '#80a755';
+    if(/^block\/water_(still|flow)$/.test(name))return '#3f76e4';return null;
+  }
+  function tintImage(image,color) {
+    var result=new ImageData(new Uint8ClampedArray(image.data),image.width,image.height);if(!color)return result;
+    var rgb=[1,3,5].map(function(index){return parseInt(color.slice(index,index+2),16)/255});
+    for(var i=0;i<result.data.length;i+=4)for(var channel=0;channel<3;channel++)result.data[i+channel]=Math.round(result.data[i+channel]*rgb[channel]);return result;
   }
 
   function frame(e, time, width, height) {
@@ -101,6 +123,8 @@
       var scale = Math.min(96 / f.w, 96 / f.h);
       ctx.clearRect(0, 0, 96, 96); ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, f.x, f.y, f.w, f.h, (96 - f.w * scale) / 2, (96 - f.h * scale) / 2, f.w * scale, f.h * scale);
+      var color=tintColor(e);
+      if(color&&e.viewTint!==false&&(!window.CB||window.CB.D.set.naturalColors!==false))ctx.putImageData(tintImage(ctx.getImageData(0,0,96,96),color),0,0);
     }
     if (source) { paint(source); return Promise.resolve(); }
     return load(e).then(paint).catch(function (err) { cv.title = err.message; });
@@ -210,5 +234,5 @@
   }
   var vanilla = catalog(entries);
   window.MinecraftTextures = Object.assign(vanilla, {catalog: catalog, load: load, bytes: bytes, release: release,
-    frame: frame, draw: draw, matches: matches, within: within, blockModel: blockModel});
+    frame: frame, draw: draw, matches: matches, within: within, blockModel: blockModel,tintColor:tintColor,tintImage:tintImage});
 })();

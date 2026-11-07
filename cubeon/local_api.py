@@ -82,6 +82,7 @@ _providers = {
     "askjoin": None,
     "players": None,
     "skins": None,
+    "cape": None,
     "skin": None,
     # Worldgate: the host's optional LAN-world password (POST /worldgate) and
     # the joiner's answer to a challenge (POST /joinpassword). See
@@ -244,6 +245,10 @@ def set_skins_provider(fn) -> None:
     _providers["skins"] = fn
 
 
+def set_cape_provider(fn) -> None:
+    _providers["cape"] = fn
+
+
 def set_skin_handler(fn) -> None:
     _providers["skin"] = fn
 
@@ -327,6 +332,10 @@ class _Handler(BaseHTTPRequestHandler):
                 offset = 0
             kind = parse_qs(parts.query).get("kind", ["skin"])[0]
             self._json(fn(offset, kind) if kind != "skin" else fn(offset))
+        elif parts.path == "/cape":
+            fn = _providers["cape"]
+            game_dir = parse_qs(parts.query).get("game_dir", [""])[0]
+            self._json(fn(game_dir) if fn else {"ok": True, "enabled": False, "revision": "unavailable"})
         elif parts.path == "/emotes":
             fn = _providers["emotes"]
             self._json(fn() if fn else {"room": "", "ready": False, "active": []})

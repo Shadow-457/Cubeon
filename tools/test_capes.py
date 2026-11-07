@@ -7,7 +7,7 @@ Tests for the flexible cape work in cubeon/capes.py. Run with:
 No network, no real .minecraft: HOME is pointed at a temp directory before
 cubeon imports (see _sandbox_home).
 
-Covers the two behaviors that remain after the animated-cape removal:
+Covers still-cape compatibility (GIF regressions are in test_gif_capes.py):
   * any image becomes a valid cape sheet (auto-fit onto the 10x16 panel),
   * set_active_cape / sync: LocalSkin/capes/<USERNAME>.png appears, is the
     fitted sheet, and the bundled default works offline with rename/hide/opt-out.
@@ -100,7 +100,7 @@ entry3 = capes.add_custom_cape(src3, "hd cape")
 with Image.open(capes.get_custom_cape_path(entry3["filename"])) as im:
     check("cape-shaped 128x64 kept as-is", im.size == (128, 64), f"got {im.size}")
 
-# No entry carries animation state anymore; every upload is a plain cape.
+# Still images keep their existing plain-cape metadata.
 check("entry has no animated flag", "animated" not in entry
       and "animated" not in entry2 and "animated" not in entry3)
 

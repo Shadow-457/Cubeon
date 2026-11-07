@@ -43,11 +43,7 @@
     return {w: w, h: h};
   }
   function unzip(bytes) {
-    return new Promise(function (resolve, reject) {
-      window.fflate.unzip(bytes, {consume: false}, function (error, files) {
-        error ? reject(new Error('Could not read this ZIP. Choose a valid Minecraft resource pack.')) : resolve(files);
-      });
-    });
+    return window.BenchArchive.read(bytes);
   }
   function zip(files) {
     var input = Object.create(null);
@@ -61,6 +57,7 @@
   async function inspectZip(input, report) {
     report = report || function () {};
     report(.05, 'Reading resource pack…');
+    if (input.size > 268435456) throw new Error('Choose a ZIP smaller than 256 MB.');
     var bytes = input instanceof Uint8Array ? input : new Uint8Array(await input.arrayBuffer());
     report(.18, 'Opening ZIP…');
     var archive = await unzip(bytes), paths = Object.keys(archive), normalized = Object.create(null);
@@ -146,7 +143,7 @@
     var p = clone(project), originals = p.assetId ? await window.LocalStore.getFiles(p.assetId) : {};
     var files = Object.assign(Object.create(null), originals), entries = new Map(MT.entries.map(function (e) { return [e.id, e]; }));
     (p.textures || []).forEach(function (e) { entries.set(e.id, e); });
-    var edits = p.edits || {}, ids = Object.keys(edits);
+    var edits = p.edits || {}, ids = Array.from(new Set(Object.keys(edits).concat(Object.keys(p.animations || {}))));
     if (!p.assetId && !ids.length) {
       var first = MT.resolve(p.texture || p.block || 'block/grass_block_top');
       if (first) ids.push(first.id);
@@ -165,8 +162,12 @@
         image = ctx.getImageData(0, 0, cv.width, cv.height);
         files[path] = new Uint8Array(await (await codec.png(image)).arrayBuffer());
       } else files[path] = await MT.bytes(entry);
-      var mcmeta = textureMetadata(entry, image ? image.width : entry.w, image ? image.height : entry.h);
-      if (mcmeta && (!files[path + '.mcmeta'] || image && (image.width !== entry.w || image.height !== entry.h))) files[path + '.mcmeta'] = encode(mcmeta);
+      var override = window.TextureAnimation.hasOverride(p, id);
+      var mcmeta = override ? window.TextureAnimation.effectiveEntry(entry, p.animations[id], image ? image.width : entry.w, image ? image.height : entry.h).mcmeta : textureMetadata(entry, image ? image.width : entry.w, image ? image.height : entry.h);
+      if (override) {
+        if (mcmeta && Object.keys(mcmeta).length) files[path + '.mcmeta'] = encode(mcmeta);
+        else delete files[path + '.mcmeta'];
+      } else if (mcmeta && (!files[path + '.mcmeta'] || image && (image.width !== entry.w || image.height !== entry.h))) files[path + '.mcmeta'] = encode(mcmeta);
       report(.1 + .63 * (i + 1) / Math.max(1, ids.length), 'Preparing textures ' + (i + 1) + ' / ' + ids.length + '…');
       if (i % 12 === 0) await new Promise(function (ok) { setTimeout(ok, 0); });
     }

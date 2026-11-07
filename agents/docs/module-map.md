@@ -62,7 +62,7 @@ assuming a helper is UI-free: the package also contains Flet support modules.
 | Chat | `ui/chat_tab.py` |
 | Cosmetics and account previews | `ui/skin_tab.py`, `ui/appearance_preview.py` |
 | Servers | `ui/server_tab.py` |
-| Activity statistics | `ui/stats_tab.py` |
+| Activity statistics | `ui/stats_tab.py`, `ui/stats_chart.py` |
 | Settings | `ui/settings_tab.py` |
 | Screenshot gallery | `ui/screenshot_gallery.py` |
 
@@ -89,8 +89,13 @@ keep builders consistent with the shared `THEME` contract.
   Unsetting WAYLAND_DISPLAY in a Wayland session with DISPLAY also opts out.
   Both Java and Rust game children drop that internal flag.
   On frozen Linux, `incident.client_environment()` restores LD_LIBRARY_PATH_ORIG
-  (or clears the bundled path when absent) for the native Flet child only. Its
-  engine resolves from its own directory; GTK/EGL/Mesa must use host libraries.
+  (or clears the bundled path when absent) for native Flet, Java and Rust
+  children. Apply it to the final game environment, including an explicit
+  native backend environment. Their engines resolve their own libraries;
+  GTK/EGL/GLX/Vulkan must use host dependencies. v1.4.1's Jammy-bundled libstdc++
+  and OpenSSL reproduced GLX/Vulkan loader failures on Arch/Mesa 26.1.6 when
+  inherited by native children. `test_game_environment.py` covers real child
+  inheritance for the default and explicit game environments and Rust preparation.
   Never change the frozen Python process's library search path for this fix.
   Never call `ft.run` twice after a failed first frame. `test_source_runtime.py`,
   `test_startup_recovery.py` and the real-process wedge test cover these contracts.
@@ -877,6 +882,9 @@ keep builders consistent with the shared `THEME` contract.
   recheck jar identity and dependencies; failures block Play. Lookup harnesses
   must isolate HOME before imports because performance preparation can migrate
   profile files (`test_launch_lookup_budget.py`, `test_perf_mod_removal.py`).
+  For candidate lookup, Fast Noise is `zfastnoise`, Async Logger is `asynclogger`,
+  and the separate ModernFix fork is `modernfix-mvus`; display names are not
+  reliable project slugs. None of these candidate additions is enabled by this note.
 - `mods._doctor_runtime_versions()` reads Fabric/Quilt loader-bundled mod metadata
   from the selected loader's library JAR with the bounded stat cache. Both prelaunch
   dependency repair and Doctor include these providers and compare their versions:
@@ -1167,6 +1175,20 @@ keep builders consistent with the shared `THEME` contract.
   and bracket-selected `LiveCapeTexture` update the local cape through the same
   skin mixin, including legacy cape-visibility getters; peers/elytra remain intact.
   No Cape hides locally, as in launcher Cosmetics; friends retain the shared cape.
+  GIF cape imports retain composited frames, timing, transparency and loop counts:
+  the existing `.png` is the CSL still fallback, with `.frames.png` (vertical
+  atlas), `.frames.json` and `.gif` sidecars. Inputs are bounded to 8 MB, 500 frames,
+  16 million source pixels and 64 million decoded pixels; animated sheets cap at
+  128×64 while still HD sheets remain unchanged. Authenticated `GET /cape?game_dir=`
+  runs through the existing six-second Bridge poller, validates the running instance
+  and CSL opt-out, and feeds worker-decoded `CapeAnimation`/`CapeFrames` before the
+  wardrobe opens. Each `LiveCapeTexture` owns one texture: frame changes replace
+  and close native pixels, selection changes reallocate for HD size differences,
+  and hide/disable releases it. GIFs remain local; Forge/older clients use the first
+  frame. `test_gif_capes.py` and `test_ingame_skins.py` cover import/bridge/timing;
+  `test_gif_capes_native.py` uses current `storage.runtime_dir()` resources for the
+  real 26.3 GPU lifecycle probe; `test_skin_loading.py --native-gif` verifies native
+  Flet upload and painted animated cards on an isolated display.
 
 - Chat is BETA-labelled in the sidebar and tab heading. Chat and the companion mod consume one
   process-scoped FriendsService; keep adaptive polling, draft preservation, read markers, and optimistic
@@ -1202,7 +1224,22 @@ keep builders consistent with the shared `THEME` contract.
 - Cosmetic libraries are local folders. `remotes.py` is still used by the offline-session explanation's
   premium-name lookup; it is not dead code.
 - Screenshots have their own Settings section, not the main Settings pane. Servers has no Browse view.
-  Stats uses a compact recent-playtime histogram.
+  Stats uses four overview metrics, a 30-day Day/Week timeline, recorded server
+  activity; session tables and Most played rankings are removed.
+  Its outer Container measures the available viewport; the chart grows to fill
+  the remaining height, with scrolling for short windows. Metrics become 2×2
+  below 768px; panels stack below 900px and empty server history uses a compact
+  strip below a full-width chart. Use explicit child widths in the wrapping Row
+  (no flex children) so history refreshes reflow without a window resize.
+  `milestones.json.session_history`
+  keeps the latest 1,000 completed sessions; launch persists profile/version with
+  the existing durable start record, and exit/recovery credits it once. Old totals
+  remain intact without inventing session rows. Server counts use up to eight unique
+  Minecraft connection addresses from the final 256 KiB of each session log; they
+  do not attribute per-server time. `milestones.snapshot()` copies under its state
+  lock; UI updates use `TREE_LOCK` and scoped repaint. `test_activity_stats.py`,
+  `test_milestones.py` and `capture_stats_dashboard.py` cover summaries, persistence,
+  overview/server activity and native wide/compact rendering.
 - Public UUIDs and display names are not private capability tokens. The loopback mod bridge is
   authenticated; never publish identity or token files.
 - Alex arms have 3px front/back faces and 4px sides. `_detect_slim_model` checks unused base

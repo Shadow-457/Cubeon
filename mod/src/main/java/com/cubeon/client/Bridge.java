@@ -439,6 +439,8 @@ public final class Bridge {
     private volatile Snapshot current = Snapshot.DOWN;
     private volatile Consumer<Toast> toastSink;
     private volatile Thread poller;
+    private volatile Consumer<Map<String, Object>> capeSink;
+    public void setCapeSink(Consumer<Map<String, Object>> sink) { capeSink = sink; }
 
     private boolean wakeRequested;
 
@@ -625,6 +627,11 @@ public final class Bridge {
         quietly("mod freshness", () -> checkModFreshness(snap));
         quietly("event drain", this::drainEvents);
         quietly("player refresh", this::refreshPlayers);
+        if (capeSink != null) quietly("cape refresh", () -> {
+            String gameDir = URLEncoder.encode(Path.of("").toAbsolutePath().normalize().toString(), StandardCharsets.UTF_8);
+            Reply reply = getReply("/cape?game_dir=" + gameDir);
+            if (reply.isOk()) capeSink.accept(Json.parseObject(reply.body));
+        });
     }
 
     /** Runs one sub-step of a poll; a failure keeps the last data. */

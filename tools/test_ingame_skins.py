@@ -46,6 +46,23 @@ public final class SkinTest {
   }
  }
  public static void main(String[] args) throws Exception {
+  if(args.length>0 && args[0].equals("gif-poll")) {
+   check(LiveCape.get()==null,"Fresh game starts without cached selection");
+   Bridge.get().setCapeSink(CapeAnimation::accept);Bridge.get().start();
+   await(()->LiveCape.get()!=null && LiveCape.get().frames()!=null);
+   check(LiveCape.get().frames().count()==3,"Authenticated startup poll loads every GIF frame");
+   try(var library=new SkinLibrary("cape")) {
+    library.open();await(()->!library.state().busy()&&!library.state().items().isEmpty());
+    var applied=library.state().applied();
+    check(applied.animation()!=null,"Cape library retains animation on active preview");
+    library.select(applied.id());library.apply();await(()->!library.state().busy());
+    check(LiveCape.get().frames()!=null && !LiveCape.get().hidden(),"GIF Confirm retains live animation");
+    library.select("__none__");library.apply();await(()->!library.state().busy());
+    check(LiveCape.get().hidden() && LiveCape.get().frames()==null,"None clears GIF animation through authenticated API");
+   }
+   System.out.println("Authenticated GIF startup poll, library Confirm and hide passed.");
+   return;
+  }
   try(var library=new SkinLibrary()) {
    long start=System.nanoTime();library.open();
    check(System.nanoTime()-start<100_000_000L,"opening skins does not block on HTTP");
@@ -309,6 +326,7 @@ class SkinTests(unittest.TestCase):
         image.save(hd)
         self.service.action({"kind": "cape", "action": "import", "path": str(hd)})
         local_api.set_skins_provider(self.service.snapshot)
+        local_api.set_cape_provider(self.service.capes.live_state)
         local_api.set_skin_handler(self.service.action)
         self.assertTrue(local_api.start())
         server = local_api.start._server
@@ -318,16 +336,29 @@ class SkinTests(unittest.TestCase):
             response = conn.getresponse()
             self.assertEqual(response.status, 401)
             response.read(); conn.close()
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=3)
+            conn.request("GET", "/cape?game_dir=" + self.game)
+            response = conn.getresponse()
+            self.assertEqual(response.status, 401)
+            response.read(); conn.close()
             with tempfile.TemporaryDirectory() as tmp:
                 harness = Path(tmp) / "SkinTest.java"
                 harness.write_text(HARNESS)
                 source = ROOT / "mod/src/main/java/com/cubeon/client"
                 files = [source / p for p in ("Bridge.java", "Json.java", "ui/ClientUi.java", "ui/MenuUi.java", "ui/HudIcon.java",
                     "ui/HudMenu.java", "ui/SkinMenu.java", "hud/HudFeatures.java", "skins/SkinLibrary.java",
-                    "skins/SkinPreview.java", "skins/LiveSkin.java", "skins/LiveCape.java")]
+                    "skins/SkinPreview.java", "skins/LiveSkin.java", "skins/LiveCape.java", "skins/CapeFrames.java", "skins/CapeAnimation.java")]
                 subprocess.run([javac, "--release", "17", "-d", tmp, *map(str, files), str(harness)], check=True)
                 subprocess.run([java, "-Duser.home=" + str(Path(local_api._TOKEN_FILE).parent.parent),
                                 "-cp", tmp, "com.cubeon.client.SkinTest"],
+                               cwd=self.game, check=True, timeout=30)
+                gif = Path(paths.CUBEON_HOME) / "animated-cape.gif"
+                frames = [Image.new("RGBA", (64, 32), color) for color in ("red", "green", "blue")]
+                frames[0].save(gif, "GIF", save_all=True, append_images=frames[1:], duration=[40, 100, 200], loop=0)
+                entry = self.service.action({"kind": "cape", "action": "import", "path": str(gif)})["selected"]
+                self.service.action({"kind": "cape", "action": "apply", "id": entry, "game_dir": self.game})
+                subprocess.run([java, "-Duser.home=" + str(Path(local_api._TOKEN_FILE).parent.parent),
+                                "-cp", tmp, "com.cubeon.client.SkinTest", "gif-poll"],
                                cwd=self.game, check=True, timeout=30)
             self.assertIsNone(self.cfg["active_skin"])
         finally:

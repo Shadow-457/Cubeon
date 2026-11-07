@@ -66,6 +66,11 @@
     var result = copy(doc.e.animation); result.width = info.w; result.height = info.h; result.frames = copy(info.sequence); return result;
   }
   function indexed(frame, index) { return typeof frame === 'number' ? index : Object.assign({}, frame, {index: index}); }
+  function copyFrame(doc) {
+    var info = layout(doc.e); if (!info) return null;
+    var selected = Math.max(0, Math.min(info.steps.length - 1, doc.frame));
+    return {data: crop(doc.data, frameRect(info, selected)), time: info.steps[selected].time};
+  }
   function change(doc, action, value) {
     var info = layout(doc.e), selected = info ? Math.max(0, Math.min(info.steps.length - 1, doc.frame)) : 0;
     if (action === 'toggle') {
@@ -75,10 +80,13 @@
     }
     if (!info) return null;
     var meta = settings(doc, info), frames, target;
-    if (action === 'add') {
+    if (action === 'add' || action === 'paste') {
+      var copied = action === 'paste' ? value : copyFrame(doc);
+      if (!copied || !copied.data) return null;
+      if (copied.data.width !== info.w || copied.data.height !== info.h) throw new Error('This frame is ' + copied.data.width + '×' + copied.data.height + '. Paste into an animation with ' + copied.data.width + '×' + copied.data.height + ' frames.');
       checkSize(info.w, info.h * (info.count + 1));
       frames = Array.from({length: info.count}, function (_, i) { return crop(doc.data, physicalRect(info, i)); });
-      frames.push(crop(doc.data, frameRect(info, selected))); meta.frames.splice(selected + 1, 0, info.count);
+      frames.push(copied.data); meta.frames.splice(selected + 1, 0, {index: info.count, time: copied.time});
       return {data: pack(frames), animation: meta, frame: selected + 1, frameView: true};
     }
     if (action === 'remove') {
@@ -93,6 +101,12 @@
       target = selected + value; if (target < 0 || target >= meta.frames.length) return null;
       var item = meta.frames[selected]; meta.frames[selected] = meta.frames[target]; meta.frames[target] = item;
       return {animation: meta, frame: target};
+    }
+    if (action === 'reorder') {
+      var from = value && value.from, to = value && value.to;
+      if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from >= meta.frames.length || to >= meta.frames.length || from === to) return null;
+      var moved = meta.frames.splice(from, 1)[0]; meta.frames.splice(to, 0, moved);
+      return {animation: meta, frame: to, frameView: true};
     }
     if (action === 'time' || action === 'all-time') {
       if (!Number.isInteger(value) || value < 1 || value > 6000) throw new Error('Choose a frame time from 1 to 6,000 ticks. Minecraft runs at 20 ticks per second.');
@@ -145,6 +159,6 @@
     ctx.restore();
   }
   window.TextureAnimation = {copy: copy, hasOverride: hasOverride, effectiveEntry: effectiveEntry, supported: supported,
-    layout: layout, frameRect: frameRect, physicalRect: physicalRect, crop: crop, change: change,
+    layout: layout, frameRect: frameRect, physicalRect: physicalRect, crop: crop, copyFrame: copyFrame, change: change,
     transformAnimation: transformAnimation, paintFrame: paintFrame};
 })();

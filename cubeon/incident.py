@@ -404,14 +404,14 @@ USER_RENDERING_FLAG = "CUBEON_USER_RENDERING"
 
 
 def client_environment(env, *, frozen=None, platform=None) -> dict:
-    """Keep the native Linux client out of PyInstaller's Python library path."""
+    """Keep native Linux children out of PyInstaller's Python library path."""
     out = dict(env)
     frozen = getattr(sys, "frozen", False) if frozen is None else frozen
     platform = sys.platform if platform is None else platform
     if frozen and platform.startswith("linux"):
-        # The client ships its engine beside its executable. Its GTK/EGL/Mesa
-        # dependencies must resolve against the host, not Python's _internal
-        # directory. Restore the user's pre-bootloader path in this child only.
+        # Flet, Java, and Rust load their own engines and native dependencies.
+        # Their graphics stack must resolve against the host, not Python's
+        # _internal directory. Restore the pre-bootloader path in this child only.
         if "LD_LIBRARY_PATH_ORIG" in out:
             out["LD_LIBRARY_PATH"] = out["LD_LIBRARY_PATH_ORIG"]
         else:

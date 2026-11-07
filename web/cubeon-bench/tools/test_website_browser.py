@@ -42,6 +42,8 @@ def canvas_state(page):
 
 
 def assert_native(page, texture):
+    # Inspect the complete source sheet explicitly; animations open on one frame.
+    page.locator('[data-anim-view="sheet"]').evaluate('button=>button.click()')
     with Image.open(ROOT / 'textures' / (texture + '.png')) as original:
         im = original.convert('RGBA')
         reference = {'w': im.width, 'h': im.height, 'pixels': base64.b64encode(im.tobytes()).decode('ascii')}
@@ -76,7 +78,7 @@ def open_fixture(page, texture, kind='pack', size=16):
 
 def search_texture(page, texture):
     page.locator('#edQ').fill(texture)
-    page.locator('#edRes [data-id="' + texture + '"]').click()
+    page.locator('#edRes button[data-id="' + texture + '"]').click()
     wait_texture(page, texture)
 
 
@@ -104,7 +106,7 @@ def run(browser, url, artifacts):
     start_app(page, url, errors)
     assert page.evaluate('window.MinecraftTextures.entries.length') == 3964
     assert page.evaluate('window.MinecraftTextures.roots.length') == 15
-    page.locator('[data-go="library"]').click()
+    page.locator('[data-go="library"]').first.click()
     assert page.locator('#libCount').inner_text() == '3,964 textures'
     page.locator('#libCat').select_option('entity')
     assert page.locator('#libCount').inner_text() == '743 textures'
@@ -115,6 +117,7 @@ def run(browser, url, artifacts):
     assert_native(page, 'entity/creeper/creeper')
     expected = canvas_state(page)
     identifier = page.evaluate('window.CB.D.projects[0].id')
+    page.locator('#edContext').click()
     page.locator('[data-a="rot"]').click()
     rotated = canvas_state(page)
     assert (rotated['w'], rotated['h']) == (32, 64)
@@ -129,6 +132,7 @@ def run(browser, url, artifacts):
     page.evaluate('async id=>{await window.CB.ready;return window.Ed.open(window.CB.find(id))}', identifier)
     wait_texture(page, 'entity/creeper/creeper')
     assert canvas_state(page) == rotated, 'Saved dimensions/pixels were lost'
+    page.locator('#edContext').click()
     page.locator('[data-a="reset"]').click()
     page.wait_for_function("document.querySelector('#ec').width===64")
     assert canvas_state(page) == expected
@@ -142,7 +146,9 @@ def run(browser, url, artifacts):
     assert 'wide' in page.locator('#edFolders').inner_text()
     search_texture(page, 'block/stone')
     assert canvas_state(page) == image_state('block/stone')
-    page.locator('#edHex').fill('#FF0000')
+    page.locator('#edCol').click()
+    page.locator('#colorHex').fill('#FF0000')
+    page.locator('#colorClose').click()
     bounds = page.locator('#ec').bounding_box()
     page.mouse.click(bounds['x'] + bounds['width'] / 32, bounds['y'] + bounds['height'] / 32)
     assert canvas_state(page) != image_state('block/stone')
@@ -180,12 +186,25 @@ def run(browser, url, artifacts):
     open_fixture(page, 'block/water_still')
     assert_native(page, 'block/water_still')
     preview(page)
-    current = page.locator('.pv-face-front').evaluate("e=>getComputedStyle(e).backgroundImage")
-    frame_size = page.locator('.pv-face-front').evaluate("""async e=>{
-      const image=new Image();image.src=getComputedStyle(e).backgroundImage.slice(5,-2);await image.decode();return [image.width,image.height];
-    }""")
+    current = page.locator('.pv-face-front canvas').evaluate(HASH_JS)
+    frame_size = page.locator('.pv-face-front canvas').evaluate('cv=>[cv.width,cv.height]')
     assert frame_size == [16, 16], 'Animated strip was stretched over a face'
-    page.wait_for_function('before=>getComputedStyle(document.querySelector(".pv-face-front")).backgroundImage!==before', arg=current)
+    page.wait_for_function('before=>{const cv=document.querySelector(".pv-face-front canvas"),data=cv.getContext("2d").getImageData(0,0,cv.width,cv.height).data;let hash=2166136261;for(let i=0;i<data.length;i+=4)for(let j=0;j<4;j++)hash=Math.imul(hash^(j<3?Math.round(data[i+j]*data[i+3]/255):data[i+j]),16777619);return (hash>>>0)!==before.hash}', arg=current)
+    stable = page.evaluate('''async()=>{
+      const canvases=Array.from(document.querySelectorAll('.pv-texture')),first=canvases[0];
+      let blanks=0,replacements=0,encodes=0;
+      const original=HTMLCanvasElement.prototype.toDataURL;
+      HTMLCanvasElement.prototype.toDataURL=function(...args){encodes++;return original.apply(this,args)};
+      try{for(let i=0;i<60;i++){
+        await new Promise(requestAnimationFrame);
+        if(!first.isConnected||document.querySelector('.pv-texture')!==first)replacements++;
+        const data=first.getContext('2d').getImageData(0,0,first.width,first.height).data;
+        if(!data.some((byte,i)=>i%4===3&&byte>0))blanks++;
+      }}finally{HTMLCanvasElement.prototype.toDataURL=original;}
+      return {blanks,replacements,encodes,faces:canvases.length};
+    }''')
+    assert stable == {'blanks':0,'replacements':0,'encodes':0,'faces':6}, stable
+    page.screenshot(path=str(artifacts / 'stable-animation-preview.png'))
     open_fixture(page, 'item/diamond_sword')
     assert canvas_state(page) == image_state('item/diamond_sword')
     preview(page)
@@ -256,7 +275,7 @@ def main():
     parser.add_argument('--artifacts', default='/tmp/cubeon-bench-browser-checks')
     args = parser.parse_args()
     artifacts = Path(args.artifacts); artifacts.mkdir(parents=True, exist_ok=True)
-    candidates = [Path('/opt/google/chrome/chrome'), *Path.home().glob('.cache/ms-playwright/chromium-*/chrome-linux64/chrome')]
+    candidates = [*Path.home().glob('.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell'), *Path.home().glob('.cache/ms-playwright/chromium-*/chrome-linux64/chrome'), Path('/opt/google/chrome/chrome')]
     executable = args.browser_path or next((str(p) for p in candidates if p.exists()), None)
     server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Handler, directory=str(ROOT.parent)))
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()

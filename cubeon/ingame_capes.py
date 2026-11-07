@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import base64
 import io
+import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -23,7 +25,7 @@ class InGameCapes:
     @staticmethod
     def _safe_id(value):
         return (isinstance(value, str) and value.endswith(".png")
-                and not any(c in value for c in "/\\\x00"))
+                and not value.startswith(".") and not any(c in value for c in "/\\\x00"))
 
     def _entries(self):
         return [e for e in capes.list_custom_capes()
@@ -75,6 +77,11 @@ class InGameCapes:
         result = {"id": filename, "name": str(entry.get("name") or "Cape")[:80],
                   "model": "cape", "slim": False, "hidden": filename == NONE,
                   "png": base64.b64encode(buf.getvalue()).decode("ascii")}
+        if entry.get("animated"):
+            gif = Path(capes.get_custom_cape_path(filename) + ".gif")
+            if gif.is_symlink() or gif.resolve().parent != Path(paths.CAPES_DIR).resolve():
+                raise ValueError("That GIF cape needs to be imported again.")
+            result["gif_path"] = str(gif.resolve())
         if len(self._images) >= PAGE_SIZE + 3:
             self._images.clear()
         self._images[key] = result
@@ -97,19 +104,82 @@ class InGameCapes:
             except (OSError, ValueError):
                 entry = self._entry("")
                 applied = dict(self._image(entry))
-            # Pages contain tiny previews. Only the worn cape has a local source
-            # path, read by the Java worker to retain HD detail after Confirm.
+            # A damaged animation keeps its still fallback available. Explicit
+            # Apply validates the animation before changing the saved selection.
             path = self._path(entry)
             if path is not None:
                 applied["texture_path"] = str(path.resolve())
+                try:
+                    animation = self._animation(entry)
+                except (OSError, ValueError):
+                    animation = None
+                if animation:
+                    applied["animation"] = animation
             return {"ok": True, "kind": "cape", "items": items, "applied": applied,
                     "active": active, "offset": offset, "total": len(entries),
                     "page_size": PAGE_SIZE, "username": str(self.cfg.get("username") or "Player")[:16],
                     "skin_support": bool(self.cfg.get("csl_enabled", True))}
 
+    def _animation(self, entry):
+        filename = entry.get("filename")
+        if not filename or filename == NONE:
+            return None
+        info = capes.animation_info(filename)
+        if info is None:
+            if entry.get("animated"):
+                raise ValueError("That GIF cape needs to be imported again.")
+            return None
+        path = Path(capes.get_custom_cape_path(filename) + ".frames.png")
+        if path.is_symlink() or path.resolve().parent != Path(paths.CAPES_DIR).resolve():
+            raise ValueError("That GIF cape needs to be imported again.")
+        stat = path.stat()
+        if stat.st_size > capes.MAX_SOURCE_BYTES:
+            raise ValueError("That GIF cape is too large.")
+        with Image.open(path) as atlas:
+            if atlas.format != "PNG" or atlas.size != (info["width"], info["height"] * info["count"]):
+                raise ValueError("That GIF cape needs to be imported again.")
+        key = hashlib.sha256(json.dumps([info, str(path), stat.st_mtime_ns, stat.st_size], sort_keys=True).encode()).hexdigest()
+        return {**info, "path": str(path.resolve()), "key": key}
+
+    def live_state(self, game_dir):
+        """The worn cape only; the existing mod poller loads changes off-thread."""
+        with self._lock:
+            version = self.state.get("running_version")
+            expected = paths.game_dir_for(version, create=False) if version else None
+            if (not expected or not isinstance(game_dir, str)
+                    or os.path.realpath(game_dir) != os.path.realpath(expected)
+                    or not self.cfg.get("csl_enabled", True)):
+                return {"ok": True, "enabled": False, "revision": "disabled"}
+            active = NONE if self.cfg.get("hide_cubeon_cape") else self.cfg.get("active_cape") or ""
+            # Default LocalSkin files placed by hand retain ownership.
+            if not active and (not self.cfg.get("manage_skin_mod", True)
+                               or self.cfg.get("csl_synced_cape_name") != self.cfg.get("username")):
+                return {"ok": True, "enabled": False, "revision": "unowned"}
+            try:
+                entry = self._entry(active)
+                applied = dict(self._image(entry))
+                path = self._path(entry)
+                stamp = None
+                if path is not None:
+                    applied["texture_path"] = str(path.resolve())
+                    stat = path.stat()
+                    stamp = [stat.st_mtime_ns, stat.st_size]
+                    try:
+                        animation = self._animation(entry)
+                    except (OSError, ValueError):
+                        animation = None
+                    if animation:
+                        applied["animation"] = animation
+            except (OSError, ValueError):
+                return {"ok": True, "enabled": False, "revision": "missing"}
+            key = [expected, active, stamp, applied.get("animation")]
+            return {"ok": True, "enabled": True, "applied": applied,
+                    "revision": hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()}
+
     def _apply(self, selected, body):
         entry = self._entry(selected)
         sheet = self._image(entry)
+        self._animation(entry)
         if not self.cfg.get("csl_enabled", True):
             raise ValueError("Enable CustomSkinLoader in launcher Settings → Game → In game first.")
         version = self.state.get("running_version")

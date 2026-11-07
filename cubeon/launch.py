@@ -1551,7 +1551,11 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
     _game_env = {k: v for k, v in os.environ.items()
                  if k not in ("LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER",
                               "LIBGL_DRM_DEVICE", "CUBEON_GPU_RESTARTS", "CUBEON_USER_RENDERING")}
-    popen_kwargs["env"] = game_env if game_env is not None else _game_env
+    # Frozen Python's bundled libstdc++/OpenSSL can prevent system Mesa/GLX
+    # and Vulkan from loading. Isolate every native game, including a Rust
+    # caller's explicit environment, without changing the launcher's own path.
+    from .incident import client_environment
+    popen_kwargs["env"] = client_environment(game_env if game_env is not None else _game_env)
 
     from . import watchdog
     # Launch-time checks are deliberately NON-INTERACTIVE and tiny.
@@ -1693,7 +1697,9 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
     # milestones.reconcile_play_session) so the game's time isn't lost.
     from . import milestones
     try:
-        milestones.begin_play_session(process.pid, None, session_id)
+        milestones.begin_play_session(process.pid, None, session_id,
+                                      profile=os.path.basename(os.path.normpath(game_dir)),
+                                      version=mc_version)
     except Exception:
         logging.getLogger(__name__).warning("game playtime start failed", exc_info=True)
 
