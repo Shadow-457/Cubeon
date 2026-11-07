@@ -1786,6 +1786,10 @@ requires retrying with normal system access, not changing unrelated app code.
 
 ## Releases and hosted services
 
+- Linux packaging installs GTK/GStreamer runtime libraries, not their development packages:
+  Jammy runner LLVM packages conflict with GStreamer's `libunwind-dev` dependency. The frozen
+  runtime is checked under Nehalem CPU emulation before publishing; downloads ship five
+  required Windows/Linux assets, with macOS disabled.
 - Cubeon Bench is served at `/cubeon-bench`; its `<base href="/cubeon-bench/">`
   keeps relative editor assets working when hosting strips the trailing slash.
   Direct `file:` mode removes that base. Its browser harness serves the parent `web/`

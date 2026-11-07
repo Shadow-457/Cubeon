@@ -132,7 +132,10 @@ class ClientBase {
         public Camera mainCamera() { return new Camera(); }
         public Camera getMainCamera() { return new Camera(); }
     }
-    public static class Camera { public Object rotation() { return new Object(); } }
+    public static class Camera {
+        public Object rotation() { return new Object(); }
+        public Object position() { return new Object(); }
+    }
 }
 class MinecraftClient extends ClientBase {
     private static final MinecraftClient INSTANCE = new MinecraftClient();
@@ -155,7 +158,7 @@ class HudReadings {
 class EnemyHealthRenderer {
     interface Projector { float[] project(Object point); }
     static void render(GuiBase gui, ClientBase client, Projector projector, float delta) { CubeonHud.draws.add("HEALTH"); }
-    static void render(GuiBase gui, ClientBase client, float delta, boolean visible, Object rotation) {
+    static void render(GuiBase gui, ClientBase client, float delta, boolean visible, Object rotation, Object position) {
         if (visible) CubeonHud.draws.add("HEALTH");
     }
 }
