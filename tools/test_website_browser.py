@@ -1,7 +1,7 @@
 """Optional offline Chromium review of the search-focused homepage/download copy."""
 import os
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, unquote
 from playwright.sync_api import sync_playwright, expect
 from PIL import Image
 
@@ -54,6 +54,33 @@ def main():
                     expect(page.locator('article a[href="download.html"]').last).to_be_visible()
                     expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://www.ylet.online/minecraft-launcher')
                 if path == '/docs':
+                    recovery = page.locator('#guide-recovery-mods')
+                    expect(recovery.locator('h2')).to_have_text('Recovery mods')
+                    recovery.screenshot(path=str(captures / ('recovery-mods-' + str(width) + '.png')))
+                    links = recovery.locator('a[download]')
+                    expected_jars = {jar.name for jar in (ROOT / 'assets/jars').glob('cubeon-client-*.jar')}
+                    assert {link.get_attribute('download') for link in links.all()} == expected_jars
+                    for link in links.all():
+                        url = urlsplit(link.get_attribute('href'))
+                        assert url.netloc == 'github.com'
+                        assert unquote(url.path).endswith('/v1.4.0/' + link.get_attribute('download'))
+                    # Native accordions must work by keyboard and expose every download.
+                    closed = recovery.locator('details').nth(1)
+                    closed.locator('summary').focus()
+                    closed.locator('summary').press('Enter')
+                    expect(closed).to_have_attribute('open', '')
+                    for group in recovery.locator('details').all():
+                        if group.get_attribute('open') is None:
+                            group.locator('summary').click()
+                    for link in links.all():
+                        link.scroll_into_view_if_needed()
+                        expect(link).to_be_visible()
+                    assert recovery.evaluate('(e) => e.scrollWidth <= e.clientWidth + 1'), (width, 'recovery section overflow')
+                    page.locator('#docsSearch').fill('recovery mods')
+                    expect(recovery).to_be_visible()
+                    expect(page.locator('a.docs-nav-link[href="#guide-recovery-mods"]')).to_be_visible()
+                    expect(page.locator('#guide-getting-started')).to_be_hidden()
+                    page.locator('#docsSearchClear').click()
                     expect(page.locator('.docs-gallery figure')).to_have_count(12)
                     for screenshot in page.locator('.docs-gallery img').all():
                         screenshot.scroll_into_view_if_needed()
@@ -106,6 +133,15 @@ def main():
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.route('**/*', route)
+            page.goto('https://cubeon.test/ar/docs')
+            recovery = page.locator('#guide-recovery-mods')
+            expect(recovery.locator('h2')).to_have_text('مودات الاستعادة')
+            expect(recovery.locator('a[download]')).to_have_count(25)
+            for group in recovery.locator('details').all():
+                if group.get_attribute('open') is None:
+                    group.locator('summary').click()
+            assert recovery.evaluate('(e) => e.scrollWidth <= e.clientWidth + 1'), (width, 'Arabic recovery overflow')
+            assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, 'Arabic docs overflow')
             page.goto('https://cubeon.test/ar/minecraft-launcher')
             expect(page.locator('html')).to_have_attribute('dir', 'rtl')
             expect(page.locator('table tbody tr')).to_have_count(6)
@@ -146,6 +182,9 @@ def main():
         expect(page.locator('.project-facts a[href="https://github.com/Shadow-457/Cubeon"]').first).to_be_visible()
         expect(page.locator('a[href="/llms.txt"]')).to_be_visible()
         page.goto('https://cubeon.test/docs')
+        expect(page.locator('#guide-recovery-mods a[download]')).to_have_count(25)
+        page.locator('#guide-recovery-mods details').nth(1).locator('summary').click()
+        expect(page.locator('#guide-recovery-mods a[download]').nth(5)).to_be_visible()
         expect(page.locator('.docs-gallery img')).to_have_count(12)
         expect(page.locator('.docs-gallery img').first).to_have_attribute('alt', 'Cubeon Launcher Play screen with Minecraft version selection and the Play button.')
         page.locator('.docs-gallery img').first.scroll_into_view_if_needed()

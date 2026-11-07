@@ -277,7 +277,19 @@ def _versions_scan_key(active: set[str]) -> "tuple | None":
     except OSError:
         return None
     folders.sort()
-    return (os.path.abspath(versions_dir), tuple(folders), frozenset(active))
+    from . import storage
+    registered = storage.registry()
+    metadata = []
+    if registered:
+        for vid, ident in sorted(registered["instances"].items()):
+            try:
+                folder = storage._owned(storage.root() / "instances", storage._name(ident))
+                info = (folder / "instance.json").stat()
+                stamp = (info.st_mtime_ns, info.st_size, info.st_ino)
+            except (OSError, ValueError):
+                stamp = None
+            metadata.append((vid, ident, stamp))
+    return (os.path.abspath(versions_dir), tuple(folders), frozenset(active), tuple(metadata))
 
 
 def get_installed_versions() -> list[dict]:
@@ -292,9 +304,6 @@ def get_installed_versions() -> list[dict]:
     _versions_scan_key), so the Play-tab repaints do not pay for a scan."""
     global _scan_cache
     versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
-    if not os.path.isdir(versions_dir):
-        return _with_rust_entries([])
-
     active = active_installs()
     key = _versions_scan_key(active)
     if key is not None:
@@ -373,7 +382,7 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
     try:
         folders = os.listdir(versions_dir)
     except OSError:
-        return []  # the root may have disappeared after the fingerprint scan
+        folders = []  # retain registered instances even when runtime files were deleted
     for folder in folders:
         try:
             folder_path = version_folder(folder)
@@ -525,9 +534,22 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
     # Instance sidecars: a cloned pack instance carries its own display name
     # and profile. Without this every clone read as "1.21.11 (Fabric)" and
     # looked like a duplicate of the loader row it was cloned from.
-    for vid, entry in found.items():
+    from . import storage
+    registered = storage.registry()
+    for vid in registered["instances"] if registered else ():
+        if vid not in found and vid not in active:
+            found[vid] = _demote_incomplete(
+                {"id": vid, "folder": vid, "type": "release",
+                 "display_name": suggest_friendly_name(vid, vid)},
+                "Minecraft version files are missing. Restore them before playing.")
+    for vid, entry in list(found.items()):
         folder = entry.get("folder") or vid
-        sidecar = _read_instance_sidecar(folder)
+        try:
+            sidecar = _read_instance_sidecar(folder)
+        except storage.InstanceMetadataError as error:
+            found[vid] = {**entry, "incomplete": True, "issue": str(error),
+                          "storage_issue": True}
+            continue
         if not sidecar:
             continue
         entry["instance"] = sidecar
@@ -894,7 +916,13 @@ def resolve_mc_version(version_id: str) -> str:
       3. `extract_mc_version`, unchanged, so every loader/id shape that already
          resolved correctly keeps resolving to the same string.
     """
-    sidecar = _read_instance_sidecar(version_id or "") or {}
+    from . import storage
+    try:
+        sidecar = _read_instance_sidecar(version_id or "") or {}
+    except storage.InstanceMetadataError:
+        # A version label/Java hint can be derived read-only. Content paths
+        # and launch still require the registered instance's valid metadata.
+        sidecar = {}
     recorded = _looks_like_mc_version(sidecar.get("mc_version"))
     if recorded:
         return recorded

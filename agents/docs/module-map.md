@@ -638,6 +638,14 @@ keep builders consistent with the shared `THEME` contract.
   `test_instance_storage.py` covers preservation of world/settings paths and
   bytes/identities/timestamps, content ownership, popup, interruption and recovery.
   Native Windows migration/restart validation remains a release prerequisite.
+- `storage.InstanceMetadataError` identifies damaged metadata for one registered
+  instance. The installed scan retains it as incomplete (even if runtime files
+  were deleted); Play stays blocked and `storage_layout.needed()` skips the
+  automatic organization prompt. Actual path resolution, organization and
+  cleanup remain strict. Read-only profile catalogues may explicitly request
+  `instance_profiles(skip_damaged=True)`; never use that option for migration.
+  `tools/test_damaged_instance_startup.py` builds the real UI with deleted metadata
+  and checks startup, blocked Play, instance switching and Settings.
 - Screenshot gallery's folder button opens the selected capture's validated directory,
   falling back to the active instance when nothing is selected. Run desktop helpers
   off the UI thread, report nonzero exits, use `os.startfile` for Windows folders,
@@ -935,7 +943,8 @@ keep builders consistent with the shared `THEME` contract.
   still trusts the first number in a name ("Survival 2.0" → "2.0"), so any new Play/launch/Java/loader
   check must use `resolve_mc_version`, not `extract_mc_version`.
 - `versions.get_installed_versions()` is memoized behind `_versions_scan_key`: (versions dir, every
-  folder, each json/jar mtime_ns+size, `active_installs()`). It returns copies, the scan body
+  folder, each json/jar mtime_ns+size, `active_installs()`, registered instance
+  identities and instance.json stat fingerprints). It returns copies, the scan body
   (`_scan_installed_versions`) parses each json once, and a folder's canonical json/jar is re-keyed after
   the scan copies it. Any code that changes versions/ differently (e.g. writes a jar without touching
   mtime/size) must clear `_scan_cache`; never add a second, independent cache of this scan.
@@ -1823,6 +1832,13 @@ requires retrying with normal system access, not changing unrelated app code.
 - Public product copy must not advertise built-in public tunnels or automatic internet world
   sharing: these are no longer supported. Keep About, homepage FAQ/schema, multiplayer/help,
   `/llms.txt`, README/user guide and website translation catalogues consistent with this limit.
+- `/docs#guide-recovery-mods` lists all 25 Cubeon Client JARs as version/loader
+  downloads pinned to v1.4.0 release assets; 1.20.0 uses the 1.20 JAR. Dependencies
+  and performance mods link to their official version lists. The section is
+  generated across locales from `web/docs.html` and its translation catalogues.
+  Update the recovery release label and all download URLs together after
+  verifying and uploading replacement JARs; installer publication alone does
+  not attach these individual recovery assets.
 - `/about` is the official Cubeon product facts page; homepage/AboutPage schema share
   `https://www.ylet.online/#launcher` and the official GitHub source identity. The sitemap has
   20 canonical English public pages plus Arabic variants. `tools/submit_website_indexnow.py` previews by default; `--submit` checks the

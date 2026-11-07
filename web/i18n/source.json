@@ -315,7 +315,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon is a free Minecraft Java Edition launcher for Windows, Linux and macOS. Open-source, with mods, modpacks, skins and friends in one window.",
+   "key": "Cubeon is a free Minecraft Java Edition launcher for Windows and Linux. Open-source, with mods, modpacks, skins and friends in one window.",
    "kind": "text",
    "pages": [
     "index"
@@ -331,7 +331,7 @@
    "parts": []
   },
   {
-   "key": "v1.3.45 stable &middot; Installer &middot; Free",
+   "key": "v1.4.0 stable &middot; Installer &middot; Free",
    "kind": "text",
    "pages": [
     "index"
@@ -347,7 +347,7 @@
    "parts": []
   },
   {
-   "key": "v1.3.45 stable &middot; AppImage &middot; Free",
+   "key": "v1.4.0 stable &middot; AppImage &middot; Free",
    "kind": "text",
    "pages": [
     "index"
@@ -379,18 +379,20 @@
    "parts": []
   },
   {
-   "key": "{0}Download for macOS",
+   "key": "macOS unavailable",
    "kind": "text",
    "pages": [
-    "index"
+    "index",
+    "download"
    ],
    "parts": []
   },
   {
-   "key": "v1.3.45 stable &middot; App bundle &middot; Free",
+   "key": "macOS has not been tested yet. Downloads are unavailable for now.",
    "kind": "text",
    "pages": [
-    "index"
+    "index",
+    "download"
    ],
    "parts": []
   },
@@ -435,7 +437,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon Launcher, also called Cubeon Minecraft Launcher, is a free, open-source desktop app for Minecraft Java Edition on Windows, Linux and macOS. This is the official Cubeon website. Install game versions, manage modded instances, customize skins and cosmetics, and play with friends.",
+   "key": "Cubeon Launcher, also called Cubeon Minecraft Launcher, is a free, open-source desktop app for Minecraft Java Edition on Windows and Linux. This is the official Cubeon website. Install game versions, manage modded instances, customize skins and cosmetics, and play with friends.",
    "kind": "text",
    "pages": [
     "index"
@@ -656,7 +658,7 @@
    "parts": []
   },
   {
-   "key": "Choose the Windows installer, Linux AppImage or macOS app bundle. The <a href=\"download.html\">download page</a> has the platform options.",
+   "key": "Choose the Windows installer or Linux AppImage. The <a href=\"download.html\">download page</a> has the platform options.",
    "kind": "text",
    "pages": [
     "index"
@@ -774,7 +776,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows, Linux and macOS. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is <a href=\"https://www.ylet.online/\">www.ylet.online</a> and the source repository is <a href=\"https://github.com/Shadow-457/Cubeon\">Shadow-457/Cubeon on GitHub</a>. Read the <a href=\"about.html\">official project facts</a> for supported profiles, downloads and limitations.",
+   "key": "Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows and Linux. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is <a href=\"https://www.ylet.online/\">www.ylet.online</a> and the source repository is <a href=\"https://github.com/Shadow-457/Cubeon\">Shadow-457/Cubeon on GitHub</a>. Read the <a href=\"about.html\">official project facts</a> for supported profiles, downloads and limitations.",
    "kind": "text",
    "pages": [
     "index"
@@ -806,7 +808,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon is a good fit if you want a free, open-source Java Edition launcher with compatible mod loaders, mods, modpacks, skins and friends on Windows, Linux or macOS. It uses local/offline profiles and does not provide Microsoft sign-in or launch Bedrock Edition. The best choice depends on your game edition, server requirements and mods; use the <a href=\"minecraft-launcher.html\">Minecraft launcher guide</a> to check those needs before downloading.",
+   "key": "Cubeon is a good fit if you want a free, open-source Java Edition launcher with compatible mod loaders, mods, modpacks, skins and friends on Windows or Linux. It uses local/offline profiles and does not provide Microsoft sign-in or launch Bedrock Edition. The best choice depends on your game edition, server requirements and mods; use the <a href=\"minecraft-launcher.html\">Minecraft launcher guide</a> to check those needs before downloading.",
    "kind": "text",
    "pages": [
     "index"
@@ -905,7 +907,7 @@
    "parts": []
   },
   {
-   "key": "Packaged builds are available for Windows 10 and 11, 64-bit Linux, and macOS. Choose the file for your system on the <a href=\"download.html\">download page</a>; macOS app bundles are also on the <a href=\"https://github.com/Shadow-457/Cubeon/releases/latest\">latest stable release</a>. Minecraft itself needs compatible Java and graphics drivers.",
+   "key": "Packaged builds are available for Windows 10 and 11 and 64-bit Linux. Choose the file for your system on the <a href=\"download.html\">download page</a>; macOS is untested and its download is unavailable. Release files are on the <a href=\"https://github.com/Shadow-457/Cubeon/releases/latest\">latest stable release</a>. Minecraft itself needs compatible Java and graphics drivers.",
    "kind": "text",
    "pages": [
     "index"
@@ -963,7 +965,7 @@
    "parts": []
   },
   {
-   "key": "Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS: the app bundle from the <a href=\"https://github.com/Shadow-457/Cubeon/releases/latest\">stable GitHub release</a>. Download only from the official site or repository.",
+   "key": "Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS is untested and downloads are unavailable. Download only from the official site or repository.",
    "kind": "text",
    "pages": [
     "index"
@@ -1043,7 +1045,7 @@
    "parts": []
   },
   {
-   "key": "Download it, type a name, play. Free on Windows, Linux and macOS, with local player profiles.",
+   "key": "Download it, type a name, play. Free on Windows and Linux, with local player profiles.",
    "kind": "text",
    "pages": [
     "index"
@@ -1687,7 +1689,7 @@
    "parts": []
   },
   {
-   "key": "Official Cubeon Minecraft Launcher: free, open-source and built for Java Edition on Windows, Linux and macOS. Manage mods, modpacks, skins and friends.",
+   "key": "Official Cubeon Minecraft Launcher: free, open-source and built for Java Edition on Windows and Linux. Manage mods, modpacks, skins and friends.",
    "kind": "attr",
    "pages": [
     "index"
@@ -1961,7 +1963,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon Launcher is a free, Apache 2.0 open-source Minecraft Java Edition desktop launcher for Windows, Linux and macOS. Manage versions, modded instances, skins, friends and local servers.",
+   "key": "Cubeon Launcher is a free, Apache 2.0 open-source Minecraft Java Edition desktop launcher for Windows and Linux. Manage versions, modded instances, skins, friends and local servers.",
    "kind": "jsonld",
    "pages": [
     "index",
@@ -1987,7 +1989,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows, Linux and macOS. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is www.ylet.online and the source repository is Shadow-457/Cubeon on GitHub. Read the official project facts for supported profiles, downloads and limitations.",
+   "key": "Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows and Linux. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is www.ylet.online and the source repository is Shadow-457/Cubeon on GitHub. Read the official project facts for supported profiles, downloads and limitations.",
    "kind": "jsonld",
    "pages": [
     "index"
@@ -2019,7 +2021,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon is a good fit if you want a free, open-source Java Edition launcher with compatible mod loaders, mods, modpacks, skins and friends on Windows, Linux or macOS. It uses local/offline profiles and does not provide Microsoft sign-in or launch Bedrock Edition. The best choice depends on your game edition, server requirements and mods; use the Minecraft launcher guide to check those needs before downloading.",
+   "key": "Cubeon is a good fit if you want a free, open-source Java Edition launcher with compatible mod loaders, mods, modpacks, skins and friends on Windows or Linux. It uses local/offline profiles and does not provide Microsoft sign-in or launch Bedrock Edition. The best choice depends on your game edition, server requirements and mods; use the Minecraft launcher guide to check those needs before downloading.",
    "kind": "jsonld",
    "pages": [
     "index"
@@ -2091,7 +2093,7 @@
    "parts": []
   },
   {
-   "key": "Packaged builds are available for Windows 10 and 11, 64-bit Linux, and macOS. Choose the file for your system on the download page; macOS app bundles are also on the latest stable release. Minecraft itself needs compatible Java and graphics drivers.",
+   "key": "Packaged builds are available for Windows 10 and 11 and 64-bit Linux. Choose the file for your system on the download page; macOS is untested and its download is unavailable. Release files are on the latest stable release. Minecraft itself needs compatible Java and graphics drivers.",
    "kind": "jsonld",
    "pages": [
     "index"
@@ -2124,14 +2126,6 @@
   },
   {
    "key": "Which file should I download?",
-   "kind": "jsonld",
-   "pages": [
-    "index"
-   ],
-   "parts": []
-  },
-  {
-   "key": "Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS: the app bundle from the stable GitHub release. Download only from the official site or repository.",
    "kind": "jsonld",
    "pages": [
     "index"
@@ -2279,7 +2273,7 @@
    "parts": []
   },
   {
-   "key": "<strong>Platforms:</strong> Windows 10 and 11, Linux and macOS. See the release assets for the available architecture.",
+   "key": "<strong>Platforms:</strong> Windows 10 and 11 and Linux. macOS is untested and downloads are unavailable.",
    "kind": "text",
    "pages": [
     "about"
@@ -2335,7 +2329,7 @@
    "parts": []
   },
   {
-   "key": "Use the <a href=\"download.html\">official download page</a> for platform options or the <a href=\"https://github.com/Shadow-457/Cubeon/releases/latest\">latest stable GitHub release</a> for its files and release notes. Windows uses the Setup.exe installer. Linux has an AppImage, a setup installer and a Debian/Ubuntu package. macOS releases provide an app bundle in Cubeon-macOS.zip.",
+   "key": "Use the <a href=\"download.html\">official download page</a> for platform options or the <a href=\"https://github.com/Shadow-457/Cubeon/releases/latest\">latest stable GitHub release</a> for its files and release notes. Windows uses the Setup.exe installer. Linux has an AppImage, a setup installer and a Debian/Ubuntu package. macOS is untested and downloads are unavailable.",
    "kind": "text",
    "pages": [
     "about"
@@ -2455,7 +2449,7 @@
    "parts": []
   },
   {
-   "key": "Official Cubeon Launcher facts, downloads and source code. Free Apache 2.0 Minecraft Java launcher for Windows, Linux and macOS with mods and local profiles.",
+   "key": "Official Cubeon Launcher facts, downloads and source code. Free Apache 2.0 Minecraft Java launcher for Windows and Linux with mods and local profiles.",
    "kind": "attr",
    "pages": [
     "about"
@@ -4024,7 +4018,7 @@
    "parts": []
   },
   {
-   "key": "Updated 31 October 2026",
+   "key": "Updated 7 November 2026",
    "kind": "text",
    "pages": [
     "docs"
@@ -4056,6 +4050,14 @@
     "minecraft-launcher",
     "modpacks",
     "mods"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Recovery mods",
+   "kind": "text",
+   "pages": [
+    "docs"
    ],
    "parts": []
   },
@@ -4369,6 +4371,646 @@
    "pages": [
     "docs",
     "mods"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Deleted a mod? Download the Cubeon Client build for the Minecraft version and loader shown on your instance card.",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Close Minecraft and select the instance you want to repair.",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Download the matching Cubeon Client JAR below.",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Open <strong>Mods → Import mods</strong>, select the downloaded JAR, and install it. Then start Minecraft again.",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Keep one Cubeon Client JAR per instance. Minecraft 1.20.0 uses the 1.20 build. Fabric and Quilt also need Fabric API for the HUD.",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "These recovery downloads match Cubeon 1.4.0.",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Minecraft 26.x",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Minecraft version / loader",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Cubeon Client",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "26.3<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.3.jar\" download=\"cubeon-client-1.0.0+mc26.3.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "26.2<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.2.jar\" download=\"cubeon-client-1.0.0+mc26.2.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "26.1.2<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.1.2.jar\" download=\"cubeon-client-1.0.0+mc26.1.2.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "26.1.1<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.1.1.jar\" download=\"cubeon-client-1.0.0+mc26.1.1.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "26.1<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.1.jar\" download=\"cubeon-client-1.0.0+mc26.1.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Minecraft 1.21.x",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.11<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.11.jar\" download=\"cubeon-client-1.0.0+mc1.21.11.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.10<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.10.jar\" download=\"cubeon-client-1.0.0+mc1.21.10.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.9<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.9.jar\" download=\"cubeon-client-1.0.0+mc1.21.9.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.8<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.8.jar\" download=\"cubeon-client-1.0.0+mc1.21.8.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.7<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.7.jar\" download=\"cubeon-client-1.0.0+mc1.21.7.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.6<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.6.jar\" download=\"cubeon-client-1.0.0+mc1.21.6.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.5<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.5.jar\" download=\"cubeon-client-1.0.0+mc1.21.5.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.4<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.4.jar\" download=\"cubeon-client-1.0.0+mc1.21.4.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.3<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.3.jar\" download=\"cubeon-client-1.0.0+mc1.21.3.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.2<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.2.jar\" download=\"cubeon-client-1.0.0+mc1.21.2.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21.1<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.1.jar\" download=\"cubeon-client-1.0.0+mc1.21.1.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.21<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.jar\" download=\"cubeon-client-1.0.0+mc1.21.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Minecraft 1.20.x",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.20.6<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.6.jar\" download=\"cubeon-client-1.0.0+mc1.20.6.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.20.5<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.5.jar\" download=\"cubeon-client-1.0.0+mc1.20.5.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.20.4<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.4.jar\" download=\"cubeon-client-1.0.0+mc1.20.4.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.20.3<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.3.jar\" download=\"cubeon-client-1.0.0+mc1.20.3.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.20.2<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.2.jar\" download=\"cubeon-client-1.0.0+mc1.20.2.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.20.1<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.1.jar\" download=\"cubeon-client-1.0.0+mc1.20.1.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.20<span class=\"recovery-loader\">Fabric / Quilt</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.jar\" download=\"cubeon-client-1.0.0+mc1.20.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Minecraft 1.8.9 · Forge (Beta)",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "1.8.9<span class=\"recovery-loader\">Forge · Beta</span>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-forge-1.8.9.jar\" download=\"cubeon-client-forge-1.8.9.jar\">Download</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Dependencies and performance mods",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Use the official version pages below to restore other deleted mods. Choose the same Minecraft version and loader as your instance, and restore the mods you used before.",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/fabric-api/versions\" target=\"_blank\" rel=\"noopener\">Fabric API</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/customskinloader/versions\" target=\"_blank\" rel=\"noopener\">CustomSkinLoader</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/sodium/versions\" target=\"_blank\" rel=\"noopener\">Sodium</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/lithium/versions\" target=\"_blank\" rel=\"noopener\">Lithium</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/immediatelyfast/versions\" target=\"_blank\" rel=\"noopener\">ImmediatelyFast</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/entityculling/versions\" target=\"_blank\" rel=\"noopener\">Entity Culling</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/ferrite-core/versions\" target=\"_blank\" rel=\"noopener\">FerriteCore</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/modernfix/versions\" target=\"_blank\" rel=\"noopener\">ModernFix</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/badoptimizations/versions\" target=\"_blank\" rel=\"noopener\">BadOptimizations</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/moreculling/versions\" target=\"_blank\" rel=\"noopener\">More Culling</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/ebe/versions\" target=\"_blank\" rel=\"noopener\">Enhanced Block Entities</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/exordium/versions\" target=\"_blank\" rel=\"noopener\">Exordium</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/embeddium/versions\" target=\"_blank\" rel=\"noopener\">Embeddium</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/canary/versions\" target=\"_blank\" rel=\"noopener\">Canary</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "<a href=\"https://modrinth.com/mod/radium/versions\" target=\"_blank\" rel=\"noopener\">Radium</a>",
+   "kind": "text",
+   "pages": [
+    "docs"
+   ],
+   "parts": []
+  },
+  {
+   "key": "For older Forge builds of CustomSkinLoader, use its <a href=\"https://github.com/xfl03/MCCustomSkinLoader/releases\" target=\"_blank\" rel=\"noopener\">official releases</a>.",
+   "kind": "text",
+   "pages": [
+    "docs"
    ],
    "parts": []
   },
@@ -5326,7 +5968,7 @@
    "parts": []
   },
   {
-   "key": "Download Cubeon Minecraft Launcher | Windows, Linux &amp; macOS",
+   "key": "Download Cubeon Minecraft Launcher | Windows &amp; Linux",
    "kind": "text",
    "pages": [
     "download"
@@ -5350,7 +5992,7 @@
    "parts": []
   },
   {
-   "key": "The free Minecraft Java Edition launcher for Windows, Linux and macOS. Choose your system below, then follow the <a href=\"getting-started.html\">installation guide</a>.",
+   "key": "The free Minecraft Java Edition launcher for Windows and Linux. Choose your system below, then follow the <a href=\"getting-started.html\">installation guide</a>.",
    "kind": "text",
    "pages": [
     "download"
@@ -5382,7 +6024,7 @@
    "parts": []
   },
   {
-   "key": "Version 1.3.45 &middot; Installer &middot; 120 MB",
+   "key": "Version 1.4.0 &middot; Installer &middot; 120 MB",
    "kind": "text",
    "pages": [
     "download"
@@ -5414,7 +6056,7 @@
    "parts": []
   },
   {
-   "key": "Version 1.3.45 &middot; Installer",
+   "key": "Version 1.4.0 &middot; Installer",
    "kind": "text",
    "pages": [
     "download"
@@ -5462,23 +6104,7 @@
    "parts": []
   },
   {
-   "key": "Version 1.3.45 &middot; App bundle",
-   "kind": "text",
-   "pages": [
-    "download"
-   ],
-   "parts": []
-  },
-  {
-   "key": "Download the ZIP, extract it, and open the Cubeon app. The app bundle includes the launcher runtime.",
-   "kind": "text",
-   "pages": [
-    "download"
-   ],
-   "parts": []
-  },
-  {
-   "key": "Download for macOS",
+   "key": "Untested",
    "kind": "text",
    "pages": [
     "download"
@@ -5526,7 +6152,7 @@
    "parts": []
   },
   {
-   "key": "<b>Mac:</b> the ZIP contains the Cubeon app bundle. Extract it and open the app.",
+   "key": "<b>macOS:</b> macOS has not been tested yet. Downloads are unavailable for now.",
    "kind": "text",
    "pages": [
     "download"
@@ -5614,7 +6240,7 @@
    "parts": []
   },
   {
-   "key": "Download Cubeon Minecraft Launcher for Windows, Linux and macOS. Free and open-source for Java Edition, with mods, modpacks, skins and local profiles.",
+   "key": "Download Cubeon Minecraft Launcher for Windows and Linux. Free and open-source for Java Edition, with mods, modpacks, skins and local profiles.",
    "kind": "attr",
    "pages": [
     "download"
@@ -5622,7 +6248,7 @@
    "parts": []
   },
   {
-   "key": "Download Cubeon Minecraft Launcher | Windows, Linux & macOS",
+   "key": "Download Cubeon Minecraft Launcher | Windows & Linux",
    "kind": "attr",
    "pages": [
     "download"
@@ -7151,7 +7777,7 @@
    "parts": []
   },
   {
-   "key": "<strong>Cubeon Launcher is a free, open-source Minecraft Java Edition launcher for Windows, Linux and macOS.</strong> It brings compatible mod loaders, mods, modpacks, skins and friends into one desktop app. Read the <a href=\"about.html\">official Cubeon project facts</a> for its source license and supported profiles.",
+   "key": "<strong>Cubeon Launcher is a free, open-source Minecraft Java Edition launcher for Windows and Linux.</strong> It brings compatible mod loaders, mods, modpacks, skins and friends into one desktop app. Read the <a href=\"about.html\">official Cubeon project facts</a> for its source license and supported profiles.",
    "kind": "text",
    "pages": [
     "minecraft-launcher"
@@ -7271,7 +7897,7 @@
    "parts": []
   },
   {
-   "key": "Windows, Linux and macOS downloads.",
+   "key": "Windows and Linux downloads.",
    "kind": "text",
    "pages": [
     "minecraft-launcher"
@@ -7431,7 +8057,7 @@
    "parts": []
   },
   {
-   "key": "Choose the download for Windows, Linux or macOS from the official download page.",
+   "key": "Choose the download for Windows or Linux from the official download page.",
    "kind": "text",
    "pages": [
     "minecraft-launcher"

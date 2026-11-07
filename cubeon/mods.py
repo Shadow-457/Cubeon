@@ -311,9 +311,9 @@ def _read_sidecar_json(path: str) -> dict | None:
 def read_instance_meta(version_id: str | None) -> dict | None:
     """The per-instance record written inside a version folder, or None.
 
-    Never raises: a missing/unreadable sidecar simply means "legacy shared
-    profile", which is exactly how every install made before instance
-    isolation behaved.
+    Legacy missing/unreadable sidecars mean a shared profile. Registered
+    instances require valid storage metadata and raise InstanceMetadataError
+    when damaged; they must never fall back to a shared profile.
     """
     from . import storage
     if version_id and _instance_meta_path(version_id):
@@ -631,7 +631,7 @@ def iter_profile_dirs():
     for key in sorted(os.listdir(PROFILES_DIR)) if os.path.isdir(PROFILES_DIR) else []:
         if legacy_keys is None or key in legacy_keys:
             yield key, os.path.join(PROFILES_DIR, key)
-    for _vid, meta, directory in storage.instance_profiles():
+    for _vid, meta, directory in storage.instance_profiles(skip_damaged=True):
         yield meta.get("profile") or meta["id"], directory
 
 

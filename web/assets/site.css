@@ -705,7 +705,7 @@ html.js .sign .dl .switch{gap:4px 14px;margin:0}
 .docs-nav-link.hidden-by-search{display:none}
 .docs-nav-group+.docs-nav-group{margin-top:14px;border-top:2px solid var(--line-soft);padding-top:8px}
 /* article */
-.docs-main{padding:44px 52px 96px;max-width:960px}
+.docs-main{padding:44px 52px 96px;max-width:960px;min-width:0}
 .docs-section{margin-bottom:48px;scroll-margin-top:96px}
 .docs-section:last-child{margin-bottom:0}
 .docs-section-eyebrow{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:2px solid var(--line);border-radius:var(--pill);font-weight:800;font-size:11px;letter-spacing:.06em;color:var(--grass-dark);padding:5px 13px;margin-bottom:10px;text-transform:uppercase}
@@ -735,6 +735,17 @@ html.js .sign .dl .switch{gap:4px 14px;margin:0}
 .docs-table thead th{background:var(--grass-soft);font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:12px;color:var(--ink);text-transform:uppercase;letter-spacing:.02em}
 .docs-table td{color:var(--text-soft)}
 .docs-table td:first-child{color:var(--ink);font-weight:700}
+.recovery-downloads{border:2px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
+.recovery-downloads summary{cursor:pointer;font-weight:700;color:var(--ink)}
+.recovery-downloads[open] summary{margin-bottom:14px}
+.recovery-downloads .docs-table-wrap{margin-bottom:0}
+.recovery-table{min-width:0}
+.recovery-table tbody th{font-family:'Inter',sans-serif;font-weight:700}
+.recovery-loader{display:block;font-size:13px;font-weight:400;margin-top:4px;color:var(--text-soft)}
+.recovery-table td{white-space:nowrap}
+.recovery-projects{columns:2;column-gap:24px}
+.recovery-projects li{break-inside:avoid}
+@media(max-width:480px){.recovery-downloads{padding:12px}.recovery-table th,.recovery-table td{padding:9px}.recovery-projects{columns:1}}
 /* hub: one card per guide, plus a short start-here strip */
 .docs-guides{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:24px 0 8px}
 .docs-guide{background:var(--card-glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:2px solid var(--line);border-left:6px solid var(--grass);box-shadow:var(--shadow-sm);padding:20px 22px;transition:border-color 90ms linear,transform 90ms linear,box-shadow 90ms linear}

@@ -74,7 +74,12 @@ def plan(labels=None):
 
 
 def needed(labels=None):
-    proposal = plan(labels)
+    try:
+        proposal = plan(labels)
+    except storage.InstanceMetadataError:
+        # Startup should show the damaged instance rather than abort. The
+        # actual organization plan stays strict and cannot move its files.
+        return False
     return bool(proposal["runtime"] or proposal["renames"])
 
 

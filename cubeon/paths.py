@@ -434,7 +434,8 @@ def game_dir_for(version_id: "str | None", *, create: bool = True) -> str:
     nothing: a read-only caller (the import UI asking "is this world already
     in that instance?") must not create folders or trigger the one-time
     adoption, which would hand the player's world to an instance they never
-    launched. Never raises: a launch must not die over a folder.
+    launched. Registered instances fail closed on damaged storage metadata;
+    they must never fall back to the shared folder.
     """
     if version_id == "cubeon-rust-26.3":
         from .rust_engine import game_dir
@@ -515,7 +516,19 @@ def active_game_dir() -> str:
             path = (json.load(fh) or {}).get("game_dir")
         if path:
             from . import storage
-            for vid, meta, _profile in storage.instance_profiles():
+            value = storage.registry()
+            for vid, ident in value["instances"].items() if value else ():
+                try:
+                    ident = storage._name(ident)
+                except ValueError:
+                    continue
+                folder = storage.root() / "instances" / ident
+                if Path(path).absolute().is_relative_to(folder.absolute()):
+                    # The current folder still belongs to its registered
+                    # instance even if its manifest was deleted. Validate it
+                    # before returning a path that skin/world writers use.
+                    return storage.game_dir(vid)
+            for vid, meta, _profile in storage.instance_profiles(skip_damaged=True):
                 if meta.get("legacy_game_dir") == path or path in meta.get("previous_game_dirs", []):
                     return storage.game_dir(vid)
             if os.path.isdir(path):

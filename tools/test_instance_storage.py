@@ -83,6 +83,68 @@ class StorageTests(unittest.TestCase):
     def restart(self):
         storage._restart_required = False
 
+    def test_deleted_instance_metadata_is_visible_and_other_instances_still_work(self):
+        from cubeon import storage_layout
+        storage.initialize()
+        damaged, healthy = "fabric-loader-0.20.1-1.21.11", "1.20.1"
+        runtime = Path(storage.runtime_dir())
+        for vid in (damaged, healthy):
+            write_json(str(runtime / "versions" / vid / (vid + ".json")),
+                       {"id": vid, "type": "release"})
+            jar(runtime / "versions" / vid / (vid + ".jar"), "client")
+            storage.folder_for(vid, create=True)
+        damaged_folder = storage.folder_for(damaged)
+        metadata = damaged_folder / "instance.json"
+        original = metadata.read_bytes()
+        healthy_game = storage.game_dir(healthy)
+        healthy_meta = storage.manifest(healthy)
+        registry_before = storage.registry_path().read_bytes()
+        versions._scan_cache = None
+        self.assertFalse(any(v.get("incomplete") for v in versions.get_installed_versions()))
+
+        for invalid in (None, b"{", b"[]", b'{"layout":2,"version_id":"wrong"}'):
+            with self.subTest(invalid=invalid):
+                metadata.unlink()
+                if invalid is not None:
+                    metadata.write_bytes(invalid)
+                storage.initialize()
+                entries = {v["id"]: v for v in versions.get_installed_versions()}
+                broken = entries[damaged]
+                self.assertTrue(broken["incomplete"])
+                self.assertTrue(broken["storage_issue"])
+                self.assertIn("Restore it before playing", broken["issue"])
+                self.assertFalse(entries[healthy].get("incomplete"))
+                self.assertTrue(instances.describe(damaged, broken)["incomplete"])
+                self.assertFalse(storage_layout.needed())
+                with self.assertRaises(storage.InstanceMetadataError):
+                    storage_layout.plan()
+                with self.assertRaises(storage.InstanceMetadataError):
+                    paths.game_dir_for(damaged)
+                with self.assertRaises(storage.InstanceMetadataError):
+                    mods.resolve_profile_dir("1.21.11", "fabric", damaged)
+                with self.assertRaises(storage.InstanceMetadataError):
+                    storage.instance_profiles()
+                self.assertEqual([p[0] for p in storage.instance_profiles(skip_damaged=True)], [healthy])
+                self.assertEqual(mods.profile_dir_for_key(healthy_meta["profile"]), str(Path(healthy_game) / "mods"))
+                self.assertEqual(storage.game_dir(healthy), healthy_game)
+                paths.set_active_game_dir(healthy_game)
+                self.assertEqual(paths.active_game_dir(), healthy_game)
+                paths.set_active_game_dir(str(damaged_folder / "minecraft"))
+                with self.assertRaises(storage.InstanceMetadataError):
+                    paths.active_game_dir()
+                self.assertEqual(storage.registry_path().read_bytes(), registry_before)
+                self.assertEqual(metadata.read_bytes() if metadata.exists() else None, invalid)
+                metadata.write_bytes(original)
+                self.assertFalse(any(v.get("incomplete") for v in versions.get_installed_versions()))
+
+        metadata.unlink()
+        shutil.rmtree(runtime / "versions" / damaged)
+        entries = {v["id"]: v for v in versions.get_installed_versions()}
+        self.assertTrue(entries[damaged]["incomplete"])
+        self.assertFalse(entries[healthy].get("incomplete"))
+        shutil.rmtree(runtime / "versions")
+        self.assertEqual({v["id"] for v in versions.get_installed_versions()}, {damaged, healthy})
+
     def test_new_instances_are_independent_offline(self):
         storage.initialize()
         self.assertEqual(storage.runtime_dir(), str(self.root / "instances/.runtime"))

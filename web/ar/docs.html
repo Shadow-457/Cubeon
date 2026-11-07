@@ -80,7 +80,6 @@
     <summary aria-label="اللغة: العربية"><span aria-hidden="true">🌐</span> AR</summary>
     <nav class="lang-list" aria-label="اللغة">
           <a href="/docs" hreflang="en" lang="en">English</a>
-      <a class="nav-bench" href="/cubeon-bench" aria-label="Cubeon Bench texture editor (Beta)"><span>Bench</span><span class="nav-beta">Beta</span></a>
           <a href="/ar/docs" hreflang="ar" lang="ar" aria-current="true">العربية</a>
     </nav>
   </details>
@@ -103,7 +102,7 @@
       <p class="crumbs"><a href="/ar">الرئيسية</a> / الأدلة</p>
       <h1>وثائق Cubeon</h1>
       <p class="lede">أدلة ولقطات شاشة للاعبين عن Cubeon Launcher. ثبّته، وأضف مودات وحزم مودات، وانضم إلى أصدقائك، واجعل سكنك يظهر، وأصلح تعطلًا دون قراءة Java.</p>
-      <p class="updated">تحديث 31 أكتوبر 2026</p>
+      <p class="updated">آخر تحديث في 7 نوفمبر 2026</p>
     </div>
   </header>
 
@@ -129,6 +128,7 @@
           <a class="docs-nav-link" href="#guide-minecraft-launcher" data-section="guide-minecraft-launcher">اختيار مشغّل</a>
           <a class="docs-nav-link" href="#guide-getting-started" data-section="guide-getting-started">البدء</a>
           <a class="docs-nav-link" href="#guide-mods" data-section="guide-mods">المودات والمحتوى</a>
+          <a class="docs-nav-link" href="#guide-recovery-mods" data-section="guide-recovery-mods">مودات الاستعادة</a>
           <a class="docs-nav-link" href="#guide-modpacks" data-section="guide-modpacks">حزم المودات</a>
           <a class="docs-nav-link" href="#guide-multiplayer" data-section="guide-multiplayer">اللعب معًا</a>
           <a class="docs-nav-link" href="#guide-cosmetics" data-section="guide-cosmetics">السكنات والمستلزمات التجميلية</a>
@@ -210,6 +210,109 @@
           <a href="/ar/mods#shaders">الشيدرات</a>
         </div>
       </div>
+
+      <hr class="docs-divider">
+
+      <!-- cubeon:recovery-mods -->
+      <section id="guide-recovery-mods" class="docs-section" aria-labelledby="recovery-mods-title">
+        <h2 id="recovery-mods-title">مودات الاستعادة</h2>
+        <p>حذفت مودًا؟ نزّل إصدار Cubeon Client المطابق لإصدار Minecraft ومحمّل المودات الظاهرين في بطاقة النسخة.</p>
+        <ol>
+          <li>أغلق Minecraft وحدّد النسخة التي تريد إصلاحها.</li>
+          <li>نزّل ملف JAR المطابق لـ Cubeon Client من الروابط أدناه.</li>
+          <li>افتح <strong>المودات → استيراد المودات</strong>، وحدّد ملف JAR الذي نزّلته وثبّته. ثم شغّل Minecraft مجددًا.</li>
+        </ol>
+        <p>احتفظ بملف JAR واحد لـ Cubeon Client في كل نسخة. يستخدم Minecraft 1.20.0 إصدار 1.20. ويحتاج Fabric وQuilt أيضًا إلى Fabric API لعرض واجهة HUD.</p>
+        <p class="recovery-release">ملفات الاستعادة هذه مطابقة لـ Cubeon 1.4.0.</p>
+        <details class="recovery-downloads" open>
+          <summary>Minecraft 26.x</summary>
+          <div class="docs-table-wrap">
+            <table class="docs-table recovery-table">
+              <thead><tr><th scope="col">إصدار Minecraft / محمّل المودات</th><th scope="col">Cubeon Client</th></tr></thead>
+              <tbody>
+              <tr><th scope="row">26.3<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.3.jar" download="cubeon-client-1.0.0+mc26.3.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">26.2<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.2.jar" download="cubeon-client-1.0.0+mc26.2.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">26.1.2<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.1.2.jar" download="cubeon-client-1.0.0+mc26.1.2.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">26.1.1<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.1.1.jar" download="cubeon-client-1.0.0+mc26.1.1.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">26.1<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc26.1.jar" download="cubeon-client-1.0.0+mc26.1.jar">تنزيل</a></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <details class="recovery-downloads">
+          <summary>Minecraft 1.21.x</summary>
+          <div class="docs-table-wrap">
+            <table class="docs-table recovery-table">
+              <thead><tr><th scope="col">إصدار Minecraft / محمّل المودات</th><th scope="col">Cubeon Client</th></tr></thead>
+              <tbody>
+              <tr><th scope="row">1.21.11<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.11.jar" download="cubeon-client-1.0.0+mc1.21.11.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.10<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.10.jar" download="cubeon-client-1.0.0+mc1.21.10.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.9<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.9.jar" download="cubeon-client-1.0.0+mc1.21.9.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.8<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.8.jar" download="cubeon-client-1.0.0+mc1.21.8.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.7<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.7.jar" download="cubeon-client-1.0.0+mc1.21.7.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.6<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.6.jar" download="cubeon-client-1.0.0+mc1.21.6.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.5<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.5.jar" download="cubeon-client-1.0.0+mc1.21.5.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.4<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.4.jar" download="cubeon-client-1.0.0+mc1.21.4.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.3<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.3.jar" download="cubeon-client-1.0.0+mc1.21.3.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.2<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.2.jar" download="cubeon-client-1.0.0+mc1.21.2.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21.1<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.1.jar" download="cubeon-client-1.0.0+mc1.21.1.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.21<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.21.jar" download="cubeon-client-1.0.0+mc1.21.jar">تنزيل</a></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <details class="recovery-downloads">
+          <summary>Minecraft 1.20.x</summary>
+          <div class="docs-table-wrap">
+            <table class="docs-table recovery-table">
+              <thead><tr><th scope="col">إصدار Minecraft / محمّل المودات</th><th scope="col">Cubeon Client</th></tr></thead>
+              <tbody>
+              <tr><th scope="row">1.20.6<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.6.jar" download="cubeon-client-1.0.0+mc1.20.6.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.20.5<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.5.jar" download="cubeon-client-1.0.0+mc1.20.5.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.20.4<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.4.jar" download="cubeon-client-1.0.0+mc1.20.4.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.20.3<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.3.jar" download="cubeon-client-1.0.0+mc1.20.3.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.20.2<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.2.jar" download="cubeon-client-1.0.0+mc1.20.2.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.20.1<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.1.jar" download="cubeon-client-1.0.0+mc1.20.1.jar">تنزيل</a></td></tr>
+              <tr><th scope="row">1.20<span class="recovery-loader">Fabric / Quilt</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-1.0.0%2Bmc1.20.jar" download="cubeon-client-1.0.0+mc1.20.jar">تنزيل</a></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <details class="recovery-downloads">
+          <summary>Minecraft 1.8.9 · Forge (تجريبي)</summary>
+          <div class="docs-table-wrap">
+            <table class="docs-table recovery-table">
+              <thead><tr><th scope="col">إصدار Minecraft / محمّل المودات</th><th scope="col">Cubeon Client</th></tr></thead>
+              <tbody>
+              <tr><th scope="row">1.8.9<span class="recovery-loader">Forge · تجريبي</span></th><td><a href="https://github.com/Shadow-457/Cubeon/releases/download/v1.4.0/cubeon-client-forge-1.8.9.jar" download="cubeon-client-forge-1.8.9.jar">تنزيل</a></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <details class="recovery-downloads">
+          <summary>الاعتماديات ومودات الأداء</summary>
+          <p>استخدم صفحات الإصدارات الرسمية أدناه لاستعادة المودات الأخرى المحذوفة. اختر إصدار Minecraft ومحمّل المودات المطابقين لنسختك، واستعد المودات التي كنت تستخدمها.</p>
+          <ul class="recovery-projects">
+            <li><a href="https://modrinth.com/mod/fabric-api/versions" target="_blank" rel="noopener">Fabric API</a></li>
+            <li><a href="https://modrinth.com/mod/customskinloader/versions" target="_blank" rel="noopener">CustomSkinLoader</a></li>
+            <li><a href="https://modrinth.com/mod/sodium/versions" target="_blank" rel="noopener">Sodium</a></li>
+            <li><a href="https://modrinth.com/mod/lithium/versions" target="_blank" rel="noopener">Lithium</a></li>
+            <li><a href="https://modrinth.com/mod/immediatelyfast/versions" target="_blank" rel="noopener">ImmediatelyFast</a></li>
+            <li><a href="https://modrinth.com/mod/entityculling/versions" target="_blank" rel="noopener">Entity Culling</a></li>
+            <li><a href="https://modrinth.com/mod/ferrite-core/versions" target="_blank" rel="noopener">FerriteCore</a></li>
+            <li><a href="https://modrinth.com/mod/modernfix/versions" target="_blank" rel="noopener">ModernFix</a></li>
+            <li><a href="https://modrinth.com/mod/badoptimizations/versions" target="_blank" rel="noopener">BadOptimizations</a></li>
+            <li><a href="https://modrinth.com/mod/moreculling/versions" target="_blank" rel="noopener">More Culling</a></li>
+            <li><a href="https://modrinth.com/mod/ebe/versions" target="_blank" rel="noopener">Enhanced Block Entities</a></li>
+            <li><a href="https://modrinth.com/mod/exordium/versions" target="_blank" rel="noopener">Exordium</a></li>
+            <li><a href="https://modrinth.com/mod/embeddium/versions" target="_blank" rel="noopener">Embeddium</a></li>
+            <li><a href="https://modrinth.com/mod/canary/versions" target="_blank" rel="noopener">Canary</a></li>
+            <li><a href="https://modrinth.com/mod/radium/versions" target="_blank" rel="noopener">Radium</a></li>
+          </ul>
+          <p>لإصدارات Forge القديمة من CustomSkinLoader، استخدم <a href="https://github.com/xfl03/MCCustomSkinLoader/releases" target="_blank" rel="noopener">إصداراته الرسمية</a>.</p>
+        </details>
+      </section>
+      <!-- /cubeon:recovery-mods -->
 
       <hr class="docs-divider">
 

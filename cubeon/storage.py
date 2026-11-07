@@ -32,6 +32,10 @@ _SWITCH_SLOTS = (*CONTENT_DIRS, ".cubeon/mods", "instance.json")
 _LEGACY_CONTENT_DIRS = ("global_mods", "global_content", *CONTENT_DIRS)
 
 
+class InstanceMetadataError(RuntimeError):
+    """One registered instance is damaged; its paths must remain unavailable."""
+
+
 def root() -> Path:
     return Path(paths.MINECRAFT_DIR)
 
@@ -142,12 +146,17 @@ def manifest(version_id) -> dict | None:
     _name(version_id)
     if not value or version_id not in value["instances"]:
         return None
-    ident = _name(value["instances"][version_id])
-    folder = _owned(root() / "instances", ident)
-    data = _read(folder / "instance.json")
+    try:
+        ident = _name(value["instances"][version_id])
+        folder = _owned(root() / "instances", ident)
+        data = _read(folder / "instance.json")
+    except (ValueError, RuntimeError) as error:
+        raise InstanceMetadataError(
+            f"Instance metadata is missing or invalid for {version_id}. Restore it before playing."
+        ) from error
     if (not data or data.get("layout") != 2 or data.get("version_id") != version_id
             or data.get("game_subdir", "minecraft") not in (".", "minecraft")):
-        raise RuntimeError(f"Instance metadata is missing or invalid for {version_id}. Restore it before playing.")
+        raise InstanceMetadataError(f"Instance metadata is missing or invalid for {version_id}. Restore it before playing.")
     return data
 
 
@@ -241,18 +250,33 @@ def discard_registration(version_id, ident):
 
 def profile_for_key(key):
     value = registry()
+    damaged = None
     if value:
         for version in value["instances"]:
-            data = manifest(version)
+            try:
+                data = manifest(version)
+            except InstanceMetadataError as error:
+                damaged = error
+                continue
             if data.get("profile") == key or data["id"] == key:
                 return str(Path(game_dir(version)) / "mods")
+    if damaged is not None:
+        # An unknown key might belong to the damaged instance. Never redirect
+        # it to a legacy/shared profile, but allow healthy matches above.
+        raise damaged
     return None
 
 
-def instance_profiles():
+def instance_profiles(*, skip_damaged=False):
     value = registry()
-    return [(vid, manifest(vid), str(Path(game_dir(vid)) / "mods"))
-            for vid in value["instances"]] if value else []
+    result = []
+    for vid in value["instances"] if value else ():
+        try:
+            result.append((vid, manifest(vid), str(Path(game_dir(vid)) / "mods")))
+        except InstanceMetadataError:
+            if not skip_damaged:
+                raise
+    return result
 
 
 def _path_owner(path):
