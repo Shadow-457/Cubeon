@@ -63,7 +63,7 @@ def run(browser, url, artifacts):
     page.on('request', lambda r: requests.append(r.url))
     page.goto(url + 'landing.html', wait_until='networkidle')
     page.wait_for_function('document.querySelector("#heroScene").dataset.renderer==="three"', timeout=30000)
-    assert page.locator('h1').inner_text() == 'Small pixels.\nBig possibilities.'
+    assert page.locator('h1').inner_text() == 'Edit textures.\nBuild your pack.'
     assert page.locator('#heroScene').evaluate('e=>e.width>500 && e.height>500')
     assert page.locator('body').evaluate('e=>e.scrollWidth<=innerWidth')
     page.screenshot(path=str(artifacts / 'landing-desktop.png'))
@@ -99,7 +99,7 @@ def run(browser, url, artifacts):
     context.set_offline(True)
     page.reload(wait_until='domcontentloaded')
     page.wait_for_function('document.querySelector("#heroScene").dataset.renderer==="three"')
-    assert page.locator('h1').inner_text().startswith('Small pixels.')
+    assert page.locator('h1').inner_text().startswith('Edit textures.')
     page.locator('a[href="index.html"]').first.click()
     page.wait_for_function('window.CB && window.Ed')
     assert page.locator('#guest').is_visible()

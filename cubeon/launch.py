@@ -1467,6 +1467,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                                    java_path, game_dir=game_dir,
                                    default_jvm_flags_enabled=(cfg or {}).get("default_jvm_flags_enabled", True),
                                    custom_jvm_flags=(cfg or {}).get("custom_jvm_flags"))
+    from . import runtime_libraries
+    runtime_libraries.ensure(version_id, command, status_cb=status_cb)
 
     # Optional direct-connect arguments. Minecraft's client accepts these as
     # launch arguments, which lets features such as P2P hand the player

@@ -32,6 +32,7 @@ public final class EnemyHealthRenderer {
         var down = new Vector3f(0, -EnemyHealthBar.NAME_WORLD_HEIGHT, 0)
                 .rotate(cameraRotation);
         var right = new Vector3f(EnemyHealthBar.WIDTH * 0.025F / 2, 0, 0).rotate(cameraRotation);
+        var forward = new Vector3f(0, 0, -1).rotate(cameraRotation);
         EnemyHealthBar.Fill fill = (x, y, x2, y2, color) -> CubeonHud.fillEnemyRect(graphics, x, y, x2, y2, color);
         int drawn = 0;
         for (LivingEntity enemy : enemies) {
@@ -45,12 +46,10 @@ public final class EnemyHealthRenderer {
                     EnemyHealthBar.lerp(enemy.xOld, enemy.getX(), partialTick),
                     EnemyHealthBar.lerp(enemy.yOld, enemy.getY(), partialTick) + enemy.getBbHeight() + 0.5,
                     EnemyHealthBar.lerp(enemy.zOld, enemy.getZ(), partialTick));
+            if (!EnemyHealthBar.inFront(anchor.x-camera.x, anchor.y-camera.y, anchor.z-camera.z, forward)) continue;
             Vec3 eye = anchor.add(0, enemy.getEyeHeight() - enemy.getBbHeight() - 0.5, 0);
             float barOffset = (EnemyHealthBar.NAME_HEIGHT + 2 + EnemyHealthBar.HEIGHT / 2F) / EnemyHealthBar.NAME_HEIGHT;
             Vec3 bar = anchor.add(down.x * barOffset, down.y * barOffset, down.z * barOffset);
-            if (!visible(client, camera, eye) || !visible(client, camera, bar)
-                    || !visible(client, camera, bar.add(right.x, right.y, right.z))
-                    || !visible(client, camera, bar.add(-right.x, -right.y, -right.z))) continue;
             var name = client.gameRenderer.projectPointToScreen(anchor);
             var bottom = client.gameRenderer.projectPointToScreen(anchor.add(down.x, down.y, down.z));
             if (!EnemyHealthBar.onScreen(name.x, name.y, name.z)
@@ -65,6 +64,9 @@ public final class EnemyHealthRenderer {
             float x = center - width / 2;
             if (x < 0 || x + width > graphics.guiWidth()
                     || y + height > graphics.guiHeight()) continue;
+            if (!visible(client, camera, eye) || !visible(client, camera, bar)
+                    || !visible(client, camera, bar.add(right.x, right.y, right.z))
+                    || !visible(client, camera, bar.add(-right.x, -right.y, -right.z))) continue;
             if (!(enemy instanceof Player) && (!enemy.hasCustomName()
                     || (!enemy.isCustomNameVisible() && !(client.hitResult instanceof EntityHitResult hit
                     && hit.getEntity() == enemy)))) {

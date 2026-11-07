@@ -163,6 +163,7 @@ processResources {
     // Each zoom overlay selects its native FOV/scroll path. 26.3 shares
     // freelook's sole mouse redirect, while Yarn registers ZoomLookMixin.
     def zoom = bracket.overlays.any { it.toString().startsWith('zoom-') }
+    def health = bracket.overlays.contains('health-projection-modern')
     def replacements = [
             version        : project.version,
             minecraft_range: bracket.depends,
@@ -181,6 +182,8 @@ processResources {
             // aborts startup with ClassNotFoundException (2026-10-23 crash).
             environment       : emotes ? '*' : 'client',
             emotes_mixins     : emotes ? ',\n    {\n      "config": "emotes.client.mixins.json",\n' +
+                            '      "environment": "client"\n    }' : '',
+            health_mixins     : health ? ',\n    {\n      "config": "cubeon-client.health.mixins.json",\n' +
                             '      "environment": "client"\n    }' : '',
     ]
     inputs.properties replacements

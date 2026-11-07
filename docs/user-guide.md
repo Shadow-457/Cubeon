@@ -223,7 +223,10 @@ Microsoft/Mojang account.
   Minecraft clients cannot display these animations.
 - **In-game cosmetics:** on supported Fabric versions from Minecraft 1.20 through
   26.3, choose **Cosmetics** at the top right of Minecraft's main menu, or open
-  **K → Cosmetics** while playing. The **Skins** tab lets you browse saved skins, drag the 3D preview or
+  **K → Cosmetics** while playing. **Back** selects wings/back items and **Shoulder** selects pets;
+  preview an item, then **Confirm** to equip it, or confirm **None** to remove that slot.
+  **Show wings in preview** hides wings only in the wardrobe viewport while keeping them equipped.
+  The **Skins** tab lets you browse saved skins, drag the 3D preview or
   use the Left/Right keys to rotate it, and choose **CONFIRM** to save and immediately
   update your own player. Selecting a preview alone does not apply it.
   **Import PNG** opens a file picker; you can also drop a 64×64 or legacy
@@ -538,3 +541,9 @@ addresses before attaching logs.
 
 Building or maintaining a release is covered in the
 [build guide](release/build.md), not required for normal use.
+
+In-game client themes: press **K → Themes** to choose Spring, Summer, Autumn or
+Winter. **Custom** lets you edit accent, background, card, border, text and muted
+text colors using six-digit hex codes. Preview changes locally, then select
+**Apply** to save them for that instance. **Back** discards unapplied changes.
+These themes change the in-game client menus.

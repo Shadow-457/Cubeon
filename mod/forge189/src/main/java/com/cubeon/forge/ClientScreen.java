@@ -19,7 +19,8 @@ public final class ClientScreen extends GlassScreen {
     @Override public void initGui() {
         buttonList.clear(); toggles.clear(); overlays.clear();
         int w=Math.min(290,width-32), x=(width-w)/2;
-        button(1,x,36,w/2-2,"HUD"); button(2,x+w/2+2,36,w/2-2,"Settings");
+        button(1,x,36,w/3-3,"HUD"); button(2,x+w/3+2,36,w/3-3,"Settings");
+        button(8,x+2*w/3+4,36,w/3-4,"Themes");
         int rows=Math.max(1,(height-152)/23), count=category==0?HudFeatures.ALL.length:OPTIONS.length;
         page=Math.max(0,Math.min(page,(count-1)/rows));
         CubeonHudConfig c=CubeonHudConfig.get();
@@ -45,6 +46,7 @@ public final class ClientScreen extends GlassScreen {
         else if(b.id==5) mc.displayGuiScreen(new HudEditor(this));
         else if(b.id==6) mc.displayGuiScreen(new FriendsScreen(this));
         else if(b.id==7) { CubeonHudConfig c=CubeonHudConfig.get(); c.zoomFactor=c.zoomFactor>=8?1.5f:c.zoomFactor+.5f; CubeonHudConfig.save(); initGui(); }
+        else if(b.id==8) mc.displayGuiScreen(new ThemeScreen(this));
         else if(overlays.containsKey(b.id)) { Hud189.toggle(overlays.get(b.id)); initGui(); }
         else if(toggles.containsKey(b.id)) {
             try { java.lang.reflect.Field f=CubeonHudConfig.class.getField(toggles.get(b.id)); f.setBoolean(CubeonHudConfig.get(),!f.getBoolean(CubeonHudConfig.get())); CubeonHudConfig.save(); }

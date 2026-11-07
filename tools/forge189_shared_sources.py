@@ -13,6 +13,7 @@ FILES = (
     "emotes/EmotePose.java", "emotes/EmoteState.java", "emotes/EmoteFavorites.java",
     "emotes/EmoteRoom.java", "cosmetics/CosmeticSelection.java", "cosmetics/RemoteCosmetics.java",
     "hud/CubeonHudConfig.java",
+    "ui/ClientTheme.java",
     "hud/CameraBlur.java",
 )
 
@@ -167,6 +168,11 @@ def generate(root, destination):
         text = text.replace("List.of(", "com.cubeon.compat.Collections8.list(")
         text = text.replace("List.copyOf(", "com.cubeon.compat.Collections8.copy(")
         text = text.replace("Map.of()", "java.util.Collections.emptyMap()")
+        text = text.replace('Map.of("ok", false, "error", ', 'com.cubeon.compat.Collections8.map("ok", false, "error", ')
+        text = text.replace('URLEncoder.encode(java.nio.file.Paths.get("").toAbsolutePath().normalize().toString(), StandardCharsets.UTF_8)', 'com.cubeon.compat.Collections8.encode(java.nio.file.Paths.get("").toAbsolutePath().normalize().toString())')
+        text = text.replace('java.net.URLEncoder.encode(kind, StandardCharsets.UTF_8)', 'com.cubeon.compat.Collections8.encode(kind)')
+        text = text.replace('var request = HttpRequest.', 'HttpRequest request = HttpRequest.')
+        text = text.replace('var response = http.send(', 'HttpResponse<String> response = http.send(')
         text = re.sub(r"(\w+)\.isBlank\(\)", r"com.cubeon.compat.Collections8.blank(\1)", text)
         text = text.replace("valid.toArray(String[]::new)", "valid.toArray(new String[0])")
         text = text.replace('"0".repeat(8 - text.length())', '"00000000".substring(text.length())')

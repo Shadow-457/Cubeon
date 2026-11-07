@@ -26,6 +26,7 @@ substitute for current code.
 | --- | --- |
 | Paths and configuration | `cubeon/paths.py`, `config.py`, `atomicio.py` |
 | Game installation and launch | `versions.py`, `mod_loaders.py`, `launch.py`, `jre.py`, `java_downloads.py` |
+| Runtime library integrity | `runtime_libraries.py`; declared classpath JAR verification/repair before Java spawn |
 | Native Rust beta | `rust_engine.py`; bundling in `tools/build_rust_engine.py` |
 | Instances and storage migration | `instances.py`, `storage.py`, `storage_layout.py`, `versions.py`, `content.py`; `ui/storage_migration.py` |
 | Mods and packs | `mods.py`, `modpacks.py`, `global_mod_cache.py`, `content.py` |
@@ -37,7 +38,7 @@ substitute for current code.
 | Player emotes | `emotes.py`, `mod/src/main/java/com/cubeon/client/emotes/`, `worker/cubeon-friends.js` |
 | World sharing | `p2p.py`, `invites.py`, `server.py`, `minekube.py`, `gate.py` |
 | Cosmetics | `cosmetics.py`, `skins.py`, `capes.py`, `gallery.py`, `profile.py`, `appearance.py`, `appearance_scene.py` |
-| In-game cosmetics library | `ingame_skins.py`, `ingame_capes.py`; shared mod `skins/`, `ui/SkinMenu.java`, HUD-era `SkinLibraryScreen.java` |
+| In-game cosmetics library | `ingame_skins.py`, `ingame_capes.py`, `ingame_cosmetics.py`; shared mod `skins/`, `ui/SkinMenu.java`, HUD-era `SkinLibraryScreen.java` |
 | Chat faces and artwork | `faces.py`, `icons.py`, `icon_loader.py`, `version_art.py` |
 | Activity and screenshots | `milestones.py`, `activity.py`, `library_stats.py`, `screenshot_gallery.py` |
 | UI infrastructure | `thread_safe_ui.py`, `background_refresh.py`, `dialogs.py`, `motion.py`, `theme.py`, `scrolling.py` |
@@ -403,6 +404,16 @@ keep builders consistent with the shared `THEME` contract.
   Discord supplies the app name; omit redundant `details="Cubeon"`. Launcher/game/exit
   activity carries the player's public Worker `/faces/<username>.png` as `small_image`,
   with their name in `small_text`; retain the cube artwork and playing timer.
+- After building the Java command, `runtime_libraries.ensure` checks declared JARs
+  inside the runtime `libraries/` directory, including inherited Fabric intermediary
+  dependencies without manifest hashes. SHA-1/size and ZIP/CRC checks use a bounded
+  stat-fingerprint cache; healthy launches need no network. Repairs use only trusted
+  declared Maven sources, verify staged bytes before atomic replacement, and stop
+  before Java on failure (16 repairs/60 seconds per Play). External symlinks/custom
+  classpath files are never replaced. `test_runtime_libraries.py` covers truncated
+  ZIP ends, CRC/checksum damage, offline/invalid replacements, inheritance and cache
+  invalidation. The installer may reuse hashless existing libraries; do not infer
+  that an Installed row certifies the full runtime classpath.
 - A completed loader install must ADOPT its resulting instance: `do_install_and_launch` calls
   `_adopt_installed_instance(target_version, loader_id)` whenever `target_version != version_id`, which
   moves the dropdown/`state["selected_version"]`, sets `state["mod_loader"]`, and persists
@@ -1140,7 +1151,7 @@ keep builders consistent with the shared `THEME` contract.
 
 ### Chat, cosmetics, and account data
 
-- Fabric Minecraft title menu → Cosmetics (also K → Cosmetics) has Skins/Capes tabs and uses authenticated
+- Fabric Minecraft title menu → Cosmetics (also K → Cosmetics) has Skins/Capes/Back/Shoulder tabs and uses authenticated
   `GET /skins?offset=` (12 uploaded skins plus Steve) and `POST /skin`
   (import/lookup/apply/model/delete). `InGameSkins` is
   launcher-owned by FriendsService; selecting a preview never applies it.
@@ -1165,6 +1176,16 @@ keep builders consistent with the shared `THEME` contract.
   wrong-session refusal, failed saves, opt-out, public lookup, safe deletion,
   corrected drag direction and GUI bounds. Active/default skins cannot be
   deleted through this bridge; changing a preview never selects it for gameplay.
+  `kind:"back"`/`"shoulder"` reuse the authenticated routes with None plus 12
+  catalogue items. `InGameCosmetics` shares the skin/cape lock, validates the
+  running instance and slot, and calls the launcher cosmetic setter with an
+  explicit game directory and strict mirror writes; save failure restores the
+  exact previous mirror bytes and config key. CSL opt-out does not block these
+  Cubeon Client cosmetics. `CosmeticPreview` prepares bundled geometry/textures
+  on the wardrobe worker; `SkinPreview` fits the full wing/pet orbit and caches
+  its raster. Show wings in preview hides only wing geometry, preserving equipped
+  IDs, packs, pets and the skin/cape; it stays selected across category changes
+  within the open wardrobe. The mod continues to read, never write, the mirror.
   `GET /skins?kind=cape&offset=` and `POST /skin` with `kind:"cape"` use the
   same authentication/session check. `InGameCapes` shares the skin service's
   lock and the launcher cape setters: built-in Cubeon/None plus 12 uploads,
@@ -1452,7 +1473,15 @@ keep builders consistent with the shared `THEME` contract.
   crouched orientations, slim/classic shoulder origins and all four production injection bodies.
   HUD screens share the Minecraft-free `ui/ClientUi`, `HudMenu` cards and `HudEditorChrome` toolbars;
   K/Friends use `MenuUi` opaque charcoal panels, Cubeon green accents and
-  Minecraft's default font. K is centered, capped at 560×320 GUI pixels (80% width,
+  Minecraft's default font. K → Themes uses shared `ui/ClientTheme.java`/`ThemeMenu.java`:
+  Default, Spring, Summer, Autumn, Winter and Custom. Six opaque RGB roles preview
+  locally; Apply validates six-digit hex and atomically writes the instance's
+  `config/cubeon-client-theme.properties`. Failed saves retain the active palette.
+  `CubeonHudConfig.load()` loads it; launcher palettes, HUD colors and world rendering
+  remain separate. 26.3 SDL input uses `HudMenu.inputControl()` for the focused hex
+  field as well as Search. Forge 1.8.9 uses the Java-8-lowered ClientTheme with
+  native `forge/ThemeScreen.java` and themed GlassScreen controls.
+  K is centered, capped at 560×320 GUI pixels (80% width,
   78% height); its adaptive card heights leave a gap above the pager. Friends is
   centered, capped at 660×380 (84% of smaller windows), with 16px horizontal/12px
   vertical margins. Rounded hover outlines sample `rounded-rims.png`; fills and
@@ -1587,6 +1616,14 @@ keep builders consistent with the shared `THEME` contract.
   height, distance, FOV and GUI scale; fixed screen pixels look oversized relative to distant names.
   Sample the rotated camera-down vector, not world Y. Added mob names use that same scale through
   the era-specific `CubeonHud.drawEnemyName`; thin distant bars retain a visible health fill.
+  Reject anchors behind the actual camera using the rotated −Z forward vector
+  before projecting: 26.x reversed-Z makes negative NDC depth an unreliable
+  behind-camera test. Screen/depth/size checks precede the four occlusion rays.
+  Yarn 1.21.6–1.21.11 uses `health-projection-modern`: the required WorldRenderer
+  argument mixin captures actual projection × view, current camera and partial
+  tick, including view bobbing/hurt tilt/FOV; native GameRenderer.project rebuilds
+  a camera-only, tick-zero projection and can jitter against the world. Check
+  positive clip W and consume each captured frame once, rejecting world changes.
   Native projection returns NDC, not pixels. Before 1.21.6, `health-legacy` (1.20–1.20.6),
   `health-counter` (1.21–1.21.4), `health-progress` (1.21.5) capture world projection before HUD render;
   never read the GUI's orthographic projection or reuse a frame across worlds. Hold the captured world

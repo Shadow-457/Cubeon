@@ -12,7 +12,7 @@ public final class HudMenu {
             OTHER_COSMETICS=19, CAMERA_BLUR=20, BLUR_INTENSITY=21, RESET=22,
             FRIENDS=23, DONE=24, SPRINT=53, CLOCK_MODE=54, SKINS=55, MENU_ANIMATIONS=56, OWN_NAME_TAG=57, BLUR_PLUS=58, BLUR_PLUS_STRENGTH=59,
             DETAIL=70, SEARCH=100, CATEGORY=101, PREVIOUS=107, NEXT=108, BACK=109,
-            ACTION_COUNT=110, NONE=-1;
+            THEMES=60, ACTION_COUNT=124, NONE=-1;
     private static final String[] CATEGORIES={"All", "HUD", "Player", "Render", "Movement", "Cosmetics"};
     private static final HudFeatures[] OVERLAYS=HudFeatures.values();
     public interface Settings {
@@ -67,20 +67,24 @@ public final class HudMenu {
     private long lastFrame=opened;
     private long changedAt=opened;
     private Settings latest;
+    private ThemeMenu themes;
     public Rect control(int action) { return action>=0&&action<ACTION_COUNT?controls[action]:null; }
+    public Rect inputControl() { return controls[themes==null?SEARCH:ThemeMenu.FIELD]; }
     public int selection() { return selection; }
     public String query() { return query; }
-    public boolean searchFocused() { return searchFocused; }
+    public boolean searchFocused() { return themes==null?searchFocused:themes.focused(); }
     public int pages() { return pages; }
     public int page() { return page; }
     public boolean back() {
+        if(themes!=null) { if(!themes.back()) { themes=null; dirty=true; } return true; }
         if(searchFocused) { searchFocused=false; return true; }
         if(detail>=0) { finishScale(); detail=-1; dirty=true; changedAt=System.nanoTime(); return true; }
         return false;
     }
-    public void focusSearch() { detail=-1; searchFocused=true; dirty=true; }
+    public void focusSearch() { if(themes!=null) return; detail=-1; searchFocused=true; dirty=true; }
     public void focusSearchShortcut() { focusSearch(); ignoreNextSlash=true; }
     public boolean type(int codepoint) {
+        if(themes!=null) return themes.type(codepoint);
         if(!searchFocused) return false;
         if(ignoreNextSlash) { ignoreNextSlash=false; if(codepoint=='/') return true; }
         if(!Character.isISOControl(codepoint)&&Character.isValidCodePoint(codepoint)&&query.codePointCount(0,query.length())<40) {
@@ -89,11 +93,18 @@ public final class HudMenu {
         return true;
     }
     public boolean backspace() {
+        if(themes!=null) return themes.backspace();
         if(!searchFocused) return false;
         if(!query.isEmpty()) query=query.substring(0,query.offsetByCodePoints(query.length(),-1));
         page=0; dirty=true; return true;
     }
     public boolean activate(int action) {
+        if(themes!=null) {
+            if(action==BACK) { themes=null; dirty=true; }
+            else { themes.activate(action); dirty=true; }
+            return true;
+        }
+        if(action==THEMES) { finishScale(); themes=new ThemeMenu(); searchFocused=false; dirty=true; return true; }
         if(action==SEARCH) { focusSearch(); return true; }
         searchFocused=false;
         if(action>=CATEGORY&&action<CATEGORY+CATEGORIES.length) { finishScale(); category=action-CATEGORY; page=0; detail=-1; dirty=true; changedAt=System.nanoTime(); return true; }
@@ -103,6 +114,7 @@ public final class HudMenu {
         return false;
     }
     public boolean scroll(int amount) {
+        if(themes!=null) return true;
         if(detail>=0) return false;
         int next=Math.max(0,Math.min(pages-1,page+amount));
         if(next!=page) changedAt=System.nanoTime();
@@ -118,6 +130,7 @@ public final class HudMenu {
         return detail>=0&&index>=0&&overlayOperation(action)==2&&controls[action]!=null?index:-1;
     }
     public boolean beginScale(double px,double py) {
+        if(themes!=null) return false;
         int action=hit(px,py), index=scaleOverlay(action);
         if(latest==null) return false;
         if(action==BLUR_PLUS_STRENGTH) index=-2;
@@ -166,6 +179,8 @@ public final class HudMenu {
         panelWidth=Math.min(w-32,Math.min(560,Math.max(288,Math.round(w*.80f))));
         panelHeight=Math.min(h-24,Math.min(320,Math.max(216,Math.round(h*.78f))));
         x=(w-panelWidth)/2; y=(h-panelHeight)/2; compact=panelWidth<496||panelHeight<290;
+        if(themes!=null) { themes.layout(controls,x,y,panelWidth,panelHeight); return; }
+        controls[THEMES]=new Rect(x+panelWidth-84,y+9,72,20);
         int footer=y+panelHeight-34, footerW=(panelWidth-48)/5;
         int[] footerIds={SKINS,RESET,EMOTES,FRIENDS,DONE};
         for(int i=0;i<5;i++) controls[footerIds[i]]=new Rect(x+12+i*(footerW+6),footer,footerW,24);
@@ -223,6 +238,11 @@ public final class HudMenu {
     }
     public void render(ClientUi.Canvas canvas,int w,int h,int mx,int my,Settings s) {
         if(featureLabels[0]==null) { for(int i=0;i<FEATURES.length;i++) featureLabels[i]=canvas.translate("cubeonclient.hud."+FEATURES[i].slot); dirty=true; } latest=s; layout(w,h);
+        if(themes!=null) {
+            drawOffset=0;
+            if(lastX!=mx || lastY!=my) { selection=hit(mx,my); lastX=mx; lastY=my; }
+            themes.render(canvas,controls,x,y,panelWidth,panelHeight,selection); return;
+        }
         long now=System.nanoTime();
         float ease=s.menuAnimations()?1-(float)Math.exp(-Math.min(.1f,(now-lastFrame)/1e9f)*18):1; lastFrame=now;
         float opening=s.menuAnimations()?progress(now,opened,220_000_000f):1;
@@ -285,6 +305,7 @@ public final class HudMenu {
             canvas.text((page+1)+" / "+pages,x+panelWidth/2,y+panelHeight-54,ClientUi.alpha(MenuUi.FAINT,fade));
         }
         canvas=frame;
+        action(canvas,THEMES,canvas.translate("cubeonclient.menu.themes"),false,fade);
         action(canvas,RESET,canvas.translate("cubeonclient.hud.reset"),false,fade);
         action(canvas,SKINS,canvas.translate("cubeonclient.cosmetics.title"),false,fade);
         action(canvas,EMOTES,canvas.translate("cubeonclient.hud.emotes"),false,fade);

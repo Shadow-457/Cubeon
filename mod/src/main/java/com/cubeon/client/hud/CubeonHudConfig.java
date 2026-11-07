@@ -143,6 +143,7 @@ public final class CubeonHudConfig {
 	}
 
 	public static void load() {
+		com.cubeon.client.ui.ClientTheme.load(FILE.resolveSibling("cubeon-client-theme.properties"));
 		try {
 			// New name first, then the pre-rename file (see LEGACY_FILE).
 			Path source = Files.exists(FILE) ? FILE : (Files.exists(LEGACY_FILE) ? LEGACY_FILE : null);

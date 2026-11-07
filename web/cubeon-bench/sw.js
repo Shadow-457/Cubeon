@@ -1,11 +1,11 @@
 /* Bump the version whenever a shipped application asset changes. */
 'use strict';
-var VERSION = 'cubeon-bench-v2-20261107-16';
+var VERSION = 'cubeon-bench-v2-20261108-20';
 var DEVELOPMENT = ['localhost','127.0.0.1','[::1]'].includes(self.location.hostname);
 var ROOT = new URL('./', self.location.href);
 var SHELL = ['index.html', 'workbench.css', 'app.css', 'studio.css', 'fonts/Inter.ttf', 'minecraft-textures.js', 'textures-manifest.js', 'textures-local.js',
   'local-store.js', 'texture-codec.js', 'texture-animation.js', 'archive.js', 'vendor/fflate.js', 'resource-packs.js',
-  'motion.js', 'minecraft-preview.js', 'color-chooser.js', 'animation-controls.js', 'editor.js', 'ui-dialog.js',
+  'motion.js', 'minecraft-preview.js', 'color-chooser.js', 'animation-controls.js', 'image-import.js', 'image-import.css', 'editor.js', 'ui-dialog.js',
   'workspace.js', 'editor-layout.js', 'app-shell.js', 'manifest.webmanifest', 'icons/bench-logo.png', 'icons/bench-32.png', 'icons/bench-192.png', 'icons/bench-512.png', 'icons/bench-maskable-512.png',
   'landing.html', 'landing.css', 'landing.js', 'vendor/three.module.min.js', 'landing-assets/editor-draw.webp', 'landing-assets/editor-animate.webp', 'landing-assets/editor-preview.webp',
   'textures/block/oak_planks.png', 'textures/block/moss_block.png', 'textures/block/stone.png', 'textures/block/bricks.png', 'textures/entity/player/wide/steve.png',

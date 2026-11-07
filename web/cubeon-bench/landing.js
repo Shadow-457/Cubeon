@@ -49,9 +49,9 @@
     document.querySelectorAll('.reveal').forEach(function (element) {reveal.observe(element);});
   }
   var captions = {
-    draw:'Pick a color. Put down a pixel. See where it takes you.',
-    animate:'A few frames, a little timing, and your idea comes to life.',
-    preview:'Turn it around. See your work in its own little world.'
+    draw:'Draw, erase, fill, and pick colors from the texture.',
+    animate:'Copy frames, change their order, and set playback timing.',
+    preview:'Inspect blocks, items, and skins from different angles.'
   };
   function selectDemo(button) {
     document.querySelectorAll('[data-demo]').forEach(function (tab) {
@@ -80,7 +80,7 @@
     paletteName = button.dataset.palette;
     document.querySelectorAll('[data-palette]').forEach(function (other) {other.setAttribute('aria-pressed', String(other === button));});
     art.dataset.palette = paletteName;
-    document.getElementById('sceneHint').textContent = button.title + ' palette. Make it your own.';
+    document.getElementById('sceneHint').textContent = button.title + ' palette. Drag to rotate.';
   }
   document.querySelectorAll('[data-palette]').forEach(function (button) {button.addEventListener('click', function () {paletteSelection(button);});});
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && window.isSecureContext) navigator.serviceWorker.register('sw.js', {scope:'./',updateViaCache:'none'}).catch(function () {});
@@ -152,9 +152,9 @@
     var scrollHost=document.getElementById('heroScroll'),paused=false,active=true,raf=0,previous=performance.now(),progress=0,targetProgress=0,angle=.0,targetAngle=.0,pointer=null,chapter=-1;
     var clamp=function(v){return Math.max(0,Math.min(1,v));},smooth=function(v){v=clamp(v);return v*v*(3-2*v);},lerp=function(a,b,t){return a+(b-a)*t;};
     var chapters=[
-      {title:'Small pixels.<br><span>Big possibilities.</span>',description:'A new look for the world you love. Draw textures, bring them to life, and make a skin that feels like you.',label:'The first pixel is yours.',count:'01 / Draw your idea'},
-      {title:'Make it move.<br><span>Frame by frame.</span>',description:'A little change. Another frame. Watch a still texture become something with a life of its own.',label:'One idea. A few frames. A little magic.',count:'02 / Give it a little life'},
-      {title:'Made by you.<br><span>Into your world.</span>',description:'From a few pixels to something that feels like you. Preview it, export it, and bring it into Minecraft.',label:'A few pixels. Something entirely yours.',count:'03 / Make it yours'}
+      {title:'Edit textures.<br><span>Build your pack.</span>',description:'Edit Minecraft textures, animate frames, and design skins. Preview your work in 3D and export it from your browser.',label:'Texture canvas',count:'01 / Texture editing'},
+      {title:'Animate textures.<br><span>Frame by frame.</span>',description:'Copy frames, adjust each image, and set the timing. Preview playback as you build the animation.',label:'Animation frames',count:'02 / Frame animation'},
+      {title:'Preview in 3D.<br><span>Export your pack.</span>',description:'Inspect textures on blocks, items, and skins. Export a PNG or a resource-pack ZIP for Minecraft Java.',label:'3D preview',count:'03 / Preview and export'}
     ];
     function setChapter(next){
       if(next===chapter)return;chapter=next;canvas.dataset.stage=String(next);

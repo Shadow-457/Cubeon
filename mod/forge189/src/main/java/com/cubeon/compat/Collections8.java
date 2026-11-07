@@ -42,6 +42,12 @@ public final class Collections8 {
         return text.toString();
     }
     private Collections8() { }
+    public static <K,V> Map<K,V> map(K first,V firstValue,K second,V secondValue) {
+        Map<K,V> result=new HashMap<K,V>();
+        result.put(Objects.requireNonNull(first),Objects.requireNonNull(firstValue));
+        result.put(Objects.requireNonNull(second),Objects.requireNonNull(secondValue));
+        return Collections.unmodifiableMap(result);
+    }
     @SafeVarargs public static <T> List<T> list(T... values) {
         for (T value : values) Objects.requireNonNull(value);
         return Collections.unmodifiableList(new ArrayList<T>(Arrays.asList(values)));

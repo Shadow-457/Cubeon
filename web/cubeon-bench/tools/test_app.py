@@ -211,6 +211,7 @@ def run(browser, url, artifacts):
     png_path = artifacts / 'edited-stone.png'
     download.value.save_as(png_path)
     page.locator('#texturePicker').set_input_files(str(png_path))
+    page.locator('#importApply').click()
     page.wait_for_function('document.querySelector("#toast").textContent.includes("Texture replaced")')
     encoded = page.evaluate('CB.find(' + json.dumps(pack_id) + ').edits["block/stone"]')
     assert encoded['w'] == 16 and encoded['h'] == 16
@@ -776,6 +777,7 @@ def main():
     parser.add_argument('--browser-path')
     parser.add_argument('--url')
     parser.add_argument('--logout-only', action='store_true', help='Run the session/save/logout regression only')
+    parser.add_argument('--image-import-only', action='store_true', help='Run the image importer workflow only')
     parser.add_argument('--artifacts', default='/tmp/cubeon-bench-app-checks')
     args = parser.parse_args()
     artifacts = Path(args.artifacts)
@@ -791,18 +793,23 @@ def main():
             browser = p.chromium.launch(executable_path=executable, headless=True, args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-crashpad-for-testing'])
             try:
                 url = args.url or f'http://127.0.0.1:{server.server_port}/cubeon-bench/'
-                if not args.logout_only:
+                from image_import_checks import run as run_image_import
+                if args.image_import_only:
+                    run_image_import(browser, url, artifacts, pixel, texture)
+                elif not args.logout_only:
                     run(browser, url, artifacts)
                     run_animation_frames(browser, url, artifacts)
                     run_keyboard(browser, url, artifacts)
-                run_logout(browser, url, artifacts)
+                    run_image_import(browser, url, artifacts, pixel, texture)
+                if not args.image_import_only:
+                    run_logout(browser, url, artifacts)
             finally:
                 browser.close()
     finally:
         if server:
             server.shutdown()
             server.server_close()
-    print('Logout workflow passed. Artifacts:' if args.logout_only else 'Complete app workflows passed. Artifacts:', artifacts)
+    print('Image importer passed. Artifacts:' if args.image_import_only else 'Logout workflow passed. Artifacts:' if args.logout_only else 'Complete app workflows passed. Artifacts:', artifacts)
 
 
 if __name__ == '__main__':

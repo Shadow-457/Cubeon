@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit;
 /** Immutable library pages and one asynchronous action at a time. No render-thread I/O. */
 public final class SkinLibrary implements AutoCloseable {
     public record Skin(String id, String name, boolean slim, String model, byte[] png, int[] pixels,
-                       int width, int height, boolean hidden, byte[] texturePng, CapeFrames animation, String gifPath) {
+                       int width, int height, boolean hidden, byte[] texturePng, CapeFrames animation, String gifPath,
+                       CosmeticPreview.Model cosmetic) {
         static Skin read(Object value) throws Exception {
             if (!(value instanceof Map<?, ?> raw)) throw new IllegalArgumentException("Invalid skin.");
             Object encoded = raw.get("png");
@@ -29,7 +30,8 @@ public final class SkinLibrary implements AutoCloseable {
             return new Skin(id, name, Boolean.TRUE.equals(raw.get("slim")), String.valueOf(raw.get("model")),
                     png, image.getRGB(0, 0, 64, image.getHeight(), null, 0, 64),
                     64, image.getHeight(), Boolean.TRUE.equals(raw.get("hidden")), texture, CapeFrames.read(raw.get("animation")),
-                    raw.get("gif_path") instanceof String file?file:null);
+                    raw.get("gif_path") instanceof String file?file:null,
+                    "back".equals(raw.get("model"))||"shoulder".equals(raw.get("model"))?CosmeticPreview.load(id):null);
         }
     }
     public record State(List<Skin> items, Skin applied, String selected, int offset, int total,
@@ -48,11 +50,22 @@ public final class SkinLibrary implements AutoCloseable {
     private boolean closed;
     private volatile String playerName = "Player";
     private volatile Skin playerSkin;
+    private volatile Skin playerCape;
+    private volatile List<CosmeticPreview.Model> worn=List.of();
     private final String kind;
     public SkinLibrary() { this("skin"); }
     public SkinLibrary(String kind) { this.kind=kind; }
     public boolean capes() { return "cape".equals(kind); }
+    public boolean cosmetics() { return "back".equals(kind)||"shoulder".equals(kind); }
     public Skin playerSkin() { return playerSkin; }
+    public Skin playerCape() { return playerCape; }
+    public List<CosmeticPreview.Model> previewItems() {
+        Skin chosen=state.selectedSkin();
+        var result=new ArrayList<CosmeticPreview.Model>();
+        for(var item:worn) if(!item.slot().equals(kind)) result.add(item);
+        if(chosen!=null && chosen.cosmetic()!=null) result.add(chosen.cosmetic());
+        return List.copyOf(result);
+    }
     public String playerName() { return playerName; }
     public State state() { return state; }
     public void open() { load(0); }
@@ -60,7 +73,7 @@ public final class SkinLibrary implements AutoCloseable {
         State s = state;
         state = new State(s.items(), s.applied(), id, s.offset(), s.total(), s.pageSize(), s.busy(), s.status(), s.support());
     }
-    public void load(int offset) { run(capes()?"Loading capes…":"Loading skins…", () -> Bridge.get().skinLibrary(offset, kind), false, false); }
+    public void load(int offset) { run(cosmetics()?"Loading cosmetics…":capes()?"Loading capes…":"Loading skins…", () -> Bridge.get().skinLibrary(offset, kind), false, false); }
     public void page(int direction) {
         State s = state;
         int offset = Math.max(0, s.offset() + direction * s.pageSize());
@@ -69,17 +82,18 @@ public final class SkinLibrary implements AutoCloseable {
     public void apply() {
         State s = state; Skin skin = s.selectedSkin();
         if (skin == null) return;
-        action("apply", capes()?"Applying cape…":"Applying skin…", "", "", true);
+        action("apply", cosmetics()?"Applying cosmetic…":capes()?"Applying cape…":"Applying skin…", "", "", true);
     }
     public void model() {
         Skin skin = state.selectedSkin();
-        if (capes() || skin == null || skin.id().isEmpty()) return;
+        if (capes() || cosmetics() || skin == null || skin.id().isEmpty()) return;
         String next = switch (skin.model()) { case "auto" -> "slim"; case "slim" -> "classic"; default -> "auto"; };
         action("model", "Updating arm model…", "model", next,
                 state.applied() != null && skin.id().equals(state.applied().id()));
     }
-    public void delete() { action("delete", capes()?"Deleting cape…":"Deleting skin…", "", "", false); }
+    public void delete() { if(!cosmetics()) action("delete", capes()?"Deleting cape…":"Deleting skin…", "", "", false); }
     public void export() {
+        if(cosmetics()) return;
         Skin skin = state.selectedSkin();
         if (skin == null) return;
         run(capes()?"Choose where to save the cape…":"Choose where to save the skin…", () -> {
@@ -97,9 +111,10 @@ public final class SkinLibrary implements AutoCloseable {
             return Map.of("cancelled", true, "status", capes()?"Cape exported.":"Skin exported.");
         }, false, false);
     }
-    public void lookup(String username) { if(!capes()) action("lookup", "Finding skin…", "username", username.trim(), false); }
-    public void importPath(Path file) { action("import", capes()?"Importing cape…":"Importing skin…", "path", file.toAbsolutePath().toString(), false); }
+    public void lookup(String username) { if(!capes()&&!cosmetics()) action("lookup", "Finding skin…", "username", username.trim(), false); }
+    public void importPath(Path file) { if(!cosmetics()) action("import", capes()?"Importing cape…":"Importing skin…", "path", file.toAbsolutePath().toString(), false); }
     public void chooseFile() {
+        if(cosmetics()) return;
         run(capes()?"Choose a cape image…":"Choose a skin PNG…", () -> {
             // tinyfd is part of Minecraft's LWJGL distribution. Reflection keeps
             // the shared UI independent of Minecraft's changing native versions.
@@ -143,14 +158,23 @@ public final class SkinLibrary implements AutoCloseable {
                 Skin applied = Skin.read(reply.get("applied"));
                 playerName = Json.str(reply, "username", "Player");
                 if(reply.get("player_skin") != null) playerSkin = Skin.read(reply.get("player_skin"));
-                if (live) { if(capes()) LiveCape.apply(applied); else LiveSkin.apply(applied); }
+                if(reply.get("player_cape") != null) playerCape = Skin.read(reply.get("player_cape"));
+                if(cosmetics() && reply.get("cosmetics") instanceof Map<?,?> selections) {
+                    var models=new ArrayList<CosmeticPreview.Model>();
+                    for(Object id:selections.values()) if(id instanceof String text) {
+                        var model=CosmeticPreview.load(text);
+                        if(model!=null) models.add(model);
+                    }
+                    worn=List.copyOf(models);
+                }
+                if (live && !cosmetics()) { if(capes()) LiveCape.apply(applied); else LiveSkin.apply(applied); }
                 String selected = selectResult ? Json.str(reply, "selected", applied.id()) : applied.id();
-                String status = live ? (capes()?"Cape applied.":"Skin applied.") : selectResult ? (capes()?"Ready. Choose Confirm to wear this cape.":"Ready. Choose Confirm to use this skin.") : "";
+                String status = live ? (cosmetics()?"Cosmetic applied.":capes()?"Cape applied.":"Skin applied.") : selectResult ? (capes()?"Ready. Choose Confirm to wear this cape.":"Ready. Choose Confirm to use this skin.") : "";
                 state = new State(List.copyOf(items), applied, selected, (int) Json.num(reply, "offset"),
                         (int) Json.num(reply, "total"), Math.max(1, (int) Json.num(reply, "page_size")), false,
                         status, Json.bool(reply, "skin_support", true));
             } catch (Throwable failure) {
-                finish(before, capes()?"Couldn't open the cape library. Try again or import an image.":"Couldn't open the skin library. Try again or drop a PNG onto this screen.");
+                finish(before, cosmetics()?"Couldn't open cosmetics. Try Refresh.":capes()?"Couldn't open the cape library. Try again or import an image.":"Couldn't open the skin library. Try again or drop a PNG onto this screen.");
             }
         });
     }

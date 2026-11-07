@@ -32,6 +32,12 @@ public final class EnemyHealthBar {
         return previous + (current - previous) * delta;
     }
 
+    /** NDC depth alone cannot reject behind-camera points with reversed-Z projections. */
+    public static boolean inFront(double x, double y, double z, org.joml.Vector3fc forward) {
+        double distance = x * forward.x() + y * forward.y() + z * forward.z();
+        return Double.isFinite(distance) && distance > 0.05;
+    }
+
     public static float fraction(float health, float maximum) {
         if (!Float.isFinite(health) || !Float.isFinite(maximum) || maximum <= 0) return 0;
         return Math.max(0, Math.min(1, health / maximum));

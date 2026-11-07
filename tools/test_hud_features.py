@@ -109,7 +109,7 @@ public class Probe {
                 path.write_text(text)
             shared = MAIN / 'java/com/cubeon/client'
             sources = [*folder.rglob('*.java'), shared/'hud/HudFeatures.java', shared/'hud/CubeonHudConfig.java',
-                       shared/'hud/ExtraHud.java', shared/'ui/ClientUi.java', shared/'emotes/EmoteFavorites.java',
+                       shared/'hud/ExtraHud.java', shared/'ui/ClientTheme.java', shared/'ui/ClientUi.java', shared/'emotes/EmoteFavorites.java',
                        shared/'emotes/EmoteState.java', shared/'emotes/EmotePose.java', shared/'Bridge.java', shared/'Json.java']
             result = subprocess.run(['javac','--release','17','-cp',str(gson),'-d',str(folder),*map(str,sources)],capture_output=True,text=True,timeout=60)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)

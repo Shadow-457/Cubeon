@@ -227,8 +227,9 @@
     p.thumb=t.toDataURL();
     p.thumbTexture=d.id;
     if(changed)CB.recordTextureEdit(p,d.id);
-    CB.save();sync();renderTabs();renderLeft();
+    var saved=CB.save();sync();renderTabs();renderLeft();
     if(E.cur==='preview')buildPreview();
+    return saved;
   }
   function paintSwatch(){
     var values=[1,3,5].map(function(i){return parseInt(E.color.slice(i,i+2),16)});
@@ -489,7 +490,7 @@
     if(b=t.closest('[data-texture-color]')){setColor(b.dataset.textureColor);setAlpha(Number(b.dataset.alpha)/255*100);return}
     if(t.closest('#texturePaletteMore')&&E.doc){E.doc.palettePage=((E.doc.palettePage||0)+1)%Math.ceil(E.doc.palette.length/PALETTE_PAGE);textureColors();return}
     if(t.closest('#tintToggle')&&E.doc){var d=E.doc;d.viewTint=!d.viewTint;E.p.tintView=E.p.tintView||{};E.p.tintView[d.id]=d.viewTint;CB.save();redraw();sync();renderLeft();renderTabs();ovl();return}
-    if(t.closest('#textureImport')){$('#texturePicker').value='';$('#texturePicker').click();return}
+    if(t.closest('#textureImport,#canvasImport')){importImage();return}
     if(t.closest('#textureExport')){exportPNG();return}
     if(t.closest('#edDetails')){picker.close(false);CB.openDetails(E.p);return}
     if(t.closest('#edExport')){picker.close(false);window.ResourcePacks.exportProject(E.p);return}
@@ -520,13 +521,17 @@
   $('#edZoom').addEventListener('input',function(){setZoom(+this.value,false)});
   $('#brushCustom').addEventListener('input',function(){E.size=Math.max(1,Math.min(32,Math.round(Number(this.value)||1)));ovl();});
   $('#brushCustom').addEventListener('change',sync);
-  $('#texturePicker').addEventListener('change',function(){if(this.files[0])replacePNG(this.files[0]);});
+  $('#texturePicker').addEventListener('change',function(){if(this.files[0])importImage(this.files[0]);this.value='';});
   $('#edAlpha').addEventListener('input',function(){setAlpha(+this.value)});
   $('#edHex').addEventListener('input',function(){var v=this.value.trim();if(v[0]!=='#')v='#'+v;if(/^#[0-9a-f]{6}$/i.test(v))setColor(v)});
   window.addEventListener('resize',function(){if(ed.classList.contains('show'))renderLeft()});
   function releaseSpaceHand(){if(spaceHand===null)return;endPan();E.hand=spaceHand;spaceHand=null;sync();ovl();}
   document.addEventListener('keyup',function(e){if(e.code==='Space'||e.key===' ')releaseSpaceHand()});
   window.addEventListener('blur',releaseSpaceHand);
+  document.addEventListener('paste',function(e){
+    if(e.defaultPrevented||!ed.classList.contains('show')||document.querySelector('dialog[open]')||$('#modal').classList.contains('show')||!picker.panel.hidden||e.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])'))return;
+    var files=e.clipboardData&&Array.from(e.clipboardData.files);if(files&&files.length===1){e.preventDefault();importImage(files[0]);}
+  });
   document.addEventListener('keydown',function(e){
     if(!ed.classList.contains('show'))return;
     if(e.defaultPrevented||e.isComposing||document.querySelector('dialog[open]')||$('#modal').classList.contains('show')||!picker.panel.hidden||E.loading)return;
@@ -537,6 +542,7 @@
     if(mod&&k==='z'){e.preventDefault();if(e.shiftKey)redo();else undo();return}
     if(mod&&k==='y'){e.preventDefault();redo();return}
     if(mod&&!e.altKey&&k==='f'){e.preventDefault();$('#edQ').focus();$('#edQ').select();return}
+    if(mod&&e.shiftKey&&!e.altKey&&k==='i'){e.preventDefault();if(!e.repeat)importImage();return}
     if(mod&&k==='e'&&(e.shiftKey||e.altKey)){e.preventDefault();if(!e.repeat){if(e.altKey)exportPNG();else window.ResourcePacks.exportProject(E.p)}return}
     if(mod&&E.doc&&E.doc.layout&&!e.altKey&&(k==='d'||e.shiftKey&&(k==='c'||k==='x'||k==='v'))){
       e.preventDefault();if(!e.repeat)frameAction({d:'duplicate',c:'copy',x:'cut',v:'paste'}[k]);return;
@@ -598,6 +604,7 @@
     ['pvReset','F 0','Reset 3D view · F / 0'],['pvAuto','Space','Toggle auto-rotation · Space in 3D'],
     ['canvasHelp','F1 Shift+Slash','Help and keyboard shortcuts · F1 / ?']
   ].forEach(function(item){var element=document.getElementById(item[0]);element.setAttribute('aria-keyshortcuts',item[1]);element.title=item[2];});
+  $('#canvasImport').setAttribute('aria-keyshortcuts','Control+Shift+I Meta+Shift+I');
 
   /* ---------- open / close ---------- */
   async function readPNG(file){
@@ -610,17 +617,26 @@
     try{await image.decode();var canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;var context=canvas.getContext('2d');context.drawImage(image,0,0);return context.getImageData(0,0,canvas.width,canvas.height)}
     finally{URL.revokeObjectURL(url)}
   }
-  async function replacePNG(file){
-    var d=E.doc,token=activeToken;if(!d||E.cur==='preview')return;
+  async function importImage(file){
+    var d=E.doc,token=activeToken;if(!d||E.cur==='preview'||E.loading){CB.toast('Open a texture on the canvas first, then import your image.');return;}
+    if(drag)end();picker.close(false);releaseSpaceHand();endPan();
+    var version=d.version,project=E.p,frame=d.layout?TA.frameRect(d.layout,d.frame):null;
     try{
-      var image=await readPNG(file);if(token!==activeToken||E.doc!==d)return;
+      var shared=d.layout?d.layout.steps.filter(function(step){return step.index===d.layout.steps[Math.min(d.frame,d.layout.steps.length-1)].index;}).length:1;
+      var result=await ImageImporter.open({name:d.e.n||d.id,path:d.e.src,w:d.w,h:d.h,skin:E.p.type==='skin',animated:!!d.layout,frame:frame,frameNumber:d.frame,shared:shared,tintColor:MT.tintColor(d.e),viewTint:d.viewTint},file);
+      if(!result)return;
+      if(token!==activeToken||E.doc!==d||E.p!==project||d.version!==version){CB.toast('The open texture changed. Import the image again into the current texture.');return;}
+      var image=result.data;
       if(E.p.type==='skin'&&(image.width!==64||image.height!==64))throw new Error('Skins need a 64×64 Minecraft layout.');
-      if(d.e.animation&&(image.width!==d.w||image.height!==d.h))throw new Error('Animated textures need the same sheet dimensions. Edit frames with the animation controls.');
-      if(image.width!==d.w||image.height!==d.h){
-        var accepted=await AppDialog.open({title:'Replace texture PNG',html:'<p>Replace this '+d.w+'×'+d.h+' texture with your '+image.width+'×'+image.height+' PNG. You can undo the replacement.</p>',accept:'Replace PNG'});
-        if(!accepted||token!==activeToken||E.doc!==d)return;
+      if(d.layout){
+        var r=result.scope==='frame'?frame:{x:0,y:0,w:d.w,h:d.h};
+        if(image.width!==r.w||image.height!==r.h)throw new Error('Keep the current dimensions to preserve this animation.');
+        var next=clone(d.data);for(var y=0;y<r.h;y++)next.data.set(image.data.subarray(y*r.w*4,(y+1)*r.w*4),((r.y+y)*d.w+r.x)*4);image=next;
       }
-      if(drag)end();pushUndo(d);d.data=image;d.selection=null;redraw();setZoom(fitZoom(d),true);commit(d);CB.toast('Texture replaced. Undo restores the previous image.');
+      pushUndo(d);d.data=image;d.selection=null;redraw();setZoom(fitZoom(d),true);ovl();
+      var saved=await commit(d);
+      if(saved)CB.toast(result.scope==='frame'?'Image applied to frame '+(d.frame+1)+'. Undo restores its pixels.':'Texture replaced. Image applied and saved locally. Undo restores the previous pixels.');
+      else CB.toast('Image applied, but it could not be saved locally. Export a backup or retry saving.');
     }catch(error){CB.toast(error.message)}
   }
   async function exportPNG(){
@@ -638,7 +654,7 @@
     endPan();E.hand=false;
     lastTool=null;$$('#edRight details').forEach(function(details){details.open=false});
     if(drag)end();
-    var token=++activeToken;preview.stop();picker.close(false);animationControls.stop();
+    var token=++activeToken;preview.stop();picker.close(false);ImageImporter.close();animationControls.stop();
     if(packSession){packSession.release();packSession=null;}
     E.loading=true;E.doc=null;E.catalog=MT;$('#edQ').disabled=true;
     E.p=p;p.edits=p.edits||{};E.docs={};E.pending={};BC={};E.faceModel=null;E.open=[];E.cur=null;E.last=null;E.q='';E.page=0;E.tool='pencil';E.size=1;E.mx=E.my=false;E.alpha=100;E.grid=D.set.grid!==false;hover=null;animationControls.refresh();
@@ -670,12 +686,12 @@
   }
   function close(){
     releaseSpaceHand();endPan();E.hand=false;
-    if(drag)end();activeToken++;preview.stop();picker.close(false);animationControls.stop();
+    if(drag)end();activeToken++;preview.stop();picker.close(false);ImageImporter.close();animationControls.stop();
     if(E.p&&!E.loading)persist();
     ed.classList.remove('show','l-open','r-open','frames-open');document.body.style.overflow='';
     $('#app>.main').inert=false;$('#app>.sb').inert=false;
     if(packSession){packSession.release();packSession=null;}
     E.doc=null;E.p=null;E.loading=false;E.docs={};E.pending={};BC={};E.catalog=MT;drag=null;CB.save();CB.renderAll();
   }
-  window.Ed={open:open,close:close,refreshDetails:refreshDetails,readPNG:readPNG,replacePNG:replacePNG,exportPNG:exportPNG,selectionAction:selectionAction,refreshLayout:function(light){if(E.p&&!E.loading&&ed.classList.contains('show')){if(!light)renderLeft();if(E.cur==='preview')preview.transform();else fitViewport()}},prepareExport:function(){if(drag)end();CB.save()}};
+  window.Ed={open:open,close:close,refreshDetails:refreshDetails,readPNG:readPNG,importImage:importImage,replacePNG:importImage,exportPNG:exportPNG,selectionAction:selectionAction,refreshLayout:function(light){if(E.p&&!E.loading&&ed.classList.contains('show')){if(!light)renderLeft();if(E.cur==='preview')preview.transform();else fitViewport()}},prepareExport:function(){if(drag)end();CB.save()}};
 })();

@@ -192,6 +192,41 @@ public class UiTest {
     check(variantCanvas.greenTints==0,"Favorite selection and editor highlights remain grey");
    }
   }
+  for(int[] size:new int[][]{{320,240},{520,304},{640,360},{960,540}}) {
+   int w=size[0],h=size[1];HudMenu menu=new HudMenu();Canvas canvas=new Canvas(w,h,font,labels);
+   menu.render(canvas,w,h,0,0,settings);
+   check(menu.control(HudMenu.THEMES)!=null,"Themes is directly reachable in the client menu");
+   menu.activate(HudMenu.THEMES);
+   for(int preset=0;preset<6;preset++) {
+    menu.activate(ThemeMenu.PRESET+preset);menu.render(canvas,w,h,0,0,settings);bounds(menu,w,h);
+    check(MenuUi.ACCENT==0xFF83C13D,"Draft preview cannot recolor other menus before Apply");
+   }
+   check(menu.activate(ThemeMenu.FIELD),"Custom hex editor focuses");
+   for(int cp:"12abEF".codePoints().toArray())check(menu.type(cp),"Custom hex accepts input");
+   menu.activate(ThemeMenu.APPLY);check(ClientTheme.selected()==5,"Apply selects Custom");
+   check(ClientTheme.colors()[0]==0x12ABEF && MenuUi.ACCENT==0xFF12ABEF,"Custom color updates actual menu palette");
+   menu.activate(ThemeMenu.ROLE+1);menu.type('0');menu.activate(ThemeMenu.APPLY);
+   check(ClientTheme.colors()[1]!=0,"Incomplete hex cannot apply");
+   menu.back();menu.back();menu.render(canvas,w,h,0,0,settings);
+   check(menu.control(HudMenu.THEMES)!=null,"Escape returns to feature catalogue");
+   ClientTheme.apply(0,null);MenuUi.refreshTheme();
+  }
+  java.nio.file.Path themeFile=java.nio.file.Path.of(args[0]).resolveSibling("theme.properties");
+  ClientTheme.load(themeFile);
+  check(ClientTheme.apply(4,null),"Winter theme saves");
+  check(java.nio.file.Files.readString(themeFile).contains("theme=4"),"Instance theme persists on disk");
+  int[] custom=ClientTheme.colors();custom[0]=0x123456;
+  check(ClientTheme.apply(5,custom),"Custom colors save");
+  ClientTheme.load(themeFile.resolveSibling("different.properties"));ClientTheme.load(themeFile);
+  check(ClientTheme.selected()==5 && ClientTheme.colors()[0]==0x123456,"Theme and custom colors survive restart");
+  ClientTheme.apply(0,null);MenuUi.refreshTheme();
+  java.nio.file.Path corrupt=themeFile.resolveSibling("corrupt.properties");
+  java.nio.file.Files.writeString(corrupt,"theme=999\ncolor.0=oops\n");ClientTheme.load(corrupt);
+  check(ClientTheme.selected()==0 && ClientTheme.colors()[0]==0x83C13D,"Malformed theme restores safe defaults");
+  java.nio.file.Path blocked=themeFile.resolveSibling("blocked");java.nio.file.Files.writeString(blocked,"file");
+  ClientTheme.load(blocked.resolve("theme.properties"));
+  check(!ClientTheme.apply(1,null) && ClientTheme.selected()==0,"Failed persistence retains active theme");
+  MenuUi.refreshTheme();
   motion[0]=false;
   HudMenu still=new HudMenu();Canvas first=new Canvas(640,360,font,labels),second=new Canvas(640,360,font,labels);
   still.render(first,640,360,0,0,settings);still.render(second,640,360,0,0,settings);
@@ -204,6 +239,7 @@ public class UiTest {
             sources = [harness, shared / "Json.java", shared / "Bridge.java", shared / "hud/HudFeatures.java",
                        *sorted((shared / "ui").glob("*.java")), *sorted((shared / "emotes").glob("*.java"))]
             sources.extend(sorted((shared / "skins").glob("*.java")))
+            sources.extend(shared / "cosmetics" / name for name in ("CosmeticCatalog.java", "CosmeticGeometry.java"))
             result = subprocess.run(["javac", "--release", "17", "-d", str(folder), *map(str, sources)], capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run(["java", "-Djava.awt.headless=true",

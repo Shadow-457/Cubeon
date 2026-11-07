@@ -77,8 +77,8 @@ import net.minecraft.scoreboard.AbstractTeam;
 public class LivingEntity {
     public boolean alive=true, spectator, invisible, sneaking, allied, occluded, custom, named;
     public float health=10, maximum=20;
-    public Vec3d pos = new Vec3d(0,1,3);
-    public double lastRenderX, lastRenderY=1, lastRenderZ=3;
+    public Vec3d pos = new Vec3d(0,1,-3);
+    public double lastRenderX, lastRenderY=1, lastRenderZ=-3;
     public Vec3d physicsPos;
     public double getX() { return pos.x; }
     public double getY() { return pos.y; }
@@ -203,9 +203,9 @@ public class MinecraftClient {
         public Camera camera = new Camera();
         public Camera getCamera() { return camera; }
         public Vec3d project(Vec3d point) {
-            var facing = new org.joml.Vector3d(point.x, point.y - 3.3, point.z - 3)
+            var facing = new org.joml.Vector3d(point.x, point.y - 3.3, point.z + 3)
                     .rotate(new org.joml.Quaterniond(camera.rotation).conjugate());
-            double perspective = Math.abs(3 + facing.z) / 3;
+            double perspective = Math.abs(-3 + facing.z) / 3;
             return new Vec3d(horizontal + facing.x * .8 / perspective, facing.y * .8 / perspective, depth);
         }
     }
@@ -313,14 +313,14 @@ public class HealthTest {
         // Crossing the former 2/3-pixel height threshold cannot collapse the fill.
         float previousFillHeight=0;
         for(int i=0;i<=20;i++) {
-            enemy.pos=new Vec3d(0,1,3/(.60+i*.0025)); render();
+            enemy.pos=new Vec3d(0,1,-3/(.60+i*.0025)); render();
             var preciseFill=draw.precise.get(1);
             float fillHeight=preciseFill[3]-preciseFill[1];
             require(fillHeight>=.999F,"Distant health fill stays visible");
             if(i>0) require(Math.abs(fillHeight-previousFillHeight)<.02F,"Smooth resize without inset flicker");
             previousFillHeight=fillHeight;
         }
-        enemy.pos=new Vec3d(0,1,3);
+        enemy.pos=new Vec3d(0,1,-3);
         client.gameRenderer.camera.position=new Vec3d(8,1.6,0);
         client.world.cameraBlocked=true; hidden(enemy,"Camera wall occlusion, even with player line of sight");
         client.world.cameraBlocked=false;
@@ -331,16 +331,16 @@ public class HealthTest {
         client.world.edgeBlocked=false;
         // Render history and physics history differ during entity movement.
         interpolationProbe=true;
-        enemy.lastRenderY=0; enemy.pos=new Vec3d(0,2,3); enemy.physicsPos=new Vec3d(0,-5,3);
+        enemy.lastRenderY=0; enemy.pos=new Vec3d(0,2,-3); enemy.physicsPos=new Vec3d(0,-5,-3);
         render();
         require(Arrays.equals(draw.fills.get(0),background),"Bar follows vanilla render interpolation, ignoring physics history");
         interpolationProbe=false; enemy.physicsPos=null;
-        enemy.pos=new Vec3d(0,1,1.5); render();
+        enemy.pos=new Vec3d(0,1,-1.5); render();
         require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==72 && draw.fills.get(0)[3]-draw.fills.get(0)[1]==8,"Near bar scales with name tag");
-        enemy.pos=new Vec3d(0,1,6); render();
+        enemy.pos=new Vec3d(0,1,-6); render();
         require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==18 && draw.fills.get(0)[3]-draw.fills.get(0)[1]==2,"Far bar keeps same name-tag proportions");
         require(draw.fills.size()==2,"Thin distant bar retains health fill");
-        enemy.pos=new Vec3d(0,1,3);
+        enemy.pos=new Vec3d(0,1,-3);
         client.gameRenderer.camera.rotation.rotateX((float)Math.PI / 3); render();
         require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==36,"Camera pitch preserves camera-facing label size");
         client.gameRenderer.camera.rotation.identity().rotateZ((float)Math.PI / 4); render();
@@ -359,7 +359,11 @@ public class HealthTest {
         enemy.occluded=true; hidden(enemy,"Through wall"); enemy.occluded=false;
         enemy.team=new AbstractTeam(); enemy.team.rule=AbstractTeam.VisibilityRule.NEVER;
         hidden(enemy,"Team hides name tag"); enemy.team=null;
-        enemy.pos=new Vec3d(0,1,25); hidden(enemy,"Beyond range"); enemy.pos=new Vec3d(0,1,3);
+        enemy.pos=new Vec3d(0,1,-25); hidden(enemy,"Beyond range"); enemy.pos=new Vec3d(0,1,-3);
+        client.gameRenderer.depth=-.01; enemy.pos=new Vec3d(0,1,3);
+        hidden(enemy,"Behind-camera negative reversed-Z depth cannot mirror into HUD");
+        enemy.pos=new Vec3d(0,1,-3); client.gameRenderer.depth=.01;
+        render(); require(draw.fills.size()==2,"Visible reversed-Z depth remains supported");
         client.gameRenderer.depth=1.01; hidden(enemy,"Behind camera/outside depth"); client.gameRenderer.depth=.5;
         client.gameRenderer.horizontal=2; hidden(enemy,"Offscreen"); client.gameRenderer.horizontal=0;
         client.currentScreen=new Object(); hidden(enemy,"Menu open"); client.currentScreen=null;
@@ -367,11 +371,11 @@ public class HealthTest {
         var world=client.world; client.world=null; render(); require(draw.fills.isEmpty(),"No world"); client.world=world;
         Hostile mob=new Hostile(); client.world.entities=new ArrayList<>(List.of(mob)); render();
         require(draw.fills.size()==2 && draw.labels.size()==1 && draw.labels.get(0)[1]+9<draw.fills.get(0)[1],"Mob name above bar");
-        mob.pos=new Vec3d(0,1,6); render();
+        mob.pos=new Vec3d(0,1,-6); render();
         require(draw.labels.get(0)[2]==500 && draw.fills.get(0)[2]-draw.fills.get(0)[0]==18,"Distant mob name and bar share scale");
-        mob.pos=new Vec3d(0,1,1.5); render();
+        mob.pos=new Vec3d(0,1,-1.5); render();
         require(draw.labels.get(0)[2]==2000 && draw.fills.get(0)[2]-draw.fills.get(0)[0]==72,"Near mob name and bar share scale");
-        mob.pos=new Vec3d(0,1,3);
+        mob.pos=new Vec3d(0,1,-3);
         mob.custom=true; mob.named=true; render(); require(draw.labels.isEmpty(),"No duplicate visible custom mob name");
         mob.named=false; render(); require(draw.labels.size()==1,"Hidden custom tag gets a name");
         client.world.entities=new ArrayList<>();
@@ -458,7 +462,7 @@ class EnemyHealthTests(unittest.TestCase):
                 sources += [str(MAIN / 'java/com/cubeon/client/hud' / (name + '.java'))
                             for name in ('EnemyHealthBar', 'CubeonHudConfig', 'HudFeatures')]
                 sources += [str(MAIN / 'java/com/cubeon/client' / name) for name in
-                            ('Json.java', 'Bridge.java', 'emotes/EmoteState.java',
+                            ('Json.java', 'Bridge.java', 'ui/ClientTheme.java', 'emotes/EmoteState.java',
                              'emotes/EmotePose.java', 'emotes/EmoteFavorites.java')]
                 sources.append(str(MAIN / ('java-overlay-api-' + namespace) /
                                    'com/cubeon/client/hud/EnemyHealthRenderer.java'))
@@ -519,7 +523,7 @@ public class LegacyTest {
     static MinecraftClient client = new MinecraftClient();
     static DrawContext draw = new DrawContext();
     static WorldRenderEvents.Context context = new WorldRenderEvents.Context();
-    static void capture() { context.world=client.world; WorldRenderEvents.AFTER_ENTITIES.callback.accept(context); }
+    static void capture() { client.gameRenderer.camera.rotation.set(context.camera.rotation); context.world=client.world; WorldRenderEvents.AFTER_ENTITIES.callback.accept(context); }
     static void render() {
         for(var entity:client.world.entities) {
             entity.lastRenderX=entity.pos.x;entity.lastRenderY=entity.pos.y;entity.lastRenderZ=entity.pos.z;
@@ -546,12 +550,25 @@ public class LegacyTest {
         System.out.println("World projection, camera rotation, behind-camera rejection and frame/world lifetime passed.");
     }
 }'''
-        for era in ('legacy', 'counter', 'progress'):
+        for era in ('legacy', 'counter', 'progress', 'modern'):
             with self.subTest(era=era), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 fixtures = {key: value for key, value in FIXTURES.items() if key != 'probe/HealthTest.java'}
                 fixtures['net/fabricmc/fabric/api/client/rendering/v1/WorldRenderEvents.java'] = event
                 fixtures['probe/LegacyTest.java'] = probe
+                if era == 'modern':
+                    fixtures['probe/LegacyTest.java'] = probe.replace('LegacyHealthProjection.register();', '').replace('LegacyHealthProjection.render', 'WorldHealthProjection.render').replace('WorldRenderEvents.AFTER_ENTITIES.callback.accept(context);', 'WorldHealthProjection.capture(new org.joml.Matrix4f().rotation(new org.joml.Quaternionf(context.camera.rotation).conjugate()),context.projectionMatrix(),context.camera.getPos(),client.world,.5F);').replace('System.out.println("World projection', '''
+        context.camera.rotation.identity();client.gameRenderer.camera.rotation.identity();
+        enemy.pos=new Vec3d(0,1,-5); CubeonHudConfig.get().showEnemyHealth=true;
+        capture(); render(); float normalX=draw.precise.get(0)[0]; float normalWidth=draw.precise.get(0)[2]-normalX;
+        var projection=context.projectionMatrix(); var view=new org.joml.Matrix4f().rotateZ(.06F);
+        WorldHealthProjection.capture(view,projection,context.camera.getPos(),client.world,.5F);render();
+        require(Math.abs(draw.precise.get(0)[0]-normalX)>.1F,"Actual world view tilt moves HUD anchor");
+        WorldHealthProjection.capture(new org.joml.Matrix4f(),new org.joml.Matrix4f().perspective((float)Math.PI/3,2,.05F,100),context.camera.getPos(),client.world,.5F);render();
+        require(draw.precise.get(0)[2]-draw.precise.get(0)[0]>normalWidth*1.5F,"Current rendered FOV controls bar size");
+        capture(); var previous=client.world;client.world=new ClientWorld();render();client.world=previous;render();
+        require(draw.fills.isEmpty(),"Rejected world frame cannot reappear after world returns");
+        System.out.println("World projection''')
                 sources = []
                 for relative, source in fixtures.items():
                     path = root / relative
@@ -561,11 +578,11 @@ public class LegacyTest {
                 sources += [str(MAIN / 'java/com/cubeon/client/hud' / (name + '.java'))
                             for name in ('EnemyHealthBar', 'CubeonHudConfig', 'HudFeatures')]
                 sources += [str(MAIN / 'java/com/cubeon/client' / name) for name in
-                            ('Json.java', 'Bridge.java', 'emotes/EmoteState.java',
+                            ('Json.java', 'Bridge.java', 'ui/ClientTheme.java', 'emotes/EmoteState.java',
                              'emotes/EmotePose.java', 'emotes/EmoteFavorites.java')]
                 sources += [str(MAIN / ('java-overlay-' + overlay) / 'com/cubeon/client/hud' / filename)
                             for overlay, filename in [('api-yarn', 'EnemyHealthRenderer.java'),
-                                                       ('health-' + era, 'LegacyHealthProjection.java')]]
+                                                       ('health-projection-modern' if era == 'modern' else 'health-' + era, 'WorldHealthProjection.java' if era == 'modern' else 'LegacyHealthProjection.java')]]
                 classes = root / 'classes'
                 libraries = os.pathsep.join((str(GSON), str(JOML)))
                 compiled = subprocess.run(['javac', '--release', '17', '-cp', libraries,

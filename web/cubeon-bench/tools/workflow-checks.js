@@ -70,7 +70,7 @@
       assert(archive['extras/reference.bin'].length === 6291456 && parse(archive['pack.mcmeta']).pack.pack_format === 34, 'Restarted project cannot export its complete resource pack');
       pass('large edits, imported binary files, models, and playable ZIP export after a full browser restart');
     } else {
-      assert(!$('#cubeonAuth') && !$('#google') && $('#guest').textContent.includes('Open my bench'), 'Local app should open without an unfinished sign-in flow');
+      assert(!$('#cubeonAuth') && !$('#google') && $('#guest').textContent.includes('Open Bench'), 'Local app should open without an unfinished sign-in flow');
       snapshot('local-welcome');
       await window.enterApp({name: 'Studio'}); await until(() => $('#app').classList.contains('on'), 'App did not open');
       assert(!$('#home-lib') && $('[data-go="library"]'), 'Texture browsing belongs in the Library view');

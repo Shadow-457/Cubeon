@@ -162,6 +162,12 @@
   "cubeonclient.skins.right_pants": "Right trouser layer",
   "cubeonclient.skins.disabled": "Enable CustomSkinLoader in launcher settings to apply skins",
   "cubeonclient.cosmetics.title": "Cosmetics",
+  "cubeonclient.back.title": "Back",
+  "cubeonclient.back.choose": "Choose wings or a back item to preview",
+  "cubeonclient.shoulder.title": "Shoulder",
+  "cubeonclient.shoulder.choose": "Choose a shoulder pet to preview",
+  "cubeonclient.cosmetics.none": "Preview without this cosmetic",
+  "cubeonclient.cosmetics.preview_wings": "Show wings in preview",
   "cubeonclient.capes.title": "Capes",
   "cubeonclient.capes.choose": "Choose a cape to preview",
   "cubeonclient.capes.drop": "Drop cape images here",
@@ -180,5 +186,6 @@
   "cubeonclient.hud.motion_blur_plus": "Motion blur+",
   "cubeonclient.hud.motion_blur_plus_hint": "Smooth world motion with temporal exposure. HUD and menus stay crisp.",
   "cubeonclient.hud.motion_blur_plus_strength": "Strength",
-  "cubeonclient.hud.motion_blur_plus_strength_hint": "Adjust temporal exposure from 25% to 200%."
+  "cubeonclient.hud.motion_blur_plus_strength_hint": "Adjust temporal exposure from 25% to 200%.",
+  "cubeonclient.menu.themes": "Themes"
 }

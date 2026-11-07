@@ -5,7 +5,7 @@ preferences, and activity stay in your browser. No account is required.
 
 **Log out** is available at the top of Settings and in the profile menu. It
 saves your workspace and returns to Welcome, staying logged out after a reload.
-Your projects and preferences remain on this device; choose **Open my bench**
+Your projects and preferences remain on this device; choose **Open Bench**
 to return. If saving fails, the workspace stays open so you can retry or back up.
 
 ## Run locally
@@ -46,7 +46,7 @@ preserved in exports; previews use the built-in geometry.
 
 The default tools are **Draw**, **Erase**, **Fill**, and **Pick**. Choose a color,
 then paint on the canvas. **More tools** contains shapes, selection, and shading;
-their keyboard shortcuts also open the relevant controls. **More colors &
+their keyboard shortcuts also open the relevant controls. **More colors and
 opacity** contains HEX, opacity, studio colors, and recent colors. Mirroring
 and custom brush sizes are under **Brush settings**.
 The canvas opens fitted to its available space. Its footer puts **Fit**, zoom,
@@ -61,7 +61,7 @@ retain their original values.
 Drag the sidebar dividers to resize them. Widths persist, with at least 320
 pixels reserved for the desktop canvas. Divider arrow keys adjust widths;
 double-click restores defaults. 3D Preview stays pinned while texture tabs
-scroll. **⋯ → Texture actions** offers PNG replacement/download, flip, rotate,
+scroll. **⋯ → Texture actions** offers image import/PNG download, flip, rotate,
 clear, and reset. Dark mode uses a dark transparency checkerboard.
 
 Choose **Create animation** above the canvas to start with two copies of your
@@ -89,6 +89,23 @@ and navigation use coordinated short transitions. The app's **Reduce motion**
 setting and system preference stop these effects immediately.
 
 ## Import, export, and backups
+
+Open a texture and choose **Import image** above the canvas (Ctrl / ⌘ Shift I).
+Browse, drop, or paste a PNG, JPG, or WebP. Compare the source crop with the
+actual output; choose Fill, Fit, or Stretch, move/zoom the crop, rotate/flip,
+and select a texture resolution. Resizing suggests sharp pixels for pixel art
+and smooth sampling for photos. Extra options preserve transparency or fill a
+background color. Grass/leaves/water can preview Minecraft's tint without
+changing saved image colors. A framed checker shows the exact texture bounds;
+**Preview backdrop → Auto / Light / Dark** helps inspect dark or light pixels
+without changing the exported image. Files stay on your device.
+
+**Apply image** saves through normal edit history; Cancel changes nothing, and
+Undo restores the previous pixels and dimensions. Animated imports default to
+the selected frame; an explicit sheet option replaces the complete sheet while
+preserving frame order/timing. Their sizes stay fixed, and skins require a
+prepared 64×64 layout. Images are limited to 16 MB / 16 million pixels. Dropping
+an image onto an open editor uses this preview workflow.
 
 Use **Import** or drop one Java resource-pack ZIP, 64×64 skin PNG, or Cubeon
 workspace backup. Pack imports handle wrapper folders and preserve namespaces,
@@ -132,6 +149,7 @@ to use pixel commands. Text fields keep their normal typing and clipboard keys.
 | --- | --- |
 | Quick actions / help | Ctrl K / F1 or ? |
 | New project / import pack or skin | Ctrl Alt N / Ctrl O |
+| Import image as texture / paste image | Ctrl Shift I / Ctrl V with an image copied |
 | Save / undo / redo | Ctrl S / Ctrl Z / Ctrl Shift Z or Ctrl Y |
 | Export project / texture PNG | Ctrl Shift E / Ctrl Alt E |
 | Search textures | Ctrl F |

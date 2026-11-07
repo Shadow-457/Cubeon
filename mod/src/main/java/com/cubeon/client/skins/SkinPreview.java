@@ -2,6 +2,7 @@ package com.cubeon.client.skins;
 
 import com.cubeon.client.ui.ClientUi;
 import java.util.Arrays;
+import java.util.List;
 
 /** Small cached textured 3D model, independent of Minecraft's GUI/rendering eras. */
 public final class SkinPreview {
@@ -13,6 +14,7 @@ public final class SkinPreview {
     private int[] raster;
     private double[] depth;
     private double sin, cos, scale;
+    private List<CosmeticPreview.Model> cosmetics=List.of();
     public void render(ClientUi.Canvas canvas, SkinLibrary.Skin value, int x, int y, int w, int h, int yaw) {
         render(canvas, value, x, y, w, h, yaw, 63);
     }
@@ -21,19 +23,46 @@ public final class SkinPreview {
     }
     public void render(ClientUi.Canvas canvas, SkinLibrary.Skin value, SkinLibrary.Skin selectedCape,
                        int x, int y, int w, int h, int yaw, int mask) {
+        render(canvas,value,selectedCape,List.of(),x,y,w,h,yaw,mask);
+    }
+    public void render(ClientUi.Canvas canvas, SkinLibrary.Skin value, SkinLibrary.Skin selectedCape,
+                       List<CosmeticPreview.Model> items,int x,int y,int w,int h,int yaw,int mask) {
         if (value == null || w < 1 || h < 1) return;
         // Only re-rasterize when skin, model, rotation or viewport actually changes.
         int frame=selectedCape!=null && selectedCape.animation()!=null?selectedCape.animation().previewIndex():-1;
-        if (value != skin || selectedCape != cape || w != width || h != height || yaw != angle || mask != layers || frame!=capeFrame) {
+        if (value != skin || selectedCape != cape || !items.equals(cosmetics) || w != width || h != height || yaw != angle || mask != layers || frame!=capeFrame) {
             skin = value; cape = selectedCape; width = w; height = h; angle = yaw; layers = mask;
+            cosmetics=items;
             capeFrame=frame;
             capePixels=cape==null?null:frame<0?cape.pixels():cape.animation().preview(frame);
             raster = new int[w * h]; depth = new double[w * h]; Arrays.fill(depth, -Double.MAX_VALUE);
             sin = Math.sin(Math.toRadians(yaw)); cos = Math.cos(Math.toRadians(yaw));
             scale = Math.min(w / 23.0, h / 37.0);
+            if(!items.isEmpty()) {
+                // Fit the complete orbit, including giant wings, without clipping on rotation.
+                double radius=10,vertical=17;
+                for(var item:items) for(var quad:item.quads()) for(int i=0;i<4;i++) {
+                    double r=Math.hypot(quad.x[i],quad.z[i]);
+                    radius=Math.max(radius,r);
+                    vertical=Math.max(vertical,Math.abs(8-quad.y[i])*.978+r*.208);
+                }
+                scale=Math.min(scale,Math.min(w/(2*radius+4),h/(2*vertical+4)));
+            }
             parts(false); parts(true);
             if(cape != null && !cape.hidden() && (layers & 64) != 0)
                 box(-5,8,-3.5,10,16,1,0,0,0,cape);
+            for(var item:items) for(var quad:item.quads()) {
+                double[][] points=new double[4][5];
+                for(int i=0;i<4;i++) {
+                    double px=quad.x[i]*cos+quad.z[i]*sin;
+                    double pz=quad.x[i]*sin-quad.z[i]*cos,py=8-quad.y[i];
+                    points[i]=new double[]{width/2.0+px*scale,height/2.0-(py*.978-pz*.208)*scale,
+                            pz*.978+py*.208,quad.u[i]*item.width(),quad.v[i]*item.height()};
+                }
+                double shade=.72+.28*Math.max(0,-quad.normalY*.5-quad.normalZ*.8);
+                triangle(points[0],points[1],points[2],shade,item.pixels(),item.width(),item.height());
+                triangle(points[0],points[2],points[3],shade,item.pixels(),item.width(),item.height());
+            }
         }
         for (int row = 0; row < height; row++) {
             int from = 0;
@@ -81,6 +110,9 @@ public final class SkinPreview {
         triangle(projected[0],projected[2],projected[3],shade,texture);
     }
     private void triangle(double[] a,double[] b,double[] c,double shade,SkinLibrary.Skin texture) {
+        triangle(a,b,c,shade,texture==cape?capePixels:texture.pixels(),texture.width(),texture.height());
+    }
+    private void triangle(double[] a,double[] b,double[] c,double shade,int[] pixels,int tw,int th) {
         double area=edge(a,b,c[0],c[1]); if(Math.abs(area)<.00001) return;
         int x0=Math.max(0,(int)Math.floor(Math.min(a[0],Math.min(b[0],c[0]))));
         int x1=Math.min(width-1,(int)Math.ceil(Math.max(a[0],Math.max(b[0],c[0]))));
@@ -91,9 +123,9 @@ public final class SkinPreview {
             if(wa<0||wb<0||wc<0) continue;
             double z=wa*a[2]+wb*b[2]+wc*c[2]; int index=y*width+x;
             if(z<depth[index]) continue;
-            int tx=Math.max(0,Math.min(texture.width()-1,(int)(wa*a[3]+wb*b[3]+wc*c[3])));
-            int ty=Math.max(0,Math.min(texture.height()-1,(int)(wa*a[4]+wb*b[4]+wc*c[4])));
-            int color=(texture==cape?capePixels:texture.pixels())[ty*texture.width()+tx]; if((color>>>24)<128) continue;
+            int tx=Math.max(0,Math.min(tw-1,(int)(wa*a[3]+wb*b[3]+wc*c[3])));
+            int ty=Math.max(0,Math.min(th-1,(int)(wa*a[4]+wb*b[4]+wc*c[4])));
+            int color=pixels[ty*tw+tx]; if((color>>>24)<128) continue;
             int r=Math.min(255,(int)(((color>>16)&255)*shade));
             int g=Math.min(255,(int)(((color>>8)&255)*shade));
             int bl=Math.min(255,(int)((color&255)*shade));
@@ -104,6 +136,14 @@ public final class SkinPreview {
         return (x-a[0])*(b[1]-a[1])-(y-a[1])*(b[0]-a[0]);
     }
     public static void face(ClientUi.Canvas canvas,SkinLibrary.Skin skin,int x,int y,int size) {
+        if("back".equals(skin.model())||"shoulder".equals(skin.model())) {
+            if(skin.hidden()) { canvas.text("-",x+size/2,y+size/2-4,0xFFAAAAAA); return; }
+            for(int row=0;row<size;row++) for(int col=0;col<size;col++) {
+                int color=skin.pixels()[(row*64/size)*64+col*64/size];
+                if((color>>>24)!=0) canvas.fill(x+col,y+row,x+col+1,y+row+1,color);
+            }
+            return;
+        }
         if(skin.height()==32) {
             if(skin.hidden()) {
                 canvas.text("-",x+size/2,y+size/2-4,0xFFAAAAAA); return;

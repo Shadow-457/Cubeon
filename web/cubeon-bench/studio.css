@@ -107,8 +107,8 @@ svg.i{width:19px;height:19px}
 .texture-palette{gap:7px}.texture-color{width:26px;height:26px}.canvas-guidance{margin-bottom:9px}.canvas-document small{font-size:10px}.canvas-bar{min-height:60px}.canvas-footer{padding-top:10px;padding-bottom:10px}
 .animation-intro{font-size:10px;margin-bottom:14px}.animation-reorder-hint{font-size:9px}.animation-rail .animation-frames{min-height:100px}.animation-studio .animation-actions{grid-template-columns:1fr;margin-bottom:14px}.animation-studio .animation-actions .gb{font-size:11px;padding:9px;font-weight:500}.animation-simple-time{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;font-size:11px}.animation-simple-time>div{display:flex;align-items:center;gap:5px;color:var(--muted)}.animation-simple-time .pack-input{width:66px;height:34px;padding:6px;border-width:1px;border-radius:7px;font-size:12px;text-align:center}.animation-simple-time input{appearance:textfield}.animation-simple-time input::-webkit-inner-spin-button{appearance:none}.animation-native-time{display:block;font-size:10px;color:var(--muted);margin-top:12px}.animation-native-time .pack-input{margin-top:6px;padding:7px 9px;font-size:12px}.animation-move-actions{display:flex;align-items:center;gap:6px;margin:12px 0;font-size:10px}.animation-move-actions>span{margin-right:auto}.animation-remove{display:flex;align-items:center;gap:8px;box-sizing:border-box;width:100%;padding:8px 10px;font-size:10px;margin-top:14px;border-width:1px;border-radius:7px}.animation-remove svg{width:14px;height:14px}.animation-studio .anim-frame small{font-size:10px}.animation-studio .animation-preview{margin-bottom:16px}
 
-/* Editor controls share one scale, interaction treatment, and selected state. */
-.ed {
+/* Shared controls for the editor and dialogs mounted on body. */
+:root {
   --control-height:32px;
   --control-radius:6px;
   --control-border:#d8ded4;
@@ -117,7 +117,7 @@ svg.i{width:19px;height:19px}
   --action-fill:#456b2c;
   --action-hover:#395b23;
 }
-:root[data-theme=dark] .ed {
+:root[data-theme=dark] {
   --control-border:#3a4436;
   --control-hover:#252e23;
   --control-active:#313e29;
@@ -326,7 +326,7 @@ svg.i{width:19px;height:19px}
 .color-chooser .gb {height:32px;min-height:32px;padding:0 10px;border-radius:6px;font-size:11px;font-weight:500;line-height:32px;transform:none}
 .color-chooser :is(button,input):focus-visible {outline:2px solid var(--acc);outline-offset:2px}
 @media(max-width:900px) {
-  .ed {--control-height:36px}
+  :root {--control-height:36px}
   .ed .edt {padding:8px 12px;gap:8px}
   .ed .edt .tr {gap:5px}
   .ed .edt .ibtn {width:36px;height:36px}

@@ -105,10 +105,13 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/hud/screen/MoveOverlayScreen.class",
                     "com/cubeon/client/ui/ClientUi.class",
                     "com/cubeon/client/ui/MenuUi.class",
+                    "com/cubeon/client/ui/ClientTheme.class",
+                    "com/cubeon/client/ui/ThemeMenu.class",
                     "com/cubeon/client/ui/HudMenu.class",
                     "com/cubeon/client/ui/SkinMenu.class",
                     "com/cubeon/client/skins/SkinLibrary.class",
                     "com/cubeon/client/skins/SkinPreview.class",
+                    "com/cubeon/client/skins/CosmeticPreview.class",
                     "com/cubeon/client/skins/LiveSkin.class",
                     "com/cubeon/client/skins/LiveCape.class",
                     "com/cubeon/client/skins/LiveCapeTexture.class",
@@ -293,6 +296,10 @@ def verify(jar_path, bracket=None):
         required.append("com/cubeon/client/hud/LegacyHealthProjection.class")
     if overlays.intersection({"health-camera-classic", "health-camera-final"}):
         required.append("com/cubeon/client/hud/HealthCamera.class")
+    if "health-projection-modern" in overlays:
+        required.extend(["com/cubeon/client/hud/WorldHealthProjection.class",
+                         "com/cubeon/client/mixin/EnemyHealthProjectionMixin.class",
+                         "cubeon-client.health.mixins.json"])
     if bracket and bracket.get("mappings") == "none":
         required.extend(REQUIRED_ENTRIES_26X)
     if bracket and any(str(o).startswith("zoom-")
@@ -327,6 +334,8 @@ def verify(jar_path, bracket=None):
         return "fabric.mod.json declares no Minecraft range"
     configs = [entry.get("config") if isinstance(entry, dict) else entry
                for entry in parsed.get("mixins", [])]
+    if "health-projection-modern" in overlays and "cubeon-client.health.mixins.json" not in configs:
+        return "world health projection hook is not registered"
     if "cubeon-client.mixins.json" not in configs or any(
             hook not in client_hooks.get("client", [])
             for hook in ("CosmeticLayersAccessor", "CosmeticElytraMixin", "SkinTitleMenuMixin", "OwnNameTagMixin")):

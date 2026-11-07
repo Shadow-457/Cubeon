@@ -32,6 +32,8 @@ class InGameSkins:
         self._images = {}  # bounded by the current library page
         from .ingame_capes import InGameCapes
         self.capes = InGameCapes(cfg, state, self._lock)
+        from .ingame_cosmetics import InGameCosmetics
+        self.cosmetics = InGameCosmetics(cfg, state, self._lock)
 
     def _entries(self):
         return [entry for entry in skins.list_custom_skins()
@@ -101,6 +103,11 @@ class InGameSkins:
 
     def snapshot(self, offset=0, kind="skin"):
         with self._lock:
+            if kind in {"back", "shoulder"}:
+                result = self.cosmetics.snapshot(offset, kind)
+                result["player_skin"] = self.snapshot()["applied"]
+                result["player_cape"] = self.capes.snapshot()["applied"]
+                return result
             if kind == "cape":
                 result = self.capes.snapshot(offset)
                 result["player_skin"] = self.snapshot()["applied"]
@@ -193,6 +200,11 @@ class InGameSkins:
     def action(self, body):
         with self._lock:
             kind = body.get("kind", "skin")
+            if kind in {"back", "shoulder"}:
+                result = self.cosmetics.action(body)
+                result["player_skin"] = self.snapshot()["applied"]
+                result["player_cape"] = self.capes.snapshot()["applied"]
+                return result
             if kind == "cape":
                 result = self.capes.action(body)
                 result["player_skin"] = self.snapshot()["applied"]

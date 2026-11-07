@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cubeon Bench — Minecraft texture studio</title>
+<title>Cubeon Bench: Minecraft texture editor</title>
 <base href="/cubeon-bench/">
 <script>if(location.protocol==='file:')document.querySelector('base').remove();</script>
 <meta name="description" content="Create Minecraft textures, skins and resource packs in Cubeon Bench. Projects save locally in your browser; export a ZIP to back up or share your work.">
@@ -505,6 +505,7 @@ body.inapp .theme{display:none}
 <link rel="stylesheet" href="workbench.css">
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="studio.css">
+<link rel="stylesheet" href="image-import.css">
 </head>
 <body>
 <button class="theme" id="theme" type="button" aria-label="Toggle dark theme">
@@ -519,10 +520,10 @@ body.inapp .theme{display:none}
     </div>
 
     <div class="form">
-      <h1>Welcome to the bench.</h1>
-      <p class="sub">Your Minecraft texture studio. Make skins and resource packs, online or offline.</p>
+      <h1>Cubeon Bench</h1>
+      <p class="sub">Edit Minecraft textures, animation frames, and skins. Save projects locally and export resource packs.</p>
       <div class="actions">
-        <button class="btn guest" id="guest" type="button"><span>Open my bench</span></button>
+        <button class="btn guest" id="guest" type="button"><span>Open Bench</span></button>
         <p class="mu" style="font-size:13px;line-height:1.6">No account needed. Autosaved on your device.</p>
       </div>
       <p class="status" id="status" role="status" aria-live="polite"></p>
@@ -535,14 +536,14 @@ body.inapp .theme{display:none}
       <div class="steps">
         <section class="step" data-s="0">
           <p class="kicker">Step 1 of 2</p>
-          <h2>What should we call you?</h2>
-          <p class="sub">Just for your bench. You can change it any time.</p>
+          <h2>Set your display name</h2>
+          <p class="sub">Used in this workspace. You can change it in Settings.</p>
           <div class="field"><input id="nm" placeholder="Your name" maxlength="18" autocomplete="off" spellcheck="false" aria-label="Your name"></div>
         </section>
 
         <section class="step" data-s="1">
           <p class="kicker">Step 2 of 2</p>
-          <h2>What are you making?</h2>
+          <h2>Choose a project type</h2>
           <div class="opts" data-k="make">
             <button class="opt" type="button" data-v="skin" data-l="Skin" aria-pressed="false"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1-4 4-6 8-6s7 2 8 6"/></svg></span><span><b>Skin</b><small>Design a character skin</small></span><i class="tick"></i></button>
             <button class="opt" type="button" data-v="pack" data-l="Texture pack" aria-pressed="true"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 8l-9 5-9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg></span><span><b>Texture pack</b><small>Retexture blocks and items</small></span><i class="tick"></i></button>
@@ -553,16 +554,16 @@ body.inapp .theme{display:none}
 
         <section class="step" data-s="load">
           <img class="cl bench-logo" src="icons/bench-logo.png" width="112" height="112" alt="" aria-hidden="true">
-          <h2 id="ltxt">Building your bench</h2>
+          <h2 id="ltxt">Preparing workspace</h2>
           <div class="lbar"><i></i></div>
         </section>
 
         <section class="step" data-s="done">
           <svg class="ok" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="M19 33l9 9 17-19"/></svg>
-          <h2 id="dn">You’re in.</h2>
+          <h2 id="dn">Workspace ready</h2>
           <dl class="sum"><div><dt>Name</dt><dd id="s2"></dd></div><div><dt>Making</dt><dd id="s1"></dd></div></dl>
-          <p class="sub">Your bench is set up and ready.</p>
-          <div class="nav"><button class="btn guest nextb" id="enter" type="button">Enter the bench</button></div>
+          <p class="sub">Create a project or import an existing resource pack.</p>
+          <div class="nav"><button class="btn guest nextb" id="enter" type="button">Open Bench</button></div>
         </section>
       </div>
       <div class="nav" id="nav"><button class="link" id="onb-back" type="button">Back to login</button><button class="btn guest nextb" id="onb-next" type="button">Continue</button></div>
@@ -604,16 +605,16 @@ body.inapp .theme{display:none}
     <section class="view on" id="v-home">
       <div class="hero">
         <div class="hl">
-          <p class="kicker">Your bench</p>
+          <p class="kicker">Workspace</p>
           <div class="gh" id="gh"></div>
-          <p class="sb2">What are we making today?</p>
+          <p class="sb2">Create a texture pack or skin.</p>
           <div class="qk">
             <button class="qkb" type="button" data-qk="skin"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c1-4 4-6 8-6s7 2 8 6"></path></svg><span><b>Skin</b><small>Character</small></span></button>
             <button class="qkb" type="button" data-qk="pack"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 21 8l-9 5-9-5Z"></path><path d="m3 12 9 5 9-5M3 16l9 5 9-5"></path></svg><span><b>Texture pack</b><small>Blocks and items</small></span></button>
           </div>
         </div>
         <div class="hr">
-          <div><div class="big" id="st-n">0</div><div class="lbl">projects on your bench</div></div>
+          <div><div class="big" id="st-n">0</div><div class="lbl">saved projects</div></div>
           <div><div class="strip" id="st-s"></div><div class="lbl" id="st-l"></div></div>
         </div>
       </div>
@@ -625,7 +626,7 @@ body.inapp .theme{display:none}
           <div class="row"><span class="ic"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M4 12h16M12 4v16"></path></svg></span><span>Use original resolution for vanilla pixels, or scale up for more detail.</span></div>
           <div class="row"><span class="ic"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 1.5-2s0-2 1.5-2h2a4 4 0 0 0 4-4 9 9 0 0 0-9-10Z"></path><circle cx="8" cy="11" r="1"></circle><circle cx="12" cy="7.5" r="1"></circle><circle cx="16" cy="11" r="1"></circle></svg></span><span>Choose any color, or sample a pixel directly from a texture.</span></div>
         </div>
-        <div class="card"><h4>On your bench</h4>
+        <div class="card"><h4>Available tools</h4>
           <div class="row c2"><span class="dt"></span><b>Texture editor</b><span class="r">Ready</span></div>
           <div class="row c2"><span class="dt"></span><b>Animated previews</b><span class="r">Ready</span></div>
           <div class="row c2"><span class="dt"></span><b>Resource pack ZIPs</b><span class="r">Ready</span></div>
@@ -646,7 +647,7 @@ body.inapp .theme{display:none}
     </section>
 
     <section class="view" id="v-library">
-      <div class="sh vh"><div><h3 class="vt">Texture library</h3><p class="page-subtitle">3,964 original Minecraft textures. Pick one and make it yours.</p></div></div>
+      <div class="sh vh"><div><h3 class="vt">Texture library</h3><p class="page-subtitle">Browse 3,964 original Minecraft textures and choose one to edit.</p></div></div>
       <div class="library-tools"><label class="folder-label" for="libCat">Folder <select class="folder-select" id="libCat" aria-label="Library texture category"></select></label><span class="mu" id="libCount"></span></div>
       <nav class="folder-nav" id="libFolders" aria-label="Library texture folders"></nav>
       <div class="lg" id="lib-grid"></div>
@@ -654,7 +655,7 @@ body.inapp .theme{display:none}
     </section>
 
     <section class="view" id="v-settings">
-      <div class="sh vh settings-heading"><div><h3 class="vt">Settings</h3><p class="page-subtitle">Make the studio yours. Keep your work protected.</p></div><button class="gb logout-button" type="button" id="lo"><i data-i="out"></i><span>Log out</span></button></div>
+      <div class="sh vh settings-heading"><div><h3 class="vt">Settings</h3><p class="page-subtitle">Manage appearance, editor preferences, offline access, and backups.</p></div><button class="gb logout-button" type="button" id="lo"><i data-i="out"></i><span>Log out</span></button></div>
 <div class="settings-layout"><nav class="settings-nav" aria-label="Settings sections"><button type="button" data-settings="profile" aria-current="page">Profile</button><button type="button" data-settings="appearance" aria-current="false">Appearance</button><button type="button" data-settings="editor" aria-current="false">Editor</button><button type="button" data-settings="workspace" aria-current="false">Workspace</button><button type="button" data-settings="offline" aria-current="false">Offline & install</button><button type="button" data-settings="backups" aria-current="false">Backups</button><button type="button" data-settings="trash" aria-current="false">Trash</button></nav>
       <div class="set">
         <div class="card" data-settings-page="profile"><h4>Profile</h4>
@@ -674,11 +675,11 @@ body.inapp .theme{display:none}
           <div class="fr"><b>Show pixel grid</b><button class="tg" type="button" role="switch" aria-checked="false" data-k="grid" aria-label="Show pixel grid"></button></div>
         </div>
         <div class="card" data-settings-page="workspace" hidden><h4>Workspace</h4>
-          <div class="fr"><div><b>Remember this workspace</b><br><small class="mu">Open your bench next time on this device.</small></div><button class="tg" type="button" role="switch" aria-checked="false" data-k="remember" aria-label="Remember this workspace"></button></div>
+          <div class="fr"><div><b>Remember this workspace</b><br><small class="mu">Open the workspace automatically next time.</small></div><button class="tg" type="button" role="switch" aria-checked="false" data-k="remember" aria-label="Remember this workspace"></button></div>
           <div class="fr"><div><b>Replay onboarding</b><br><small class="mu">Walk through the setup again.</small></div><button class="gb" type="button" id="replay">Replay</button></div>
           <div class="fr"><div><b>Move all projects to Trash</b><br><small class="mu">Restore them below whenever you need them.</small></div><button class="dg" type="button" id="clr">Move all to Trash</button></div>
         </div>
-        <div class="card" id="offlineCard" data-settings-page="offline" hidden><h4>Your studio, offline</h4>
+        <div class="card" id="offlineCard" data-settings-page="offline" hidden><h4>Offline access</h4>
           <p class="offline-status" id="offlineStatus" role="status">Preparing offline access…</p>
           <div class="workspace-buttons"><button class="gb" type="button" id="prepareOffline">Prepare offline access</button><button class="gb" type="button" id="installApp">Install Cubeon Bench</button><button class="gb" type="button" id="updateApp" hidden>Save and update app</button></div>
           <small class="mu">Install on this device or keep using your browser. Your projects stay in the same browser profile.</small>
@@ -730,7 +731,7 @@ body.inapp .theme{display:none}
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="workspace-task" id="workspaceTask" hidden role="status" aria-live="polite"><div><span id="workspaceTaskLabel"></span><button type="button" id="workspaceTaskClose" hidden aria-label="Dismiss backup status">×</button></div><progress id="workspaceTaskProgress" max="1" value="0" aria-label="Workspace backup progress"></progress></div>
-  <div class="app-drop-zone" id="dropZone" hidden>Drop it on your bench<span>Resource-pack ZIP · 64×64 skin PNG · workspace backup</span></div>
+  <div class="app-drop-zone" id="dropZone" hidden>Drop a file to import<span>Resource-pack ZIP · 64×64 skin PNG · workspace backup</span></div>
   <button type="button" class="update-notice" id="updateNotice" hidden>New version ready · Save and update</button>
   <div class="ed" id="ed" role="dialog" aria-label="Texture editor">
     <header class="edt">
@@ -748,7 +749,7 @@ body.inapp .theme{display:none}
         <button class="ibtn edm" id="edR" type="button" aria-label="Tools"><i data-i="pen"></i></button>
       </div>
     </header>
-        <div class="editor-action-menu" id="textureMenu" hidden><h5>Texture actions</h5><div class="texture-files"><button class="gb" type="button" id="textureImport">Replace PNG</button><button class="gb" type="button" id="textureExport">Save PNG</button></div><input type="file" id="texturePicker" accept="image/png,.png" hidden><div class="acts">
+        <div class="editor-action-menu" id="textureMenu" hidden><h5>Texture actions</h5><div class="texture-files"><button class="gb" type="button" id="textureImport">Import image</button><button class="gb" type="button" id="textureExport">Save PNG</button></div><input type="file" id="texturePicker" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden><div class="acts">
           <button class="gb" type="button" data-a="fh"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16M4 8l5 4-5 4ZM20 8l-5 4 5 4Z"></path></svg>Flip H</button>
           <button class="gb" type="button" data-a="fv"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16M8 4l4 5 4-5ZM8 20l4-5 4 5Z"></path></svg>Flip V</button>
           <button class="gb" type="button" data-a="rot"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.200"></path><path d="M20 4v5h-5"></path></svg>Rotate</button>
@@ -765,6 +766,7 @@ body.inapp .theme{display:none}
       <section class="edc" id="edC" aria-label="Canvas workspace">
         <div class="canvas-bar" id="canvasBar" hidden>
           <div class="canvas-document"><b id="canvasTextureName"></b><small id="canvasDocumentMeta"></small></div>
+          <button class="gb canvas-import" id="canvasImport" type="button" title="Import an image as this texture · Ctrl / ⌘ Shift I" aria-label="Import image as texture"><i data-i="upload"></i><span>Import image</span></button>
           <button class="gb canvas-animate" id="canvasAnimate" type="button" hidden><i data-i="pack"></i>Create animation</button>
           <button class="gb animation-rail-toggle" id="edFramesToggle" type="button" aria-label="Animation frames" aria-controls="edFrames" aria-expanded="false" title="Animation frames" hidden><i data-i="pack"></i>Frames</button>
         </div>
@@ -782,7 +784,7 @@ body.inapp .theme{display:none}
       <aside class="animation-rail" id="edFrames" aria-label="Animation frames" hidden>
         <div class="animation-rail-content animation-studio" id="edAnimation">
           <div class="animation-rail-header"><b>Animation</b><button class="animation-move animation-rail-close" id="edFramesClose" type="button" aria-label="Close animation frames"><i data-i="close"></i></button></div>
-          <p class="animation-intro">Pick a frame, draw, then press Play.</p>
+          <p class="animation-intro">Select a frame to edit. Play previews the animation.</p>
           <small class="mu animation-hint" id="animHint" hidden></small>
           <div id="animBody" class="animation-body" hidden>
             <div class="animation-preview"><canvas id="animPreview" width="96" height="96" aria-label="Animation preview"></canvas><div><b id="animCount"></b><small id="animSize" class="mu"></small><button class="gb" id="animPlay" type="button" aria-pressed="false">Play</button></div></div>
@@ -821,7 +823,7 @@ body.inapp .theme{display:none}
           </div>
           <details class="editor-disclosure more-paint-tools" id="morePaintTools"><summary>More tools</summary><div class="tbs">
             <button class="tb" type="button" data-t="line" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19 19 5"></path><circle cx="5" cy="19" r="1.500" fill="currentColor"></circle><circle cx="19" cy="5" r="1.500" fill="currentColor"></circle></svg>Line<kbd>L</kbd></button>
-            <button class="tb" type="button" data-t="rect" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="1"></rect></svg>Box<kbd>R</kbd></button>
+            <button class="tb" type="button" data-t="rect" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="1"></rect></svg>Rectangle<kbd>R</kbd></button>
             <button class="tb" type="button" data-t="ellipse" aria-pressed="false"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg>Ellipse<kbd>O</kbd></button>
             <button class="tb" type="button" data-t="select" aria-pressed="false"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" aria-hidden="true"><rect x="4" y="4" width="16" height="16"/></svg>Select<kbd>M</kbd></button>
             <button class="tb" type="button" data-t="light" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"></path></svg>Lighten<kbd>U</kbd></button>
@@ -831,7 +833,7 @@ body.inapp .theme{display:none}
         <div class="rc"><h5>Color</h5>
           <div class="chosen-color"><button type="button" id="edCol" class="color-trigger" aria-label="Open custom color chooser" aria-haspopup="dialog" aria-expanded="false" aria-controls="colorChooser"><span></span><b>Choose color</b></button></div>
           <div class="lb2">Colors in this texture <span id="textureColorCount"></span></div><div class="texture-palette" id="texturePalette"></div><button type="button" class="link" id="texturePaletteMore" hidden>More colors</button>
-          <details class="editor-disclosure" id="colorOptions"><summary>More colors & opacity</summary>
+          <details class="editor-disclosure" id="colorOptions"><summary>More colors and opacity</summary>
             <div class="colr"><label for="edHex">Hex color</label><input id="edHex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Hex color" value=""></div>
             <div class="fr2 opacity-row"><label for="edAlpha">Opacity</label><input type="range" id="edAlpha" min="0" max="100" value="100" aria-label="Opacity"><output id="edAlphaValue" for="edAlpha">100%</output></div><div class="lb2">Studio palette</div><div class="pal" id="edPal"></div><div class="lb2">Recent</div><div class="pal" id="edRec"></div>
           </details>
@@ -1003,7 +1005,7 @@ body.inapp .theme{display:none}
     var o=steps[seq[cur]];if(o)o.classList.remove('on');
     cur=i;var s=steps[seq[i]];s.classList.toggle('rev',dir<0);s.classList.add('on');
     segs.forEach(function(g,k){g.classList.toggle('on',k<=Math.min(i,1))});
-    nxt.textContent=i===1?'Build my bench':'Continue';
+    nxt.textContent=i===1?'Set up workspace':'Continue';
     back.textContent=i===0?'Back to welcome':'Back';
     nav.classList.toggle('hide',i>=2);
     bench('ripple');
@@ -1014,7 +1016,7 @@ body.inapp .theme{display:none}
     try{await window.CB.ready;await new Promise(requestAnimationFrame);}
     catch(error){window.CB.toast(error.message);show(1,-1);return;}
     if(!left.classList.contains('onb')||cur!==2)return;
-    clearT();document.getElementById('dn').textContent='You’re in, '+S.name+'.';
+    clearT();document.getElementById('dn').textContent='Workspace ready';
     document.getElementById('s1').textContent=S.make;document.getElementById('s2').textContent=S.name;show(3,1);
   }
   function start(){
@@ -1426,6 +1428,7 @@ body.inapp .theme{display:none}
 <script src="minecraft-preview.js"></script>
 <script src="color-chooser.js"></script>
 <script src="animation-controls.js"></script>
+<script src="image-import.js"></script>
 <script src="editor.js"></script>
 <script src="editor-layout.js"></script>
 <script src="workspace.js"></script>

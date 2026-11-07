@@ -2,12 +2,21 @@ package com.cubeon.client.ui;
 
 /** Compact charcoal controls shared by the in-game menus. */
 public final class MenuUi {
-    public static final int SURFACE = 0xFF12161B, SURFACE_HI = 0xFF1A2027,
+    public static int SURFACE = 0xFF12161B, SURFACE_HI = 0xFF1A2027,
             SELECTED = 0xFF24321D, BORDER = 0xFF303943, BORDER_HI = 0xFF537A2B,
             TEXT = 0xFFE6EDF3, DIM = 0xFFA8B3C0, FAINT = 0xFF798696,
             ACCENT = 0xFF83C13D, ACCENT_HI = 0xFFA6D065, ON_ACCENT = 0xFF15210D;
 
     private MenuUi() { }
+
+    static { refreshTheme(); }
+    public static void refreshTheme() { palette(ClientTheme.colors()); }
+    public static void palette(int[] colors) {
+        ACCENT=0xFF000000|colors[0]; SURFACE=0xFF000000|colors[1]; SURFACE_HI=0xFF000000|colors[2];
+        BORDER=0xFF000000|colors[3]; TEXT=0xFF000000|colors[4]; DIM=0xFF000000|colors[5];
+        SELECTED=ClientUi.mix(SURFACE_HI,ACCENT,.15f); BORDER_HI=ClientUi.mix(BORDER,ACCENT,.55f);
+        ACCENT_HI=ClientUi.mix(ACCENT,TEXT,.35f); FAINT=ClientUi.mix(SURFACE,DIM,.72f); ON_ACCENT=SURFACE;
+    }
 
     public static void panel(ClientUi.Canvas canvas, int x, int y, int w, int h, int radius,
                              int fill, int border, float fade) {

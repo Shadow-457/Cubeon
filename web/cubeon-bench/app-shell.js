@@ -51,6 +51,7 @@
       ['New project', 'Ctrl / ⌘ Alt N'], ['Import pack or skin', 'Ctrl / ⌘ O'],
       ['Save now', 'Ctrl / ⌘ S'], ['Export project', 'Ctrl / ⌘ Shift E'],
       ['Export texture PNG', 'Ctrl / ⌘ Alt E'], ['Search textures', 'Ctrl / ⌘ F'],
+      ['Import image as texture', 'Ctrl / ⌘ Shift I'], ['Paste image from clipboard', 'Ctrl / ⌘ V with an image copied'],
       ['Previous / next texture tab', 'Alt ← / →'], ['Close texture tab', 'Shift W'],
       ['Switch canvas / 3D preview', 'P'], ['Close panel / leave editor', 'Escape']]],
     ['Painting and selection', [
@@ -108,6 +109,7 @@
       {name: 'Projects', run: function () { if ($('#ed').classList.contains('show')) window.Ed.close(); CB.go('projects'); }},
       {name: 'Settings and Trash', run: function () { if ($('#ed').classList.contains('show')) window.Ed.close(); CB.go('settings'); }},
       {name: 'Help and shortcuts', run: help}];
+    if($('#ed').classList.contains('show'))items.unshift({name:'Import image as texture',run:function(){window.Ed.importImage();}});
     CB.D.projects.slice().sort(function (a, b) { return b.edited - a.edited; }).forEach(function (p) { items.push({name: 'Open ' + p.name, run: function () { window.Ed.open(p).catch(function (error) { CB.toast(error.message); }); }}); });
     AppDialog.open({title: 'Quick actions', accept: 'Close', noCancel: true, html: '<input class="command-search" id="commandSearch" type="search" autocomplete="off" placeholder="Find an action or project…" aria-label="Search actions and projects"><div id="commandResults"></div>'});
     function render() {
@@ -131,7 +133,7 @@
   });
   var drops = 0;
   function hasFiles(event) { return event.dataTransfer && Array.from(event.dataTransfer.types).includes('Files'); }
-  document.addEventListener('dragenter', function (event) { if (hasFiles(event)) { drops++; $('#dropZone').hidden = false; } });
+  document.addEventListener('dragenter', function (event) { if (hasFiles(event)&&!document.querySelector('dialog[open]')) { drops++; $('#dropZone').hidden = false; $('#dropZone').querySelector('span').textContent=$('#ed').classList.contains('show')?'Drop an image to preview it as the open texture':'Resource-pack ZIP · 64×64 skin PNG · workspace backup'; } });
   document.addEventListener('dragleave', function (event) { if (hasFiles(event) && --drops <= 0) { drops = 0; $('#dropZone').hidden = true; } });
   document.addEventListener('dragover', function (event) { if (hasFiles(event)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } });
   document.addEventListener('drop', function (event) {
@@ -140,7 +142,9 @@
     var files = Array.from(event.dataTransfer.files); if (files.length !== 1) { CB.toast('Drop one pack, skin, or workspace backup at a time.'); return; }
     var file = files[0]; if (/\.cubeon\.zip$/i.test(file.name)) Workspace.importBackup(file);
     else if (/\.zip$/i.test(file.name)) ResourcePacks.importFile(file).catch(function () {});
+    else if ($('#ed').classList.contains('show')&&(/\.(png|jpe?g|webp)$/i.test(file.name)||/^image\/(png|jpeg|webp)$/.test(file.type)))window.Ed.importImage(file);
     else if (/\.png$/i.test(file.name)) Workspace.importSkin(file);
+    else if (/\.(jpe?g|webp)$/i.test(file.name))CB.toast('Open a project and select a texture, then use Import image or drop it on the canvas.');
     else CB.toast('Choose a resource-pack ZIP, skin PNG, or .cubeon.zip workspace backup.');
   });
   CB.ready.then(function () { connection(); installState(); prepareOffline(); }, function () {});

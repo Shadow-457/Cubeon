@@ -27,7 +27,7 @@
     {
       "config": "cubeon-client.camera-blur.mixins.json",
       "environment": "client"
-    }${mixins_extra}${zoom_mixins}${emotes_mixins}
+    }${mixins_extra}${zoom_mixins}${emotes_mixins}${health_mixins}
   ],
   "depends": {
     "minecraft": "${minecraft_range}",

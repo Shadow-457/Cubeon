@@ -907,7 +907,8 @@ public final class Bridge {
     }
     public Map<String, Object> skinLibrary(int offset, String kind) {
         if (!loadToken()) return Map.of("ok", false, "error", "Keep the Cubeon launcher open to use your skin library.");
-        Reply reply = getReply("/skins?offset=" + Math.max(0, offset) + ("cape".equals(kind) ? "&kind=cape" : ""));
+        Reply reply = getReply("/skins?offset=" + Math.max(0, offset) + "&kind="
+                + java.net.URLEncoder.encode(kind, StandardCharsets.UTF_8));
         if (!reply.isOk()) return Map.of("ok", false, "error", readResult(reply.status, reply.body).error());
         return Json.parseObject(reply.body);
     }

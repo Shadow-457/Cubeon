@@ -119,7 +119,7 @@ public final class CubeonHud {
 
         com.cubeon.client.hud.screen.FriendsToastRenderer.render(context, client, screenW, screenH);
 
-		EnemyHealthRenderer.render(context, client, client.gameRenderer::project, tickDelta);
+		WorldHealthProjection.render(context, client);
 	}
 
 	/** Counts press edges of the attack/use bindings once per frame. */

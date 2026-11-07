@@ -53,7 +53,7 @@ public final class CubeonHudMenuScreen extends Screen {
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
         menu.render(canvas(graphics), this.width, this.height, mouseX, mouseY, settings);
         syncTextInput();
-        var search = menu.control(HudMenu.SEARCH);
+        var search = menu.inputControl();
         if (menu.searchFocused() && search != null) {
             minecraft.textInputManager().setTextInputArea(search.x(), search.y(),
                     search.x() + search.w(), search.y() + search.h());

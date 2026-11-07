@@ -195,7 +195,7 @@ def main():
         sent.clear()
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp); harness=folder/'FriendsChatTest.java'; harness.write_text(HARNESS)
-            files=[ROOT/'mod/src/main/java/com/cubeon/client'/f for f in ('Bridge.java','Json.java','ui/ClientUi.java','ui/MenuUi.java','ui/FriendsPanel.java','ui/ClientToasts.java')]
+            files=[ROOT/'mod/src/main/java/com/cubeon/client'/f for f in ('Bridge.java','Json.java','ui/ClientUi.java','ui/ClientTheme.java','ui/MenuUi.java','ui/FriendsPanel.java','ui/ClientToasts.java')]
             subprocess.run([javac,'--release','17','-d',temp,*map(str,files),str(harness)],check=True)
             captures=ROOT/'archive/ui-captures/in-game-friends'
             if os.environ.get('CUBEON_UI_CAPTURE') == '1': captures.mkdir(parents=True,exist_ok=True)

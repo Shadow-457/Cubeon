@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import _sandbox_home
 _sandbox_home.isolate()
-from cubeon import paths, skins, capes, config, local_api
+from cubeon import paths, skins, capes, config, local_api, cosmetics
 from cubeon.ingame_skins import InGameSkins
 from test_mod_bridge import find_jdk
 
@@ -33,7 +33,7 @@ public final class SkinTest {
   check(condition.getAsBoolean(),"skin worker completed");
  }
  static class Canvas implements ClientUi.Canvas {
-  final int w,h;int count;
+  final int w,h;int count;boolean shoulderLabel;
   Canvas(int w,int h) { this.w=w;this.h=h; }
   public void fill(int x,int y,int x1,int y1,int color) {
    check(x>=0&&y>=0&&x1<=w&&y1<=h&&x<=x1&&y<=y1,"skin quads fit screen");count++;
@@ -42,7 +42,15 @@ public final class SkinTest {
    check(x-width(text)/2>=0&&x+(width(text)+1)/2<=w&&y>=0&&y+9<=h,"skin text fits: "+text);
   }
   public String translate(String key) {
-   return key.substring(key.lastIndexOf('.')+1).replace('_',' ');
+   return switch(key) {
+    case "cubeonclient.skins.title"->"Skins";case "cubeonclient.capes.title"->"Capes";
+    case "cubeonclient.back.title"->"Back";case "cubeonclient.shoulder.title"->"Shoulder";
+    default->key.substring(key.lastIndexOf('.')+1).replace('_',' ');
+   };
+  }
+  public void textScaled(String label,int x,int y,int color,float scale) {
+   if(label.equals("Shoulder")) shoulderLabel=true;
+   text(label,x,y,color);
   }
  }
  public static void main(String[] args) throws Exception {
@@ -136,9 +144,75 @@ public final class SkinTest {
    }
    var cached=capeLibrary.state();menu.activate(SkinMenu.SKINS);menu.activate(SkinMenu.CAPES);
    check(capeLibrary.state()==cached&&!capeLibrary.state().busy(),"returning to cape tab retains loaded page");
+   for(int tab:new int[]{SkinMenu.BACK_ITEMS,SkinMenu.SHOULDER}) {
+    menu.activate(tab);
+    var itemField=SkinMenu.class.getDeclaredField(tab==SkinMenu.BACK_ITEMS?"backLibrary":"shoulderLibrary");
+    itemField.setAccessible(true);var items=(SkinLibrary)itemField.get(menu);
+    await(()->!items.state().busy());
+    check(items.state().items().size()==13,"cosmetic catalogue is paged with None");
+    check(items.state().applied().id().equals("__none__"),"new slot begins unequipped");
+    var chosen=items.state().items().get(1);items.select(chosen.id());
+    check(chosen.cosmetic()!=null&&!chosen.cosmetic().quads().isEmpty(),"bundled item prepared on worker");
+    check(items.state().applied().id().equals("__none__"),"browsing does not equip cosmetic");
+    for(int[] size:new int[][]{{320,240},{640,360},{960,540}}) {
+     Canvas canvas=new Canvas(size[0],size[1]);menu.render(canvas,size[0],size[1],0,0);
+     check(canvas.count<15000,"cosmetic preview work remains bounded");
+     check(canvas.shoulderLabel,"Shoulder category stays fully named at every GUI size");
+     var rects=SkinMenu.class.getDeclaredField("controls");rects.setAccessible(true);
+     var controls=(HudMenu.Rect[])rects.get(menu);
+     check(controls[SkinMenu.WINGS_VISIBLE]!=null,"preview wing visibility stays reachable");
+     for(int id:new int[]{SkinMenu.IMPORT,SkinMenu.DELETE,SkinMenu.EXPORT,SkinMenu.MODEL,SkinMenu.SEARCH})
+      check(controls[id]==null,"cosmetics hide image-only actions");
+     for(int id:new int[]{SkinMenu.SKINS,SkinMenu.CAPES,SkinMenu.BACK_ITEMS,SkinMenu.SHOULDER})
+      check(controls[id]!=null && menu.hit(controls[id].x()+2,controls[id].y()+2)==id,"all category tabs clickable");
+     menu.activate(SkinMenu.GRID);menu.render(new Canvas(size[0],size[1]),size[0],size[1],0,0);menu.activate(SkinMenu.GRID);
+    }
+    var cachedState=items.state();
+    var previewField=SkinMenu.class.getDeclaredField("preview");previewField.setAccessible(true);
+    var menuPreview=(SkinPreview)previewField.get(menu);
+    menu.render(new Canvas(640,360),640,360,0,0);var visible=menuPreview.pixels();
+    menu.activate(SkinMenu.WINGS_VISIBLE);menu.render(new Canvas(640,360),640,360,0,0);
+    check(items.state()==cachedState,"wing visibility never equips or clears a selection");
+    if(tab==SkinMenu.BACK_ITEMS) check(!java.util.Arrays.equals(visible,menuPreview.pixels()),"wing toggle hides only preview geometry");
+    menu.activate(SkinMenu.SKINS);menu.activate(tab);await(()->!items.state().busy());
+    var visibility=SkinMenu.class.getDeclaredField("previewWings");visibility.setAccessible(true);
+    check(!visibility.getBoolean(menu),"preview visibility survives category changes");
+    items.select(chosen.id());
+    menu.activate(SkinMenu.WINGS_VISIBLE);menu.render(new Canvas(640,360),640,360,0,0);
+    check(java.util.Arrays.equals(visible,menuPreview.pixels()),"wing preview can be restored without changing selection");
+    var p=new SkinPreview();var c=new Canvas(200,240);
+    p.render(c,items.playerSkin(),null,items.previewItems(),0,0,180,220,160,127);int[] equipped=p.pixels();
+    p.render(c,items.playerSkin(),null,0,0,180,220,160,127);
+    check(!java.util.Arrays.equals(equipped,p.pixels()),"chosen cosmetic draws on player model");
+    var liveBody=LiveSkin.get();var liveCape=LiveCape.get();
+    menu.activate(SkinMenu.APPLY);await(()->!items.state().busy());
+    check(items.state().applied().id().equals(chosen.id()),"Confirm persists cosmetic through authenticated HTTP");
+    check(LiveSkin.get()==liveBody&&LiveCape.get()==liveCape,"cosmetic Confirm preserves live body and cape");
+    items.page(1);await(()->!items.state().busy());
+    check(items.state().offset()==12,"next page exposes remaining catalogue items");
+    items.select("__none__");menu.activate(SkinMenu.APPLY);await(()->!items.state().busy());
+    check(items.state().applied().id().equals("__none__"),"None removes only this slot");
+   }
    menu.activate(SkinMenu.SKINS);
    menu.focus();menu.paste("Test_123");check(menu.type('!'),"typing owns input");
    menu.backspace();check(menu.escape(),"Escape releases text before returning to parent");
+  }
+  // Every bundled wing/pet must fit a full orbit, including the giant variants.
+  try(var library=new SkinLibrary()) {
+   library.open();await(()->!library.state().busy());
+   var body=library.state().applied();
+   var p=new SkinPreview();var c=new Canvas(100,140);
+   for(var item:com.cubeon.client.cosmetics.CosmeticCatalog.get().items()) {
+    if(!item.slot.equals("back")&&!item.slot.equals("shoulder")) continue;
+    var model=CosmeticPreview.load(item.id);check(model!=null,"every wing/pet texture decodes");
+    for(int yaw:new int[]{0,90,180,270}) {
+     p.render(c,body,null,java.util.List.of(model),0,0,100,140,yaw,127);
+     var pixels=p.pixels();
+     check(java.util.Arrays.stream(pixels).anyMatch(pixel->pixel!=0),"orbit draws a textured model");
+     for(int x=0;x<100;x++) check(pixels[x]==0&&pixels[13900+x]==0,"orbit has vertical padding");
+     for(int y=0;y<140;y++) check(pixels[y*100]==0&&pixels[y*100+99]==0,"orbit has horizontal padding");
+    }
+   }
   }
   System.out.println("Skin worker, explicit/live Apply, model, preview, errors and responsive bounds passed.");
  }
@@ -175,6 +249,77 @@ class SkinTests(unittest.TestCase):
         from PIL import Image
         import io
         self.assertEqual(Image.open(io.BytesIO(data)).size, (64, 64))
+
+    def test_cosmetic_pages_apply_and_cross_slot_isolation_without_csl(self):
+        self.cfg["csl_enabled"] = False
+        self.cfg["active_cape"] = "untouched.png"
+        self.cfg["active_skin"] = "untouched.png"
+        other = Path(paths.game_dir_for("other-instance")) / "config/cubeon-cosmetics.json"
+        other.parent.mkdir(parents=True, exist_ok=True)
+        other.write_bytes(b"other instance")
+        choices = {}
+        for kind in ("back", "shoulder"):
+            page = self.service.snapshot(kind=kind)
+            self.assertEqual(len(page["items"]), 13)
+            self.assertEqual(page["items"][0]["id"], "__none__")
+            self.assertEqual(page["applied"]["id"], "__none__")
+            ids = [i["id"] for i in page["items"][1:]]
+            ids += [i["id"] for i in self.service.snapshot(12, kind)["items"][1:]]
+            self.assertEqual(ids, [i["id"] for i in cosmetics.items(kind)])
+            choices[kind] = ids[-1]
+            result = self.service.action({"kind": kind, "action": "apply", "id": ids[-1], "game_dir": self.game})
+            self.assertEqual(result["applied"]["id"], ids[-1])
+            self.assertTrue(result["skin_support"])
+            self.assertEqual(config.load_config()[f"active_{kind}_item"], ids[-1])
+        mirror = Path(cosmetics.game_config_path(self.game))
+        payload = json.loads(mirror.read_text())
+        self.assertEqual(payload["back"], choices["back"])
+        self.assertEqual(payload["shoulder"], choices["shoulder"])
+        self.service.action({"kind": "back", "action": "apply", "id": "__none__", "game_dir": self.game})
+        payload = json.loads(mirror.read_text())
+        self.assertIsNone(payload["back"])
+        self.assertEqual(payload["shoulder"], choices["shoulder"])
+        self.assertEqual(self.cfg["active_cape"], "untouched.png")
+        self.assertEqual(self.cfg["active_skin"], "untouched.png")
+        self.assertEqual(other.read_bytes(), b"other instance")
+
+    def test_cosmetic_invalid_items_actions_and_sessions(self):
+        choice = cosmetics.items("back")[0]["id"]
+        for kind, selected in (("shoulder", choice), ("back", "../escape"), ("back", "missing")):
+            with self.assertRaises(ValueError):
+                self.service.action({"kind": kind, "action": "apply", "id": selected, "game_dir": self.game})
+        for operation in ("delete", "import", "model", "lookup"):
+            with self.assertRaisesRegex(ValueError, "action"):
+                self.service.action({"kind": "back", "action": operation, "id": choice})
+        for game in ("wrong", paths.game_dir_for("other-instance"), None):
+            with self.assertRaisesRegex(ValueError, "session"):
+                self.service.action({"kind": "back", "action": "apply", "id": choice, "game_dir": game})
+        self.state["running_version"] = None
+        with self.assertRaisesRegex(ValueError, "session"):
+            self.service.action({"kind": "back", "action": "apply", "id": choice, "game_dir": self.game})
+
+    def test_cosmetic_failed_save_restores_exact_mirror_and_config(self):
+        choice = cosmetics.items("back")[0]["id"]
+        mirror = Path(cosmetics.game_config_path(self.game))
+        mirror.parent.mkdir(parents=True, exist_ok=True)
+        mirror.write_bytes(b'{"version": 1, "back": null}\n')
+        before_cfg, before_bytes = dict(self.cfg), mirror.read_bytes()
+        with patch("cubeon.cosmetics.save_config", side_effect=OSError("save failed")):
+            with self.assertRaises(OSError):
+                self.service.action({"kind": "back", "action": "apply", "id": choice, "game_dir": self.game})
+        self.assertEqual(self.cfg, before_cfg)
+        self.assertEqual(mirror.read_bytes(), before_bytes)
+        mirror.unlink()
+        with patch("cubeon.cosmetics.save_config", side_effect=OSError("save failed")):
+            with self.assertRaises(OSError):
+                self.service.action({"kind": "back", "action": "apply", "id": choice, "game_dir": self.game})
+        self.assertFalse(mirror.exists())
+        self.assertEqual(self.cfg, before_cfg)
+        with patch("cubeon.cosmetics.os.replace", side_effect=PermissionError("read-only game")), patch("cubeon.cosmetics.save_config") as save:
+            with self.assertRaises(PermissionError):
+                self.service.action({"kind": "back", "action": "apply", "id": choice, "game_dir": self.game})
+        save.assert_not_called()
+        self.assertEqual(self.cfg, before_cfg)
 
     def test_actual_save_and_running_instance_validation(self):
         entry = self.upload()
@@ -345,12 +490,13 @@ class SkinTests(unittest.TestCase):
                 harness = Path(tmp) / "SkinTest.java"
                 harness.write_text(HARNESS)
                 source = ROOT / "mod/src/main/java/com/cubeon/client"
-                files = [source / p for p in ("Bridge.java", "Json.java", "ui/ClientUi.java", "ui/MenuUi.java", "ui/HudIcon.java",
+                files = [source / p for p in ("Bridge.java", "Json.java", "ui/ClientUi.java", "ui/ClientTheme.java", "ui/MenuUi.java", "ui/HudIcon.java",
                     "ui/HudMenu.java", "ui/SkinMenu.java", "hud/HudFeatures.java", "skins/SkinLibrary.java",
-                    "skins/SkinPreview.java", "skins/LiveSkin.java", "skins/LiveCape.java", "skins/CapeFrames.java", "skins/CapeAnimation.java")]
+                    "skins/SkinPreview.java", "skins/CosmeticPreview.java", "cosmetics/CosmeticCatalog.java",
+                    "cosmetics/CosmeticGeometry.java", "skins/LiveSkin.java", "skins/LiveCape.java", "skins/CapeFrames.java", "skins/CapeAnimation.java")]
                 subprocess.run([javac, "--release", "17", "-d", tmp, *map(str, files), str(harness)], check=True)
                 subprocess.run([java, "-Duser.home=" + str(Path(local_api._TOKEN_FILE).parent.parent),
-                                "-cp", tmp, "com.cubeon.client.SkinTest"],
+                                "-cp", tmp + os.pathsep + str(ROOT / "mod/src/main/resources"), "com.cubeon.client.SkinTest"],
                                cwd=self.game, check=True, timeout=30)
                 gif = Path(paths.CUBEON_HOME) / "animated-cape.gif"
                 frames = [Image.new("RGBA", (64, 32), color) for color in ("red", "green", "blue")]

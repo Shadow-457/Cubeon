@@ -315,7 +315,8 @@ def active(cfg: dict, slot: str) -> str | None:
     return item["id"] if item and item["slot"] == slot else None
 
 
-def set_active(cfg: dict, slot: str, item_id: str | None) -> None:
+def set_active(cfg: dict, slot: str, item_id: str | None, *,
+               game_dir: str | None = None, strict: bool = False) -> None:
     """Select (or clear) one slot, save, and mirror the choice into the game."""
     if slot not in SLOTS:
         raise ValueError(f"Unknown cosmetic slot: {slot}")
@@ -324,7 +325,7 @@ def set_active(cfg: dict, slot: str, item_id: str | None) -> None:
     if item_id is not None and get(item_id)["slot"] != slot:
         raise ValueError(f"{item_id} is not a {slot} item")
     cfg[f"active_{slot}_item"] = item_id
-    sync_to_game(cfg)
+    sync_to_game(cfg, game_dir, strict=strict)
     save_config(cfg)
     if cfg.get("manage_skin_mod", True):
         from .skins import _publish_skin_async
@@ -351,7 +352,7 @@ def game_config_path(game_dir: str | None = None) -> str:
                         "cubeon-cosmetics.json")
 
 
-def sync_to_game(cfg: dict, game_dir: str | None = None) -> str:
+def sync_to_game(cfg: dict, game_dir: str | None = None, *, strict: bool = False) -> str:
     """Write the active ids where the client mod looks for them.
 
     Atomic and change-aware: the mod polls the file's mtime, so rewriting an
@@ -380,5 +381,6 @@ def sync_to_game(cfg: dict, game_dir: str | None = None) -> str:
             if os.path.exists(temporary):
                 os.unlink(temporary)
     except OSError:
-        pass
+        if strict:
+            raise
     return path
