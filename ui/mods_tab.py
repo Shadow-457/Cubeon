@@ -38,14 +38,15 @@ import launcher_core as core
 
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 from cubeon import eta as cubeon_eta  # measured "time left" for downloads
-from cubeon import status_text  # keeps "<... at 0x...>" out of labels
+from cubeon import status_text, net
 from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
 from cubeon.content_checks import check_content
 from cubeon.fuzzy_search import search_items
 from ui.content_checks import show_content_issues
 from cubeon import instances as instance_info  # the selected instance's real loader
-from ui.install_feedback import InstallRegistry, compact_status, progress_text
+from ui.install_feedback import InstallRegistry, compact_status, progress_text, action_text
+from ui.project_readme import readme_markdown
 from ui.content_states import loading_rows, empty_state
 from ui.content_tiles import tile_grid, tile_capacity, layout_tiles, style_tile, downloads_label, content_header, update_view_action
 from cubeon.background_refresh import BackgroundRefresh
@@ -2035,6 +2036,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             def worker():
                 try:
                     result = {"failed": []}
+                    feedback.check_cancelled()
                     if content_type == "mod":
                         result = core.install_mod_with_dependencies(
                             v["url"], v["filename"],
@@ -2043,6 +2045,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             slug=details.get("slug"), project_id=details.get("project_id"),
                             hashes=v.get("hashes"),
                             status_cb=on_status, progress_cb=_install_progress,
+                            cancel_event=feedback.cancel_event,
                         )
                     else:
                         core.download_content(
@@ -2052,6 +2055,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             icon_url=details.get("icon_url"),
                             slug=details.get("slug"),
                             title=details.get("title"),
+                            cancel_event=feedback.cancel_event,
                             progress_cb=lambda done, total: on_status(progress_text(done, total)))
                     if result.get("failed"):
                         _refresh_after_install((content_type, detail_mc, detail_loader, detail_version))
@@ -2072,6 +2076,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 on_error(error)
 
         quick_state = {"repaints": []}
+        release_state = {"error": None, "checked": False}
 
         def _install_button(v, details, *, label="Install", big=False):
             """An Install button that owns its busy / done / error states."""
@@ -2110,18 +2115,21 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     if job.result == "success" and job.filename:
                         installed_now[job.filename] = {"filename": job.filename}
                 done["v"] = bool(installed_now.get(v.get("filename")))
-                btn.disabled = job.busy or done["v"] or blocked
-                text.value = compact_status(job.text) if job.busy else (
+                btn.disabled = job.cancelling if job.busy and job.cancellable else job.busy or done["v"] or blocked
+                text.value = action_text(job) if job.busy else (
                     i18n.t("Installed") if done["v"] else "Try again" if job.result == "error" else label)
                 text.color = TEXT_DIM if job.busy else TEXT_FAINT if done["v"] else DANGER if job.result == "error" else fg
-                icon.icon = ft.Icons.CHECK_ROUNDED if done["v"] and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
+                icon.icon = ft.Icons.CLOSE_ROUNDED if job.busy and job.cancellable else ft.Icons.CHECK_ROUNDED if done["v"] and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
                 icon.color = text.color
                 btn.bgcolor = ROW_HOVER if job.busy else ACCENT_TINT if done["v"] or not big else ACCENT
                 btn.tooltip = job.text if job.busy or job.result == "error" else (
                     blocked_note if blocked else None)
 
             def on_click(e):
-                if done["v"] or blocked or not feedback.start(v.get("filename"), "Installing..."):
+                if feedback.busy:
+                    feedback.cancel()
+                    return
+                if done["v"] or blocked or not feedback.start(v.get("filename"), "Installing...", cancellable=True):
                     return
 
                 def finished(fixed):
@@ -2136,6 +2144,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                            bgcolor=SURFACE_HI, text_color=TEXT)
 
                 def failed(ex):
+                    if isinstance(ex, net.DownloadCancelled):
+                        feedback.finish(error=ex)
+                        _refresh_after_install((content_type, detail_mc, detail_loader, detail_version))
+                        return
                     feedback.finish(v.get("filename"), error=f"Install failed: {ex}")
                     dialogs.show_snack(page, f"Install failed: {ex}",
                                        bgcolor=SURFACE_HI, text_color=TEXT)
@@ -2187,12 +2199,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
             def _paint():
                 if not compat:
-                    holder.content = ft.Row(
-                        [ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=16,
-                                 color=TEXT_DIM),
-                         ft.Text("No build for your Minecraft version yet.",
-                                 size=12.5, color=TEXT_DIM)],
-                        spacing=8)
+                    message = ("Couldn't check compatible releases." if release_state["error"]
+                               or not release_state["checked"] else
+                               "No build for this Minecraft version and loader.")
+                    holder.content = ft.Column([
+                        ft.Text(message, size=12.5, color=TEXT_DIM,
+                                tooltip=release_state["error"]),
+                        ft.TextButton(content="Retry", on_click=lambda event: open_mod_detail(mod, content_type),
+                                      style=ft.ButtonStyle(color=ACCENT))], spacing=4)
                 else:
                     best = compat[0]
                     vnum = str(best.get("version_number")
@@ -2238,7 +2252,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 if safe_url and callable(getattr(page, "run_task", None)):
                     page.run_task(ft.UrlLauncher().launch_url, safe_url)
 
-            return ft.Markdown(body or blurb or "No description available.", selectable=True,
+            return ft.Markdown(readme_markdown(body) or blurb or "No description available.", selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB, shrink_wrap=True,
                 image_error_content=ft.Text("Image unavailable", color=TEXT_DIM, size=11),
                 on_tap_link=open_link, md_style_sheet=ft.MarkdownStyleSheet(
@@ -2269,7 +2283,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             def _paint():
                 rows = []
                 if not versions:
-                    rows.append(ft.Text("No versions are available for this mod.",
+                    rows.append(ft.Text("Couldn't load releases. Use Retry above." if release_state["error"]
+                                        else "No versions are available for this mod.",
                                         size=12.5, color=TEXT_DIM))
                 else:
                     ordered = compat + others
@@ -2428,8 +2443,27 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     versions = [dict(v, compatible=(not candidates or any(
                         candidate in (v.get("game_versions") or []) for candidate in candidates)))
                         for v in versions]
-            except Exception:
+            except Exception as error:
+                release_state["error"] = str(error)
                 versions = []
+            if any(version.get("compatible") and version.get("url") for version in versions):
+                release_state["checked"] = True
+            else:
+                try:
+                    latest = (core.get_mod_download(ref, mc_version=detail_search_mc, loader=detail_loader)
+                              if content_type == "mod" else
+                              core.get_content_download(content_type, ref, mc_version=detail_search_mc))
+                    release_state["checked"] = True
+                    if latest and latest.get("url") and latest.get("filename"):
+                        matching = dict(latest, compatible=True,
+                                        game_versions=[detail_search_mc] if detail_search_mc else [],
+                                        loaders=[detail_loader] if content_type == "mod" and detail_loader else [])
+                        versions = [matching, *(version for version in versions
+                                                if version.get("filename") != matching["filename"])]
+                        release_state["error"] = None
+                except Exception as error:
+                    release_state["error"] = str(error)
+            details = {**mod, **details}
             try:
                 _target, items, _mods = _read_installed_snapshot(
                     (content_type, detail_mc, detail_loader, detail_version))
@@ -2534,6 +2568,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             Handles the download of a mod. It finds the appropriate file (compatible with
             current Minecraft version and loader), then downloads it and refreshes the installed list.
             """
+            if feedback.busy:
+                feedback.cancel()
+                return
             if builtin:
                 _install_client(row_target, feedback)
                 return
@@ -2547,7 +2584,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             selected_version = version_dropdown.value
             search_mc_version = current_mc_version_for_search()
             selected_loader = state.get("mod_loader")
-            if row_state["installed"] or not feedback.start():
+            if row_state["installed"] or not feedback.start(cancellable=True):
                 return
 
             def worker():
@@ -2558,10 +2595,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     # exact keys list_mods()/sync_mods_to_game() use - so the
                     # mod ends up in the profile the game reads. Resource packs
                     # and shaders also use the captured instance's profile.
+                    feedback.check_cancelled()
                     if content_type == "mod":
-                        file_info = core.get_mod_download(mod["project_id"], mc_version=search_mc_version, loader=selected_loader)
+                        file_info = core.get_mod_download(mod["project_id"], mc_version=search_mc_version,
+                                                          loader=selected_loader, cancel_event=feedback.cancel_event)
                     else:
-                        file_info = core.get_content_download(content_type, mod["project_id"], mc_version=search_mc_version)
+                        file_info = core.get_content_download(content_type, mod["project_id"], mc_version=search_mc_version,
+                                                              cancel_event=feedback.cancel_event)
+                    feedback.check_cancelled()
                     if not file_info:
                         feedback.finish(error="No matching file for this version and loader.")
                         return
@@ -2622,6 +2663,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             slug=mod.get("slug"), project_id=mod.get("project_id"),
                             hashes=file_info.get("hashes"),
                             status_cb=_dep_status, progress_cb=_batch_progress,
+                            cancel_event=feedback.cancel_event,
                         )
                         deps_note = f" +{len(result['installed']) - 1} deps" \
                             if len(result["installed"]) > 1 else ""
@@ -2649,7 +2691,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             icon_url=mod.get("icon_url"),
                             slug=mod.get("slug"),
                             title=mod.get("title"),
-                            fix_cb=_note_fix)
+                            fix_cb=_note_fix, cancel_event=feedback.cancel_event)
 
                     feedback.finish(file_info["filename"], note=fix_note["text"] or (
                         "Installed" + deps_note if deps_note else None))
@@ -2660,6 +2702,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             and selected_loader == browse_loader()
                             and selected_version == version_dropdown.value):
                         run_mod_repair()
+                except net.DownloadCancelled as error:
+                    feedback.finish(error=error)
+                    _refresh_after_install((content_type, selected_mc, selected_loader, selected_version))
                 except Exception as ex:
                     # Say WHY in one line - "Failed" alone left the user with
                     # no idea whether to retry, free up disk, or pick another
@@ -2734,8 +2779,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             installed_badge.visible = installed and not job.busy
             download_btn.visible = builtin or not installed or job.busy
             icon = download_btn.content.controls[0]
-            icon.icon = ft.Icons.CHECK_ROUNDED if installed and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
-            download_btn_text.value = compact_status(job.text) if job.busy else (
+            icon.icon = ft.Icons.CLOSE_ROUNDED if job.busy and job.cancellable else ft.Icons.CHECK_ROUNDED if installed and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
+            download_btn_text.value = action_text(job) if job.busy else (
                 "Try again" if builtin and job.result == "error" else
                 "Reinstall" if builtin and installed else i18n.t("Installed") if installed else "Try again" if job.result == "error"
                 else "Unavailable" if compatibility_note else "Install")
@@ -2744,7 +2789,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                        DANGER if job.result == 'error' else ON_ACCENT)
             icon.color = download_btn_text.color
             download_btn.bgcolor = SURFACE_HI if job.busy else ACCENT if can_install and job.result != 'error' else None
-            download_btn.disabled = job.busy or (installed and not builtin) or bool(compatibility_note) or not _can_install(row_content_type)
+            download_btn.disabled = job.cancelling if job.busy and job.cancellable else job.busy or (installed and not builtin) or bool(compatibility_note) or not _can_install(row_content_type)
             download_btn.tooltip = job.text if job.busy or job.result == "error" else (
                 job.note if installed else compatibility_note or None)
             download_btn.on_click = None if installed and not builtin and not job.busy else on_download

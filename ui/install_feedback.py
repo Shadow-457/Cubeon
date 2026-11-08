@@ -1,9 +1,10 @@
 """Shared install claims and feedback for browse rows and open detail dialogs."""
 import math
 import re
+import threading
 import weakref
 
-from cubeon import status_text, thread_safe_ui
+from cubeon import net, status_text, thread_safe_ui
 
 
 def progress_text(done, total, *, batch=False, eta=None):
@@ -41,6 +42,15 @@ def compact_status(text):
 _active_feedback = weakref.WeakSet()
 
 
+def action_text(job):
+    if job.cancelling:
+        return "Cancelling…"
+    progress = compact_status(job.text)
+    if job.busy and job.cancellable:
+        return f"Cancel · {progress}" if re.search(r'%|\b(?:KB|MB|GB)\b', progress) else "Cancel"
+    return progress
+
+
 def any_busy():
     return any(job.busy for job in list(_active_feedback))
 
@@ -54,6 +64,8 @@ class InstallFeedback:
         self.result = None
         self.result_id = 0
         self.note = None
+        self.cancel_event = threading.Event()
+        self.cancellable = False
         self._controls = []
 
     def watch(self, control, paint):
@@ -73,7 +85,7 @@ class InstallFeedback:
                 thread_safe_ui.refresh(control)
         self._controls = alive
 
-    def start(self, filename=None, text="Finding file..."):
+    def start(self, filename=None, text="Finding file...", *, cancellable=False):
         with thread_safe_ui.TREE_LOCK:
             from cubeon import storage
             if storage.blocked():
@@ -81,6 +93,8 @@ class InstallFeedback:
             if self.busy:
                 return False
             self.busy = True
+            self.cancellable = cancellable
+            self.cancel_event.clear()
             self.result = None
             self.note = None
             self.filename = filename
@@ -90,17 +104,37 @@ class InstallFeedback:
 
     def status(self, text):
         with thread_safe_ui.TREE_LOCK:
-            self.text = status_text.human(text)
+            self.text = ("Cancelling… Completed files are kept." if self.cancel_event.is_set()
+                         else status_text.human(text))
             self._emit()
+
+    @property
+    def cancelling(self):
+        return self.busy and self.cancellable and self.cancel_event.is_set()
+
+    def cancel(self):
+        with thread_safe_ui.TREE_LOCK:
+            if not self.busy or not self.cancellable:
+                return False
+            self.cancel_event.set()
+            self.text = "Cancelling… Completed files are kept."
+            self._emit()
+            return True
+
+    def check_cancelled(self):
+        net.check_cancelled(self.cancel_event)
 
     def finish(self, filename=None, error=None, *, note=None):
         with thread_safe_ui.TREE_LOCK:
             self.busy = False
             self.filename = filename or self.filename
-            self.result = "error" if error else "success"
+            cancelled = ((self.cancellable and self.cancel_event.is_set())
+                         or isinstance(error, net.DownloadCancelled))
+            self.result = "cancelled" if cancelled else "error" if error else "success"
             self.result_id += 1
-            self.text = status_text.human(error) if error else "Installed"
-            self.note = note if not error else None
+            self.text = ("Installation cancelled. Completed files are kept." if cancelled
+                         else status_text.human(error) if error else "Installed")
+            self.note = note if not error and not cancelled else None
             self._emit()
 
 

@@ -1600,7 +1600,7 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
                       loader: str = "fabric", *,
                       timeout: int | tuple = 10,
                       attempts: int | None = None,
-                      version_predicates=None) -> dict | None:
+                      version_predicates=None, cancel_event=None) -> dict | None:
     """Finds the best matching version file for a mod, filtered by MC version
     and loader when given. Returns {filename, url, size} or None if no
     matching version exists.
@@ -1611,6 +1611,7 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     `version_predicates` requires ALL requesters' constraints, and uses its own
     cache entry so a pinned dependency cannot get an unconstrained latest jar.
     """
+    net.check_cancelled(cancel_event)
     if attempts is None:
         attempts = net.DEFAULT_ATTEMPTS
     params = {}
@@ -1628,6 +1629,8 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
             params=params, headers=modrinth_headers(), timeout=timeout,
             attempts=attempts,
+            **({"cancel_check": lambda: net.check_cancelled(cancel_event)}
+               if cancel_event is not None else {}),
         )
         return _select_download(versions, mc_version=mc_version, loader=loader,
                                 predicates=version_predicates)
@@ -1642,6 +1645,7 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
         max_age=300 if previous and previous.get("file") is None else 86400,
         background_refresh=not (previous and previous.get("file") is None),
     )
+    net.check_cancelled(cancel_event)
     return cached["file"]
 
 
@@ -3235,19 +3239,23 @@ def installed_project_ids(mc_version: str | None, loader: str | None,
 
 def required_dependencies(project_id_or_slug: str, mc_version: str | None,
                           loader: str = "fabric",
-                          filename: str | None = None) -> list[dict]:
+                          filename: str | None = None, *, cancel_event=None) -> list[dict]:
     """Resolve the chosen build's complete required Modrinth dependency graph.
 
     Keep project IDs and exact version IDs distinct, as Modrinth specifies.
     Embedded/optional dependencies need no separate download. Resolve before
     publishing files; unavailable dependencies are errors, never a clean graph.
     """
+    net.check_cancelled(cancel_event)
+    cancel_options = ({"cancel_check": lambda: net.check_cancelled(cancel_event)}
+                      if cancel_event is not None else {})
     params = {"loaders": json.dumps([loader]) if loader else None,
               "game_versions": json.dumps([mc_version]) if mc_version else None}
     params = {k: v for k, v in params.items() if v}
     versions = net.get_json(
         f"{MODRINTH_API}/project/{project_id_or_slug}/version",
         params=params, headers=modrinth_headers(), timeout=10,
+        **cancel_options,
     )
     if not versions:
         raise ValueError(f"No compatible build found for {project_id_or_slug}")
@@ -3267,6 +3275,7 @@ def required_dependencies(project_id_or_slug: str, mc_version: str | None,
     queue.sort(key=lambda d: not bool(d.get("version_id")) if isinstance(d, dict) else True)
     resolved, visited = {}, {(root_id, chosen.get("id"))}
     while queue:
+        net.check_cancelled(cancel_event)
         dep = queue.pop(0)
         if not isinstance(dep, dict) or dep.get("dependency_type") != "required":
             continue
@@ -3283,7 +3292,7 @@ def required_dependencies(project_id_or_slug: str, mc_version: str | None,
         visited.add((project, pin))
         if pin:
             release = net.get_json(f"{MODRINTH_API}/version/{pin}",
-                                   headers=modrinth_headers(), timeout=10)
+                                   headers=modrinth_headers(), timeout=10, **cancel_options)
             if not isinstance(release, dict) or release.get("id") != pin:
                 raise ValueError(f"Invalid required dependency version: {pin}")
             if project and release.get("project_id") != project:
@@ -3291,7 +3300,8 @@ def required_dependencies(project_id_or_slug: str, mc_version: str | None,
             file_info = _select_download([release], mc_version=mc_version, loader=loader)
             project = release.get("project_id")
         else:
-            file_info = get_mod_download(project, mc_version=mc_version, loader=loader)
+            file_info = get_mod_download(project, mc_version=mc_version, loader=loader,
+                                         **({"cancel_event": cancel_event} if cancel_event is not None else {}))
         if not file_info or not project:
             raise ValueError(f"Required dependency {project or pin} has no compatible file for {mc_version} / {loader}")
         if project == root_id:
@@ -3318,7 +3328,8 @@ def install_mod_with_dependencies(download_url: str, filename: str,
                                   hashes: dict | None = None,
                                   progress_cb=None,
                                   status_cb=None,
-                                  version_id: str | None = None) -> dict:
+                                  version_id: str | None = None,
+                                  cancel_event=None) -> dict:
     """Downloads a mod AND every required dependency it needs that the profile
     doesn't already have.
 
@@ -3329,6 +3340,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     failures and unresolved actual JAR requirements are returned in failed.
     """
     require_mod_loader(mc_version, loader, "download a mod")
+    net.check_cancelled(cancel_event)
     # Reject a bad name before any network work: the dependency list and the
     # progress total are resolved from it, and an unsafe name must not reach
     # the profile folder through the main download either.
@@ -3370,7 +3382,9 @@ def install_mod_with_dependencies(download_url: str, filename: str,
         if status_cb:
             status_cb("Checking dependencies...")
         for dep in required_dependencies(main_project, mc_version, loader,
-                                         filename=filename):
+                                         filename=filename,
+                                         **({"cancel_event": cancel_event} if cancel_event is not None else {})):
+            net.check_cancelled(cancel_event)
             dep_id = dep.get("project_id")
             if dep_id and dep_id in have:
                 # A project ID alone cannot satisfy an exact version pin.
@@ -3398,6 +3412,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     _batch = {"done": 0.0, "total": float(1 + len(pending)), "floor": 0.0}
 
     def _batch_progress(done, total):
+        net.check_cancelled(cancel_event)
         if not progress_cb:
             return
         try:
@@ -3408,17 +3423,21 @@ def install_mod_with_dependencies(download_url: str, filename: str,
             else:
                 _batch["floor"] = value
             progress_cb(value, _batch["total"])
+        except net.DownloadCancelled:
+            raise
         except Exception:
             pass
 
     download_mod(download_url, filename, progress_cb=_batch_progress,
                  slug=slug, mc_version=mc_version, loader=loader,
-                 hashes=hashes, project_id=project_id, version_id=version_id)
+                 hashes=hashes, project_id=project_id, version_id=version_id,
+                 **({"cancel_event": cancel_event} if cancel_event is not None else {}))
     _batch["done"] = 1.0
     _batch_progress(0, 1)
     installed.append(filename)
 
     for i, dep in enumerate(pending, start=2):
+        net.check_cancelled(cancel_event)
         dep_id = dep.get("project_id")
         try:
             dep_name = _safe_download_filename(dep.get("filename"))
@@ -3434,7 +3453,8 @@ def install_mod_with_dependencies(download_url: str, filename: str,
             download_mod(dep["url"], dep_name,
                          mc_version=mc_version, loader=loader,
                          project_id=dep_id, hashes=dep.get("hashes"),
-                         progress_cb=_batch_progress, version_id=version_id)
+                         progress_cb=_batch_progress, version_id=version_id,
+                         **({"cancel_event": cancel_event} if cancel_event is not None else {}))
             installed.append(dep_name)
             # Count only files that actually landed: incrementing per success
             # (rather than assigning the loop index) means a failed dependency
@@ -3445,6 +3465,8 @@ def install_mod_with_dependencies(download_url: str, filename: str,
             _batch_progress(0, 1)
             if dep_id:
                 have.add(dep_id)
+        except net.DownloadCancelled:
+            raise
         except Exception:
             failed.append(name_stem(dep.get("filename") or "a dependency"))
     # Provider dependencies are only part of the contract: actual JARs carry
@@ -3452,6 +3474,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     # the install with the same graph verification as Play, so the user sees
     # any unresolved requirement now instead of a surprise at launch.
     from .mod_dependencies import run_dependency_doctor
+    net.check_cancelled(cancel_event)
     if status_cb:
         status_cb("Verifying installed mod dependencies...")
     report = run_dependency_doctor(mc_version, loader, version_id=version_id,
@@ -3465,7 +3488,7 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
                   loader: str | None = None, hashes: dict | None = None,
                   project_id: str | None = None,
                   superseded_cb=None, preserve_existing: bool = False,
-                  version_id: str | None = None) -> str:
+                  version_id: str | None = None, cancel_event=None) -> str:
     """Streams a mod file into the profile folder for (mc_version, loader).
     progress_cb(downloaded, total) is called periodically if provided.
     Returns the final path. slug (when given) is recorded in a sidecar file
@@ -3491,6 +3514,9 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
     click of Download. superseded_cb(list_of_names), if given, is told what was
     moved aside so the UI can say so rather than silently mutating the list."""
     require_mod_loader(mc_version, loader, "download a mod")
+    net.check_cancelled(cancel_event)
+    cancel_options = ({"cancel_check": lambda: net.check_cancelled(cancel_event)}
+                      if cancel_event is not None else {})
 
     filename = _safe_download_filename(filename)
     # The modpack installer only fetches from the mrpack allowlist; a single
@@ -3520,14 +3546,15 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
         try:
             net.download_to(tmp_path, download_url, headers=modrinth_headers(),
                             timeout=15, expected_hash=expected,
-                            progress_cb=progress_cb, url_validator=_host_allowed)
+                            progress_cb=progress_cb, url_validator=_host_allowed,
+                            **cancel_options)
             import zipfile
             if not zipfile.is_zipfile(tmp_path):
                 raise ValueError('The downloaded mod is not a readable JAR archive.')
         except net.DownloadError as ex:
             raise RuntimeError(str(ex)) from ex
 
-    global_mod_cache.get_or_fetch(dest, fetch_fn, hashes)
+    global_mod_cache.get_or_fetch(dest, fetch_fn, hashes, **cancel_options)
     # A caller usually knows only one of the two Modrinth ids: browse rows and
     # old callers pass the slug, a modpack manifest only the project id (it is
     # in the CDN URL). Record both when the other is one cached lookup away.

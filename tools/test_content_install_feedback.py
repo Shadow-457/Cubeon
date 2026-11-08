@@ -11,9 +11,10 @@ _sandbox_home.isolate()
 import _fuzz_common as fz
 import flet as ft
 from app_driver import DriverPage
-from cubeon import icons, thread_safe_ui
+from cubeon import icons, net, thread_safe_ui
 from cubeon.theme import THEME, section_label
 from ui.install_feedback import InstallFeedback, progress_text
+from ui.project_readme import readme_markdown
 from ui.mods_tab import build_mods_tab
 from ui.modpacks_tab import build_modpacks_tab
 from ui.server_tab import build_server_tab
@@ -99,15 +100,13 @@ class ContentInstallTests(unittest.TestCase):
         QueuedThread.jobs.pop()()
         details = self.detail_buttons()
         self.assertEqual(len(details), 2)  # Latest and version-row controls.
-        self.assertTrue(all(c.disabled and text(c) == "Finding file" for c in details))
+        self.assertTrue(all(not c.disabled and text(c) == "Cancel" for c in details))
         self.assertIs(fns["build_browse_row"](dict(project)), row)
-        self.assertTrue(button.disabled)
-        for c in [button, *details]:
-            c.on_click(None)
+        self.assertFalse(button.disabled)
         self.assertEqual(QueuedThread.jobs, [])
         def install(*a, **kw):
             kw["progress_cb"](.42, 1)
-            self.assertTrue(all(text(c) == "42%" and c.disabled for c in [button, *details]))
+            self.assertTrue(all(text(c) == "Cancel · 42%" and not c.disabled for c in [button, *details]))
             self.assertTrue(all("42%" in c.tooltip for c in [button, *details]))
             self.assertEqual(kw["mc_version"], "1.20.1")
             return {"installed": ["demo.jar"], "failed": []}
@@ -123,7 +122,7 @@ class ContentInstallTests(unittest.TestCase):
         QueuedThread.jobs.pop()()
         details = self.detail_buttons()
         details[0].on_click(None)
-        self.assertTrue(all(c.disabled for c in [row.content.controls[-1], *details]))
+        self.assertTrue(all(not c.disabled and text(c) == "Cancel" for c in [row.content.controls[-1], *details]))
         self.assertEqual(len(QueuedThread.jobs), 1)
         def fail(*a, **kw):
             raise RuntimeError("offline")
@@ -142,9 +141,9 @@ class ContentInstallTests(unittest.TestCase):
             self.core.get_content_download = lambda *a, **kw: {"filename": "demo.zip", "url": "offline"}
             def install(*a, **kw):
                 kw["progress_cb"](128 * 1024, 0)
-                self.assertEqual(text(button), "128 KB")
+                self.assertEqual(text(button), "Cancel · 128 KB")
                 kw["progress_cb"](120, 100)
-                self.assertEqual(text(button), "100%")
+                self.assertEqual(text(button), "Cancel · 100%")
                 kw["fix_cb"]({"reason": "Pack format widened for this Minecraft version."})
             self.core.download_content = install
             button.on_click(None)
@@ -177,6 +176,83 @@ class ContentInstallTests(unittest.TestCase):
         self.core.install_modpack_from_url = install
         QueuedThread.jobs.pop()()
         self.assertEqual(text(button), "Installed")
+
+    def test_detail_recovers_filtered_release_and_html_overview(self):
+        fns = self.build_mods()
+        self.core.get_mod_details = lambda ref: {'title': 'Resourceful Config',
+            'body': '<center>Readable configuration docs</center><a href="https://example.com">Docs</a>'}
+        self.core.get_mod_versions = lambda *args, **kwargs: []
+        self.core.get_mod_download = lambda *args, **kwargs: {
+            'filename': 'config.jar', 'url': 'offline', 'version_number': '1'}
+        fns['build_browse_row']({'project_id': 'config', 'title': 'Resourceful Config'}).on_click(None)
+        QueuedThread.jobs.pop()()
+        readme = next(control for control in fz.walk(self.mods_root)
+                      if getattr(control, 'data', None) == 'mod-detail-readme')
+        self.assertIn('Readable configuration docs', readme.value)
+        self.assertIn('[Docs](<https://example.com>)', readme.value)
+        self.assertNotIn('<center>', readme.value)
+        self.assertIn('Install', [text(control) for control in self.detail_buttons()])
+
+    def test_failed_release_lookup_is_retryable_not_incompatible(self):
+        fns = self.build_mods()
+        def offline(*args, **kwargs):
+            raise RuntimeError('Offline')
+        self.core.get_mod_versions = offline
+        self.core.get_mod_download = offline
+        fns['build_browse_row']({'project_id': 'offline', 'title': 'Offline'}).on_click(None)
+        QueuedThread.jobs.pop()()
+        labels = [control.value for control in fz.walk(self.mods_root) if isinstance(control, ft.Text)]
+        self.assertIn("Couldn't check compatible releases.", labels)
+        self.assertFalse(any('No build for' in str(label) for label in labels))
+        self.assertTrue(any(isinstance(control, ft.TextButton) and control.content == 'Retry'
+                            for control in fz.walk(self.mods_root)))
+
+    def test_html_readme_keeps_images_text_and_safe_links(self):
+        body = '<img src="https://example.com/header.png"/><center>Easy config</center>' \
+               '<script>unwanted content</script><a href="javascript:alert(1)">Text</a>'
+        normalized = readme_markdown(body)
+        self.assertIn('![](<https://example.com/header.png>)', normalized)
+        self.assertIn('Easy config', normalized)
+        self.assertNotIn('unwanted content', normalized)
+        self.assertNotIn('javascript:', normalized)
+        markdown = '# Plain Markdown\n\n[Docs](https://example.com)'
+        self.assertEqual(readme_markdown(markdown), markdown)
+
+    def test_cancel_from_detail_stops_queued_browse_job_before_lookup(self):
+        fns = self.build_mods()
+        row = fns['build_browse_row']({'project_id': 'cancel', 'title': 'Cancel'})
+        button = row.content.controls[-1]
+        button.on_click(None)
+        installer = QueuedThread.jobs.pop()
+        row.on_click(None)
+        QueuedThread.jobs.pop()()
+        details = self.detail_buttons()
+        details[0].on_click(None)
+        self.assertTrue(all(control.disabled and text(control) == 'Cancelling…'
+                            for control in [button, *details]))
+        with patch.object(self.core, 'get_mod_download') as lookup:
+            installer()
+            lookup.assert_not_called()
+        self.assertFalse(button.disabled)
+        self.assertEqual(text(button), 'Install')
+        self.assertEqual(QueuedThread.jobs, [])
+
+    def test_cancel_during_transfer_releases_all_actions_for_retry(self):
+        fns = self.build_mods()
+        row = fns['build_browse_row']({'project_id': 'cancel-transfer', 'title': 'Cancel'})
+        row.on_click(None)
+        QueuedThread.jobs.pop()()
+        details = self.detail_buttons()
+        button = row.content.controls[-1]
+        def install(*args, **kwargs):
+            kwargs['progress_cb'](.5, 1)
+            button.on_click(None)
+            net.check_cancelled(kwargs['cancel_event'])
+        self.core.install_mod_with_dependencies = install
+        details[0].on_click(None)
+        QueuedThread.jobs.pop()()
+        self.assertTrue(all(not control.disabled and text(control) == 'Install'
+                            for control in [button, *details]))
 
     def test_plugin_detail_install_invokes_handler_and_shares_state(self):
         from cubeon.theme import pixel_divider

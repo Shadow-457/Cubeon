@@ -98,6 +98,28 @@ class DownloadError(RuntimeError):
     """Every retry failed, or the response was unusable. Human-readable."""
 
 
+class DownloadCancelled(RuntimeError):
+    """An explicit cancellation, never a retryable network failure."""
+
+
+def check_cancelled(event):
+    if event is not None and event.is_set():
+        raise DownloadCancelled("Installation cancelled. Completed files are kept.")
+
+
+def _retry_pause(delay, cancel_check):
+    if cancel_check is None:
+        time.sleep(delay)
+        return
+    deadline = time.monotonic() + delay
+    while True:
+        cancel_check()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(.1, remaining))
+
+
 class HTTPStatusError(DownloadError):
     """The server answered with a status we don't retry (4xx, minus 429).
 
@@ -114,7 +136,8 @@ class HTTPStatusError(DownloadError):
 
 def get_with_retry(url: str, *, headers: dict | None = None,
                    params: dict | None = None, timeout: int = 30,
-                   attempts: int = DEFAULT_ATTEMPTS, url_validator=None) -> requests.Response:
+                   attempts: int = DEFAULT_ATTEMPTS, url_validator=None,
+                   cancel_check=None) -> requests.Response:
     """GET with exponential backoff on transient failures. The response is
     returned fully-connected (stream=True) and the caller must close it.
 
@@ -124,6 +147,8 @@ def get_with_retry(url: str, *, headers: dict | None = None,
     callers that already catch that keep working)."""
     last_err: Exception | None = None
     for attempt in range(attempts):
+        if cancel_check is not None:
+            cancel_check()
         try:
             if url_validator is None:
                 resp = _do_get(url, headers=headers, params=params, stream=True,
@@ -132,6 +157,8 @@ def get_with_retry(url: str, *, headers: dict | None = None,
                 from urllib.parse import urljoin
                 current = url
                 for hop in range(6):
+                    if cancel_check is not None:
+                        cancel_check()
                     if not url_validator(current):
                         raise DownloadError('The download redirects to an untrusted host.')
                     resp = _do_get(current, headers=headers, params=params if hop == 0 else None,
@@ -152,7 +179,7 @@ def get_with_retry(url: str, *, headers: dict | None = None,
                 resp.close()
                 log.info("download %s: HTTP %s, retrying in %.1fs",
                          url, resp.status_code, delay)
-                time.sleep(delay)
+                _retry_pause(delay, cancel_check)
                 continue
             if 400 <= resp.status_code < 500 and resp.status_code != 429:
                 # Permanent: the server has answered, and waiting cannot turn
@@ -175,28 +202,34 @@ def get_with_retry(url: str, *, headers: dict | None = None,
                 delay = BACKOFF_BASE * (2 ** attempt)
                 log.info("download %s: %s, retrying in %.1fs",
                          url, ex.__class__.__name__, delay)
-                time.sleep(delay)
+                _retry_pause(delay, cancel_check)
     raise DownloadError(human(
         f"Couldn't reach {url} after {attempts} tries: {last_err}"))
 
 
 def get_json(url: str, *, headers: dict | None = None, params: dict | None = None,
-             timeout: int = 30, attempts: int = DEFAULT_ATTEMPTS):
+             timeout: int = 30, attempts: int = DEFAULT_ATTEMPTS, cancel_check=None):
     """GET url and decode a JSON body with the same retry/backoff as a file
     download. Every search / version-lookup call goes through here so one
     dropped packet on a flaky link retries instead of surfacing to the user
     as a dead "network error" the moment they click Install."""
     resp = get_with_retry(url, headers=headers, params=params,
-                          timeout=timeout, attempts=attempts)
+                          timeout=timeout, attempts=attempts,
+                          **({"cancel_check": cancel_check} if cancel_check is not None else {}))
     try:
-        return resp.json()
+        if cancel_check is not None:
+            cancel_check()
+        data = resp.json()
+        if cancel_check is not None:
+            cancel_check()
+        return data
     finally:
         resp.close()
 
 
 def stream_to_file(resp: requests.Response, dest_path: str, *,
                    progress_cb=None, hasher=None, resume_from: int = 0,
-                   deadline: float | None = None) -> int:
+                   deadline: float | None = None, cancel_check=None) -> int:
     """Write a streaming response body to dest_path (append mode when
     resuming). Returns bytes written this call. A dropped connection
     mid-body raises requests.RequestException, which callers treat as
@@ -216,13 +249,21 @@ def stream_to_file(resp: requests.Response, dest_path: str, *,
 
     def chunks():
         if deadline is None:
-            yield from resp.iter_content(chunk_size=1 << 16)
-            return
+            stream = iter(resp.iter_content(chunk_size=1 << 16))
+            while True:
+                if cancel_check is not None:
+                    cancel_check()
+                try:
+                    yield next(stream)
+                except StopIteration:
+                    return
         # iter_content/read tries to fill 64 KiB across many socket reads.
         # A trickling peer can keep that one iteration alive indefinitely.
         # read1 returns after a network read, so the deadline is checked even
         # when the peer sends too slowly to ever fill a regular chunk.
         while True:
+            if cancel_check is not None:
+                cancel_check()
             if _now() >= deadline:
                 raise DownloadError("Download time limit reached; retry the download")
             from urllib3.exceptions import HTTPError
@@ -238,6 +279,8 @@ def stream_to_file(resp: requests.Response, dest_path: str, *,
 
     with open(dest_path, mode) as fh:
         for chunk in chunks():
+            if cancel_check is not None:
+                cancel_check()
             if not chunk:
                 continue
             fh.write(chunk)
@@ -314,6 +357,8 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
             try:
                 get_args = dict(headers=req_headers, timeout=timeout,
                                 attempts=max(1, attempts - attempt))
+                if cancel_check is not None:
+                    get_args['cancel_check'] = cancel_check
                 if url_validator is not None:
                     get_args['url_validator'] = url_validator
                 resp = get_with_retry(url, **get_args)
@@ -328,6 +373,8 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
                                        resume_from=resume_from)
                     if deadline is not None:
                         stream_args["deadline"] = deadline
+                    if cancel_check is not None:
+                        stream_args["cancel_check"] = cancel_check
                     stream_to_file(resp, part_path, **stream_args)
                 finally:
                     resp.close()
@@ -340,6 +387,8 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
                         "The downloaded file didn't pass its integrity "
                         "check - it may have been corrupted in transit. "
                         "Try again.")
+                if cancel_check is not None:
+                    cancel_check()
                 os.replace(part_path, dest_path)
                 return os.path.getsize(dest_path)
             except DownloadError:
@@ -348,7 +397,13 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
                 last_err = ex
                 log.info("download %s: attempt %d failed (%s)",
                          url, attempt + 1, ex.__class__.__name__)
-                time.sleep(BACKOFF_BASE * (2 ** attempt))
+                _retry_pause(BACKOFF_BASE * (2 ** attempt), cancel_check)
+    except DownloadCancelled:
+        try:
+            os.unlink(part_path)
+        except OSError:
+            pass
+        raise
     finally:
         DOWNLOAD_GATE.release()
     raise DownloadError(human(f"Couldn't download {url}: {last_err}"))

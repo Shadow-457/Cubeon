@@ -906,6 +906,7 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
                        loaders=["fabric"], compatible=False, date_published="2026-01-01")
         with patch.object(_core, "get_mod_details", return_value={"title": "Patch pack"}), \
                 patch.object(_core, "get_mod_versions", return_value=[release]), \
+                patch.object(_core, "get_mod_download", return_value=None), \
                 patch.object(_core, "list_content", return_value=[]):
             rowbuild({"project_id": "patch-" + kind, "title": "Patch pack"}).on_click(None)
             QueuedThread.queue.pop()()

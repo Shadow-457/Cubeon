@@ -957,10 +957,11 @@ def get_recommended_content(content_type: str, mc_version: str | None = None,
 
 
 def get_content_download(content_type: str, project_id_or_slug: str,
-                         mc_version: str | None = None) -> dict | None:
+                         mc_version: str | None = None, *, cancel_event=None) -> dict | None:
     """Finds the best matching version file for a pack/shader, filtered by MC
     version when given. Returns {filename, url, size_kb, version_number} or
     None if no matching version exists. No loader filter - see search_content."""
+    net.check_cancelled(cancel_event)
     params = {}
     game_versions = content_mc_versions(mc_version)
     if game_versions:
@@ -973,6 +974,8 @@ def get_content_download(content_type: str, project_id_or_slug: str,
         versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
             params=params, headers=modrinth_headers(), timeout=15,
+            **({"cancel_check": lambda: net.check_cancelled(cancel_event)}
+               if cancel_event is not None else {}),
         )
         # Prefer an exact tagged release before the compatible patch tag.
         for candidate in game_versions or [None]:
@@ -983,7 +986,9 @@ def get_content_download(content_type: str, project_id_or_slug: str,
         return None
 
     # Between click and download start - 24h fresh, then SWR, offline fallback.
-    return local_cache.cached_call("content_download", cache_key, _fetch, max_age=86400)
+    selected = local_cache.cached_call("content_download", cache_key, _fetch, max_age=86400)
+    net.check_cancelled(cancel_event)
+    return selected
 
 
 def download_content(content_type: str, download_url: str, filename: str,
@@ -993,7 +998,7 @@ def download_content(content_type: str, download_url: str, filename: str,
                      loader: str | None = None, fix_cb=None,
                      icon_url: str | None = None,
                      slug: str | None = None,
-                     title: str | None = None) -> str:
+                     title: str | None = None, cancel_event=None) -> str:
     """Streams a pack/shader file into the shared folder for this content type.
 
     Goes through cubeon.net like every other download: retry with backoff,
@@ -1009,6 +1014,7 @@ def download_content(content_type: str, download_url: str, filename: str,
     store never holds a pack the game would reject. progress_cb(downloaded,
     total) is throttled inside net. Returns the profile path it was linked at."""
     _require_install_target(content_type, mc_version, loader)
+    net.check_cancelled(cancel_event)
     filename = download_name(filename, _cfg(content_type)["exts"])
     from .modpacks import _host_allowed
     if not _host_allowed(download_url or ''):
@@ -1027,7 +1033,10 @@ def download_content(content_type: str, download_url: str, filename: str,
     try:
         net.download_to(tmp, download_url, headers=modrinth_headers(), timeout=60,
                         expected_hash=expected_pair, progress_cb=progress_cb,
-                        url_validator=_host_allowed)
+                        url_validator=_host_allowed,
+                        **({"cancel_check": lambda: net.check_cancelled(cancel_event)}
+                           if cancel_event is not None else {}))
+        net.check_cancelled(cancel_event)
         if not zipfile.is_zipfile(tmp):
             raise ValueError('The downloaded content is not a readable ZIP archive.')
         # Last step before the bytes are kept: make sure the game will accept
@@ -1045,6 +1054,7 @@ def download_content(content_type: str, download_url: str, filename: str,
                 os.remove(leftover)
             except OSError:
                 pass
+    net.check_cancelled(cancel_event)
     linked = link_into_profile(content_type, stored, mc_version, loader, version_id)
     # Remember which project this came from so the installed list can show its
     # thumbnail later (a bare .zip carries no Modrinth identity).

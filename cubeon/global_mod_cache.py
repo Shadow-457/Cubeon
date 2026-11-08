@@ -286,7 +286,7 @@ def _ingest(tmp_path: str, human_name: str | None, hashes: dict) -> str:
 
 
 def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,
-                 human_name: str | None = None) -> str:
+                 human_name: str | None = None, *, cancel_check=None) -> str:
     """Ensure dest_path exists, using the global mods store when possible.
 
     fetch_fn(tmp_path) must produce the file at tmp_path (downloading it,
@@ -306,6 +306,8 @@ def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,
 
     Returns the path bytes were linked to (dest_path).
     """
+    if cancel_check is not None:
+        cancel_check()
     hashes = hashes or {}
     human_name = human_name or os.path.basename(dest_path.replace("\\", "/"))
 
@@ -316,6 +318,8 @@ def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,
         sha256_hex = (hashes or {}).get("sha256")
         cached = cache_path_if_present(sha256_hex) if sha256_hex else None
     if cached and _matches_hashes(cached, hashes):
+        if cancel_check is not None:
+            cancel_check()
         link_into_place(cached, dest_path)
         return dest_path
 
@@ -326,6 +330,8 @@ def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,
     os.close(fd)
     try:
         fetch_fn(tmp_path)
+        if cancel_check is not None:
+            cancel_check()
         stored = _ingest(tmp_path, human_name, hashes)
     finally:
         for partial in (tmp_path, tmp_path + '.part'):
@@ -333,6 +339,8 @@ def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,
                 os.remove(partial)
             except OSError:
                 pass
+    if cancel_check is not None:
+        cancel_check()
     link_into_place(stored, dest_path)
     return dest_path
 

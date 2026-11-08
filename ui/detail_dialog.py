@@ -26,6 +26,7 @@ from cubeon import icons as _icons
 from cubeon import mods as _mods
 from cubeon import thread_safe_ui
 from ui.install_feedback import compact_status
+from ui.project_readme import readme_markdown
 
 
 def _human_count(n) -> str:
@@ -286,7 +287,7 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
             if body:
                 controls.append(ft.Container(height=4))
                 controls.append(ft.Markdown(
-                    body, selectable=True,
+                    readme_markdown(body) or blurb or "No description available.", selectable=True,
                     extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                     shrink_wrap=True))
             vs = _versions_section(versions, theme,

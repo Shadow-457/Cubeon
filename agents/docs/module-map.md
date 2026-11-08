@@ -749,7 +749,11 @@ keep builders consistent with the shared `THEME` contract.
   same query across pages. Mod/resource-pack/shader details use a retained full-page host with Back/Escape,
   Overview/Versions/Gallery and responsive metadata; no mod-detail AlertDialog. Generation tokens reject
   late responses after Back or another project. Versions still labels other game versions/loaders as
-  "other version"; only browse rows hard-disable them.
+  "other version" and install-time validation still applies. Empty/failed unfiltered release lists
+  are reconciled with the same version/loader-filtered download lookup browse uses; failed lookups
+  offer Retry, never a false "No build" verdict. `ui/project_readme.py` converts embedded HTML into
+  Markdown for both detail surfaces, preserving images/text/safe links and dropping scripts/styles;
+  feeding HTML-only provider bodies straight to `ft.Markdown` produces a blank Overview.
 - Installed mods show the JAR descriptor's name and retain filename/mod_id/version separately. All
   Installed content, including modpacks, uses bounded cached `fuzzy_search.search_items`: exact/prefix
   before typos/transpositions/acronyms, Unicode/word-separator normalization, stable ties, no network.
@@ -765,6 +769,15 @@ keep builders consistent with the shared `THEME` contract.
   handover to the actual installer. Action labels show bounded percentages or transferred KB for unknown
   totals; full progress/repair details stay in tooltips. Dependency batches explicitly advance after
   successful cached files too. `tools/test_content_install_feedback.py` exercises the real callbacks.
+- Mods/resource-pack/shader install claims opt into cooperative cancellation: every subscribed browse/
+  version/detail action becomes Cancel (with compact progress), then Cancelling until the worker
+  acknowledges it. The claim stays busy to prevent overlapping retries. `cancel_event` travels through
+  file lookup, required dependency traversal, transfer and pre-link cache checks. `net.DownloadCancelled`
+  must propagate through batch-progress/dependency handlers, never become a retry or failed dependency.
+  In-flight socket reads finish or time out; partial transfers close/remove temporary bytes, already
+  completed files remain installed, and captured instance identity never changes. Modpack/plugin and
+  managed Client installs retain their existing non-cancellable behavior. `test_mod_install_cancel.py`
+  covers stream cleanup, retry interruption, cached linking and dependency cancellation offline.
 - Launch configuration uses `include=("launch",)` / `check_online=False`;
   `mod_dependencies.run_dependency_doctor` delegates to `mod_resolver.Resolver` under
   `_spawn_lock`, before sync/spawn, using the selected `version_id` and actual Java major.
