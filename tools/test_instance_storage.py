@@ -83,6 +83,45 @@ class StorageTests(unittest.TestCase):
     def restart(self):
         storage._restart_required = False
 
+    def test_new_instance_skips_occupied_base_and_suffix_without_changing_files(self):
+        from cubeon import storage_layout
+        import uuid
+        storage.initialize()
+        version = "1.21.11"
+        suffix = uuid.uuid5(uuid.NAMESPACE_URL, f"{storage.root()}:{version}:0").hex[:8]
+        parent = self.root / "instances"
+        occupied = [parent / storage_layout.folder_label(version), parent / f"1.21.11-{suffix}"]
+        occupied[0].mkdir()
+        world = occupied[0] / "world.dat"
+        world.write_bytes(b"existing world")
+        occupied[1].write_bytes(b"existing file")
+        predicted = storage.folder_for(version)
+        self.assertEqual(predicted.name, f"1.21.11-{suffix}-2")
+        created = storage.folder_for(version, create=True)
+        self.assertEqual(created, predicted)
+        self.assertEqual(storage.folder_for(version, create=True), created)
+        self.assertEqual(world.read_bytes(), b"existing world")
+        self.assertEqual(occupied[1].read_bytes(), b"existing file")
+
+    def test_instance_creation_retries_a_folder_claimed_after_name_selection(self):
+        storage.initialize()
+        version = "1.21.11"
+        collided = storage.folder_for(version)
+        original_mkdir = Path.mkdir
+        raced = []
+        def claim_before_creation(folder, *args, **kwargs):
+            if folder == collided and not raced:
+                raced.append(folder)
+                original_mkdir(folder, parents=True)
+                (folder / "world.dat").write_bytes(b"keep raced folder")
+            return original_mkdir(folder, *args, **kwargs)
+        with patch.object(Path, "mkdir", claim_before_creation):
+            created = storage.folder_for(version, create=True)
+        self.assertNotEqual(created, collided)
+        self.assertEqual((collided / "world.dat").read_bytes(), b"keep raced folder")
+        self.assertEqual(storage.folder_for(version), created)
+        self.assertEqual(storage.manifest(version)["version_id"], version)
+
     def test_deleted_instance_metadata_is_visible_and_other_instances_still_work(self):
         from cubeon import storage_layout
         storage.initialize()

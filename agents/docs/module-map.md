@@ -726,6 +726,10 @@ keep builders consistent with the shared `THEME` contract.
   moves before normal jobs; registry commits preserve newer data on recovery.
   `folder_for(create=False)` chooses the same readable name as creation without
   depending on optional install metadata. Collision checks are case-insensitive.
+  New allocation checks the readable base AND the deterministic suffixed fallback;
+  occupied fallback names gain numeric suffixes, including when occupied by files.
+  `folder_for(create=True)` retries bounded FileExistsError races (Windows WinError 183)
+  without adopting/overwriting an unregistered folder. Registered manifests remain strict.
   UI offers **Organize folders** to already migrated installs; content migration
   and cleanup are not repeated. Custom `version_labels` are passed into the plan.
 - `build_launch_command` only passes mll an `executablePath` that exists (`_normalize_java_path`); a

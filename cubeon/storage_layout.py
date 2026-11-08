@@ -47,7 +47,14 @@ def new_folder_name(version_id, suffix):
     base = folder_label(version_id)
     parent = storage.root() / "instances"
     occupied = {p.name.casefold() for p in parent.iterdir()} if parent.exists() else set()
-    return base if base.casefold() not in occupied else base + "-" + suffix[:8]
+    if base.casefold() not in occupied:
+        return base
+    candidate = base + "-" + suffix[:8]
+    name, index = candidate, 2
+    while name.casefold() in occupied:
+        name = f"{candidate}-{index}"
+        index += 1
+    return name
 
 
 def plan(labels=None):

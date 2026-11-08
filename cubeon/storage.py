@@ -181,7 +181,15 @@ def folder_for(version_id, *, create=False, meta=None) -> Path | None:
         if not create:
             return folder
         assert_writable()
-        folder.mkdir(parents=True, exist_ok=False)
+        for attempt in range(16):
+            try:
+                folder.mkdir(parents=True, exist_ok=False)
+                break
+            except FileExistsError:
+                if attempt == 15:
+                    raise RuntimeError("Instance folders keep changing. Close other Cubeon windows and retry; no existing folder was overwritten.")
+                ident = new_folder_name(version_id, suffix)
+                folder = _owned(root() / "instances", ident)
         for name in ("mods", "config", "saves", "resourcepacks", "shaderpacks", "screenshots", "logs", "crash-reports"):
             (folder / "minecraft" / name).mkdir(parents=True)
         data = {**(meta or {}), "layout": 2, "id": "instance-" + suffix, "version_id": version_id,
