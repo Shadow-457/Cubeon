@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 I18N = WEB / "i18n"
 ORIGIN = "https://www.ylet.online"
+LAUNCHER_IMAGE_ALT = "Cubeon Launcher: free, open-source Minecraft Java launcher for Windows and Linux, with the launcher window, mods, modpacks and skins."
 
 LANGUAGES = {
     "en": {"native": "English", "dir": "ltr", "label": "Language"},
@@ -63,7 +64,7 @@ BLOCK_TAGS = {
 ATTR_NAMES = {"title", "alt", "aria-label", "placeholder"}
 META_NAMES = {
     "description", "og:title", "og:description", "og:image:alt",
-    "twitter:title", "twitter:description",
+    "twitter:title", "twitter:description", "twitter:image:alt",
 }
 JSONLD_TEXT_KEYS = {"name", "headline", "description", "text", "alternateName", "caption"}
 
@@ -635,7 +636,46 @@ EARLY_SCRIPT = r"""<!-- cubeon:auto-language -->
 <!-- /cubeon:auto-language -->"""
 
 
+def patch_social_metadata(source: str, lang: str) -> str:
+    metadata = {name: unescape(value) for name, value in re.findall(
+        r'<meta\s+(?:property|name)="([^"]+)"\s+content="([^"]*)"[^>]*>', source
+    )}
+    if metadata.get("og:image") != ORIGIN + "/assets/og.png":
+        return source
+    available = translated_languages()
+    content_lang = lang if lang in available else "en"
+    alt = LAUNCHER_IMAGE_ALT if content_lang == "en" else load_catalog(content_lang).get(
+        LAUNCHER_IMAGE_ALT, LAUNCHER_IMAGE_ALT
+    )
+    locales = {"en": "en_US", "ar": "ar_AR", "uk": "uk_UA", "ru": "ru_RU"}
+    properties = [
+        ("og:image:width", "1200"),
+        ("og:image:height", "630"),
+        ("og:image:alt", alt),
+        ("og:image:secure_url", metadata["og:image"]),
+        ("og:image:type", "image/png"),
+        ("og:locale", locales[content_lang]),
+    ]
+    properties.extend(("og:locale:alternate", locales[code])
+                      for code in available if code != content_lang)
+    names = [
+        ("twitter:card", "summary_large_image"),
+        ("twitter:title", metadata["og:title"]),
+        ("twitter:description", metadata["og:description"]),
+        ("twitter:image", metadata["og:image"]),
+        ("twitter:image:alt", alt),
+    ]
+    replaced = {name for name, value in properties + names} | {"og:locale:alternate"}
+    pattern = "|".join(re.escape(name) for name in replaced)
+    source = re.sub(r'[ \t]*<meta\s+(?:property|name)="(?:' + pattern + r')"[^>]*>\n?', "", source)
+    block = "\n".join(f'<meta {attribute}="{name}" content="{escape_attr(value)}" />'
+                      for attribute, entries in (("property", properties), ("name", names))
+                      for name, value in entries)
+    return source.replace("</head>", block + "\n</head>", 1)
+
+
 def patch_common(source: str, page: str, lang: str) -> str:
+    source = patch_social_metadata(source, lang)
     available = translated_languages()
     content_lang = lang if lang in available else "en"
     source = re.sub(

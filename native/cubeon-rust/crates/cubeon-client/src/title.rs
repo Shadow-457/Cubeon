@@ -92,19 +92,16 @@ fn recover_issues(dir: &Path) -> [Option<crate::save::DatIssue>; 2] {
 /// The SafetyScreen's column (WarningScreen: title, 12 px around the message
 /// box of its lines and 4 px padding, the checkbox, then the buttons, 8 px
 /// apart): the title's top.
-/// Minecraft Rust Edition title with Cubeon branding, also used by onboarding.
 fn draw_logo(atlas: &HudAtlas, batch: &mut HudBatch, w: f32) {
-    use crate::ui_theme::{Face, Ui, color};
-    let density = batch.scale;
-    let mut ui = Ui::new(atlas, batch, (0.0, 0.0));
-    ui.density = density;
-    let label_width = ui.measure(Face::SemiBold, 30.0, "Minecraft")
-        .max(ui.measure(Face::Mono, 9.0, "RUST EDITION · CUBEON"));
-    let left = (w - label_width - 51.0) / 2.0;
-    ui.batch.sprite_scaled(atlas, "cubeon/logo", left, 30.0, 40.0, 40.0, u32::MAX);
-    ui.text(Face::SemiBold, 30.0, left + 51.0, 26.0, color::TEXT, "Minecraft");
-    ui.text(Face::Mono, 9.0, left + 51.0, 64.0, color::MUTED, "RUST EDITION · CUBEON");
-    ui.finish();
+    if atlas.sprites.contains_key("gui/title/minecraft") {
+        batch.sprite_scaled(atlas, "gui/title/minecraft", (w - 256.0) / 2.0, 30.0, 256.0, 44.0, u32::MAX);
+        batch.sprite_scaled(atlas, "gui/title/edition", (w - 128.0) / 2.0, 67.0, 128.0, 16.0, u32::MAX);
+    } else {
+        crate::ui::text_scaled(batch, atlas, &Text::literal("Minecraft"),
+            (w - HudBatch::text_width(atlas, "Minecraft") * 3.0) / 2.0, 30.0, 3.0, u32::MAX);
+        batch.text(atlas, "Rust Edition", (w - HudBatch::text_width(atlas, "Rust Edition")) / 2.0,
+            67.0, u32::MAX, true);
+    }
 }
 
 /// `OptimizeWorldScreen.DIMENSION_COLORS`.
@@ -2451,8 +2448,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
         }
         match &self.mode {
             Mode::Main => {
-                batch.fill(atlas, 0.0, 0.0, w, h,
-                    crate::ui::theme_color(cubeon_theme::DARK.page, (cubeon_theme::HOME_VEIL * 255.0) as u8));
                 draw_logo(atlas, batch, w);
                 if !hide_splash && let Some(splash) = self.splash.as_deref() {
                     let tw = HudBatch::text_width(atlas, splash);
@@ -2481,10 +2476,9 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                         ];
                     }
                 }
-                let version = format!("Cubeon Rust {} · Beta", cubeon_core::VANILLA_VERSION);
-                batch.text(atlas, &version, 2.0, h - 20.0, crate::ui::theme_color(cubeon_theme::DARK.ink, 255), true);
-                batch.text(atlas, "Ported from Horizon · MIT", 2.0, h - 10.0,
-                    crate::ui::theme_color(cubeon_theme::DARK.ink_soft, 255), true);
+                let version = format!("Minecraft {} · Rust Beta", cubeon_core::VANILLA_VERSION);
+                batch.text(atlas, &version, 2.0, h - 20.0, u32::MAX, true);
+                batch.text(atlas, "Cubeon · Ported from Horizon · MIT", 2.0, h - 10.0, 0xFFAA_AAAA, true);
                 // A nightly names its build in the top-left corner, the one spot no button reaches at any GUI
                 // scale, so screenshots and reports say which build they come from.
                 if let Some(nightly) = cubeon_core::release::nightly_label() {
@@ -4805,7 +4799,7 @@ mod classic_tests {
     }
 
     #[test]
-    fn cubeon_logo_keeps_title_icons_and_splash_geometry() {
+    fn rust_beta_minecraft_logo_keeps_title_icons_and_splash_geometry() {
         let root = Path::new("/nonexistent/cubeon-test-resources");
         let mut atlas = HudAtlas::build(root).unwrap();
         let r = crate::hud::Rect {
@@ -4840,10 +4834,10 @@ mod classic_tests {
         let mut batch = HudBatch::new([1920, 1080]);
         title.draw(&atlas, &mut batch, (0.0, 0.0), false);
         let cx = (batch.width / 2.0).floor();
-        let logo = atlas.sprites["cubeon/logo"];
+        let logo = atlas.sprites["gui/title/minecraft"];
         assert!(batch.vertices.as_chunks::<6>().0.iter().any(|quad|
-            quad[0].uv == [logo.u0, logo.v0] && quad[0].pos == [cx - 91.0, 30.0]
-                && quad[2].pos == [cx - 51.0, 70.0]));
+            quad[0].uv == [logo.u0, logo.v0] && quad[0].pos == [cx - 128.0, 30.0]
+                && quad[2].pos == [cx + 128.0, 74.0]));
         for i in 0..3 {
             let quad = batch
                 .vertices

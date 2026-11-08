@@ -7,10 +7,11 @@ licenses and attributions remain in `THIRD_PARTY_NOTICES.md` and `third_party/`.
 
 The workspace contains the client's local dependency closure and original Java
 exporter sources. The upstream launcher and hosted server applications are excluded.
-Packages, internal namespaces, bundled translations, runtime icons and UI palettes
-use Cubeon branding. Menus and loading screens use the launcher’s black-and-green
-glass palette and Cubeon cube mark, with visible “Ported from Horizon” credit.
-The main screen reads “Minecraft” with “Rust Edition · Cubeon” beneath it.
+Packages, internal namespaces, bundled translations and runtime icons use Cubeon
+branding. Standard menus retain Minecraft's textured buttons, sliders, backgrounds
+and title artwork from locally prepared resources. The edition banner reads
+“Rust Edition”; Cubeon and Horizon MIT attribution stay in the small footer.
+Cubeon's own companion controls keep their separate styling.
 Cubeon owns the binaries, patches and releases.
 
 Cubeon's changes remove account/session loading, chat credentials, account HTTP,
@@ -41,4 +42,10 @@ The launcher uses `build/rust-engine/<platform>/` during source development and
 Cubeon's own pinned GitHub release manifest for distributed builds. Installation,
 worlds, settings and logs live below Cubeon's private `rust/` folder, separately
 from Java instance staging. Linux and Windows x64 are the initial build targets.
-1000 FPS is a development target, not a measured performance guarantee.
+Fresh profiles start on Balanced graphics with 12-chunk rendering, 8-chunk
+simulation, native resolution, VSync off and a 240 FPS ceiling. Existing saved
+settings are preserved. The Performance preset also disables VSync/forced FIFO
+and enables static block-entity model caches; moving lids, flags and other
+animations remain live. VSync remains available for users who prefer no tearing.
+Rust is not a guaranteed FPS upgrade over Java; compare the same world, view,
+resolution, distances and display caps before drawing conclusions.

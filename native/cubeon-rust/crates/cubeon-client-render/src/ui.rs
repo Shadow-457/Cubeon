@@ -592,8 +592,19 @@ pub fn button_as(
     crate::widgets::record(&label.plain(), [x, y, w, h], active);
     crate::widgets::narratable(|| narration([x, y, w, h]).hovered(hover));
     crate::widgets::widget_cursor(hover, active);
-    glass_panel(batch, atlas, [x, y, w, h], hover, active);
-    let color = theme_color(if active { cubeon_theme::DARK.ink } else { cubeon_theme::DARK.muted }, 255);
+    let sprite = if !active {
+        "gui/sprites/widget/button_disabled"
+    } else if hover {
+        "gui/sprites/widget/button_highlighted"
+    } else {
+        "gui/sprites/widget/button"
+    };
+    if atlas.sprites.contains_key(sprite) {
+        nine_slice(batch, atlas, sprite, x, y, w, h, u32::MAX);
+    } else {
+        batch.fill(atlas, x, y, w, h, if hover && active { 0xFF80_8080 } else { 0xFF40_4040 });
+    }
+    let color = if active { u32::MAX } else { 0xFFA0_A0A0 };
     scrolling_text(
         batch,
         atlas,
@@ -636,7 +647,7 @@ pub fn slider_ext(
     value: f32,
     hover: bool,
     focused: bool,
-    _can_change_value: bool,
+    can_change_value: bool,
     active: bool,
     dragging: bool,
 ) {
@@ -653,11 +664,11 @@ pub fn slider_ext(
         // A controller's D-pad can focus it (Cubeon's controller support).
         crate::widgets::target_as([x, y, w, 20.0], kind);
     }
-    glass_panel(batch, atlas, [x, y, w, 20.0], hover || focused || dragging, active);
+    let (track, handle) = slider_sprites_ext(hover, active, focused, can_change_value, dragging);
+    nine_slice(batch, atlas, track, x, y, w, 20.0, u32::MAX);
     let amount = value.clamp(0.0, 1.0);
-    batch.fill(atlas, x + 4.0, y + 16.0, (w - 8.0) * amount, 2.0,
-        theme_color(cubeon_theme::DARK.accent, if active { 210 } else { 70 }));
-    let color = theme_color(if active { cubeon_theme::DARK.ink } else { cubeon_theme::DARK.muted }, 255);
+    nine_slice(batch, atlas, handle, x + (w - 8.0) * amount, y, 8.0, 20.0, u32::MAX);
+    let color = if active { u32::MAX } else { 0xFFA0_A0A0 };
     scrolling_text(
         batch,
         atlas,
@@ -677,7 +688,6 @@ fn slider_sprites(hover: bool, active: bool, dragging: bool) -> (&'static str, &
 
 /// Track and handle sprites: the track outline shows while dragged or focused with
 /// keyboard navigation (!can_change_value), hovering or editing highlights the handle.
-#[cfg(test)]
 fn slider_sprites_ext(
     hover: bool,
     active: bool,
@@ -712,9 +722,12 @@ pub fn menu_background(
     h: f32,
     in_world: bool,
 ) {
-    let alpha = if in_world { (cubeon_theme::VEIL * 255.0) as u8 } else { 235 };
-    batch.fill(atlas, x, y, w, h, theme_color(cubeon_theme::DARK.page, alpha));
-
+    let sprite = if in_world { "gui/inworld_menu_background" } else { "gui/menu_background" };
+    if atlas.sprites.contains_key(sprite) {
+        tiled_sized(batch, atlas, sprite, x, y, w, h, [32.0, 32.0], u32::MAX);
+    } else {
+        batch.fill(atlas, x, y, w, h, if in_world { 0xB010_1010 } else { 0xFF20_2020 });
+    }
 }
 /// Header and footer separators of list screens.
 pub fn separators(
@@ -724,11 +737,10 @@ pub fn separators(
     footer_top: f32,
     in_world: bool,
 ) {
-    let _ = in_world;
-    let rim = theme_color(0xffffff, 32);
-    batch.fill(atlas, 0.0, header_bottom - 1.0, batch.width, 1.0, rim);
-    batch.fill(atlas, 0.0, footer_top, batch.width, 1.0, rim);
-
+    let header = if in_world { "gui/inworld_header_separator" } else { "gui/header_separator" };
+    let footer = if in_world { "gui/inworld_footer_separator" } else { "gui/footer_separator" };
+    tiled_sized(batch, atlas, header, 0.0, header_bottom - 2.0, batch.width, 2.0, [32.0, 2.0], u32::MAX);
+    tiled_sized(batch, atlas, footer, 0.0, footer_top, batch.width, 2.0, [32.0, 2.0], u32::MAX);
 }
 /// List background between the separators.
 pub fn list_background(
@@ -738,10 +750,12 @@ pub fn list_background(
     bottom: f32,
     in_world: bool,
 ) {
-    let _ = in_world;
-    batch.fill(atlas, 0.0, top, batch.width, bottom - top,
-        theme_color(cubeon_theme::DARK.plate_soft, 160));
-
+    let sprite = if in_world { "gui/inworld_menu_list_background" } else { "gui/menu_list_background" };
+    if atlas.sprites.contains_key(sprite) {
+        tiled_sized(batch, atlas, sprite, 0.0, top, batch.width, bottom - top, [32.0, 32.0], u32::MAX);
+    } else {
+        batch.fill(atlas, 0.0, top, batch.width, bottom - top, 0x8010_1010);
+    }
 }
 /// The visible scrollbar thumb, shared by painting and pointer input.
 pub(crate) fn scrollbar_thumb(

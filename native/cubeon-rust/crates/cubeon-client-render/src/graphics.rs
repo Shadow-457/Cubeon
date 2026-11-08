@@ -195,7 +195,7 @@ impl PresentMode {
     }
     pub fn label(self) -> &'static str {
         match self {
-            PresentMode::Auto => "Auto (VSync)",
+            PresentMode::Auto => "Auto",
             PresentMode::Fifo => "FIFO",
             PresentMode::Mailbox => "Mailbox",
             PresentMode::Immediate => "Immediate",
@@ -1050,6 +1050,20 @@ pub fn apply_preset(preset: Preset, s: &mut crate::settings::Settings) {
     s.graphics_preset = "custom".into();
     let g = &mut s.cubeon;
     g.preset = preset;
+    if matches!(preset, Preset::Performance | Preset::Balanced) {
+        g.cache_shulker_boxes = true;
+        g.cache_signs = true;
+        g.cache_decorated_pots = true;
+        g.cache_bells = true;
+        g.cache_chests = true;
+        g.cache_banners = true;
+        g.cache_copper_golem_statues = true;
+    }
+    if preset == Preset::Performance {
+        s.vsync = false;
+        s.max_fps = 240;
+        g.present_mode = PresentMode::Auto;
+    }
     g.cave_culling = true;
     g.animated_textures = true;
     g.chunk_updates = 0;
@@ -1062,6 +1076,21 @@ pub fn apply_preset(preset: Preset, s: &mut crate::settings::Settings) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rust_beta_performance_preset_removes_display_caps_without_upscaling() {
+        let mut settings = crate::settings::Settings::default();
+        settings.cubeon.present_mode = PresentMode::Fifo;
+        apply_preset(Preset::Performance, &mut settings);
+        assert!(!settings.vsync);
+        assert_eq!(settings.max_fps, 240);
+        assert_eq!(settings.cubeon.present_mode, PresentMode::Auto);
+        assert!(settings.cubeon.cache_chests);
+        assert!(settings.cubeon.cache_banners);
+        assert!(settings.cubeon.animated_textures);
+        assert_eq!(settings.cubeon.resolution_scale, 100);
+        assert_eq!(settings.cubeon.frame_generation, FrameGeneration::Off);
+    }
 
     #[test]
     fn the_api_choice_matches_the_system() {

@@ -359,6 +359,21 @@ impl Settings {
                     ..Self::parse(&text)
                 }
             }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let mut settings = Self {
+                    cubeon,
+                    controller,
+                    extras,
+                    mods,
+                    ..Self::default()
+                };
+                if path.parent().is_none_or(|dir| !dir.join(crate::graphics::FILE).exists()) {
+                    crate::graphics::apply_preset(crate::graphics::Preset::Balanced, &mut settings);
+                    settings.max_fps = 240;
+                    settings.vsync = false;
+                }
+                settings
+            }
             Err(_) => Self {
                 cubeon,
                 controller,
@@ -837,6 +852,33 @@ pub enum Opt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rust_beta_first_run_is_balanced_and_saved_choices_survive() {
+        let dir = std::env::temp_dir().join(format!("cubeon-first-run-{}-{:?}",
+            std::process::id(), std::thread::current().id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("options.txt");
+        let fresh = Settings::load(&path);
+        assert!(!fresh.vsync);
+        assert_eq!(fresh.max_fps, 240);
+        assert_eq!(fresh.render_distance, 12);
+        assert_eq!(fresh.simulation_distance, 8);
+        assert_eq!(fresh.cubeon.resolution_scale, 100);
+        assert!(fresh.cubeon.cache_chests);
+        assert!(fresh.cubeon.animated_textures);
+        fs::write(&path, "enableVsync:true\nmaxFps:60\nrenderDistance:18\nsimulationDistance:10\n").unwrap();
+        let saved = Settings::load(&path);
+        assert!(saved.vsync);
+        assert_eq!(saved.max_fps, 60);
+        assert_eq!(saved.render_distance, 18);
+        assert_eq!(saved.simulation_distance, 10);
+        fs::remove_file(&path).unwrap();
+        fs::write(dir.join(crate::graphics::FILE), "preset:custom\nresolutionScale:75\nblockEntityCacheChests:false\n").unwrap();
+        let partial = Settings::load(&path);
+        assert_eq!(partial.cubeon.resolution_scale, 75);
+        assert!(!partial.cubeon.cache_chests);
+        fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn the_narrator_reads_its_status_and_the_voice_under_master() {
         let s = Settings::parse("narrator:2\nsoundCategory_master:0.5\nsoundCategory_voice:0.5\n");

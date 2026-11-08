@@ -193,6 +193,30 @@ class SEOTests(unittest.TestCase):
         self.assertEqual(fallback, (ROOT / 'assets/icon.ico').read_bytes())
         self.assertNotIn('Disallow: /assets', (WEB / 'robots.txt').read_text())
 
+    def test_launcher_social_metadata_is_complete_and_localized(self):
+        pages = {**self.pages, **self.localized}
+        for key, page in pages.items():
+            if key == 'cubeon-bench' or key.rsplit('/', 1)[-1].isdigit():
+                continue
+            with self.subTest(page=key):
+                self.assertEqual(page.meta['og:image'], [ORIGIN + '/assets/og.png'])
+                self.assertEqual(page.meta['og:image:secure_url'], page.meta['og:image'])
+                self.assertEqual(page.meta['og:image:type'], ['image/png'])
+                self.assertEqual(page.meta['og:image:width'], ['1200'])
+                self.assertEqual(page.meta['og:image:height'], ['630'])
+                self.assertEqual(page.meta['twitter:card'], ['summary_large_image'])
+                for field in ('title', 'description', 'image', 'image:alt'):
+                    self.assertEqual(page.meta['twitter:' + field], page.meta['og:' + field])
+                expected = 'ar_AR' if key.split('/')[0] == 'ar' else 'en_US'
+                self.assertEqual(page.meta['og:locale'], [expected])
+                alternate = 'en_US' if expected == 'ar_AR' else 'ar_AR'
+                self.assertEqual(page.meta['og:locale:alternate'], [alternate])
+                self.assertNotIn('an account name', page.meta['og:image:alt'][0])
+        self.assertNotEqual(self.localized['ar'].meta['twitter:title'],
+                            self.pages['index'].meta['twitter:title'])
+        image = (WEB / 'assets/og.png').read_bytes()
+        self.assertEqual(struct.unpack('>II', image[16:24]), (1200, 630))
+
     def test_bench_metadata_sharing_and_workspace_privacy(self):
         bench = WEB / 'cubeon-bench'
         self.assertEqual((bench / 'index.html').read_bytes(), (bench / 'landing.html').read_bytes())

@@ -586,9 +586,13 @@ keep builders consistent with the shared `THEME` contract.
   and legacy `horizon-resources.json`; prepared data also accepts `horizon-data.bin`.
   Preparations remove both stamp names before work so interruption cannot validate
   stale resources. Keep gameplay's `horizontal` vocabulary intact when rebranding.
-- Native menus use Cubeon's black/green glass controls and embedded cube mark;
-  the main title reads Minecraft / Rust Edition · Cubeon, with visible Horizon MIT
-  port credit. Theme/UI/title assets live in `cubeon-theme`, client `ui_theme.rs`/
+- Native standard menus use locally prepared Minecraft button/slider/background
+  sprites and title art; only the edition banner becomes Rust Edition. Cubeon and
+  Horizon MIT credit remain in the small footer; companion controls keep their own
+  styling. Fresh profiles start Balanced (12 render/8 simulation, VSync off, 240 FPS,
+  native resolution); saved options and partial graphics configurations are preserved.
+  Balanced/Performance enable settled block-entity caches; Performance also removes
+  VSync/forced FIFO caps. Theme/UI/title assets live in `cubeon-theme`, client `ui_theme.rs`/
   `title.rs`, renderer `ui.rs`/`hud.rs`. AI Agent settings, MCP and Discord Rich
   Presence are removed. Only explicit `--control-socket` diagnostic launches open
   local control; legacy saved agent/RPC preferences cannot enable it.
@@ -2074,8 +2078,11 @@ requires retrying with normal system access, not changing unrelated app code.
   WebP Play screenshot with PNG fallback; regenerate with `tools/prepare_website_hero.py` after PNG edits.
   Keep homepage/gallery image dimensions aligned with the source across locales,
   and regenerate the docs preview with `tools/prepare_docs_image_previews.py`.
-  `tools/make_og_card.py` uses Pillow to fit the complete current Play screenshot
-  into `web/assets/og.png` at 1200×630 on a dark background, without new captures.
+  `tools/make_og_card.py` builds the branded 1200×630 `web/assets/og.png` from the public
+  Play screenshot, cube icon and bundled Inter font, without new captures. Main-site
+  social metadata is refreshed by `tools/translate_website.py::patch_social_metadata`:
+  Twitter matches localized OG copy; OG locales follow translated languages, not empty
+  fallback catalogues. Bench keeps its independent social image and metadata.
   Docs `.docs-main` grid items require `min-width:0` so comparison tables scroll inside their
   wrapper on mobile instead of widening the article and sidebar beyond the viewport.
 - Website page counts use **Vercel Web Analytics** (cookieless, no personal data, visitor hash
