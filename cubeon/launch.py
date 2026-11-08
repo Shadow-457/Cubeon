@@ -1536,11 +1536,13 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # stdin is /dev/null for the same reason: an inherited terminal stdin
     # would make the game a background-job SIGTTIN casualty.
     return _spawn_game(command, game_dir, version_id, username, mc_version,
-                       loader, status_cb=status_cb, log_cb=log_cb, on_exit=on_exit)
+                       loader, status_cb=status_cb, log_cb=log_cb, on_exit=on_exit,
+                       configured_java=(cfg or {}).get("java_path"))
 
 
 def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
-                status_cb=None, log_cb=None, on_exit=None, stage_java=True, game_env=None):
+                status_cb=None, log_cb=None, on_exit=None, stage_java=True, game_env=None,
+                configured_java=None):
     """Shared detached process/log/liveness lifecycle for Java and native games."""
     session_id = uuid.uuid4().hex
     set_active_game_dir(game_dir)
@@ -1634,7 +1636,7 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
                 if command and runtime_versions["java"] is not None:
                     from .content_checks import remember_runtime
                     remember_runtime(("mod", mc_version, loader, version_id), command[0],
-                                     runtime_versions["java"], (cfg or {}).get("java_path"))
+                                     runtime_versions["java"], configured_java)
                 dependency_report = run_dependency_doctor(
                     mc_version, loader, version_id=version_id, status_cb=status_cb,
                     check_online=False, auto_fix=False,

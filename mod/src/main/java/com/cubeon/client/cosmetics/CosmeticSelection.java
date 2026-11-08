@@ -103,16 +103,20 @@ public final class CosmeticSelection {
 
     /** Immutable selection captured before queued rendering. */
     public record Items(String back, String shoulder, String face, String head,
-                        String waist, String hand, String trail) {
-        public Items(String back, String shoulder) { this(back, shoulder, null, null, null, null, null); }
+                        String waist, String hand, String trail, String aura) {
+        public Items(String back, String shoulder) { this(back, shoulder, null, null, null, null, null, null); }
+        public Items(String back, String shoulder, String face, String head,
+                     String waist, String hand, String trail) {
+            this(back, shoulder, face, head, waist, hand, trail, null);
+        }
         public boolean empty() { return back == null && shoulder == null && face == null
-                && head == null && waist == null && hand == null && trail == null; }
+                && head == null && waist == null && hand == null && trail == null && aura == null; }
         public String get(String slot) {
             if (slot == null) return null;
             return switch (slot) {
                 case "back" -> back; case "shoulder" -> shoulder; case "face" -> face;
                 case "head" -> head; case "waist" -> waist; case "hand" -> hand;
-                case "trail" -> trail; default -> null;
+                case "trail" -> trail; case "aura" -> aura; default -> null;
             };
         }
         public static Items parse(Map<String, Object> root) {
@@ -122,7 +126,8 @@ public final class CosmeticSelection {
                     valid(Json.str(root, "head", null), "head"),
                     valid(Json.str(root, "waist", null), "waist"),
                     valid(Json.str(root, "hand", null), "hand"),
-                    valid(Json.str(root, "trail", null), "trail"));
+                    valid(Json.str(root, "trail", null), "trail"),
+                    valid(Json.str(root, "aura", null), "aura"));
         }
     }
 

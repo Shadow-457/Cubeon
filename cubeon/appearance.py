@@ -202,7 +202,7 @@ class CharacterModel:
             with Image.open(cape_path) as source:
                 cape = source.convert("RGBA")
         worn = []
-        for slot in ("back", "shoulder", "face", "head", "waist", "hand", "trail"):
+        for slot in cosmetics.SLOTS:
             item = cosmetics.get(cfg.get(f"active_{slot}_item"), cosmetics_dir)
             if item is not None:
                 worn.extend(cosmetics.preview_faces(item, cosmetics_dir, simplify=True))

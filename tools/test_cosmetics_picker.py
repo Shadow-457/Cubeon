@@ -114,6 +114,20 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertTrue(remove.disabled)
         self.assertIn('nothing equipped', fz.subtree_text(self.root))
 
+    def test_aura_has_one_choice_and_preserves_other_slots(self):
+        self.cfg['active_back_item'] = 'back_ember_wings_small'
+        self.cfg['active_shoulder_item'] = 'shoulder_ember_fox'
+        self.tab('Aura')
+        self.assertEqual(len(self.cards()), 1)
+        self.apply('Apply Shadow Aura')
+        self.assertEqual(self.cfg['active_aura_item'], 'aura_shadow')
+        remove = next(control for control in fz.walk(self.root)
+                      if control.tooltip == 'Remove the equipped item')
+        remove.on_click(None)
+        self.assertIsNone(self.cfg['active_aura_item'])
+        self.assertEqual(self.cfg['active_back_item'], 'back_ember_wings_small')
+        self.assertEqual(self.cfg['active_shoulder_item'], 'shoulder_ember_fox')
+
     def test_skin_and_cape_choices_retain_their_images(self):
         cards = self.cards()
         self.apply('Apply steve')

@@ -103,7 +103,7 @@ class InGameSkins:
 
     def snapshot(self, offset=0, kind="skin"):
         with self._lock:
-            if kind in {"back", "shoulder"}:
+            if kind in {"back", "shoulder", "aura"}:
                 result = self.cosmetics.snapshot(offset, kind)
                 result["player_skin"] = self.snapshot()["applied"]
                 result["player_cape"] = self.capes.snapshot()["applied"]
@@ -200,7 +200,7 @@ class InGameSkins:
     def action(self, body):
         with self._lock:
             kind = body.get("kind", "skin")
-            if kind in {"back", "shoulder"}:
+            if kind in {"back", "shoulder", "aura"}:
                 result = self.cosmetics.action(body)
                 result["player_skin"] = self.snapshot()["applied"]
                 result["player_cape"] = self.capes.snapshot()["applied"]

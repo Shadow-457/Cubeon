@@ -34,9 +34,10 @@ from PIL import Image
 from .config import save_config
 from .paths import active_game_dir
 
-SLOTS = ("shoulder", "back", "face", "head", "waist", "hand", "trail")
+SLOTS = ("shoulder", "back", "face", "head", "waist", "hand", "trail", "aura")
 SLOT_LABELS = {"shoulder": "Pets", "back": "Back", "face": "Face",
-               "head": "Head", "waist": "Waist", "hand": "Wrist", "trail": "Trails"}
+               "head": "Head", "waist": "Waist", "hand": "Wrist", "trail": "Trails",
+               "aura": "Aura"}
 
 #: Absolute model-space attachment points (see gen_cosmetics.py).
 ANCHORS = {
@@ -47,6 +48,7 @@ ANCHORS = {
     "waist": (0.0, 10.0, 0.0),
     "hand": (-5.0, 2.0, 0.0),
     "trail": (0.0, 24.0, 0.0),
+    "aura": (0.0, 0.0, 0.0),
 }
 
 _REPO_ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

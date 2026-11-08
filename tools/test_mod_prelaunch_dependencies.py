@@ -375,18 +375,22 @@ class DependencyTests(unittest.TestCase):
             events.append("spawn")
             return SimpleNamespace(pid=123)
         scope = dict(_spawn_lock=Lock(), mc_version=self.mc, loader="fabric", version_id=self.instance,
-                     status_cb=None, command=[], game_dir=str(self.profile), log_fh=None, log_path="unused",
+                     status_cb=None, command=["fixture-java"], game_dir=str(self.profile), log_fh=None, log_path="unused",
+                     configured_java="configured-java", java_major_version=lambda executable:21,
                      popen_kwargs={}, session_id="test", username="test", stage_java=True, _active_logs=set(),
                      _prune_game_logs=lambda: None, subprocess=SimpleNamespace(Popen=spawn, DEVNULL=-1, STDOUT=-2),
                      watchdog=SimpleNamespace(register=lambda *a, **kw:None, stale_session=lambda:None),
                      sync_mods_to_game=lambda *a:events.append("sync"), __name__="cubeon.launch", __package__="cubeon")
-        from cubeon import content
+        from cubeon import content, content_checks
         self.remote_jar("cloth-config")
         with patch.object(content, "sync_content_to_game", side_effect=lambda *a:events.append("content")), \
+                patch.object(content_checks, "remember_runtime") as remember, \
                 patch.object(mods, "get_mod_download", side_effect=self.lookup), \
                 patch.object(net, "download_to", side_effect=self.download):
             with self.assertRaises(deps.ModCompatibilityError) as failure:
                 exec(compile(module, "<actual launch gate>", "exec"), scope)
+        remember.assert_called_once_with(("mod", self.mc, "fabric", self.instance),
+                                         "fixture-java", 21, "configured-java")
         self.assertEqual(events, [])
         self.assertEqual(self.lookups, [])
         self.assertEqual(self.downloads, [])

@@ -63,7 +63,7 @@ public final class CosmeticAnimation {
     }
 
     public static final class Frame {
-        private final Transform body, head, leftWing, rightWing, pack;
+        private final Transform body, head, leftWing, rightWing, pack, aura;
         private final float time, movement, flight, sprinting, wingPhase, dragon, hover;
         private final float[] feathers;
         private final CosmeticCatalog.Item featherItem;
@@ -71,6 +71,7 @@ public final class CosmeticAnimation {
         private Frame(float t, float move, float gliding, float sprint, float phase, float dragonElapsed) {
             time = t; movement = move; flight = gliding; sprinting = sprint;
             hover = .12f * sin(t * 1.8f);
+            aura = new Transform(0, t * .8f % TAU, 0, 1);
             wingPhase = phase; dragon = dragonElapsed; feathers = null; featherItem = null;
             float breath = 0.018f * sin(t * 2.2f);
             body = new Transform(0, 0, 0.012f * sin(t * 1.1f)
@@ -114,7 +115,7 @@ public final class CosmeticAnimation {
 
         private Frame(Frame source, CosmeticCatalog.Item item) {
             body = source.body; head = source.head; leftWing = source.leftWing;
-            rightWing = source.rightWing; pack = source.pack;
+            rightWing = source.rightWing; pack = source.pack; aura = source.aura;
             time = source.time; movement = source.movement; flight = source.flight;
             hover = source.hover;
             sprinting = source.sprinting; wingPhase = source.wingPhase; dragon = source.dragon;
@@ -196,6 +197,7 @@ public final class CosmeticAnimation {
                 case "head" -> frame.head;
                 case "wing" -> quad.mirrored ? frame.rightWing : frame.leftWing;
                 case "pack" -> frame.pack;
+                case "aura" -> frame.aura;
                 default -> null;
             };
             boolean pet = "head".equals(quad.motion) || "body".equals(quad.motion);
@@ -235,7 +237,7 @@ public final class CosmeticAnimation {
                         "body".equals(quad.motion) ? quad.pivotY : quad.parentPivotY,
                         "body".equals(quad.motion) ? quad.pivotZ : quad.parentPivotZ);
                 x[vertex] = px; y[vertex] = py; z[vertex] = pz;
-                if ("float".equals(quad.motion)) y[vertex] += frame.hover;
+                if ("float".equals(quad.motion) || "aura".equals(quad.motion)) y[vertex] += frame.hover;
             }
             if (feather) {
                 // Lighting follows the flexed surface. The catalogue's outward winding

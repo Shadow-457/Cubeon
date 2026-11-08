@@ -665,6 +665,7 @@ const COSMETIC_IDS = {
   waist: new Set(["waist_belt", "waist_pouch", "waist_sheath"]),
   hand: new Set(["hand_bracelet", "hand_glove", "hand_gadget"]),
   trail: new Set(["trail_footsteps", "trail_leaves"]),
+  aura: new Set(["aura_shadow"]),
 };
 
 async function handleCosmetics(request, env) {
@@ -699,7 +700,7 @@ async function serveCosmetics(username, env) {
   if (!uuid || await env.SKINS.get(`blocked:${uuid}`)) return notFound();
   const record = await env.SKINS.get(`cosmetics:${uuid}`, "json");
   const extras = {};
-  for (const slot of ["face", "head", "waist", "hand", "trail"]) {
+  for (const slot of ["face", "head", "waist", "hand", "trail", "aura"]) {
     if (COSMETIC_IDS[slot].has(record?.[slot])) extras[slot] = record[slot];
   }
   return json({ version: 1, username, uuid, ...extras,

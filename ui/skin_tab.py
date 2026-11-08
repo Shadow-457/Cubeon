@@ -30,6 +30,7 @@ from cubeon.theme import (
 from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
 from cubeon import cosmetics
 from ui.appearance_preview import AppearancePreview
+from ui.image_memory import preview_image
 
 # Our own launcher core module - contains logic for skin storage/rendering
 import launcher_core as core
@@ -207,14 +208,14 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         never waits on PIL. Pass neither for a permanent "not an image" icon.
         """
         if src:
-            preview_img = ft.Image(src=src, width=preview_w, height=preview_h,
+            preview_img = preview_image(src=src, width=preview_w, height=preview_h,
                                    fit=ft.BoxFit.CONTAIN)
             placeholder = None
         elif lazy_thumb:
             # Visible only once the worker thread lands real bytes. The
             # placeholder keeps the card's height stable meanwhile, so the
             # grid doesn't reflow as thumbs pop in.
-            preview_img = ft.Image(src="icon.svg", width=preview_w,
+            preview_img = preview_image(src="icon.svg", width=preview_w,
                                    height=preview_h, fit=ft.BoxFit.CONTAIN,
                                    visible=False)
             placeholder = ft.Icon(ft.Icons.IMAGE_OUTLINED, color=TEXT_DIM,
@@ -942,6 +943,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         controls.extend([grid, status])
         if slot == "back":
             equipped.tooltip += "\nSmall wings move gently. Press N in Minecraft for a Giant-wing flare; K → Cosmetic motion turns movement off."
+        elif slot == "aura":
+            equipped.tooltip += "\nShadow wisps orbit your right arm. Requires an updated Cubeon Client; K → Cosmetic motion freezes the effect."
         elif slot == "trail":
             equipped.tooltip += "\nA few short-lived particles while walking. Cosmetic motion turns them off; Minecraft's particle limit still applies."
         pane = ft.Column(controls, spacing=8)
@@ -951,7 +954,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # Keep the extra cosmetic categories hidden for now.
     cosmetic_panes = [(slot, cosmetics.SLOT_LABELS[slot],
                       _cosmetic_pane(slot))
-                     for slot in ("shoulder", "back")]
+                     for slot in ("shoulder", "back", "aura")]
 
     # --- Tab state + switching --------------------------------------------
     # active_pane is a plain dict ref (same pattern the Mods tab uses for

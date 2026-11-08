@@ -20,6 +20,7 @@ import weakref
 
 # Flet imports - Flet is a UI framework for Python (like Flutter)
 import flet as ft
+from ui.image_memory import preview_image
 from cubeon import i18n
 from cubeon.mod_loaders import MOD_CAPABLE_LOADERS
 from cubeon.content import content_mc_versions
@@ -172,12 +173,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def _art_image(url, width=44, height=44, radius=RADIUS):
         cached_source = _icons.peek_src(url)
-        image = ft.Image(
+        image = preview_image(
             src=cached_source if _icons.valid_source(cached_source) else 'icon_64.png',
             width=width, height=height, border_radius=radius,
             fit=ft.BoxFit.COVER, gapless_playback=True,
             data=url,
-            error_content=ft.Image(src='icon_64.png', width=width, height=height, fit=ft.BoxFit.CONTAIN),
+            error_content=preview_image(src='icon_64.png', width=width, height=height, fit=ft.BoxFit.CONTAIN),
         )
         def ready(source):
             if image.data == url and image.src != source and _icons.valid_source(source):
@@ -200,9 +201,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         )
         url = m.get('icon_url') or (installed_icon_urls.get(slug) if slug else None)
         if _icons.valid_source(m.get('icon_source')):
-            holder.content = ft.Image(src=m['icon_source'], width=44, height=44, fit=ft.BoxFit.COVER,
+            holder.content = preview_image(src=m['icon_source'], width=44, height=44, fit=ft.BoxFit.COVER,
                                       border_radius=RADIUS, gapless_playback=True,
-                                      error_content=ft.Image(src='icon_64.png', width=44, height=44))
+                                      error_content=preview_image(src='icon_64.png', width=44, height=44))
         elif url:
             holder.content = _icon_image(url)
         else:

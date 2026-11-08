@@ -12,7 +12,7 @@ from . import cosmetics, paths
 
 PAGE_SIZE = 12
 NONE = "__none__"
-SLOTS = ("back", "shoulder")
+SLOTS = ("back", "shoulder", "aura")
 
 
 class InGameCosmetics:

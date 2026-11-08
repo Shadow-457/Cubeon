@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 
 import flet as ft
+from ui.image_memory import preview_image
 from cubeon import i18n
 
 from cubeon import dialogs
@@ -31,7 +32,7 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
              "thumb_generation": 0}
     thumb_refs = {}
 
-    selected_image = ft.Image(
+    selected_image = preview_image(
         src="icon.svg", width=620, height=430, fit=ft.BoxFit.CONTAIN,
         visible=False,
     )
@@ -197,7 +198,7 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
 
         for item in items:
             filename = item["filename"]
-            image = ft.Image(src="icon.svg", width=148, height=92,
+            image = preview_image(src="icon.svg", width=148, height=92,
                              fit=ft.BoxFit.CONTAIN, visible=False)
             loading = ft.ProgressRing(width=18, height=18, stroke_width=2,
                                       color=ACCENT)

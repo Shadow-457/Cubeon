@@ -157,6 +157,7 @@ class GameFeatureSwitches(unittest.TestCase):
             spawn = stack.enter_context(patch.object(launch, "_spawn_game", side_effect=stage))
             launch.launch_game("selected", "Tester", 2048, 854, 480, None,
                                mc_version="1.20", loader="fabric", cfg=cfg)
+            self.assertEqual(spawn.call_args.kwargs["configured_java"], cfg.get("java_path"))
             return client.call_count, api.call_count, download.call_count, spawn.call_count
 
     def test_both_off_removes_previously_staged_jars_and_does_not_install_them(self):
@@ -164,7 +165,8 @@ class GameFeatureSwitches(unittest.TestCase):
         self.jar("cubeon-client-1.jar", "cubeon-client")
         self.jar("other.jar", "other")
         mods.sync_mods_to_game("1.20", "fabric", version_id="selected")
-        self.assertEqual(self.play({"csl_enabled": False, "client_mod_enabled": False}), (0, 0, 0, 1))
+        self.assertEqual(self.play({"csl_enabled": False, "client_mod_enabled": False,
+                                    "java_path": "configured-java"}), (0, 0, 0, 1))
         self.assertEqual([p.name for p in self.game.glob("*.jar")], ["other.jar"])
         self.assertTrue((self.profile / "CustomSkinLoader.jar.disabled").exists())
 

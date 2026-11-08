@@ -11,7 +11,7 @@ import java.util.List;
 public final class SkinMenu implements AutoCloseable {
     public static final int SEARCH=0,LOOKUP=1,IMPORT=2,APPLY=3,MODEL=4,LEFT=5,RIGHT=6,BACK=7,
             PREVIOUS=8,NEXT=9,REFRESH=10,DELETE=11,GRID=12,EXPORT=13,RESET=14,
-            SKINS=15,CAPES=16,CAPE_VISIBLE=17,CAPE_IMPORT=18,BACK_ITEMS=19,ROW=20,LAYER=40,SHOULDER=46,WINGS_VISIBLE=47;
+            SKINS=15,CAPES=16,CAPE_VISIBLE=17,CAPE_IMPORT=18,BACK_ITEMS=19,ROW=20,LAYER=40,SHOULDER=46,WINGS_VISIBLE=47,AURA=48;
     public interface Layers {
         int mask();
         void set(int mask);
@@ -22,9 +22,10 @@ public final class SkinMenu implements AutoCloseable {
     private final SkinLibrary capeLibrary=new SkinLibrary("cape");
     private final SkinLibrary backLibrary=new SkinLibrary("back");
     private final SkinLibrary shoulderLibrary=new SkinLibrary("shoulder");
+    private final SkinLibrary auraLibrary=new SkinLibrary("aura");
     private final SkinPreview preview=new SkinPreview();
     private final Layers layers;
-    private final HudMenu.Rect[] controls=new HudMenu.Rect[48];
+    private final HudMenu.Rect[] controls=new HudMenu.Rect[49];
     private String username="",deleteId="";
     private boolean focused,dragging,grid,capes,capeOpened;
     private int category=SKINS;
@@ -40,7 +41,7 @@ public final class SkinMenu implements AutoCloseable {
     }); }
     public SkinMenu(Layers layers) { this.layers=layers; library.open(); }
     private SkinLibrary activeLibrary() { return switch(category) {
-        case CAPES->capeLibrary;case BACK_ITEMS->backLibrary;case SHOULDER->shoulderLibrary;default->library;
+        case CAPES->capeLibrary;case BACK_ITEMS->backLibrary;case SHOULDER->shoulderLibrary;case AURA->auraLibrary;default->library;
     }; }
     public boolean focused() { return focused; }
     public HudMenu.Rect search() { return controls[SEARCH]; }
@@ -99,10 +100,10 @@ public final class SkinMenu implements AutoCloseable {
         if(action!=DELETE) deleteId="";
         if(action>=LAYER&&action<LAYER+6) { layers.set(layers.mask()^(1<<(action-LAYER))); return true; }
         switch(action) {
-            case SKINS,CAPES,BACK_ITEMS,SHOULDER -> {
+            case SKINS,CAPES,BACK_ITEMS,SHOULDER,AURA -> {
                 category=action; capes=action==CAPES; firstRow=0; yaw=capes||action==BACK_ITEMS?160:-20; dragging=false;
                 if(capes&&!capeOpened) { capeOpened=true; capeLibrary.open(); }
-                if(action==BACK_ITEMS||action==SHOULDER) activeLibrary().load(activeLibrary().state().offset());
+                if(action==BACK_ITEMS||action==SHOULDER||action==AURA) activeLibrary().load(activeLibrary().state().offset());
             }
             case CAPE_VISIBLE -> layers.set(layers.mask()^64);
             case WINGS_VISIBLE -> previewWings=!previewWings;
@@ -152,10 +153,12 @@ public final class SkinMenu implements AutoCloseable {
         control(CAPES,pad+sideW/2+1,8,sideW/2-1,button);
         control(BACK_ITEMS,pad,8+button+gap,sideW/2-1,button);
         control(SHOULDER,pad+sideW/2+1,8+button+gap,sideW/2-1,button);
+        control(AURA,pad,8+2*(button+gap),sideW,button);
         categoryButton(c,SKINS,"cubeonclient.skins.title");
         categoryButton(c,CAPES,"cubeonclient.capes.title");
         categoryButton(c,BACK_ITEMS,"cubeonclient.back.title");
         categoryButton(c,SHOULDER,"cubeonclient.shoulder.title");
+        categoryButton(c,AURA,"cubeonclient.aura.title");
         var tab=controls[category];
         c.fill(tab.x()+2,tab.y()+tab.h()-2,tab.x()+tab.w()-2,tab.y()+tab.h()-1,WHITE);
         if(skins) {
@@ -166,7 +169,7 @@ public final class SkinMenu implements AutoCloseable {
             String input=username.isEmpty()?c.translate("cubeonclient.skins.username"):username;
             ClientUi.left(c,ClientUi.fit(c,input+(focused?"_":""),s.w()-10),s.x()+5,s.y()+(button-9)/2,username.isEmpty()?DIM:WHITE);
         } else {
-            String key=capes?"cubeonclient.capes.choose":category==BACK_ITEMS?"cubeonclient.back.choose":"cubeonclient.shoulder.choose";
+            String key=capes?"cubeonclient.capes.choose":category==BACK_ITEMS?"cubeonclient.back.choose":category==AURA?"cubeonclient.aura.choose":"cubeonclient.shoulder.choose";
             ClientUi.left(c,ClientUi.fit(c,c.translate(key),Math.max(1,searchEnd-searchX-(capes?button+8:0))),searchX,searchY+(button-9)/2,DIM);
             if(capes) control(CAPE_IMPORT,searchEnd-button,searchY,button,button);
         }
@@ -176,8 +179,8 @@ public final class SkinMenu implements AutoCloseable {
         control(REFRESH,toolbarX+2*(button+gap),8,button,button);
         control(RESET,toolbarX+3*(button+gap),8,button,button);
 
-        int headerY=8+2*(button+gap)+4,toolsY=headerY+25,listY=toolsY+button+5,listH=h-listY-pad;
-        ClientUi.left(c,c.translate(capes?"cubeonclient.capes.title":cosmetic?category==BACK_ITEMS?"cubeonclient.back.title":"cubeonclient.shoulder.title":"cubeonclient.skins.title"),pad,headerY,WHITE);
+        int headerY=8+3*(button+gap)+4,toolsY=headerY+25,listY=toolsY+button+5,listH=h-listY-pad;
+        ClientUi.left(c,c.translate(capes?"cubeonclient.capes.title":cosmetic?category==BACK_ITEMS?"cubeonclient.back.title":category==AURA?"cubeonclient.aura.title":"cubeonclient.shoulder.title":"cubeonclient.skins.title"),pad,headerY,WHITE);
         String count=(state.offset()+Math.max(0,firstRow)) + " / " + state.total();
         ClientUi.left(c,count,pad,headerY+11,DIM);
         int small=Math.min(button,Math.max(16,(sideW-38)/3));
@@ -266,8 +269,8 @@ public final class SkinMenu implements AutoCloseable {
     }
     private String tooltip(ClientUi.Canvas c,int action,SkinLibrary.Skin chosen) {
         if(action==WINGS_VISIBLE) return c.translate("cubeonclient.cosmetics.preview_wings")+" · "+c.translate(previewWings?"options.on":"options.off");
-        if(action==SKINS||action==CAPES||action==BACK_ITEMS||action==SHOULDER)
-            return c.translate(action==SKINS?"cubeonclient.skins.title":action==CAPES?"cubeonclient.capes.title":action==BACK_ITEMS?"cubeonclient.back.title":"cubeonclient.shoulder.title");
+        if(action==SKINS||action==CAPES||action==BACK_ITEMS||action==SHOULDER||action==AURA)
+            return c.translate(action==SKINS?"cubeonclient.skins.title":action==CAPES?"cubeonclient.capes.title":action==BACK_ITEMS?"cubeonclient.back.title":action==AURA?"cubeonclient.aura.title":"cubeonclient.shoulder.title");
         if(action==RESET&&activeLibrary().cosmetics()) return c.translate("cubeonclient.cosmetics.none");
         if(action==CAPE_VISIBLE) return c.translate("cubeonclient.capes.visible")+" · "+c.translate((layers.mask()&64)!=0?"options.on":"options.off");
         if(action==CAPE_IMPORT) return c.translate("cubeonclient.capes.import");
@@ -352,5 +355,5 @@ public final class SkinMenu implements AutoCloseable {
             c.fill(cx-dx,cy+y,cx+dx+1,cy+y+1,color);
         }
     }
-    @Override public void close() { library.close(); capeLibrary.close(); backLibrary.close(); shoulderLibrary.close(); }
+    @Override public void close() { library.close(); capeLibrary.close(); backLibrary.close(); shoulderLibrary.close(); auraLibrary.close(); }
 }

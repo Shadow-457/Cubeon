@@ -125,6 +125,10 @@ keep builders consistent with the shared `THEME` contract.
   wake landing mid-check cannot be lost. Do not add a timeout-poll "just in case" - show the bar
   through `set_bar()` (`progress_bar.visible = True` alone no longer wakes the ticker).
   `tools/test_bar_idle_wake.py` and `tools/test_idle_wakeups.py` guard this.
+- Linux RAM comparisons should include the Python payload, native Flet client and AppImage wrapper;
+  use `/proc/<pid>/smaps_rollup` PSS for proportional shared-memory accounting rather than summing RSS.
+  Sandboxed `ps` may see only its own PID namespace; host inspection needs approval. A single
+  startup/warm-up snapshot does not establish a leak or attribute specific image/control allocations.
 - CPU verification must include both Python and the native Flet process; divide summed core CPU
   percent by logical CPU count to compare with Windows Task Manager. The 2026-10-29 native Linux
   probe (Flet 0.86.5, offline metadata) measured ~1.7% total idle with the pet, ~0% minimized or
@@ -509,6 +513,13 @@ keep builders consistent with the shared `THEME` contract.
   filesystem paths reach Flet Images. Image changes invalidate the thumbnail cache.
   `icons.valid_source` rejects corrupt image bytes before publication, because native
   Flet's `Image.error_content` alone can leave invalid base64 art blank.
+  Fixed-size raster previews use `ui/image_memory.py::preview_image`, requesting
+  decoding at twice the display width; leave decode height unset to preserve aspect
+  ratio. This keeps source files, animation bytes and layout geometry unchanged.
+  The icon source LRU is capped at both 128 entries and 16 MiB of encoded strings;
+  validation caches only 64 SHA-256 digest/result pairs, not whole artwork keys.
+  `test_ui_image_memory.py` covers these bounds; retained row/asset identity stays
+  covered by `test_mod_ui_stability.py` and `test_modpack_performance.py`.
   Catalogue titles and artwork requests publish before installed-file/compatibility
   scans; a failed local scan cannot replace successful search results with an error.
   `IconLoader` uses eight coalesced workers. `icons.load_source` downloads in that
@@ -922,6 +933,11 @@ keep builders consistent with the shared `THEME` contract.
   For candidate lookup, Fast Noise is `zfastnoise`, Async Logger is `asynclogger`,
   and the separate ModernFix fork is `modernfix-mvus`; display names are not
   reliable project slugs. None of these candidate additions is enabled by this note.
+- Java launch staging receives `configured_java` explicitly from `launch_game`;
+  `_spawn_game` has no surrounding `cfg` variable. Pass that setting to
+  `content_checks.remember_runtime` along with the actual executable and detected
+  major. Regression fixtures must use a nonempty command and detected Java version
+  so runtime-cache staging executes; an empty command hid the former NameError.
 - `mods._doctor_runtime_versions()` reads Fabric/Quilt loader-bundled mod metadata
   from the selected loader's library JAR with the bounded stat cache. Both prelaunch
   dependency repair and Doctor include these providers and compare their versions:
@@ -1216,8 +1232,8 @@ keep builders consistent with the shared `THEME` contract.
   wrong-session refusal, failed saves, opt-out, public lookup, safe deletion,
   corrected drag direction and GUI bounds. Active/default skins cannot be
   deleted through this bridge; changing a preview never selects it for gameplay.
-  `kind:"back"`/`"shoulder"` reuse the authenticated routes with None plus 12
-  catalogue items. `InGameCosmetics` shares the skin/cape lock, validates the
+  `kind:"back"`/`"shoulder"`/`"aura"` reuse the authenticated routes with None plus up to 12
+  catalogue items (Aura has just Shadow Aura). `InGameCosmetics` shares the skin/cape lock, validates the
   running instance and slot, and calls the launcher cosmetic setter with an
   explicit game directory and strict mirror writes; save failure restores the
   exact previous mirror bytes and config key. CSL opt-out does not block these
@@ -1310,9 +1326,9 @@ keep builders consistent with the shared `THEME` contract.
   Each uploaded skin has an Auto/Alex/Steve control; CSL and network publication use that model.
   Slim back-face offsets are front +7, not +8. Thumbnail filenames include the arm variant.
 
-### Cosmetics (shoulder and back items)
+### Cosmetics (pets, back items and aura)
 
-- `ui/skin_tab.py` currently exposes only Skin, Cape, Pets (shoulder) and Back; Face, Head,
+- `ui/skin_tab.py` currently exposes only Skin, Cape, Pets (shoulder), Back and Aura; Face, Head,
   Waist, Wrist and Trails panes are hidden without removing catalogue slots or saved selections.
 - Cosmetics category tabs sit above the preview/picker. Below 760 px of section width,
   the preview stacks above the library and its viewport callback caps the model to 176 px wide.
@@ -1337,6 +1353,14 @@ keep builders consistent with the shared `THEME` contract.
   write to a different instance than the one it starts.
   `tools/gen_cosmetics.py` is the ONLY art source: it writes both `assets/cosmetics/` and the jar bundle,
   so never hand-edit a PNG or `catalog.json` - change the generator and rerun it.
+- Aura is an independent eighth slot (`active_aura_item`, mirror/peer field `aura`), not a replacement
+  for pets/wings/wrists. Its sole item `aura_shadow` has 12 sparse charcoal wisps (72 cached quads),
+  attached through the right-arm pose with the standing pivot offset `(5,-2,0)` in every renderer.
+  Box motion `aura` orbits around `(-6,7,0)` using interpolated entity age and gentle bobbing; Cosmetic
+  motion OFF freezes the rest pose. No particle entities, polling or animation threads are added.
+  Launcher/wardrobe previews show the static geometry; gameplay is animated. Updated client JARs
+  are required; older JARs ignore the unknown slot safely. Peer visibility also needs the updated
+  skins Worker catalogue. The authenticated wardrobe includes an Aura tab and keeps apply explicit.
 - Catalogue boxes carry `motion`/`pivot` rig metadata. `CosmeticAnimation` poses pets (body breathing
   and child head glances), mirrored wing hinges (flapping/spreading for gliding), and moving packs.
   Wing items also carry artist-authored `feathers` guides and optional box `faces` masks.
@@ -1402,7 +1426,7 @@ keep builders consistent with the shared `THEME` contract.
   standing body pivot (0,0,0), torso Y=0..12; preview uses `y' = 24 - y`, `z' = -z`.
   Renderers divide by 16 and apply the body pose directly; subtracting 12 after the body transform
   raises items into the head. `test_cosmetic_renderers.py` records standing/crouching/swimming vertices.
-- Skin builds never rasterize bundled cosmetic thumbnails: Shoulder/Back populate only on opening,
+- Skin builds never rasterize bundled cosmetic thumbnails: Pets/Back/Aura populate only on opening,
   then worker-render/cache their cards. `AppearancePreview` uses one worker and caches visited angles;
   camera requests coalesce to the latest step, with no eager 60-angle orbit bake. First-frame readiness
   enables rotation immediately. Keep generation checks so old skin renders cannot overwrite a newer

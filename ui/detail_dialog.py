@@ -18,6 +18,7 @@ install CTA - never an empty pane.
 import threading
 
 import flet as ft
+from ui.image_memory import preview_image
 from cubeon import i18n
 
 from cubeon import dialogs
@@ -63,7 +64,7 @@ def _loading_row(theme):
 def _icon_ctrl(url, theme, size=64):
     _icons.prefetch(url)
     if url:
-        return ft.Image(src=_icons.src(url), width=size, height=size,
+        return preview_image(src=_icons.src(url), width=size, height=size,
                         border_radius=theme.get("RADIUS"), fit=ft.BoxFit.COVER)
     return ft.Container(width=size, height=size, bgcolor=theme.get("CARD_FILL"),
                         border_radius=theme.get("RADIUS"),

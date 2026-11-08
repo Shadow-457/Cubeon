@@ -166,6 +166,8 @@
   "cubeonclient.back.choose": "Choose wings or a back item to preview",
   "cubeonclient.shoulder.title": "Shoulder",
   "cubeonclient.shoulder.choose": "Choose a shoulder pet to preview",
+  "cubeonclient.aura.title": "Aura",
+  "cubeonclient.aura.choose": "Choose an arm aura to preview",
   "cubeonclient.cosmetics.none": "Preview without this cosmetic",
   "cubeonclient.cosmetics.preview_wings": "Show wings in preview",
   "cubeonclient.capes.title": "Capes",

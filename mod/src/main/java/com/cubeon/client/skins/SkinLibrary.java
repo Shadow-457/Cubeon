@@ -31,7 +31,7 @@ public final class SkinLibrary implements AutoCloseable {
                     png, image.getRGB(0, 0, 64, image.getHeight(), null, 0, 64),
                     64, image.getHeight(), Boolean.TRUE.equals(raw.get("hidden")), texture, CapeFrames.read(raw.get("animation")),
                     raw.get("gif_path") instanceof String file?file:null,
-                    "back".equals(raw.get("model"))||"shoulder".equals(raw.get("model"))?CosmeticPreview.load(id):null);
+                    "back".equals(raw.get("model"))||"shoulder".equals(raw.get("model"))||"aura".equals(raw.get("model"))?CosmeticPreview.load(id):null);
         }
     }
     public record State(List<Skin> items, Skin applied, String selected, int offset, int total,
@@ -56,7 +56,7 @@ public final class SkinLibrary implements AutoCloseable {
     public SkinLibrary() { this("skin"); }
     public SkinLibrary(String kind) { this.kind=kind; }
     public boolean capes() { return "cape".equals(kind); }
-    public boolean cosmetics() { return "back".equals(kind)||"shoulder".equals(kind); }
+    public boolean cosmetics() { return "back".equals(kind)||"shoulder".equals(kind)||"aura".equals(kind); }
     public Skin playerSkin() { return playerSkin; }
     public Skin playerCape() { return playerCape; }
     public List<CosmeticPreview.Model> previewItems() {

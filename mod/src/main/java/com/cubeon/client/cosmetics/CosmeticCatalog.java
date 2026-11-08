@@ -29,7 +29,7 @@ import java.util.Map;
  */
 public final class CosmeticCatalog {
     public static final List<String> SLOTS = List.of(
-            "back", "shoulder", "face", "head", "waist", "hand", "trail");
+            "back", "shoulder", "face", "head", "waist", "hand", "trail", "aura");
 
     /** Resource path inside the mod jar. */
     public static final String RESOURCE =

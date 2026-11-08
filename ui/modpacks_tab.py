@@ -24,6 +24,7 @@ import subprocess
 import threading
 
 import flet as ft
+from ui.image_memory import preview_image
 from cubeon import i18n
 
 from cubeon.theme import (  # design system: corner radius, hover helper/tokens/underline tabs
@@ -97,13 +98,13 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     def _pack_icon(url, size):
         if url:
             source = _icons.peek_src(url)
-            image = ft.Image(src=source if _icons.valid_source(source) else 'icon_64.png', width=size, height=size,
+            image = preview_image(src=source if _icons.valid_source(source) else 'icon_64.png', width=size, height=size,
                              data=url, border_radius=RADIUS, fit=ft.BoxFit.COVER,
                              gapless_playback=True,
-                             error_content=ft.Image(src='icon_64.png', width=size, height=size, fit=ft.BoxFit.CONTAIN))
+                             error_content=preview_image(src='icon_64.png', width=size, height=size, fit=ft.BoxFit.CONTAIN))
             _load_pack_icon(image, url)
             return image
-        return ft.Image(src='icon_64.png', width=size, height=size, fit=ft.BoxFit.CONTAIN)
+        return preview_image(src='icon_64.png', width=size, height=size, fit=ft.BoxFit.CONTAIN)
 
     def _load_pack_icon(image, url):
         image.data = url

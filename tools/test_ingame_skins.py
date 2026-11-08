@@ -253,6 +253,26 @@ class SkinTests(unittest.TestCase):
         import io
         self.assertEqual(Image.open(io.BytesIO(data)).size, (64, 64))
 
+    def test_aura_applies_and_clears_without_replacing_pets_or_wings(self):
+        self.cfg.update(active_back_item='back_ember_wings_small',
+                        active_shoulder_item='shoulder_ember_fox')
+        page = self.service.snapshot(kind='aura')
+        self.assertEqual([item['id'] for item in page['items']],
+                         ['__none__', 'aura_shadow'])
+        self.service.action({'kind': 'aura', 'action': 'apply',
+                             'id': 'aura_shadow', 'game_dir': self.game})
+        mirror = Path(cosmetics.game_config_path(self.game))
+        self.assertEqual(json.loads(mirror.read_text())['aura'], 'aura_shadow')
+        self.service.action({'kind': 'aura', 'action': 'apply',
+                             'id': '__none__', 'game_dir': self.game})
+        payload = json.loads(mirror.read_text())
+        self.assertIsNone(payload['aura'])
+        self.assertEqual(payload['back'], 'back_ember_wings_small')
+        self.assertEqual(payload['shoulder'], 'shoulder_ember_fox')
+        with self.assertRaises(ValueError):
+            self.service.action({'kind': 'aura', 'action': 'apply',
+                                 'id': 'shoulder_ember_fox', 'game_dir': self.game})
+
     def test_cosmetic_pages_apply_and_cross_slot_isolation_without_csl(self):
         self.cfg["csl_enabled"] = False
         self.cfg["active_cape"] = "untouched.png"

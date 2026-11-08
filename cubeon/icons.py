@@ -22,11 +22,10 @@ missing icon is cosmetic and must never surface as an error.
 """
 import base64
 import io
-from functools import lru_cache
 import os
 import threading
 from collections import OrderedDict
-from hashlib import sha1
+from hashlib import sha1, sha256
 from urllib.parse import urlparse
 
 # Lazy: `requests` costs ~97ms to import and every module that pulls it in
@@ -48,6 +47,9 @@ _inflight = set()
 _sources = OrderedDict()
 _ready = {}
 _SOURCE_LIMIT = 128
+_SOURCE_BYTES = 16 * 1024 * 1024
+_validated_sources = OrderedDict()
+_VALIDATION_LIMIT = 64
 
 
 def _dest(url: str) -> str:
@@ -98,8 +100,10 @@ def src(url: str | None) -> str | None:
         with _lock:
             _sources[path] = (stamp, encoded)
             _sources.move_to_end(path)
-            while len(_sources) > _SOURCE_LIMIT:
-                _sources.popitem(last=False)
+            retained_bytes = sum(len(entry[1]) for entry in _sources.values())
+            while len(_sources) > _SOURCE_LIMIT or retained_bytes > _SOURCE_BYTES:
+                _, removed = _sources.popitem(last=False)
+                retained_bytes -= len(removed[1])
         return encoded
     except OSError:
         return url
@@ -114,22 +118,32 @@ def peek_src(url):
         return cached[1] if cached else None
 
 
-@lru_cache(maxsize=64)
 def valid_source(source):
     """Reject corrupt cached/embedded artwork before Flet gets its bytes."""
     if not isinstance(source, str) or len(source) > 4 * 1024 * 1024:
         return False
+    key = sha256(source.encode("utf-8", errors="surrogatepass")).digest()
+    with _lock:
+        if key in _validated_sources:
+            _validated_sources.move_to_end(key)
+            return _validated_sources[key]
     from PIL import Image
+    valid = False
     try:
         encoded = source.split(',', 1)[1] if source.startswith('data:image/') else source
         raw = base64.b64decode(encoded, validate=True)
         with Image.open(io.BytesIO(raw)) as image:
-            if image.width * image.height > 4_194_304:
-                return False
-            image.load()
-        return True
+            if image.width * image.height <= 4_194_304:
+                image.load()
+                valid = True
     except (OSError, ValueError, IndexError, Image.DecompressionBombError):
-        return False
+        pass
+    with _lock:
+        _validated_sources[key] = valid
+        _validated_sources.move_to_end(key)
+        while len(_validated_sources) > _VALIDATION_LIMIT:
+            _validated_sources.popitem(last=False)
+    return valid
 
 
 def load_source(url):

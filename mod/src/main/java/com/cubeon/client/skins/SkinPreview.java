@@ -136,7 +136,7 @@ public final class SkinPreview {
         return (x-a[0])*(b[1]-a[1])-(y-a[1])*(b[0]-a[0]);
     }
     public static void face(ClientUi.Canvas canvas,SkinLibrary.Skin skin,int x,int y,int size) {
-        if("back".equals(skin.model())||"shoulder".equals(skin.model())) {
+        if("back".equals(skin.model())||"shoulder".equals(skin.model())||"aura".equals(skin.model())) {
             if(skin.hidden()) { canvas.text("-",x+size/2,y+size/2-4,0xFFAAAAAA); return; }
             for(int row=0;row<size;row++) for(int col=0;col<size;col++) {
                 int color=skin.pixels()[(row*64/size)*64+col*64/size];

@@ -16,6 +16,7 @@ import logging
 import threading
 
 import flet as ft
+from ui.image_memory import preview_image
 from cubeon import i18n
 from cubeon import scrolling
 from cubeon.theme import (  # design system (radius, toggles, faint text tier, underline tabs, accent fg)
@@ -1681,7 +1682,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     def _plugin_icon(hit: dict, *, size=48):
         if hit.get("icon_url"):
             _icons.prefetch(hit["icon_url"])  # disk-cache art for next renders
-            return ft.Image(
+            return preview_image(
                 src=_icons.src(hit["icon_url"]), width=size, height=size,
                 border_radius=RADIUS, fit=ft.BoxFit.COVER,
                 error_content=ft.Icon(ft.Icons.EXTENSION_ROUNDED, color=ACCENT, size=20),

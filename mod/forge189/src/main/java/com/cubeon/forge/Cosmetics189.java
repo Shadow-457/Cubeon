@@ -57,7 +57,7 @@ public final class Cosmetics189 implements LayerRenderer<AbstractClientPlayer> {
                 GlStateManager.pushMatrix();
                 try {
                     if("head".equals(slot)||"face".equals(slot)) model.bipedHead.postRender(scale);
-                    else if("hand".equals(slot)) { model.bipedRightArm.postRender(scale); GlStateManager.translate(5*scale,-2*scale,0); }
+                    else if("hand".equals(slot) || "aura".equals(slot)) { model.bipedRightArm.postRender(scale); GlStateManager.translate(5*scale,-2*scale,0); }
                     else model.bipedBody.postRender(scale);
                     mc.getTextureManager().bindTexture(new ResourceLocation("cubeon-client","textures/cosmetics/"+item.texture));
                     CosmeticAnimation.Frame animation=frame==null?null:frame.forItem(item);

@@ -25,6 +25,7 @@ cheap to unit-test and free of the import cycle that would come from importing
 import threading
 
 import flet as ft
+from ui.image_memory import preview_image
 from cubeon import i18n
 
 from cubeon.theme import (
@@ -356,7 +357,7 @@ class VersionPicker:
 
         self.title = ft.Text("Instances", size=22, color=TEXT,
                              font_family=FONT_DISPLAY, expand=True)
-        self.custom_icon_preview = ft.Image(src='', width=28, height=28, fit=ft.BoxFit.CONTAIN,
+        self.custom_icon_preview = preview_image(src='', width=28, height=28, fit=ft.BoxFit.CONTAIN,
                                            tooltip='Custom icon', visible=False)
         self.icon_upload = ft.IconButton(
             icon=ft.Icons.UPLOAD_ROUNDED, icon_size=16, icon_color=TEXT_DIM,
@@ -847,7 +848,7 @@ class VersionPicker:
             tiles.append(ft.Container(
                 data='instance-icon-option-' + icon['id'],
                 content=ft.Column([
-                    ft.Image(src=icon['src'],width=56,height=64,fit=ft.BoxFit.CONTAIN),
+                    preview_image(src=icon['src'],width=56,height=64,fit=ft.BoxFit.CONTAIN),
                     ft.Text(icon['name'],size=10,color=ACCENT if active else TEXT_DIM,
                             max_lines=1,overflow=ft.TextOverflow.ELLIPSIS),
                 ],spacing=4,horizontal_alignment=ft.CrossAxisAlignment.CENTER,tight=True),
@@ -899,7 +900,7 @@ class VersionPicker:
         size_text = ft.Text("\u2026", size=10.5, color=TEXT_FAINT,
                             font_family=FONT_MONO)
 
-        thumb = ft.Image(src=instance_icons.source(self.get_icon(vid),loader=loader),
+        thumb = preview_image(src=instance_icons.source(self.get_icon(vid),loader=loader),
                          fit=ft.BoxFit.CONTAIN,width=104,height=118)
         edit = ft.IconButton(icon=ft.Icons.EDIT_ROUNDED,icon_size=16,icon_color=TEXT_DIM,
                              tooltip=i18n.t('Choose icon'),data='instance-icon-edit-' + vid,

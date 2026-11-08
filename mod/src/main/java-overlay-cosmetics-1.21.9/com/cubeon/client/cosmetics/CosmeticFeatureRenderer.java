@@ -61,7 +61,7 @@ public final class CosmeticFeatureRenderer
             try {
                 if ("face".equals(slot) || "head".equals(slot)) {
                     getContextModel().head.applyTransform(matrices);
-                } else if ("hand".equals(slot)) {
+                } else if ("hand".equals(slot) || "aura".equals(slot)) {
                     getContextModel().rightArm.applyTransform(matrices);
                     // Art is in standing body space; the native arm pivot is (-5, 2, 0).
                     matrices.translate(5 / 16.0f, -2 / 16.0f, 0);

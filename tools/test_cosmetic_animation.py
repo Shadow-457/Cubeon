@@ -1,5 +1,6 @@
 """Exercise production cosmetic poses: attachments, lighting, symmetry and pause."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -451,6 +452,53 @@ public class AnimationTest {
 
 @unittest.skipUnless(shutil.which('javac') and shutil.which('java'), 'A JDK is required')
 class CosmeticAnimationTests(unittest.TestCase):
+    def test_shadow_aura_selection_animation_and_static_pose(self):
+        harness_source = '''
+import com.cubeon.client.cosmetics.*;
+import java.nio.file.*;
+import java.util.*;
+public class AuraTest {
+    public static void main(String[] args) throws Exception {
+        var item = CosmeticCatalog.get().get("aura_shadow");
+        if (item == null || !"aura".equals(item.slot)) throw new AssertionError("Aura catalogue");
+        var selected = CosmeticSelection.Items.parse(Map.of("aura", item.id));
+        if (selected.empty() || !item.id.equals(selected.get("aura"))) throw new AssertionError("Aura selection");
+        if (CosmeticSelection.Items.parse(Map.of("aura", "back_ember_wings")).aura() != null)
+            throw new AssertionError("Cross-slot validation");
+        var quads = CosmeticGeometry.quads(item, 0);
+        if (quads.size() > 72) throw new AssertionError("Bounded geometry");
+        var quad = quads.get(0);
+        float[] original = quad.x.clone();
+        var posed = new CosmeticAnimation.PosedQuad();
+        posed.set(quad, CosmeticAnimation.sample(1, 0, false).forItem(item));
+        if (Arrays.equals(posed.x, original)) throw new AssertionError("Aura animation");
+        if (!Arrays.equals(quad.x, original)) throw new AssertionError("Immutable geometry");
+        posed.set(quad, null);
+        if (!Arrays.equals(posed.x, original)) throw new AssertionError("Motion off");
+        CosmeticSelection.bind(Path.of(args[0]));
+        if (!item.id.equals(CosmeticSelection.snapshot().aura())) throw new AssertionError("Mirror read");
+        System.out.println("Shadow Aura selection, mirror, orbit and motion-off passed");
+    }
+}
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            harness = root / 'AuraTest.java'
+            harness.write_text(harness_source)
+            mirror = root / 'cubeon-cosmetics.json'
+            mirror.write_text('{"aura":"aura_shadow"}')
+            sources = [JAVA / 'Json.java'] + [JAVA / 'cosmetics' / (name + '.java')
+                       for name in ('CosmeticCatalog', 'CosmeticGeometry', 'CosmeticAnimation',
+                                    'CosmeticSelection', 'WingAction')]
+            compiled = subprocess.run(['javac', '--release', '17', '-d', folder,
+                                       *map(str, sources), str(harness)],
+                                      capture_output=True, text=True, timeout=30)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            tested = subprocess.run(['java', '-cp', folder + os.pathsep + str(ROOT / 'mod/src/main/resources'),
+                                     'AuraTest', str(mirror)],
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(tested.returncode, 0, tested.stdout + tested.stderr)
+
     def test_production_animation(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
