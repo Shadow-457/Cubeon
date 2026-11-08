@@ -197,6 +197,7 @@ class VersionPicker:
         self._support_loading = False
         self._support_error = False
         self._support_generation = 0
+        self._catalogue_loader = None
         self._icon_version = None
         self._icon_category = 'block'
         # (id, label) pairs. The loader is chosen here, while downloading a
@@ -672,11 +673,10 @@ class VersionPicker:
         self._new_version = None
         self._set_install_loader(self._default_install_loader)
         self.filter_field.value = ""
-        self._apply_mode()
-        self._render_new()
-        thread_safe_ui.refresh(self.panel)
+        self._load_versions()
 
     def _load_versions(self):
+        self._catalogue_loader = self._install_loader
         if self._install_loader == "rust":
             self._support_generation += 1
             self._loading = self._offline = self._support_error = self._support_loading = False
@@ -722,7 +722,13 @@ class VersionPicker:
             return
         if self._new_step == 1:
             self._new_step = 2
-            self._load_versions()
+            if (self._catalogue_loader != self._install_loader
+                    or self._offline or self._support_error):
+                self._load_versions()
+            else:
+                self._apply_mode()
+                self._render_new()
+                thread_safe_ui.refresh(self.panel)
         elif self._new_step == 2:
             if self.next_button.disabled or not self._new_version:
                 return

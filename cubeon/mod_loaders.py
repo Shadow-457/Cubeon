@@ -7,6 +7,7 @@ import os
 from .storage import runtime_dir
 import re
 import shutil
+import threading
 from contextlib import nullcontext
 
 # minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
@@ -19,7 +20,7 @@ from .paths import MINECRAFT_DIR
 from .versions import (get_installed_versions, install_version,
                        _InstallCancelBridge, _PatchedMllDownloads,
                        _DownloadCancelled, _active_install)
-from . import local_cache
+from . import local_cache, net
 
 SUPPORTED_LOADERS = {
     "vanilla": "Vanilla",
@@ -33,19 +34,62 @@ SUPPORTED_LOADERS = {
 # never does - this is the single source of truth other modules should
 # check against instead of re-deriving their own loader whitelist.
 MOD_CAPABLE_LOADERS = ("fabric", "quilt", "forge", "neoforge")
+_LOADER_CATALOGUE_LOCKS = {loader: threading.Lock() for loader in MOD_CAPABLE_LOADERS}
+_LOADER_CATALOGUE_URLS = {
+    "fabric": "https://meta.fabricmc.net/v2/versions/game",
+    "quilt": "https://meta.quiltmc.org/v3/versions/game",
+    "forge": "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml",
+    "neoforge": "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge",
+}
+
+
+def _download_loader_minecraft_versions(loader_id: str) -> list[str]:
+    """Read the official support catalogue without mll's untimed requests."""
+    url = _LOADER_CATALOGUE_URLS[loader_id]
+    if loader_id == "forge":
+        from xml.etree import ElementTree
+
+        response = net.get_with_retry(url, timeout=5, attempts=1)
+        try:
+            metadata = ElementTree.fromstring(response.content)
+        finally:
+            response.close()
+        versions = [entry.text.split("-", 1)[0]
+                    for entry in metadata.findall("./versioning/versions/version")
+                    if entry.text and "-" in entry.text]
+    else:
+        data = net.get_json(url, timeout=5, attempts=1)
+        if loader_id in ("fabric", "quilt"):
+            if not isinstance(data, list):
+                raise ValueError("Invalid loader version catalogue")
+            versions = [entry["version"] for entry in data
+                        if isinstance(entry, dict) and isinstance(entry.get("version"), str)]
+        else:
+            if not isinstance(data, dict) or not isinstance(data.get("versions"), list):
+                raise ValueError("Invalid loader version catalogue")
+            versions = []
+            for entry in data["versions"]:
+                if not isinstance(entry, str) or entry.startswith("0."):
+                    continue
+                match = re.match(r"^\d+\.\d+", entry)
+                if match:
+                    versions.append("1." + match.group().removesuffix(".0"))
+    result = list(dict.fromkeys(version for version in versions if version))
+    if not result:
+        raise ValueError("The loader version catalogue came back empty")
+    return result
 
 
 def get_loader_minecraft_versions(loader_id: str) -> list[str]:
-    """One supported-version list per loader, fetched off the UI thread."""
+    """Reuse saved support immediately and refresh expired catalogues off-thread."""
     if loader_id not in MOD_CAPABLE_LOADERS:
         raise ValueError("Unknown mod loader")
-    cached = local_cache.get("loader_versions", {"loader": loader_id}, max_age=3600)
-    if isinstance(cached, list):
-        return list(cached)
-    versions = mll.mod_loader.get_mod_loader(loader_id).get_minecraft_versions(False)
-    result = [version for version in versions if isinstance(version, str)]
-    local_cache.set("loader_versions", {"loader": loader_id}, result)
-    return result
+    with _LOADER_CATALOGUE_LOCKS[loader_id]:
+        result = local_cache.cached_call(
+            "loader_versions", {"loader": loader_id},
+            lambda: _download_loader_minecraft_versions(loader_id),
+            max_age=3600, stale_ok=True, background_refresh=True)
+    return list(result)
 
 
 def is_loader_supported(loader_id: str, mc_version: str) -> bool:

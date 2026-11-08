@@ -18,6 +18,7 @@ No real network: versions.net.get_with_retry is stubbed.
 import json
 import os
 import sys
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -27,6 +28,7 @@ _sandbox_home.isolate()
 
 import cubeon.versions as versions  # noqa: E402
 from cubeon import local_cache  # noqa: E402
+from cubeon import mod_loaders  # noqa: E402
 
 _passed = _failed = 0
 
@@ -70,10 +72,12 @@ def _clear_cache():
 
 print("1. both Mojang mirrors are tried before giving up")
 seen = []
+seen_options = []
 
 
 def _net_second_only(url, **kw):
     seen.append(url)
+    seen_options.append(kw)
     if url == versions.MANIFEST_URLS[0]:
         raise ConnectionError("primary host blocked")
     return FakeResp(MANIFEST)
@@ -86,6 +90,9 @@ check("tried the primary first", seen and seen[0] == versions.MANIFEST_URLS[0],
       f"seen={seen}")
 check("tried the alias second",
       len(seen) == 2 and seen[1] == versions.MANIFEST_URLS[1], f"seen={seen}")
+check("bad mirrors fail over without repeated long waits",
+      all(options["timeout"] == 5 and options["attempts"] == 1
+          for options in seen_options))
 
 print("\n2. a manifest with no versions is rejected, not returned")
 
@@ -154,6 +161,70 @@ try:
     check("raises with nothing cached", False)
 except Exception:
     check("raises with nothing cached", True)
+
+print("\n6. expired catalogues return before any network refresh")
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump({"time": 0, "value": MANIFEST}, fh)
+_clear_cache()
+versions._download_manifest = _raise
+with patch.object(local_cache.threading.Thread, "start") as start:
+    check("expired Mojang manifest returns without calling its fetch",
+          versions.get_latest_release() == "1.21.11")
+    check("expired Mojang manifest refreshes in the background", start.call_count == 1)
+
+loader_path = local_cache._path("loader_versions", {"loader": "fabric"})
+with open(loader_path, "w", encoding="utf-8") as fh:
+    json.dump({"time": 0, "value": ["1.20.1"]}, fh)
+_clear_cache()
+with patch.object(mod_loaders, "_download_loader_minecraft_versions", _raise), \
+        patch.object(local_cache.threading.Thread, "start") as start:
+    check("expired loader support returns without calling its fetch",
+          mod_loaders.get_loader_minecraft_versions("fabric") == ["1.20.1"])
+    check("expired loader support refreshes in the background", start.call_count == 1)
+
+print("\n7. timed loader catalogues preserve supported versions")
+loader_calls = []
+
+
+def loader_json(url, **kwargs):
+    loader_calls.append(kwargs)
+    if url == mod_loaders._LOADER_CATALOGUE_URLS["neoforge"]:
+        return {"versions": ["0.1.0", "20.2.80", "21.0.10-beta", "21.1.12", "21.1.13"]}
+    return [{"version": "1.21.1", "stable": True},
+            {"version": "24w14a", "stable": False}]
+
+
+class ForgeResp:
+    content = (b"<metadata><versioning><versions><version>1.20.1-47.1.0</version>"
+               b"<version>1.20.1-47.2.0</version><version>1.21.1-52.0.0</version>"
+               b"</versions></versioning></metadata>")
+    closed = False
+
+    def close(self):
+        self.closed = True
+
+
+forge_response = ForgeResp()
+
+
+def loader_response(url, **kwargs):
+    loader_calls.append(kwargs)
+    return forge_response
+
+
+with patch.object(mod_loaders.net, "get_json", loader_json), \
+        patch.object(mod_loaders.net, "get_with_retry", loader_response):
+    for loader in ("fabric", "quilt"):
+        check(f"{loader} retains releases and snapshots",
+              mod_loaders._download_loader_minecraft_versions(loader) == ["1.21.1", "24w14a"])
+    check("Forge support is deduplicated from Maven metadata",
+          mod_loaders._download_loader_minecraft_versions("forge") == ["1.20.1", "1.21.1"])
+    check("Forge response is closed", forge_response.closed)
+    check("NeoForge retains the existing Minecraft version mapping",
+          mod_loaders._download_loader_minecraft_versions("neoforge") == ["1.20.2", "1.21", "1.21.1"])
+    check("all loader metadata requests have short timeouts and no backoff",
+          all(options["timeout"] == 5 and options["attempts"] == 1
+              for options in loader_calls))
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

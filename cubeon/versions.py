@@ -1002,16 +1002,17 @@ MANIFEST_URLS = (
     "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
     "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json",
 )
+_MANIFEST_LOCK = threading.Lock()
 
 
 def _download_manifest() -> dict:
-    """Fetch the raw version manifest, trying each Mojang mirror in turn with
-    timeout + retry. Raises the last error so the cache can fall back to a
+    """Fetch the raw version manifest, trying each Mojang mirror once with a
+    short timeout. Raises the last error so the cache can fall back to a
     previously downloaded copy."""
     last_err: Exception | None = None
     for url in MANIFEST_URLS:
         try:
-            resp = net.get_with_retry(url, timeout=15, attempts=2)
+            resp = net.get_with_retry(url, timeout=5, attempts=1)
         except Exception as ex:
             last_err = ex
             continue
@@ -1029,12 +1030,11 @@ def _download_manifest() -> dict:
 
 
 def _manifest() -> dict:
-    """The version manifest, cached on disk for an hour and served stale when
-    the network is down. Without this, one failed DNS lookup showed "No
-    internet" even on a machine that was plainly online a second earlier."""
-    return local_cache.cached_call(
-        "mojang_manifest", "v2", _download_manifest,
-        max_age=3600, stale_ok=True, background_refresh=False)
+    """Serve the saved catalogue immediately; refresh expired data off-thread."""
+    with _MANIFEST_LOCK:
+        return local_cache.cached_call(
+            "mojang_manifest", "v2", _download_manifest,
+            max_age=3600, stale_ok=True, background_refresh=True)
 
 
 def get_available_versions(include_snapshots=False, include_old=False) -> list[dict]:

@@ -39,15 +39,16 @@ class NewInstanceTests(unittest.TestCase):
         p = self.picker()
         with patch.object(threading.Thread, "start"):
             p.open()
+            p._loader_versions["fabric"] = {"1.20.1", "1.21.1"}
             p._browse()
             self.assertEqual(p._new_step, 1)
             self.assertTrue(p.loader_row.visible)
             self.assertFalse(p.list.visible)
             self.assertFalse(p.filter_field.visible)
-            self.assertEqual(self.loaded, [])
+            self.assertEqual(self.loaded, [True])
             p._set_install_loader("fabric")
-            p._loader_versions["fabric"] = {"1.20.1", "1.21.1"}
             p._next()
+            self.assertEqual(self.loaded, [True])
             self.assertEqual(p._new_step, 2)
             self.assertFalse(p.loader_row.visible)
             self.assertTrue(p.filter_field.visible)
@@ -103,11 +104,11 @@ class NewInstanceTests(unittest.TestCase):
         p = self.picker()
         with patch.object(threading.Thread, "start"):
             p.open()
+            p._loader_versions["fabric"] = {"1.20.1", "1.21.1"}
             p._browse()
             self.assertEqual(p._install_loader, "fabric")
             self.assertEqual(p._loader_chips["fabric"].bgcolor, ACCENT_TINT)
             self.assertEqual(p._loader_chips["fabric"].border.top.color, ACCENT)
-            p._loader_versions["fabric"] = {"1.20.1", "1.21.1"}
             p._next()
             p._pick("1.21.1")
             p._next()
@@ -124,6 +125,20 @@ class NewInstanceTests(unittest.TestCase):
             p.open()
             p._browse()
             self.assertEqual(p._install_loader, "fabric")
+
+    def test_next_reuses_pending_catalogues(self):
+        p = self.picker()
+        p.on_browse_online = lambda: self.loaded.append(True)
+        with patch.object(threading.Thread, "start") as start:
+            p._browse()
+            generation = p._support_generation
+            self.assertTrue(p._loading)
+            self.assertTrue(p._support_loading)
+            p._next()
+            self.assertEqual(p._new_step, 2)
+            self.assertEqual(p._support_generation, generation)
+            self.assertEqual(self.loaded, [True])
+            self.assertEqual(start.call_count, 1)
 
     def test_offline_retry_preserves_step_and_loader(self):
         p = self.picker()
