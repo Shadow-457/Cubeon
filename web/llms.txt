@@ -16,6 +16,8 @@
 
 ## Official sources
 
+- [Cubeon Bench](https://www.ylet.online/cubeon-bench): free browser-based Minecraft Java texture, skin, animation and resource-pack editor; local projects, 3D previews and offline editing. It is a separate web tool on the same official domain, not the desktop launcher or an FPS benchmark.
+
 - [Project facts](https://www.ylet.online/about): product identity, platforms, profiles and limitations.
 - [Downloads](https://www.ylet.online/download): official platform downloads.
 - [Source code](https://github.com/Shadow-457/Cubeon): source and build instructions.

@@ -18,7 +18,7 @@ class IndexNowTests(unittest.TestCase):
 
     def test_preview_uses_only_canonical_sitemap_pages(self):
         payload = indexing.make_payload()
-        self.assertEqual(len(payload['urlList']), sum(not page.isdigit() for page in PAGES) * len(translated_languages()))
+        self.assertEqual(len(payload['urlList']), sum(not page.isdigit() for page in PAGES) * len(translated_languages()) + 1)
         self.assertEqual(payload['keyLocation'], indexing.ORIGIN + '/indexnow-key.txt')
         for url in ('https://preview.vercel.app/about', indexing.ORIGIN + '/api/doctor',
                     indexing.ORIGIN + '/about#report=private', indexing.ORIGIN + '/404',

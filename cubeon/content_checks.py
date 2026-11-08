@@ -72,3 +72,40 @@ def is_missing_dependency(problem):
     from .mods import DOCTOR_RUNTIME_IDS
     return (problem.get("kind") == "required" and problem.get("missing")
             and problem.get("dependency") not in DOCTOR_RUNTIME_IDS)
+
+
+def disable_problem_mod(target, option, *, runtime_versions=None):
+    """Disable exactly one reviewed JAR, preserving it and rechecking offline."""
+    from . import mods, storage
+    from .file_safety import entry_name
+    kind, mc_version, loader, version_id = target
+    if kind != 'mod':
+        raise ValueError('This action is only available for installed mods.')
+    if storage.blocked():
+        raise ValueError('Finish the storage operation before changing mods.')
+    filename = entry_name(option.get('filename'), extensions=('.jar',))
+    mods.require_mod_loader(mc_version, loader, 'disable a mod')
+    directory = mods.resolve_profile_dir(mc_version, loader, version_id)
+    expected = option.get('snapshot')
+    if not expected:
+        raise ValueError('Check compatibility again before disabling this mod.')
+    expected = tuple(tuple(entry) for entry in expected)
+    names = [filename, filename + mods.MOD_META_SUFFIX]
+    if mods._doctor_profile_snapshot(directory, names) != expected:
+        raise ValueError('This mod changed since the check. Check compatibility again.')
+    entry = next((item for item in mods.list_mods(mc_version, loader, version_id)
+                  if item['filename'] == filename and item.get('enabled')), None)
+    if entry is None:
+        raise ValueError('This mod is no longer enabled. Check compatibility again.')
+    if entry.get('protected') or mods.is_protected_mod(entry, filename):
+        raise ValueError('This mod is managed by Cubeon and cannot be disabled here.')
+    owner = str(entry.get('mod_id') or '@' + filename).lower()
+    if owner != option.get('owner') or mods._doctor_profile_snapshot(directory, names) != expected:
+        raise ValueError('This mod changed since the check. Check compatibility again.')
+    mods.toggle_mod(mc_version, loader, filename, version_id=version_id)
+    try:
+        current = check_content(target, runtime_versions=runtime_versions)
+    except Exception as error:
+        raise RuntimeError(f"{option['name']} was disabled, but the recheck failed: {error}") from error
+    fixed = dict(dependency=owner, fix=f"Disabled {option['name']}; JAR kept for re-enabling")
+    return dict(current, fixed=[*(current.get('fixed') or []), fixed])

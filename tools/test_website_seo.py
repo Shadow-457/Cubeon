@@ -65,6 +65,7 @@ class SEOTests(unittest.TestCase):
     def setUp(self):
         self.pages = {path.stem: Page(path.read_text()) for path in WEB.glob('*.html')
                       if not re.fullmatch(r'google[0-9a-f]+', path.stem)}
+        self.pages['cubeon-bench'] = Page((WEB / 'cubeon-bench/index.html').read_text())
         self.localized = {}
         for language in ('ar', 'uk', 'ru'):
             for path in (WEB / language).glob('*.html'):
@@ -174,6 +175,10 @@ class SEOTests(unittest.TestCase):
         # the same stable PNG URL, and the conventional ICO fallback exists.
         for key, page in self.pages.items():
             with self.subTest(page=key):
+                if key == 'cubeon-bench':
+                    self.assertEqual(page.favicons[0]['href'], 'icons/bench-32.png')
+                    self.assertEqual(page.favicons[0]['sizes'], '32x32')
+                    continue
                 self.assertEqual(len(page.favicons), 1)
                 icon, = page.favicons
                 self.assertEqual(icon['href'], '/assets/favicon.png')
@@ -187,6 +192,35 @@ class SEOTests(unittest.TestCase):
         self.assertEqual(fallback[:4], b'\x00\x00\x01\x00')
         self.assertEqual(fallback, (ROOT / 'assets/icon.ico').read_bytes())
         self.assertNotIn('Disallow: /assets', (WEB / 'robots.txt').read_text())
+
+    def test_bench_metadata_sharing_and_workspace_privacy(self):
+        bench = WEB / 'cubeon-bench'
+        self.assertEqual((bench / 'index.html').read_bytes(), (bench / 'landing.html').read_bytes())
+        for filename, canonical in (('index', ORIGIN + '/cubeon-bench'),
+                                    ('landing', ORIGIN + '/cubeon-bench'),
+                                    ('workspace', ORIGIN + '/cubeon-bench/workspace')):
+            source = (bench / (filename + '.html')).read_text()
+            page = Page(source)
+            self.assertEqual(page.canonicals, [canonical])
+            self.assertEqual(page.meta['og:url'], [canonical])
+            self.assertEqual(page.meta['og:image'], [ORIGIN + '/cubeon-bench/og.png'])
+            self.assertEqual(page.meta['og:image:width'], ['1200'])
+            self.assertEqual(page.meta['og:image:height'], ['630'])
+            self.assertEqual(page.meta['twitter:card'], ['summary_large_image'])
+            self.assertEqual(source.count('src="/_vercel/insights/script.js"'), 1)
+            self.assertIn('window.vaq', source)
+        image = (bench / 'og.png').read_bytes()
+        self.assertEqual(struct.unpack('>II', image[16:24]), (1200, 630))
+        workspace = Page((bench / 'workspace.html').read_text())
+        self.assertIn('noindex', ','.join(workspace.meta['robots']))
+        graph = json.loads(self.pages['cubeon-bench'].schemas[0])['@graph']
+        product = next(node for node in graph if node['@type'] == 'WebApplication')
+        self.assertTrue(product['isAccessibleForFree'])
+        self.assertEqual(product['offers']['price'], '0')
+        self.assertNotIn('aggregateRating', product)
+        self.assertIn('/', self.pages['cubeon-bench'].links)
+        from submit_website_indexnow import local_page
+        self.assertEqual(local_page(ORIGIN + '/cubeon-bench'), bench / 'index.html')
 
     def test_product_data_matches_visible_product(self):
         page = self.pages['index']
@@ -330,7 +364,7 @@ class SEOTests(unittest.TestCase):
             if key.isdigit():
                 continue
             with self.subTest(page=key):
-                source = (WEB / f'{key}.html').read_text()
+                source = (WEB / ('cubeon-bench/index.html' if key == 'cubeon-bench' else f'{key}.html')).read_text()
                 self.assertEqual(source.count(snippet), 1)
                 self.assertIn('window.vaq', source)
         for policy in ('privacy', 'cookies'):

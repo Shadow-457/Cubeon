@@ -3,6 +3,18 @@
 A local Minecraft Java texture-pack and skin editor. Projects, imported files,
 preferences, and activity stay in your browser. No account is required.
 
+The public `/cubeon-bench` entry shows the landing page on your first visit.
+Opening the workspace saves `cb-bench-entered` locally; later visits open
+`/cubeon-bench/workspace` directly. Existing `cb-data` workspace saves also skip
+the introduction, without moving or changing projects. `/cubeon-bench/landing`
+always opens the introduction; blocked browser storage leaves it available.
+
+Both surfaces use the main site's cookieless Vercel Web Analytics endpoint.
+Only page visits are counted, not project names, edits, files or local activity.
+The public landing page is indexable; the workspace uses `noindex, follow`.
+Run `python3 tools/prepare_bench_site.py` from the repository root after landing
+edits to sync `index.html`, maintain the sitemap entry and rebuild the social card.
+
 **Log out** is available at the top of Settings and in the profile menu. It
 saves your workspace and returns to Welcome, staying logged out after a reload.
 Your projects and preferences remain on this device; choose **Open Bench**
@@ -23,12 +35,12 @@ The main website also mounts it at `/cubeon-bench/`.
 The landing page is **http://127.0.0.1:8000/cubeon-bench/landing.html**. Scroll
 through the Three.js painting → frames → 3D flower sequence, explore the actual
 editor previews, and use the header's light/dark theme toggle. Its assets,
-Three.js, and editor screenshots are bundled locally for offline use. The app
-keeps its original address and saved projects. Test the landing with
+Three.js, and editor screenshots are bundled locally for offline use. The workspace
+keeps its original origin and saved projects. Test the landing with
 `python3 tools/test_landing.py`; `--capture-editor` refreshes its real screenshots
 using an isolated browser profile.
 
-Directly opening `index.html` supports file mode and bundled textures. Localhost
+Directly opening `workspace.html` supports file mode and bundled textures. Localhost
 or HTTPS provides the complete IndexedDB storage and app installation workflow.
 
 ## Editing and projects

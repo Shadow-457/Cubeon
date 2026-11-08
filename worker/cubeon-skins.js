@@ -665,7 +665,7 @@ const COSMETIC_IDS = {
   waist: new Set(["waist_belt", "waist_pouch", "waist_sheath"]),
   hand: new Set(["hand_bracelet", "hand_glove", "hand_gadget"]),
   trail: new Set(["trail_footsteps", "trail_leaves"]),
-  aura: new Set(["aura_shadow"]),
+  aura: new Set(),
 };
 
 async function handleCosmetics(request, env) {

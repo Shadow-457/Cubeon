@@ -38,7 +38,7 @@ class WebsiteTranslation(unittest.TestCase):
             self.assertEqual(sitemap.read_bytes(), first)
             root = ET.parse(sitemap).getroot()
             urls = [entry.find('{*}loc').text for entry in root]
-            count = sum(not page.isdigit() for page in translations.PAGES) * len(translations.translated_languages())
+            count = sum(not page.isdigit() for page in translations.PAGES) * len(translations.translated_languages()) + 1
             self.assertEqual(len(urls), count)
             self.assertEqual(len(set(urls)), len(urls))
             self.assertEqual(len(root.findall('.//{http://www.google.com/schemas/sitemap-image/1.1}image')), 12)

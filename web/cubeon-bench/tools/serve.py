@@ -12,6 +12,8 @@ class Handler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
         path = unquote(urlsplit(path).path)
         relative = path.removeprefix('/cubeon-bench/').lstrip('/')
+        if relative in ('landing', 'workspace', 'index'):
+            relative += '.html'
         candidate = (ROOT / relative).resolve()
         return str(candidate if candidate.is_relative_to(ROOT) else ROOT / '__invalid_path__')
 

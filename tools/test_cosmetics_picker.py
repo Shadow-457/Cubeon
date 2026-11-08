@@ -114,17 +114,16 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertTrue(remove.disabled)
         self.assertIn('nothing equipped', fz.subtree_text(self.root))
 
-    def test_aura_has_one_choice_and_preserves_other_slots(self):
+    def test_aura_is_coming_soon_without_equipping_or_loading_artwork(self):
         self.cfg['active_back_item'] = 'back_ember_wings_small'
         self.cfg['active_shoulder_item'] = 'shoulder_ember_fox'
+        rendered, jobs = self.raster.call_count, len(self.jobs)
         self.tab('Aura')
-        self.assertEqual(len(self.cards()), 1)
-        self.apply('Apply Shadow Aura')
-        self.assertEqual(self.cfg['active_aura_item'], 'aura_shadow')
-        remove = next(control for control in fz.walk(self.root)
-                      if control.tooltip == 'Remove the equipped item')
-        remove.on_click(None)
-        self.assertIsNone(self.cfg['active_aura_item'])
+        self.assertEqual(self.cards(), [])
+        self.assertIn('coming soon', fz.subtree_text(self.root))
+        self.equip.assert_not_called()
+        self.assertEqual(self.raster.call_count, rendered)
+        self.assertEqual(len(self.jobs), jobs)
         self.assertEqual(self.cfg['active_back_item'], 'back_ember_wings_small')
         self.assertEqual(self.cfg['active_shoulder_item'], 'shoulder_ember_fox')
 

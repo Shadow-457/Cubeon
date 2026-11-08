@@ -58,7 +58,17 @@ def _descriptors(choice, providers):
         yield descriptor
 
 
-def issues(selected, runtime, mc_version, loader):
+def _disable_option(choice):
+    filename = choice.item["filename"]
+    if choice.item.get("protected") or mods.is_protected_mod(choice.item, filename):
+        return None
+    return dict(filename=filename, owner=choice.key,
+                name=choice.meta.get("name") or choice.item.get("display_name") or filename,
+                snapshot=mods._doctor_profile_snapshot(os.path.dirname(choice.path),
+                                                       [filename, filename + mods.MOD_META_SUFFIX]))
+
+
+def issues(selected, runtime, mc_version, loader, *, include_disable_options=False):
     providers, owners = _providers(selected, runtime)
     problems = []
     for key, choice in selected.items():
@@ -100,6 +110,17 @@ def issues(selected, runtime, mc_version, loader):
                                          predicate=predicate, detail=f"{name} {descriptor.get('version') or ''} conflicts with {other_name or identity} {actual} ({predicate})"))
     # The same bundled module can occur in several parents; report its failed
     # requirement once per root, without losing distinct constraints.
+    if include_disable_options:
+        affected_keys = {problem['owner'] for problem in problems}
+        affected_keys.update(owners[problem['dependency']] for problem in problems
+                             if problem['kind'] == 'conflict' and problem['dependency'] in owners)
+        options = {key: _disable_option(selected[key]) for key in affected_keys}
+        for problem in problems:
+            affected = [problem['owner']]
+            if problem['kind'] == 'conflict':
+                affected.append(owners.get(problem['dependency']))
+            problem['disable_options'] = [options[key] for key in dict.fromkeys(affected)
+                                          if options.get(key) is not None]
     return list({(p['kind'], p['owner'], p['dependency'], p['detail']): p
                  for p in problems}.values())
 
@@ -357,7 +378,7 @@ class Resolver:
             return dict(checked=len(self.originals), fixed=[], unfixed=[dict(
                 dependency="profile", mod="Mod profile", kind="profile-changed",
                 detail="Mods changed during the automatic check", error="Retry Play")])
-        problems = issues(self.initial, self.runtime, self.mc, self.loader)
+        problems = issues(self.initial, self.runtime, self.mc, self.loader, include_disable_options=True)
         duplicates = any(sum(bool(c.item.get("enabled")) for c in group) > 1 for group in self.groups.values())
         result = dict(checked=len(self.originals), fixed=[], unfixed=[])
         if not problems and not duplicates:
@@ -385,6 +406,7 @@ class Resolver:
                 if len(enabled) > 1:
                     name = enabled[0].meta.get("name") or identity
                     result["unfixed"].append(dict(dependency=identity, mod=name, kind="duplicate",
+                        disable_options=[option for choice in enabled if (option := _disable_option(choice)) is not None],
                         detail=f"{name}: duplicate copies ({', '.join(choice.item['filename'] for choice in enabled)})",
                         error=self.errors.get("publish") or "Resolve to keep one compatible build; originals are kept as backups"))
         return result

@@ -1,5 +1,8 @@
 (function () {
   'use strict';
+  document.querySelectorAll('a[href^="#"], use[href^="#"]').forEach(function (element) {
+    element.setAttribute('href', location.href.split('#')[0] + element.getAttribute('href'));
+  });
   var reduced = matchMedia('(prefers-reduced-motion: reduce)'), art = document.getElementById('heroArt');
   var themeButton=document.getElementById('landingTheme');
   function applyTheme(theme,persist){

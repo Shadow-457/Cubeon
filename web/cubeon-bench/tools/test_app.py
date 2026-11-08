@@ -792,7 +792,7 @@ def main():
         with sync_playwright() as p:
             browser = p.chromium.launch(executable_path=executable, headless=True, args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-crashpad-for-testing'])
             try:
-                url = args.url or f'http://127.0.0.1:{server.server_port}/cubeon-bench/'
+                url = args.url or f'http://127.0.0.1:{server.server_port}/cubeon-bench/workspace.html'
                 from image_import_checks import run as run_image_import
                 if args.image_import_only:
                     run_image_import(browser, url, artifacts, pixel, texture)

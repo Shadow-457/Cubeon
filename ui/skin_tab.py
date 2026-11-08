@@ -943,8 +943,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         controls.extend([grid, status])
         if slot == "back":
             equipped.tooltip += "\nSmall wings move gently. Press N in Minecraft for a Giant-wing flare; K → Cosmetic motion turns movement off."
-        elif slot == "aura":
-            equipped.tooltip += "\nShadow wisps orbit your right arm. Requires an updated Cubeon Client; K → Cosmetic motion freezes the effect."
         elif slot == "trail":
             equipped.tooltip += "\nA few short-lived particles while walking. Cosmetic motion turns them off; Minecraft's particle limit still applies."
         pane = ft.Column(controls, spacing=8)
@@ -953,7 +951,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     # Keep the extra cosmetic categories hidden for now.
     cosmetic_panes = [(slot, cosmetics.SLOT_LABELS[slot],
-                      _cosmetic_pane(slot))
+                      ft.Container(content=ft.Column([
+                          ft.Text("Coming soon", size=20, weight=ft.FontWeight.W_600, color=TEXT),
+                          ft.Text("Auras are not available yet.", size=13, color=TEXT_DIM),
+                      ], spacing=8), padding=24, data="cosmetic-coming-soon-aura")
+                      if slot == "aura" else _cosmetic_pane(slot))
                      for slot in ("shoulder", "back", "aura")]
 
     # --- Tab state + switching --------------------------------------------

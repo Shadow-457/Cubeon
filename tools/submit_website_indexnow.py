@@ -51,6 +51,8 @@ def local_page(url):
     name = urlsplit(url).path.lstrip('/') or 'index'
     if name in ('ar', 'uk', 'ru'):
         name += '/index'
+    if name == 'cubeon-bench':
+        name += '/index'
     return WEB / (name + '.html')
 
 

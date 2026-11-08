@@ -3,8 +3,69 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cubeon Bench: Minecraft texture and skin editor</title>
+  <title>Cubeon Bench | Free Minecraft texture and skin editor</title>
+  <base href="/cubeon-bench/">
+  <script>if(location.protocol==='file:')document.querySelector('base').remove();</script>
   <meta name="description" content="Edit Minecraft Java textures, animation frames, and skins in Cubeon Bench. Preview in 3D, export resource packs, and work offline in your browser.">
+  <link rel="canonical" href="https://www.ylet.online/cubeon-bench">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Cubeon Launcher">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="Cubeon Bench | Free Minecraft texture and skin editor">
+  <meta property="og:description" content="Draw textures, animate frames, preview in 3D, and export Minecraft Java resource packs. Free, local-first editing in your browser.">
+  <meta property="og:url" content="https://www.ylet.online/cubeon-bench">
+  <meta property="og:image" content="https://www.ylet.online/cubeon-bench/og.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Cubeon Bench's Minecraft texture editor with drawing tools and a 3D preview">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Cubeon Bench | Free Minecraft texture and skin editor">
+  <meta name="twitter:description" content="Create Minecraft textures, skins, animations, and resource packs in your browser.">
+  <meta name="twitter:image" content="https://www.ylet.online/cubeon-bench/og.png">
+  <meta name="twitter:image:alt" content="Cubeon Bench's Minecraft texture editor with drawing tools and a 3D preview">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "@id": "https://www.ylet.online/cubeon-bench#webpage",
+        "url": "https://www.ylet.online/cubeon-bench",
+        "name": "Cubeon Bench | Free Minecraft texture and skin editor",
+        "description": "A free browser editor for Minecraft Java textures, skins, animation frames, and resource packs.",
+        "isPartOf": {"@id": "https://www.ylet.online/#website"},
+        "mainEntity": {"@id": "https://www.ylet.online/cubeon-bench#app"},
+        "breadcrumb": {"@id": "https://www.ylet.online/cubeon-bench#breadcrumb"}
+      },
+      {
+        "@type": "WebApplication",
+        "@id": "https://www.ylet.online/cubeon-bench#app",
+        "name": "Cubeon Bench",
+        "url": "https://www.ylet.online/cubeon-bench",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Any operating system with a modern web browser",
+        "browserRequirements": "JavaScript enabled; HTTPS or localhost for offline installation",
+        "isAccessibleForFree": true,
+        "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+        "image": "https://www.ylet.online/cubeon-bench/og.png",
+        "screenshot": "https://www.ylet.online/cubeon-bench/landing-assets/editor-draw-dark.webp",
+        "publisher": {"@id": "https://www.ylet.online/#organization"},
+        "featureList": ["Minecraft Java resource-pack ZIP import and export", "Texture drawing", "Frame animation", "3D previews", "64 × 64 skin editing", "Local project storage", "Offline editing"]
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": "https://www.ylet.online/cubeon-bench#breadcrumb",
+        "itemListElement": [
+          {"@type": "ListItem", "position": 1, "name": "Cubeon Launcher", "item": "https://www.ylet.online/"},
+          {"@type": "ListItem", "position": 2, "name": "Cubeon Bench", "item": "https://www.ylet.online/cubeon-bench"}
+        ]
+      }
+    ]
+  }
+  </script>
+  <script src="entry.js" data-bench-surface="landing"></script>
   <meta name="theme-color" content="#f6f7f2">
   <script>try{document.documentElement.dataset.theme=localStorage.getItem('bench-landing-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')}catch(_){document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}</script>
   <link rel="icon" href="icons/bench-32.png" sizes="32x32">
@@ -30,7 +91,7 @@
   <header class="site-header">
     <a class="wordmark" href="landing.html" aria-label="Cubeon Bench home"><img src="icons/bench-logo.png" alt="" width="36" height="36"><span>cubeon <b>bench</b><span class="brand-period">.</span></span></a>
     <nav aria-label="Main navigation"><a href="#workspace">Workspace</a><a href="#possibilities">Features</a><a href="#questions">FAQ</a></nav>
-    <button class="landing-theme" id="landingTheme" type="button" aria-label="Switch to dark theme" aria-pressed="false"><svg><use href="#moon"/></svg></button><a class="button button-small" href="index.html">Open Bench <svg><use href="#arrow"/></svg></a>
+    <button class="landing-theme" id="landingTheme" type="button" aria-label="Switch to dark theme" aria-pressed="false"><svg><use href="#moon"/></svg></button><a class="button button-small" href="workspace.html">Open Bench <svg><use href="#arrow"/></svg></a>
   </header>
   <main id="main">
     <div class="hero-scroll" id="heroScroll"><section class="hero section-width" aria-labelledby="hero-title">
@@ -38,7 +99,7 @@
         <p class="eyebrow intro"><span class="live-dot"></span> Minecraft Java texture editor</p>
         <h1 class="intro" id="hero-title">Edit textures.<br><span>Build your pack.</span></h1>
         <p class="hero-description intro">Edit Minecraft textures, animate frames, and design skins. Preview your work in 3D and export it from your browser.</p>
-        <div class="hero-actions intro"><a class="button" href="index.html">Open Bench <svg><use href="#arrow"/></svg></a><a class="text-link" href="#workspace">Explore the editor <span>↘</span></a></div>
+        <div class="hero-actions intro"><a class="button" href="workspace.html">Open Bench <svg><use href="#arrow"/></svg></a><a class="text-link" href="#workspace">Explore the editor <span>↘</span></a></div>
         <p class="hero-note intro"><svg><use href="#check"/></svg> Free. No account required.</p>
         <div class="scroll-chapters" aria-label="Editing workflow"><span class="active" data-chapter="0">01 <b>Draw</b></span><span data-chapter="1">02 <b>Animate</b></span><span data-chapter="2">03 <b>Preview</b></span></div>
       </div>
@@ -62,7 +123,7 @@
           <div class="demo-toolbar"><span class="demo-wordmark"><img src="icons/bench-logo.png" width="24" height="24" alt=""> Bench</span><div class="demo-tabs" role="tablist" aria-label="Explore the editor"><button type="button" role="tab" id="tab-draw" data-demo="draw" aria-selected="true" aria-controls="panel-draw"><svg><use href="#draw"/></svg>Draw</button><button type="button" role="tab" id="tab-animate" data-demo="animate" aria-selected="false" aria-controls="panel-animate" tabindex="-1"><svg><use href="#frames"/></svg>Animate</button><button type="button" role="tab" id="tab-preview" data-demo="preview" aria-selected="false" aria-controls="panel-preview" tabindex="-1"><svg><use href="#pixel"/></svg>Preview</button></div><span class="demo-status"><i></i> Editor preview</span></div>
           <div class="demo-screen"><div role="tabpanel" id="panel-draw" aria-labelledby="tab-draw"><img src="landing-assets/editor-draw.webp" data-light-src="landing-assets/editor-draw.webp" data-dark-src="landing-assets/editor-draw-dark.webp" width="1440" height="900" alt="Bench's drawing workspace with a grass texture, paint tools, and colors from the texture." loading="lazy"></div><div role="tabpanel" id="panel-animate" aria-labelledby="tab-animate" hidden><img src="landing-assets/editor-animate.webp" data-light-src="landing-assets/editor-animate.webp" data-dark-src="landing-assets/editor-animate-dark.webp" width="1440" height="900" alt="Animation frames with thumbnails, timing, and a large editable canvas in Bench." loading="lazy"></div><div role="tabpanel" id="panel-preview" aria-labelledby="tab-preview" hidden><img src="landing-assets/editor-preview.webp" data-light-src="landing-assets/editor-preview.webp" data-dark-src="landing-assets/editor-preview-dark.webp" width="1440" height="900" alt="A Minecraft block rendered in Bench's 3D preview." loading="lazy"></div></div>
         </div>
-        <div class="demo-description reveal"><p id="demoCaption">Draw, erase, fill, and pick colors from the texture.</p><a class="text-link" href="index.html">Open Bench <svg><use href="#arrow"/></svg></a></div>
+        <div class="demo-description reveal"><p id="demoCaption">Draw, erase, fill, and pick colors from the texture.</p><a class="text-link" href="workspace.html">Open Bench <svg><use href="#arrow"/></svg></a></div>
       </div>
     </section>
 
@@ -85,8 +146,10 @@
       <details><summary>Where are my projects saved?<span>+</span></summary><p>In this browser on this device. Export a workspace backup to move your work or keep a copy. Clearing your browser’s site data removes local projects, so keep a backup.</p></details>
       <details><summary>How do I export my work?<span>+</span></summary><p>Export your pack as a ZIP for Minecraft Java Edition, or download your skin as a PNG. You can also export individual textures.</p></details>
     </div></section>
-    <section class="final-invitation reveal"><div class="section-width"><span class="eyebrow">Start editing</span><h2>Start a project.</h2><p>Create a texture pack or skin. Your projects save locally.</p><a class="button" href="index.html">Open Bench <svg><use href="#arrow"/></svg></a><span class="invitation-pixel" aria-hidden="true"></span></div></section>
+    <section class="final-invitation reveal"><div class="section-width"><span class="eyebrow">Start editing</span><h2>Start a project.</h2><p>Create a texture pack or skin. Your projects save locally.</p><a class="button" href="workspace.html">Open Bench <svg><use href="#arrow"/></svg></a><span class="invitation-pixel" aria-hidden="true"></span></div></section>
   </main>
-  <footer class="site-footer section-width"><a class="wordmark" href="landing.html"><img src="icons/bench-logo.png" alt="" width="28" height="28"><span>cubeon <b>bench</b><span class="brand-period">.</span></span></a><span>Texture packs, animation, and skins for Minecraft Java.</span><a href="index.html">Open Bench <span>↗</span></a><small>Not affiliated with Mojang or Microsoft.</small></footer>
+  <footer class="site-footer section-width"><a class="wordmark" href="landing.html"><img src="icons/bench-logo.png" alt="" width="28" height="28"><span>cubeon <b>bench</b><span class="brand-period">.</span></span></a><span>Texture packs, animation, and skins for Minecraft Java.</span><a href="workspace.html">Open Bench <span>↗</span></a><small>Not affiliated with Mojang or Microsoft.</small><a href="/">Cubeon Launcher</a><a href="/privacy#analytics">Privacy</a></footer>
+<script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

@@ -1133,34 +1133,6 @@ ITEMS.extend([
 ])
 
 
-def _shadow_aura():
-    boxes, painted = [], []
-    for index in range(12):
-        angle = index * math.tau / 12
-        center_x = -6 + 3.75 * math.cos(angle)
-        center_z = 3.75 * math.sin(angle)
-        height = (1.5, 2.25, 3)[index % 3]
-        tile = Tile()
-        tile.poly([(3, 15), (5, 10), (2, 7), (7, 8), (9, 2),
-                   (10, 7), (14, 4), (12, 11), (10, 15)], '#19191f')
-        tile.poly([(5, 15), (7, 10), (10, 7), (10, 12), (8, 15)], '#38383f')
-        tile.poly([(7, 15), (8, 12), (9, 11), (8, 15)], '#56565c')
-        tile.r(3, 3, 2, 2, '#28282e')
-        painted.append({face: tile.im for face in
-                        ('front', 'back', 'left', 'right', 'top', 'bottom')})
-        boxes.append(dict(origin=[round(center_x * 4) / 4 - .5,
-                                  3 + (index * 7 % 16) / 4,
-                                  round(center_z * 4) / 4 - .25],
-                          size=[1, height, .5], px=8, part=index,
-                          motion='aura', pivot=[-6, 7, 0]))
-    return dict(id='aura_shadow', slot='aura', name='Shadow Aura',
-                blurb='Blackish shadow wisps drifting around your right arm.',
-                boxes=boxes, _faces=painted, wing_flare=False)
-
-
-ITEMS.append(_shadow_aura())
-
-
 def box_atlas_size(box):
     w, h, d = box["size"]
     px = box["px"]

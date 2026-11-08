@@ -173,7 +173,7 @@ def run(mobile, artifacts, workflow=False):
             expected[name] = {'w': im.width, 'h': im.height, 'hash': value,
                               'pixels': base64.b64encode(data).decode('ascii')}
     script = (ROOT / 'tools/workflow-checks.js').read_text() if workflow else SUITE.replace('__EXPECTED__', json.dumps(expected))
-    html = (ROOT / 'index.html').read_text()
+    html = (ROOT / 'workspace.html').read_text()
     html = '\n'.join(line for line in html.splitlines() if 'fonts.googleapis.com' not in line)
     html = html.replace('</body>', '<script>' + script + '</script></body>')
     with tempfile.NamedTemporaryFile(mode='w', prefix='.firefox-check-', suffix='.html', dir=ROOT, delete=False) as document:

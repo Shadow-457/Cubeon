@@ -9,7 +9,7 @@ in the introduction, and links to installation, mods, modpacks, multiplayer
 and troubleshooting guides.
 
 `web/sitemap.xml` lists 20 English public pages and their Arabic translations
-(40 canonical URLs), using `/` for the homepage and extensionless paths for
+(40 canonical URLs), plus the English-only Cubeon Bench landing page (41 total), using `/` for the homepage and extensionless paths for
 other pages. Russian and Ukrainian catalogues are empty: those existing routes
 serve English fallbacks with `noindex, follow`, English canonical URLs and
 `lang="en"`. They stay out of the sitemap, language picker, browser-language
@@ -218,6 +218,28 @@ PNG metadata is descriptive asset information, not a promise that Google uses it
 After publishing, submit or resubmit the existing `/sitemap.xml` in Search Console.
 
 ## After publishing
+
+### Cubeon Bench
+
+`/cubeon-bench` serves static landing HTML with canonical/Open Graph/Twitter
+metadata, a dedicated 1200×630 `/cubeon-bench/og.png`, and factual WebApplication
+and breadcrumb structured data linked to Cubeon's existing site/publisher IDs.
+Returning workspace visitors are redirected locally to `/cubeon-bench/workspace`;
+the first-visit flag and pre-existing `cb-data` never leave the browser.
+`/cubeon-bench/landing` always keeps the introduction accessible. The workspace
+is `noindex, follow` and excluded from the sitemap. `tools/prepare_bench_site.py`
+syncs public entry HTML from `landing.html` and regenerates the social card.
+
+Both pages include the same origin-root `/_vercel/insights/script.js` snippet
+as the main website, not a separate analytics property. In the existing Cubeon
+Vercel project, filter Pages by `/cubeon-bench` after deploying these changes.
+No earlier uninstrumented visits can be recovered by adding the script later.
+Offline visits and blocked scripts are not expected to create online page counts.
+Bench's worker excludes analytics requests and retains separate landing/workspace
+cache entries; an already installed older worker needs its normal saved-work
+update/reload before receiving the new code. Browser projects keep their origin,
+IndexedDB database and storage keys. No deployment or dashboard confirmation is
+implied by source changes or local checks.
 
 1. Verify that the live homepage, `/about`, `/download`, `/minecraft-launcher`, `/llms.txt`, `/robots.txt` and `/sitemap.xml`
    return HTTP 200 on `www.ylet.online`. The deployed static output must

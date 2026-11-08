@@ -254,7 +254,7 @@ def run(browser, url, artifacts):
 
     local = browser.new_context(viewport={'width': 1440, 'height': 900})
     local_page = local.new_page()
-    start_app(local_page, (ROOT / 'index.html').as_uri(), errors)
+    start_app(local_page, (ROOT / 'workspace.html').as_uri(), errors)
     open_fixture(local_page, 'block/stone')
     assert canvas_state(local_page) == image_state('block/stone')
     preview(local_page)
@@ -283,7 +283,7 @@ def main():
         with sync_playwright() as p:
             browser = p.chromium.launch(executable_path=executable, headless=True, ignore_default_args=['--hide-scrollbars'], args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-crashpad-for-testing'])
             try:
-                run(browser, f'http://127.0.0.1:{server.server_port}/cubeon-bench/', artifacts)
+                run(browser, f'http://127.0.0.1:{server.server_port}/cubeon-bench/workspace.html', artifacts)
             finally:
                 browser.close()
     finally:

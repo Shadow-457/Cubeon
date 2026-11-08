@@ -452,32 +452,22 @@ public class AnimationTest {
 
 @unittest.skipUnless(shutil.which('javac') and shutil.which('java'), 'A JDK is required')
 class CosmeticAnimationTests(unittest.TestCase):
-    def test_shadow_aura_selection_animation_and_static_pose(self):
+    def test_retired_aura_is_absent_and_ignored_in_saved_selections(self):
         harness_source = '''
 import com.cubeon.client.cosmetics.*;
 import java.nio.file.*;
 import java.util.*;
 public class AuraTest {
     public static void main(String[] args) throws Exception {
-        var item = CosmeticCatalog.get().get("aura_shadow");
-        if (item == null || !"aura".equals(item.slot)) throw new AssertionError("Aura catalogue");
-        var selected = CosmeticSelection.Items.parse(Map.of("aura", item.id));
-        if (selected.empty() || !item.id.equals(selected.get("aura"))) throw new AssertionError("Aura selection");
+        if (CosmeticCatalog.get().get("aura_shadow") != null) throw new AssertionError("Retired aura catalogue");
+        var selected = CosmeticSelection.Items.parse(Map.of("aura", "aura_shadow", "back", "back_ember_wings_small"));
+        if (selected.aura() != null || !"back_ember_wings_small".equals(selected.back()))
+            throw new AssertionError("Retired aura must not affect other slots");
         if (CosmeticSelection.Items.parse(Map.of("aura", "back_ember_wings")).aura() != null)
             throw new AssertionError("Cross-slot validation");
-        var quads = CosmeticGeometry.quads(item, 0);
-        if (quads.size() > 72) throw new AssertionError("Bounded geometry");
-        var quad = quads.get(0);
-        float[] original = quad.x.clone();
-        var posed = new CosmeticAnimation.PosedQuad();
-        posed.set(quad, CosmeticAnimation.sample(1, 0, false).forItem(item));
-        if (Arrays.equals(posed.x, original)) throw new AssertionError("Aura animation");
-        if (!Arrays.equals(quad.x, original)) throw new AssertionError("Immutable geometry");
-        posed.set(quad, null);
-        if (!Arrays.equals(posed.x, original)) throw new AssertionError("Motion off");
         CosmeticSelection.bind(Path.of(args[0]));
-        if (!item.id.equals(CosmeticSelection.snapshot().aura())) throw new AssertionError("Mirror read");
-        System.out.println("Shadow Aura selection, mirror, orbit and motion-off passed");
+        if (CosmeticSelection.snapshot().aura() != null) throw new AssertionError("Retired aura mirror");
+        System.out.println("Retired aura absent; stale selections ignored");
     }
 }
 '''

@@ -783,7 +783,7 @@ keep builders consistent with the shared `THEME` contract.
   `_spawn_lock`, before sync/spawn, using the selected `version_id` and actual Java major.
   Play's mod gate is read-only/offline (`auto_fix=False`, `check_online=False`) and throws
   `ModCompatibilityError` before sync/spawn; `main.py` releases launch/install claims before opening
-  the named Install/Resolve popup. The popup never resumes Java automatically: press Play after resolving.
+  the Compatibility check popup. The popup never resumes Java automatically: press Play after resolving or disabling.
   Fabric/Quilt/Forge/NeoForge checks use actual root/nested/secondary descriptors,
   required ranges, explicit breaks and known runtime versions. Clean profiles make no
   network calls. Explicit Install/Resolve invokes bounded graph search, retaining every enabled root identity and may jointly
@@ -823,6 +823,15 @@ keep builders consistent with the shared `THEME` contract.
   block game/install/launch claims, retain backups/rollback, recheck locally, and keep failed actions retryable.
   The crash report uses the same fast check and labels website access **Analyze log**; no visible Doctor/fix-repair action.
   Resource-pack/shader checks remain scoped to their type. A failed scan must not announce a clean result.
+- Mod compatibility issue rows also offer explicit **Disable mod**, without graph resolution or downloads.
+  `mod_resolver` attaches filename/owner/JAR-and-sidecar snapshots only to reported affected roots,
+  not internal search states. Missing dependencies target the requester; conflicts offer either physical
+  owner (including the parent of a bundled provider); duplicates identify each enabled filename.
+  `content_checks.disable_problem_mod` rejects stale/protected entries and renames exactly one JAR
+  through `mods.toggle_mod`, refusing to overwrite disabled copies. It preserves the captured instance,
+  rechecks offline, and never disables dependents automatically. Re-enable in Mods → Installed.
+  The popup blocks both actions during storage/game/install/launch/update claims or active content
+  download feedback, and keeps actions locked until the worker finishes.
 - Play's verified Java major is remembered per instance with executable/JVM dependency fingerprints and
   the configured Java preference. Later checks reuse it without probes; changed files/preferences invalidate it.
   Unknown runtime versions populate `runtime_unverified` and UI says runtime will be checked on Play, not
@@ -1135,7 +1144,7 @@ keep builders consistent with the shared `THEME` contract.
   `-XX:+UseG1GC` plus tuning.
 - Play and crash reports have no Fix crash action. Crash reports expose **Check compatibility**,
   **Analyze log**, Copy log, Discord and Close. Local dependency/conflict checks also live in
-  Mods → Installed and the offline prelaunch gate; changes require the results popup's Install/Resolve.
+  Mods → Installed and the offline prelaunch gate; changes require the results popup's Install/Resolve or explicit Disable mod.
 - `i18n.py` owns language order, `ui_language`, locale detection and reading direction (`page.rtl`);
   `cubeon/lang/*.py` tables use English strings as keys and fall back to English. Changes apply after
   restart. Every PyInstaller build must collect `cubeon.lang` because tables import dynamically.
@@ -1246,7 +1255,9 @@ keep builders consistent with the shared `THEME` contract.
   corrected drag direction and GUI bounds. Active/default skins cannot be
   deleted through this bridge; changing a preview never selects it for gameplay.
   `kind:"back"`/`"shoulder"`/`"aura"` reuse the authenticated routes with None plus up to 12
-  catalogue items (Aura has just Shadow Aura). `InGameCosmetics` shares the skin/cape lock, validates the
+  catalogue items. Aura is a reserved empty slot: the launcher shows **Coming soon**, Shadow Aura is
+  absent from both bundles/generator, and Worker validation accepts no aura IDs. Stale saved aura IDs
+  resolve to None, while clearing them preserves the other slots. `InGameCosmetics` shares the skin/cape lock, validates the
   running instance and slot, and calls the launcher cosmetic setter with an
   explicit game directory and strict mirror writes; save failure restores the
   exact previous mirror bytes and config key. CSL opt-out does not block these
@@ -1989,16 +2000,26 @@ requires retrying with normal system access, not changing unrelated app code.
   Jammy runner LLVM packages conflict with GStreamer's `libunwind-dev` dependency. The frozen
   runtime is checked under Nehalem CPU emulation before publishing; downloads ship five
   required Windows/Linux assets, with macOS disabled.
-- Cubeon Bench is served at `/cubeon-bench`; its `<base href="/cubeon-bench/">`
-  keeps relative editor assets working when hosting strips the trailing slash.
-  Direct `file:` mode removes that base. Its browser harness serves the parent `web/`
-  directory. All main-site pages use the shared `.nav-bench`/`.nav-beta` rules in
+- Cubeon Bench's `/cubeon-bench` entry is static landing HTML; first-time visitors stay there,
+  while `entry.js` sends returning workspace visitors (`cb-bench-entered` or legacy `cb-data`)
+  to `/cubeon-bench/workspace`. `workspace.html` retains the editor and its original origin,
+  IndexedDB/database keys and logout behavior. `/cubeon-bench/landing` always shows the landing.
+  Both pages' `<base href="/cubeon-bench/">` keeps assets working with clean/trailing-slash URLs;
+  direct `file:` removes it. Landing JS makes fragment links page-local under that base.
+  `tools/prepare_bench_site.py` syncs `landing.html` → `index.html`, builds the dedicated PNG OG
+  card, and maintains the English-only canonical sitemap entry; the workspace is noindex.
+  Both surfaces load the site's same root Vercel Analytics snippet; project contents are never
+  sent as analytics events. The scoped service worker caches separate landing/workspace entries,
+  passes analytics requests through, and bumps version when shipped assets change. Existing
+  installed sessions receive updates only via their normal save-and-reload flow.
+  Editor harnesses use `workspace.html`; the Bench server supports clean route aliases.
+  All main-site pages use the shared `.nav-bench`/`.nav-beta` rules in
   `web/assets/site.css`, inside the desktop navigation and mobile menu.
 - `tools/translate_website.py` applies body and attribute edits together in descending original
   offsets; changing body lengths before attribute replacements corrupts tags and links. Relative
   `srcset` entries must become root asset paths on locale pages. Arabic checks use `check --lang ar`;
   UK/RU catalogues remain empty English fallbacks. Sitemap regeneration starts from English entries
-  only and deduplicates alternates: 20 English pages plus Arabic translations give 40 indexable URLs.
+  only and deduplicates alternates: 20 English pages plus Arabic translations and English-only Bench give 41 indexable URLs.
   Empty UK/RU catalogues retain English fallback routes (`lang=en`, noindex, English canonical),
   excluded from hreflang, language detection/pickers and the sitemap. Shared `site.js` consent closure must remain terminated; its syntax error hides
   download panes and disables language persistence even on otherwise intact pages.
@@ -2010,7 +2031,8 @@ requires retrying with normal system access, not changing unrelated app code.
   URLs are omitted. `web/robots.txt` advertises the sitemap. Homepage JSON-LD contains real
   product/platform/free-price facts, with no invented ratings. Ownership-only `google*.html` files
   stay out of the sitemap and page instrumentation. See `docs/development/website-seo.md`.
-  All pages declare `/assets/favicon.png` (256×256 Cubeon cube), with `/favicon.ico` as fallback;
+  Main-site pages declare `/assets/favicon.png` (256×256 Cubeon cube), with `/favicon.ico` as fallback;
+  Bench retains its own bundled bitmap icons.
   `tools/prepare_website_favicon.py` copies the launcher icons. Google Search needs a bitmap favicon;
   the navbar's SVG and the already-correct WebSite name do not force Google's displayed icon/name.
   Image discovery uses 12 image sitemap entries, including ten public PNGs under
