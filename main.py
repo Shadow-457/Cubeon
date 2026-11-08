@@ -271,6 +271,7 @@ from ui.window_chrome import (  # Windows-only custom frame widgets (policy: cub
 from cubeon import winchrome  # Whether the frameless custom frame is used at all
 from cubeon import rust_engine
 from cubeon import instances as instance_info  # instance descriptors: loader / mods / size / last-played
+from cubeon.mod_dependencies import ModCompatibilityError
 from cubeon import shortcuts as cubeon_shortcuts  # keyboard shortcut table (F11 fullscreen, Ctrl+1..9, ...)
 from cubeon.discord_rpc import DiscordPresence  # Optional Discord Rich Presence (no-op unless configured)
 from cubeon.controller import ControllerWatcher  # Gamepad detection + menu driving (no-op without a pad)
@@ -450,7 +451,7 @@ def _explain_exit(code: int, lines=None) -> str:
                 "incomplete. If pressing Play again still crashes, reinstall "
                 "this version from the Play tab.")
     if "mixin transformation" in low or "illegalclassloaderror" in low or "mixin apply" in low:
-        return ("Crashed: a mod failed during startup. Use Check & fix in the "
+        return ("Crashed: a mod failed during startup. Use Analyze log in the "
                 "crash report to identify the failing mod.")
     if any(name.replace("/", ".").startswith("net.minecraft.") for name in missing_classes):
         return ("Crashed: the game files for this version look incomplete. "
@@ -469,7 +470,7 @@ def _explain_exit(code: int, lines=None) -> str:
     # that was already working - the game it just launched proves it. Say only
     # what is true, and name the one action worth trying next.
     return (f"Crashed (exit {code}) - the game closed without naming a cause. "
-            f"Press Play again; if it keeps happening, use Check & fix in the "
+            f"Press Play again; if it keeps happening, use Analyze log in the "
             f"crash report.")
 
 
@@ -4668,6 +4669,9 @@ async def main(page: ft.Page):
                 _show_snack("An instance is still launching - wait for it to "
                             "finish", duration=4000)
                 return False
+            if state.get("fixing_mods"):
+                _show_snack("Mod changes are still in progress. Wait for them to finish before playing.")
+                return False
             # A pack install (Modpacks tab / Import) is writing this version
             # right now. This is the second way in - on_play_click checks it
             # too, but instance creation can enter here directly, so the
@@ -4883,6 +4887,7 @@ async def main(page: ft.Page):
         icon_choice = dict(icon_choice if icon_choice is not None else
                            state.get("pending_instance_icon") or {})
         resolved_java = None
+        compatibility_issue = None
         cancellable = {"on": True}  # disarmed once the launch phase begins
 
         def _check_cancel():
@@ -5221,7 +5226,7 @@ async def main(page: ft.Page):
                         version_label=label, log_path=log_path,
                         show_snack=_show_snack,
                         mc_version=mc_version, loader=loader,
-                        version_id=target_version)
+                        version_id=target_version, launcher_state=state)
 
                 # Mounting a dialog from the watcher thread must happen on the
                 # UI loop; fall back to a direct call on harnesses without one
@@ -5528,6 +5533,16 @@ async def main(page: ft.Page):
                     from cubeon import ui_sounds
                     ui_sounds.play("launch")
 
+        except ModCompatibilityError as ex:
+            compatibility_issue = ex
+            progress_label.value = "Review mod compatibility before playing"
+            progress_label.visible = True
+            progress_spinner.visible = False
+            progress_bar.visible = False
+            progress_percent.visible = False
+            progress_stage.value = "NEEDS ATTENTION"
+            set_status("Mods need attention")
+            thread_safe_ui.refresh(progress_card)
         except Exception as ex:
             # A cancel arrives here as a generic error: install_version wraps
             # whatever its callbacks raise, so the event - not the exception
@@ -5587,6 +5602,10 @@ async def main(page: ft.Page):
                 if state.get("launching_version") == version_id:
                     state["launching_version"] = None
             _reset_button_after_worker(version_id)
+            if compatibility_issue is not None:
+                from ui.content_checks import show_content_issues
+                show_content_issues(page, state, compatibility_issue.target, compatibility_issue.report,
+                                    runtime_versions=compatibility_issue.runtime_versions)
 
     # --- Server status panel - the right column below the grass block was
     # dead space, and "is my server running" is a genuinely useful thing to
@@ -9132,6 +9151,9 @@ async def main(page: ft.Page):
                     picker.close()
                 elif _account_panel_is_open():
                     _close_account_panel()
+                elif (getattr(mods_tab.content, "close_detail", None)
+                      and mods_tab.content.close_detail()):
+                    pass
                 elif _fullscreen["active"]:
                     _set_fullscreen(False)
             elif action == cubeon_shortcuts.FULLSCREEN:

@@ -74,10 +74,18 @@ class ContentInstallTests(unittest.TestCase):
     def build_mods(self):
         root, refresh, load, reload = build_mods_tab(
             self.page, {}, self.state, self.drop, section_label=section_label, **THEME)
+        self.mods_root = root
         return functions(refresh, load, reload)
 
     def detail_buttons(self):
-        return [c for c in fz.walk(self.page._dialogs.controls[-1])
+        root = getattr(self, 'mods_root', None)
+        if root is not None and root.controls[1].visible:
+            versions = next(c for c in fz.walk(root) if getattr(c, 'data', None) == 'mod-detail-tab-versions')
+            versions.on_click(None)
+            detail = root.controls[1]
+        else:
+            detail = self.page._dialogs.controls[-1]
+        return [c for c in fz.walk(detail)
                 if hasattr(c, "_cubeon_install_paint")]
 
     def test_browse_detail_and_rebuild_share_claim_and_progress(self):

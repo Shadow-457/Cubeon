@@ -45,6 +45,7 @@ from ui.install_feedback import InstallRegistry, compact_status
 from ui.content_states import loading_rows, empty_state
 from ui.content_tiles import tile_grid, tile_capacity, layout_tiles, style_tile, downloads_label, content_header, update_view_action
 from cubeon.paths import CUBEON_HOME
+from cubeon.fuzzy_search import search_items
 
 
 def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
@@ -1430,7 +1431,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     def _render_installed_rows(packs):
         query = installed_search.value.strip().lower()
-        packs = [pack for pack in packs if query in (pack.get('name') or '').lower()] if query else packs
+        packs = search_items(packs, query)
         rows = []
         if not packs and query:
             rows.append(empty_state('No matching installed packs', 'Try a different search.'))

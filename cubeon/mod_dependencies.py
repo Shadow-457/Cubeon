@@ -13,6 +13,15 @@ MAX_REPAIRS = 16
 REPAIR_SECONDS = 60
 
 
+class ModCompatibilityError(RuntimeError):
+    def __init__(self, report, mc_version, loader, version_id, runtime_versions=None):
+        self.report = report
+        self.target = ("mod", mc_version, loader, version_id)
+        self.runtime_versions = runtime_versions
+        super().__init__("These mods need attention before Play:\n" + "\n".join(
+            item["detail"] for item in report["unfixed"][:4]))
+
+
 def _scan(mc_version, loader, version_id):
     directory = mods.resolve_profile_dir(mc_version, loader, version_id)
     entries = []
@@ -60,21 +69,32 @@ def run_dependency_doctor(mc_version, loader, *, version_id=None, status_cb=None
     runtime = mods._doctor_runtime_versions(mc_version, loader, version_id)
     runtime.update({key: str(value) if value is not None else None
                     for key, value in (runtime_versions or {}).items()})
-    directory = mods.get_profile_dir(mc_version, loader, version_id)
+    directory = (mods.get_profile_dir(mc_version, loader, version_id) if auto_fix
+                 else mods.resolve_profile_dir(mc_version, loader, version_id))
+    if not os.path.isdir(directory):
+        return result
     snapshot = mods._doctor_profile_snapshot(directory)
     entries = _scan(mc_version, loader, version_id)
     resolver = Resolver(entries, runtime, mc_version, loader, version_id,
                         time.monotonic() + REPAIR_SECONDS, MAX_REPAIRS,
-                        check_online, _stage, _scan, status_cb, snapshot=snapshot)
+                        check_online, _stage, _scan, status_cb, snapshot=snapshot, directory=directory)
     result = resolver.run(auto_fix)
-    if result["fixed"] or result["unfixed"]:
+    from .mod_resolver import _descriptors, _providers
+    providers, _owners = _providers(resolver.initial, runtime)
+    unverified = sorted({identity for choice in resolver.initial.values()
+        for descriptor in _descriptors(choice, providers)
+        for identity in (descriptor.get("depends") or {})
+        if identity in runtime and runtime[identity] is None})
+    if unverified:
+        result["runtime_unverified"] = unverified
+    if auto_fix and (result["fixed"] or result["unfixed"]):
         import logging
         from .atomicio import write_json
         log = logging.getLogger(__name__)
         for entry in result["unfixed"]:
-            log.warning("Automatic Doctor: %s. %s", entry["detail"], entry["error"])
+            log.warning("Mod compatibility: %s. %s", entry["detail"], entry["error"])
         for entry in result["fixed"]:
-            log.info("Automatic Doctor: %s: %s", entry["dependency"], entry["fix"])
+            log.info("Mod compatibility: %s: %s", entry["dependency"], entry["fix"])
         try:
             write_json(metadata_path(resolver.directory, ".cubeon-auto-doctor.json"),
                        dict(result, mc_version=mc_version, loader=loader, version_id=version_id))

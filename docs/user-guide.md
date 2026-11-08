@@ -295,14 +295,23 @@ if the current filters would hide it; installation still requires a matching
 Minecraft version and loader. Cubeon's built-in catalog uses Modrinth, so a
 project published only elsewhere will not appear in these results.
 
-### Fixing installed content
+Click a mod, resource pack or shader to open its full-page details. **Back** or
+Escape returns to the same catalogue. **Overview** shows the README and metadata;
+**Versions** lists builds and **Gallery** shows project images. The header's
+**Install** action uses the matching build for the selected instance.
+
+### Checking installed content
 
 For mods you already have, choose **Mods → Import mods** and select one or more
 JARs. Review the target instance, compatibility and dependency warnings before
 importing. Identical files are skipped even if renamed. Select a replacement
 explicitly to keep the previous build disabled as a backup. Each file reports
-its result, so a bad file does not stop the rest. Use **Check & repair** afterward
-if you want Cubeon to fetch missing dependencies.
+its result, so a bad file does not stop the rest. Use **Check compatibility** afterward
+and choose **Install** in the results to fetch missing dependencies.
+
+Installed search is fuzzy: full names, filenames, IDs, slugs, common typos and
+name initials can match. For example, `concurent`, `ccme` and `c2me` find
+Concurrent Chunk Management Engine. Exact matches rank ahead of fuzzy matches.
 
 Choose the instance on Play, then open **Mods → Resource Packs** or **Shaders → Installed**.
 Each installed tile has an enable/disable switch. Disabling keeps the file and applies to
@@ -312,19 +321,28 @@ Minecraft's resource-pack or shader settings; the launcher does not select them.
 Installed packs use their included `pack.png` or saved project artwork. If no
 image is available, Cubeon shows its logo.
 
-**Check & repair** in **Mods → Installed** runs Cubeon's local Doctor in the
-background. The same button checks resource packs and shaders in their installed
-views. It checks duplicate jars, required dependencies, loader/version compatibility,
-declared Fabric conflicts, and supported pack structure issues. Clicking the button
-authorizes reversible repairs, including fetching missing dependencies and renaming
-incompatible or duplicate jars to disabled backups. Re-enable those jars in Installed.
-The result appears beside the button. Named details below it show unresolved
-issues and, after an explicit repair, which mods changed and how.
+**Check compatibility** in **Mods → Installed** performs a quick local check in
+the background. Resource packs and shaders have the same action. Mod checks read
+the actual installed JARs, including bundled modules, required dependencies,
+duplicate copies and declared loader/version conflicts; they make no network requests.
 
-Automatic checks stay local and quiet: no approval or result windows. They leave
-existing mods enabled unless you explicitly request repair. Install-time checks can
-fetch missing dependencies without replacing an existing build. The **Fix crash** buttons have been removed from Play and crash reports.
-Crash reports offer the website Doctor, Copy log, and Discord support.
+If issues exist, a popup names the affected mods and missing dependencies.
+**Install**, **Resolve**, or **Install & resolve** finds a compatible set for the
+listed issues. Nothing changes until you click that action. Changed JARs are kept
+as disabled backups, and failed resolution stays retryable rather than pretending
+the profile is compatible. Downloads can take longer than the local check.
+
+Play uses the same offline mod gate before starting Minecraft. If issues exist,
+it stops and offers the results popup; resolve them, then press Play again.
+Checks reuse the Java version verified during Play. Until Java is verified, the
+status explicitly says runtime checks are pending. A Java requirement can be
+resolved by finding a mod build compatible with the current runtime; the action
+does not silently change your system Java installation.
+
+Automatic checks leave existing mods untouched. A mod's explicit Install action
+still includes its declared required dependencies; additional conflicts require
+the results popup action. Crash reports offer **Check compatibility**, **Analyze log**,
+Copy log and Discord support.
 
 If entities disappear or skins flicker, close Minecraft and select the affected
 instance on Play. **Settings → Performance → Fix problems → Rendering → Apply compatibility** turns
@@ -333,13 +351,13 @@ preferences and skin files stay intact. Restart Minecraft to test it; FPS may
 decrease. **Restore settings** restores the saved values while preserving later
 edits. This is an optional workaround, not a diagnosis of every rendering bug.
 
-Doctor cannot repair arbitrary bugs inside a mod or make it support an incompatible
-Minecraft version. Launch-time checks remain limited to safe launcher configuration
-repairs and never wait on a dialog.
+Compatibility checks cannot detect arbitrary bugs or undeclared gameplay conflicts
+inside a mod. Launch-time configuration checks stay non-interactive; declared mod
+issues stop launch without holding a launch worker open while you review them.
 
 ### Website crash Doctor
 
-Click **Doctor** in a crash report to open the website with a redacted log excerpt
+Click **Analyze log** in a crash report to open the website with a redacted log excerpt
 already filled in and on-device instructions ready. You can also open
 [Cubeon Doctor](https://www.ylet.online/doctor) and upload a `.log` or `.txt`
 file (up to 2 MB). Uploading starts AI analysis automatically. To paste a log or

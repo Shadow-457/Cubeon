@@ -586,7 +586,9 @@ class ManagementUI(unittest.TestCase):
             for i in range(1000)]
         self.fns['open_mod_detail']({'project_id': 'many'})
         QueuedThread.jobs.pop()()
-        dialog = self.page._dialogs.controls[-1]
+        dialog = env(self.fns['open_mod_detail'])['detail_host']
+        versions = next(c for c in fz.walk(dialog) if getattr(c, 'data', None) == 'mod-detail-tab-versions')
+        versions.on_click(None)
         def buttons(): return [c for c in fz.walk(dialog) if hasattr(c, '_cubeon_install_paint')]
         self.assertEqual(len(buttons()), 9)
         more = next(c for c in fz.walk(dialog) if callable(getattr(c, 'on_click', None))
@@ -604,6 +606,42 @@ class ManagementUI(unittest.TestCase):
         self.assertEqual(calls[0][0], ('oculus',))
         self.assertEqual(calls[0][1]['loader'], 'forge')
         self.assertEqual(self.state['mod_loader'], 'forge')
+
+    def test_installed_search_matches_declared_name_identity_and_filename(self):
+        self.core.list_mods = lambda *args, **kwargs: [dict(filename='c2me-1.jar',
+            display_name='Concurrent Chunk Management Engine', mod_id='c2me', slug='c2me-fabric',
+            size_kb=1, enabled=True)]
+        self.active['type'] = 'mod'
+        self.refresh()
+        field = env(self.fns['_render_installed_snapshot'])['installed_filter_field']
+        for query in ('concurrent', 'concurent', 'concurent chunk', 'ccme', 'c2me', 'c2me-1.jar'):
+            field.value = query
+            self.fns['_render_installed_snapshot'](env(self.fns['_cached_installed'])['installed_snapshots'][('mod', '1.21.11', 'fabric', 'instance-A')])
+            self.assertEqual(env(self.fns['_render_installed_snapshot'])['installed_count_text'].value, '1 of 1 shown')
+
+    def test_details_back_and_stale_response_preserve_catalogue(self):
+        self.core.get_mod_details = lambda ref: {'title': ref, 'body': '# README'}
+        self.core.get_mod_versions = lambda *args, **kwargs: []
+        self.fns['open_mod_detail']({'project_id': 'first'})
+        first = QueuedThread.jobs.pop()
+        self.fns['open_mod_detail']({'project_id': 'second'})
+        second = QueuedThread.jobs.pop()
+        first()
+        host = self.root.controls[1]
+        self.assertTrue(host.visible)
+        self.assertFalse(any(isinstance(control, ft.Markdown) for control in fz.walk(host)))
+        second()
+        self.assertTrue(any(isinstance(control, ft.Markdown) for control in fz.walk(host)))
+        self.assertEqual(self.page._dialogs.controls, [])
+        self.root.close_detail()
+        self.assertTrue(self.root.controls[0].visible)
+        self.assertFalse(host.visible)
+        self.fns['open_mod_detail']({'project_id': 'third'})
+        pending = QueuedThread.jobs.pop()
+        self.root.close_detail()
+        pending()
+        self.assertFalse(host.visible)
+        self.assertEqual(host.controls, [])
 
 
 if __name__ == '__main__': unittest.main()

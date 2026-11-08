@@ -359,7 +359,7 @@ class DependencyTests(unittest.TestCase):
         self.assertIn("repaired dependencies: cloth-config", report["detail"])
         self.assertFalse(self.run_doctor()["unfixed"])
 
-    def test_real_launch_gate_repairs_before_sync_and_blocks_unfixed_before_spawn(self):
+    def test_real_launch_gate_is_offline_and_blocks_issues_before_sync_or_spawn(self):
         # Execute the actual guarded staging/spawn block with no Java process.
         source = Path(__file__).resolve().parents[1].joinpath("cubeon/launch.py").read_text()
         gate = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.With)
@@ -385,9 +385,17 @@ class DependencyTests(unittest.TestCase):
         with patch.object(content, "sync_content_to_game", side_effect=lambda *a:events.append("content")), \
                 patch.object(mods, "get_mod_download", side_effect=self.lookup), \
                 patch.object(net, "download_to", side_effect=self.download):
+            with self.assertRaises(deps.ModCompatibilityError) as failure:
+                exec(compile(module, "<actual launch gate>", "exec"), scope)
+        self.assertEqual(events, [])
+        self.assertEqual(self.lookups, [])
+        self.assertEqual(self.downloads, [])
+        self.assertEqual(failure.exception.target, ("mod", self.mc, "fabric", self.instance))
+        self.assertTrue(failure.exception.report["unfixed"][0]["missing"])
+        self.assertFalse(self.run_doctor()["unfixed"])
+        with patch.object(content, "sync_content_to_game", side_effect=lambda *a:events.append("content")):
             exec(compile(module, "<actual launch gate>", "exec"), scope)
         self.assertEqual(events, ["content", "sync", "spawn"])
-        self.assertFalse(self.run_doctor()["unfixed"])
         for path in self.profile.glob("cloth*.jar"):
             path.unlink()
         events.clear()

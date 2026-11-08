@@ -524,9 +524,9 @@ if _row_click is not None:
         _open_ok, _open_err = True, ""
     except Exception as _ex:
         _open_ok, _open_err = False, f"{type(_ex).__name__}: {_ex}"
-    check("clicking the row opens a dialog", _open_ok, _open_err)
-    check("a mod detail dialog is mounted",
-          any(type(d).__name__ == "AlertDialog" for d in _uipage._dialogs.controls),
+    check("clicking the row opens full-page details", _open_ok, _open_err)
+    check("mod details do not mount a dialog",
+          not any(type(d).__name__ == "AlertDialog" for d in _uipage._dialogs.controls),
           f"{[type(d).__name__ for d in _uipage._dialogs.controls]}")
 
     _deadline = time.time() + 3
@@ -543,30 +543,23 @@ if _row_click is not None:
                 out.append(v)
         return out
 
-    _dialog = _uipage._dialogs.controls[-1]
+    _dialog = _tab.controls[1]
+    _deadline = time.time() + 3
+    while not any(isinstance(control, ft.Markdown) for control in _walk(_dialog)) and time.time() < _deadline:
+        time.sleep(.01)
     _texts = _texts_of(_dialog)
     check("menu shows the installed state at a glance (the rowopen 1.0 build)",
           "You're up to date" in _texts and "1.0 is installed" in _texts,
           f"{_texts[:15]}")
-    check("description is collapsed behind 'Read more'",
-          "About this mod" in _texts and "Read more" in _texts, f"{_texts[:15]}")
-    check("full description is not rendered until expanded",
-          not any(type(c).__name__ == "Markdown" for c in _walk(_dialog)),
+    check("description is full-size beside metadata",
+          "About this mod" in _texts and "Read more" not in _texts, f"{_texts[:15]}")
+    check("full description renders immediately in Overview",
+          any(type(c).__name__ == "Markdown" for c in _walk(_dialog)),
           f"{[type(c).__name__ for c in _walk(_dialog)]}")
 
-    _toggle = None
-    for _c in _walk(_dialog):
-        _content = getattr(_c, "content", None)
-        if (getattr(_c, "on_click", None) is not None
-                and getattr(_content, "value", None) == "Read more"):
-            _toggle = _c.on_click
-            break
-    if _toggle is not None:
-        _toggle(None)
-    _after = _texts_of(_dialog)
-    check("expanding the description reveals the full text",
-          any(type(c).__name__ == "Markdown" for c in _walk(_dialog))
-          and "Show less" in _after, f"{_after[:15]}")
+    _back = next(control for control in _walk(_dialog) if getattr(control, "data", None) == "mod-detail-back")
+    _back.on_click(None)
+    check("Back restores the retained catalogue", _tab.controls[0].visible and not _dialog.visible)
 
     # 7b. a mod with hundreds of releases must not render them all at once.
     print("\n7b. a huge version list is shown in bounded batches")
@@ -585,7 +578,7 @@ if _row_click is not None:
 
     _rendered["n"] = 0
     _row_click(None)  # opens a second dialog, now with a big list
-    _dialog2 = _uipage._dialogs.controls[-1]
+    _dialog2 = _tab.controls[1]
     # Wait for THIS dialog's own content, not the shared refresh counter: a
     # late repaint from the first dialog could otherwise satisfy the counter
     # and have us read the second dialog while it still says "Loading details".
@@ -593,12 +586,15 @@ if _row_click is not None:
     _t2 = _texts_of(_dialog2)
     while time.time() < _dl2:
         _t2 = _texts_of(_dialog2)
-        if "Install latest" in _t2 or "You're up to date" in _t2:
+        if "Install" in _t2 or "You're up to date" in _t2:
             break
         time.sleep(0.05)
-    check("a fresh mod offers the one-click 'Install latest' action",
-          "Install latest" in _t2 and "Latest for your setup" in _t2,
+    check("a fresh mod offers the one-click Install action",
+          "Install" in _t2 and "Latest for your setup" in _t2,
           f"{_t2[:15]}")
+    _versions_tab = next(control for control in _walk(_dialog2) if getattr(control, "data", None) == "mod-detail-tab-versions")
+    _versions_tab.on_click(None)
+    _t2 = _texts_of(_dialog2)
     check("only a handful of versions render at first",
           _t2.count("match") == 8 and "other version" not in _t2,
           f"match={_t2.count('match')} other={_t2.count('other version')}")
@@ -913,9 +909,9 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
                 patch.object(_core, "list_content", return_value=[]):
             rowbuild({"project_id": "patch-" + kind, "title": "Patch pack"}).on_click(None)
             QueuedThread.queue.pop()()
-        dialog = page._dialogs.controls[-1]
+        dialog = root.controls[1]
         latest = [control for control in _walk(dialog)
-                  if isinstance(control, ft.Text) and control.value == "Install latest"]
+                  if isinstance(control, ft.Text) and control.value == "Install"]
         check(f"1.20 {kind} details use the appropriate compatibility rule",
               bool(latest) == (kind != "mod"))
         QueuedThread.queue.clear()

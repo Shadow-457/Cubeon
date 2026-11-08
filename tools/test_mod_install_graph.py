@@ -129,11 +129,15 @@ class InstallGraphTests(unittest.TestCase):
         self.assertEqual(self.install(main)["failed"], [])
         self.assertEqual(len(self.calls), 1)
 
-    def test_actual_jar_requirements_are_repaired_during_install(self):
+    def test_actual_jar_requirements_are_reported_until_explicit_resolution(self):
         main = self.release("main", "jar-dependency", depends={"library": ">=2"})
         self.release("library", "jar-library", "2.0")
         result = self.install(main)
-        self.assertEqual(result["failed"], [])
+        self.assertIn('main requires library >=2 (missing)', result["failed"])
+        self.assertTrue(result['compatibility']['unfixed'][0]['missing'])
+        self.assertFalse((self.profile / "jar-library.jar").exists())
+        report = mod_dependencies.run_dependency_doctor('1.21.11', 'fabric')
+        self.assertFalse(report['unfixed'])
         self.assertTrue((self.profile / "jar-library.jar").exists())
 
 

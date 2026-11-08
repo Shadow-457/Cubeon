@@ -80,7 +80,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                        show_snack=None, on_close=None,
                        mc_version: "str | None" = None,
                        loader: "str | None" = None,
-                       version_id: "str | None" = None) -> ft.AlertDialog:
+                       version_id: "str | None" = None, launcher_state=None) -> ft.AlertDialog:
     """Build (but do not open) the crash report. See ``show_crash_dialog``.
 
     ``mc_version``/``loader``/``version_id`` identify the instance that just
@@ -133,7 +133,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         from cubeon.webdoctor import open_doctor
         if not open_doctor(log_text, reason=reason, version_label=version_label):
             if callable(show_snack):
-                show_snack("Couldn't open Doctor. Visit www.ylet.online/doctor "
+                show_snack("Couldn't open log analysis. Visit www.ylet.online/doctor "
                            "and use Copy log to paste this report.", duration=8000)
 
     # --- local Doctor (same sections as Settings) ---------------------------
@@ -208,11 +208,28 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                     thread_safe_ui.refresh(local_doctor_btn)
                     thread_safe_ui.refresh(doctor_spinner)
 
-        from cubeon.doctor_ui import start_doctor_worker
-        started = start_doctor_worker(
-            mc_version=mc_version, loader=loader or "vanilla",
-            version_id=version_id, include=None, check_online=True,
-            on_done=done, approve_all=True, crash_text=log_text)
+        def worker():
+            from cubeon.content_checks import check_content
+            from ui.content_checks import show_content_issues
+            target = ("mod", mc_version, loader or "vanilla", version_id)
+            try:
+                report = check_content(target)
+                report["summary"] = (f"{len(report.get('unfixed') or [])} issues need attention"
+                                     if report.get("unfixed") else "Mods checked; runtime checked on Play"
+                                     if report.get("runtime_unverified") else "Everything is compatible")
+            except Exception as error:
+                report = {"summary": f"Could not complete this check: {error}", "unfixed": []}
+            done(report)
+            if report.get("unfixed"):
+                show_content_issues(page, launcher_state if launcher_state is not None else {},
+                                    target, report, on_done=_render_report)
+
+        started = None
+        try:
+            started = threading.Thread(target=worker, daemon=True)
+            started.start()
+        except Exception:
+            started = None
         if started is None:
             doctor_lock.release()
             with thread_safe_ui.TREE_LOCK:
@@ -225,12 +242,10 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
 
     local_doctor_available = bool(mc_version and version_id)
     local_doctor_btn = ft.TextButton(
-        "Check & fix", icon=ft.Icons.BUILD_CIRCLE_ROUNDED,
+        "Check compatibility", icon=ft.Icons.FACT_CHECK_OUTLINED,
         on_click=_run_local_doctor, data="crash-local-doctor",
         disabled=not local_doctor_available,
-        tooltip=("Run the launcher's Doctor on this instance. It reports why "
-                 "each problem happened and fixes what is safe to fix; "
-                 "disabled files are kept."
+        tooltip=("Quick offline mod check. Review missing dependencies and conflicts before making changes."
                  if local_doctor_available else
                  "Cubeon couldn't tell which instance crashed, so the local "
                  "check has nothing to inspect."),
@@ -322,9 +337,9 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         actions=[
             local_doctor_btn,
             ft.TextButton(
-                i18n.t("Doctor"), icon=ft.Icons.MEDICAL_SERVICES_ROUNDED,
+                i18n.t("Analyze log"), icon=ft.Icons.MANAGE_SEARCH_ROUNDED,
                 on_click=_doctor, data="crash-web-doctor",
-                tooltip="Open the website Doctor with a redacted log excerpt. "
+                tooltip="Open log analysis with a redacted log excerpt. "
                         "AI analysis shares that excerpt with Kilo.",
                 style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
             ),
@@ -359,7 +374,7 @@ def show_crash_dialog(page, *, reason: str, log_text: str,
                       show_snack=None, on_close=None,
                       mc_version: "str | None" = None,
                       loader: "str | None" = None,
-                      version_id: "str | None" = None):
+                      version_id: "str | None" = None, launcher_state=None):
     """Build + mount the crash report. Returns the dialog, or None.
 
     Safe from any thread: mounting goes through ``cubeon.dialogs``, the same
@@ -371,7 +386,7 @@ def show_crash_dialog(page, *, reason: str, log_text: str,
             page, reason=reason, log_text=log_text,
             version_label=version_label, log_path=log_path,
             show_snack=show_snack, on_close=on_close,
-            mc_version=mc_version, loader=loader, version_id=version_id)
+            mc_version=mc_version, loader=loader, version_id=version_id, launcher_state=launcher_state)
         cubeon_dialogs.open_dialog(page, dlg)
         return dlg
     except Exception:

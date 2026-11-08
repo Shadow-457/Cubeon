@@ -69,6 +69,16 @@ class ResolverTests(unittest.TestCase):
         self.assertTrue(iris.exists())
         self.assertTrue(self.profile.joinpath("sodium-0.8.12.jar").exists())
 
+    def test_java_25_requester_resolves_to_a_java_21_build_without_removing_it(self):
+        original = self.local('c2me', '3', depends={'java': '>=25'})
+        original_bytes = original.read_bytes()
+        self.remote_mod('c2me', '3', depends={'java': '>=25'})
+        compatible = self.remote_mod('c2me', '2', latest=False, depends={'java': '>=21'})
+        report = self.run_doctor(runtime_versions={'java': '21'})
+        self.assertEqual(report['unfixed'], [])
+        self.assertTrue(self.profile.joinpath(compatible['filename']).exists())
+        self.assertEqual(self.profile.joinpath('c2me-3.jar.disabled').read_bytes(), original_bytes)
+
     def test_two_mods_change_together_and_no_intermediate_set_is_activated(self):
         sodium = self.local("sodium", "0.8.14", breaks={"iris": "<=1.10.7"})
         iris = self.local("iris", "1.10.7")

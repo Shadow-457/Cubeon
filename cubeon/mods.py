@@ -971,9 +971,13 @@ def list_mods(mc_version: str | None, loader: str | None,
                 continue
             enabled = not fname.endswith(".disabled")
             meta = _read_meta(profile_dir, fname) or {}
+            descriptor, _provided = _doctor_metadata(full, loader)
+            descriptor = descriptor or {}
             mods.append({
                 "filename": fname,
-                "display_name": fname.replace(".jar.disabled", "").replace(".jar", ""),
+                "display_name": descriptor.get("name") or fname.removesuffix(".disabled").removesuffix(".jar"),
+                "mod_id": descriptor.get("id") or "",
+                "version": descriptor.get("version") or "",
                 "enabled": enabled,
                 "size_kb": round(size / 1024, 1),
                 "slug": meta.get("slug") if isinstance(meta.get('slug'), str) else None,
@@ -3451,9 +3455,9 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     if status_cb:
         status_cb("Verifying installed mod dependencies...")
     report = run_dependency_doctor(mc_version, loader, version_id=version_id,
-                                   status_cb=status_cb)
+                                   status_cb=status_cb, auto_fix=False, check_online=False)
     failed.extend(item["detail"] for item in report["unfixed"])
-    return {"installed": installed, "skipped": skipped, "failed": failed}
+    return {"installed": installed, "skipped": skipped, "failed": failed, "compatibility": report}
 
 
 def download_mod(download_url: str, filename: str, progress_cb=None,

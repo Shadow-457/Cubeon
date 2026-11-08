@@ -32,6 +32,7 @@ substitute for current code.
 | Mods and packs | `mods.py`, `modpacks.py`, `global_mod_cache.py`, `content.py` |
 | Reviewed local mod imports | `local_mods.py`, `ui/local_mod_import.py` |
 | Content compatibility | `packformat.py`, `doctor.py`, `mod_dependencies.py`, `mod_resolver.py`, `content.py` |
+| Fast content checks / local search | `content_checks.py`, `fuzzy_search.py`; action popup in `ui/content_checks.py` |
 | Download infrastructure | `net.py`, `global_mod_cache.py`, `local_cache.py` |
 | Friends ownership | `friends_service.py`, `friends.py`, `e2ee.py` |
 | Mod bridge | `local_api.py`, `cubeonfriends.py`, `mod/brackets.json` |
@@ -728,8 +729,14 @@ keep builders consistent with the shared `THEME` contract.
   F3's Mem maximum is the limit, while Allocated can be lower. `tools/test_launch_memory.py` guards it.
 - Mod discovery has explicit compatible/all-Modrinth scope; broadened searches and direct project links
   never bypass install-time version/loader validation. Related-name fallback is labeled and stays on the
-  same query across pages. The project detail dialog still lists builds for other game versions/loaders as
-  "other version"; only browse rows hard-disable them. Do not describe the dialog as compatible-only.
+  same query across pages. Mod/resource-pack/shader details use a retained full-page host with Back/Escape,
+  Overview/Versions/Gallery and responsive metadata; no mod-detail AlertDialog. Generation tokens reject
+  late responses after Back or another project. Versions still labels other game versions/loaders as
+  "other version"; only browse rows hard-disable them.
+- Installed mods show the JAR descriptor's name and retain filename/mod_id/version separately. All
+  Installed content, including modpacks, uses bounded cached `fuzzy_search.search_items`: exact/prefix
+  before typos/transpositions/acronyms, Unicode/word-separator normalization, stable ties, no network.
+  Search names, filenames, IDs and slugs; never hide C2ME when a check calls it Concurrent Chunk Management Engine.
 - A version with no detected loader must leave `state["mod_loader"]` on the switcher's first option
   (vanilla), never `None`; browse/search code formats the loader name and a `None` there drops the
   Modrinth loader facet.
@@ -741,22 +748,25 @@ keep builders consistent with the shared `THEME` contract.
   handover to the actual installer. Action labels show bounded percentages or transferred KB for unknown
   totals; full progress/repair details stay in tooltips. Dependency batches explicitly advance after
   successful cached files too. `tools/test_content_install_feedback.py` exercises the real callbacks.
-- Launch checks never prompt: the config pass uses `include=("launch",)` / `check_online=False`;
+- Launch configuration uses `include=("launch",)` / `check_online=False`;
   `mod_dependencies.run_dependency_doctor` delegates to `mod_resolver.Resolver` under
   `_spawn_lock`, before sync/spawn, using the selected `version_id` and actual Java major.
+  Play's mod gate is read-only/offline (`auto_fix=False`, `check_online=False`) and throws
+  `ModCompatibilityError` before sync/spawn; `main.py` releases launch/install claims before opening
+  the named Install/Resolve popup. The popup never resumes Java automatically: press Play after resolving.
   Fabric/Quilt/Forge/NeoForge checks use actual root/nested/secondary descriptors,
   required ranges, explicit breaks and known runtime versions. Clean profiles make no
-  network calls. Bounded graph search retains every enabled root identity and may jointly
+  network calls. Explicit Install/Resolve invokes bounded graph search, retaining every enabled root identity and may jointly
   update/downgrade requesters and dependencies, reuse disabled copies offline, or back up
   duplicate roots. It caps search at 96 states, 8 alternate candidates/project, 16 staged
   downloads and a shared 60s deadline; one attempt per call and no more network probes
   after connection failure. Staged hashes and the entire actual graph must pass before
   launch; originals are backed up and swaps/sidecars roll back on failure. Profile changes
   during initial scan/search/publication and newly introduced duplicate roots reject the
-  repair. Reports are saved to `<profile>/.cubeon-auto-doctor.json` only for affected
+  repair. Reports are saved to `<profile>/.cubeon-auto-doctor.json` only after explicit resolution of affected
   profiles. Unresolved declared conflicts stop Play with named retryable errors;
   undeclared mixin/gameplay incompatibilities still need crash evidence. Performance
-  installation also repairs kept profiles; Play defers that repair to its final gate.
+  installation also repairs kept profiles; Play only verifies at its final gate.
   `test_mod_prelaunch_dependencies.py` and `test_mod_resolver.py` guard this.
 - Forge metadata selection includes legacy `mcmod.info` and manifest coremods
   before falling back to another loader's descriptor. CSL Universal 15.1 has
@@ -776,21 +786,19 @@ keep builders consistent with the shared `THEME` contract.
   bundled Yumi. Fabric JSON strings may contain literal newlines (BetterGrassify
   1.8.7); `read_mod_metadata` uses `strict=False` for that descriptor, matching the
   loader. These valid jars must take the offline clean path, never repair searches.
-- Doctor runs without repair windows: Installed's "Check & repair" starts a scoped worker and the click
-  authorizes reversible changes; passive checks use `check_online=False` and no approver, and install
-  checks use no approver. Old jars are renamed, never deleted. Results stay inline; `repair_details`
-  below the Installed header preserves each report's `item`/`mod` name and shows explicit fixes.
-  A failed or
-  incomplete scan must never say "No problems found". Verified jars skip online checks; unavailable
-  verification is one advisory, never a per-mod disable. The incompatible check is LOCAL (the jar's own
-  `fabric.mod.json`), so a missing Modrinth release disables nothing.
-- The full Doctor entry is the crash report's **Check & fix**, which runs
-  `doctor_ui.start_doctor_worker` with `include=None`, `check_online=True`, `approve_all=True` - the
-  explicit click is the consent. Mods → Installed stays scoped to the current content type. The crash
-  report needs `mc_version`/`loader`/`version_id`; without them its check button is disabled rather than
-  guessing.
-- Log-evidence pass: only the crash report's Check & fix passes `crash_text` (`run_doctor` →
-  `_mods_section` → `mod_doctor`); every other scan leaves it `None`. `crash.mod_candidates()` extracts
+- Installed **Check compatibility**, automatic tab checks, and post-install graph checks use
+  `content_checks.check_content` offline/read-only. They do not authorize changes or write report files.
+  Issues open `ui/content_checks.show_content_issues`, grouped into missing dependencies and conflicts.
+  Only Install/Resolve authorizes graph resolution; capture the original instance, single-flight the worker,
+  block game/install/launch claims, retain backups/rollback, recheck locally, and keep failed actions retryable.
+  The crash report uses the same fast check and labels website access **Analyze log**; no visible Doctor/fix-repair action.
+  Resource-pack/shader checks remain scoped to their type. A failed scan must not announce a clean result.
+- Play's verified Java major is remembered per instance with executable/JVM dependency fingerprints and
+  the configured Java preference. Later checks reuse it without probes; changed files/preferences invalidate it.
+  Unknown runtime versions populate `runtime_unverified` and UI says runtime will be checked on Play, not
+  "Compatible". Runtime requirements resolve via compatible requester builds, not downloads named "java".
+- Legacy log-evidence APIs accept explicit `crash_text` (`run_doctor` → `_mods_section` → `mod_doctor`);
+  the fast content checks never pass it. `crash.mod_candidates()` extracts
   explicit blame lines only (`Mixin apply for mod X failed`, `Mixin config X`, `from mod X`,
   `Replace mod 'X'`, `duplicate mod X`, `Mod 'X' (id)`, NeoForge `Requested by:`); it skips
   `Fabric Mods:`/`Mod List:`/`Mod Information` tables and leaves "requires/missing" lines to the
@@ -920,7 +928,9 @@ keep builders consistent with the shared `THEME` contract.
   conflicting pins or unavailable dependencies before publishing the main file.
   Download cache revision 4 includes dependency/project/version metadata. An installed
   project ID alone cannot satisfy a pin; verify its hashes. Install finishes with the
-  actual JAR dependency resolver and surfaces unresolved requirements immediately.
+  actual JAR graph check offline/read-only and returns `compatibility` plus named `failed` entries;
+  missing Modrinth-declared dependencies are still included in the explicit mod install, but unrelated
+  existing roots are never replaced until the user chooses Install/Resolve in the results popup.
   `test_mod_install_graph.py` also verifies file-manager copies/imports/listing/Play
   all use the selected instance's real `mods/` folder.
 - Mod-name search recognizes common loader IDs and split project names. Empty filtered
@@ -1088,9 +1098,9 @@ keep builders consistent with the shared `THEME` contract.
 - `build_launch_command` honours a `-XX:+Use*GC` collector from the player's custom JVM flags: no
   forced G1 and no `-XX:G1*` tuning in that case. Default (no user collector) still gets exactly one
   `-XX:+UseG1GC` plus tuning.
-- Play and crash reports have no Fix crash action. Crash reports expose **Check & fix** (the local doctor
-  for the crashed instance), website Doctor, Copy log, Discord and Close. Local dependency/conflict
-  repair also lives in Mods → Installed's Check & repair and the automatic prelaunch gate.
+- Play and crash reports have no Fix crash action. Crash reports expose **Check compatibility**,
+  **Analyze log**, Copy log, Discord and Close. Local dependency/conflict checks also live in
+  Mods → Installed and the offline prelaunch gate; changes require the results popup's Install/Resolve.
 - `i18n.py` owns language order, `ui_language`, locale detection and reading direction (`page.rtl`);
   `cubeon/lang/*.py` tables use English strings as keys and fall back to English. Changes apply after
   restart. Every PyInstaller build must collect `cubeon.lang` because tables import dynamically.
@@ -1889,8 +1899,8 @@ requires retrying with normal system access, not changing unrelated app code.
 | Navigation backend reads | `test_navigation_background.py`, `test_server_repaint_scope.py`, `test_tab_repaint_scope.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
 | Rust beta | `test_rust_engine.py`, `test_rust_profile_native.py`, `test_native_client.py --compiled` (compiled renderer), `test_rust_engine_native.py --companion` (built bundle/prepared resources/GPU); `capture_rust_beta.py` (native Flet) |
-| Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
-| Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_doctor_reporting.py`, `test_mod_prelaunch_dependencies.py`, `test_mod_resolver.py`, `test_doctor_bundled_deps.py`, `test_launch_fixes.py` |
+| Mod discovery | `test_mod_search.py`, `test_mod_detail.py`, `test_fuzzy_search.py` |
+| Doctor and crash repair | `test_crash.py`, `test_content_checks.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_doctor_reporting.py`, `test_mod_prelaunch_dependencies.py`, `test_mod_resolver.py`, `test_doctor_bundled_deps.py`, `test_launch_fixes.py` |
 | Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
 | Website search visibility / translation | `test_website_seo.py`, `test_website_translation.py`, `test_website_browser.py` (optional Playwright) |
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |

@@ -1451,10 +1451,10 @@ _stats_src = open(os.path.join(_app_root, "ui", "stats_tab.py"), encoding="utf-8
 _main_src = open(os.path.join(_app_root, "main.py"), encoding="utf-8").read()
 
 # The permanent Play repair button is removed; Installed keeps a repair entry.
-check("Play has no Fix crash button; Installed has Check & repair",
+check("Play has no Fix crash button; Installed has Check compatibility",
       'data="play-fix-crash"' not in _main_src
       and "fix_crash_button" not in _main_src
-      and 'data="mods-check-repair"' in _mods_src,
+      and 'data="mods-check-compatibility"' in _mods_src,
       "dependency/conflict repair must remain reachable")
 _crash_report_src = open(os.path.join(_app_root, "ui", "crash_report.py"), encoding="utf-8").read()
 check("Crash report has Doctor and log copy, with no Fix crash action",

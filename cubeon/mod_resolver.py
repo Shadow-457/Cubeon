@@ -88,13 +88,16 @@ def issues(selected, runtime, mc_version, loader):
                         continue
                     installed = f"installed: {actual}" if actual is not None else "missing"
                     problems.append(dict(kind="required", owner=key, dependency=identity, mod=name,
-                                         predicate=predicate, detail=f"{name} requires {identity} {predicate} ({installed})"))
+                                         predicate=predicate, missing=actual is None,
+                                         detail=f"{name} requires {identity} {predicate} ({installed})"))
             for identity, predicate in (descriptor.get("breaks") or {}).items():
                 identity = str(identity).lower()
                 actual = providers.get(identity)
                 if actual is not None and mods.version_satisfies(actual, predicate):
+                    other = selected.get(owners.get(identity))
+                    other_name = (other.meta.get("name") or other.item.get("display_name")) if other else identity
                     problems.append(dict(kind="conflict", owner=key, dependency=identity, mod=name,
-                                         predicate=predicate, detail=f"{name} {descriptor.get('version') or ''} conflicts with {identity} {actual} ({predicate})"))
+                                         predicate=predicate, detail=f"{name} {descriptor.get('version') or ''} conflicts with {other_name or identity} {actual} ({predicate})"))
     # The same bundled module can occur in several parents; report its failed
     # requirement once per root, without losing distinct constraints.
     return list({(p['kind'], p['owner'], p['dependency'], p['detail']): p
@@ -104,11 +107,11 @@ def issues(selected, runtime, mc_version, loader):
 class Resolver:
     def __init__(self, entries, runtime, mc_version, loader, version_id,
                  deadline, max_repairs, check_online, stage_download, scan, status_cb,
-                 *, snapshot=None):
+                 *, snapshot=None, directory=None):
         self.mc, self.loader, self.version_id = mc_version, loader, version_id
         self.runtime, self.deadline, self.max_repairs = runtime, deadline, max_repairs
         self.online, self.stage_download, self.scan, self.status = check_online, stage_download, scan, status_cb
-        self.directory = mods.get_profile_dir(mc_version, loader, version_id)
+        self.directory = directory if directory is not None else mods.get_profile_dir(mc_version, loader, version_id)
         self.snapshot = snapshot if snapshot is not None else mods._doctor_profile_snapshot(self.directory)
         self.originals = [Choice(item, meta or {}, provided,
                                  os.path.join(self.directory, item["filename"]))
@@ -205,7 +208,7 @@ class Resolver:
         if key.startswith("@") or key in mods.DOCTOR_RUNTIME_IDS:
             return
         if self.status:
-            self.status(f"Doctor: finding a compatible build of {project}")
+            self.status(f"Finding a compatible build of {project}…")
         predicates = None
         if project == key and problem["kind"] == "required" and key == problem["dependency"]:
             providers, _ = _providers(selected, self.runtime)
@@ -361,7 +364,7 @@ class Resolver:
             return result
         if auto_fix:
             if self.status:
-                self.status("Doctor: checking mod version conflicts")
+                self.status("Finding compatible mod versions…")
             with tempfile.TemporaryDirectory(prefix=".cubeon-dependency-", dir=self.directory) as stage:
                 self.stage = stage
                 solution = self._search(self.initial)
@@ -372,12 +375,16 @@ class Resolver:
                     except Exception as error:
                         self.errors["publish"] = str(error)
         for problem in problems:
-            result["unfixed"].append(dict(dependency=problem["dependency"], mod=problem["mod"],
-                                           kind=problem["kind"], detail=problem["detail"],
+            result["unfixed"].append(dict(problem,
                                            error=self.errors.get("publish") or self.errors.get(problem["dependency"])
-                                           or "No compatible mod set was found within the automatic repair limit; check these mods or retry Play"))
-        if duplicates and not result["unfixed"]:
-            result["unfixed"].append(dict(dependency="duplicates", mod="Duplicate mods",
-                                           detail="Multiple enabled JARs provide the same mod",
-                                           error=self.errors.get("publish") or "Retry Play to keep one compatible build"))
+                                           or ("No compatible mod set was found; review these mods or retry"
+                                               if auto_fix else "Choose Install or Resolve to find a compatible mod set")))
+        if duplicates:
+            for identity, group in self.groups.items():
+                enabled = [choice for choice in group if choice.item.get("enabled")]
+                if len(enabled) > 1:
+                    name = enabled[0].meta.get("name") or identity
+                    result["unfixed"].append(dict(dependency=identity, mod=name, kind="duplicate",
+                        detail=f"{name}: duplicate copies ({', '.join(choice.item['filename'] for choice in enabled)})",
+                        error=self.errors.get("publish") or "Resolve to keep one compatible build; originals are kept as backups"))
         return result

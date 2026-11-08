@@ -1629,17 +1629,18 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
             if watchdog.stale_session() is not None:
                 raise RuntimeError("Minecraft is already running. Close it before starting another instance.")
             if stage_java:
-                from .mod_dependencies import run_dependency_doctor
+                from .mod_dependencies import ModCompatibilityError, run_dependency_doctor
+                runtime_versions = {"java": java_major_version(command[0]) if command else None}
+                if command and runtime_versions["java"] is not None:
+                    from .content_checks import remember_runtime
+                    remember_runtime(("mod", mc_version, loader, version_id), command[0],
+                                     runtime_versions["java"], (cfg or {}).get("java_path"))
                 dependency_report = run_dependency_doctor(
                     mc_version, loader, version_id=version_id, status_cb=status_cb,
-                    runtime_versions={"java": java_major_version(command[0]) if command else None})
+                    check_online=False, auto_fix=False,
+                    runtime_versions=runtime_versions)
                 if dependency_report["unfixed"]:
-                    details = "\n".join(
-                        f"{item['detail']}. {item['error']}"
-                        for item in dependency_report["unfixed"][:4])
-                    raise RuntimeError("Doctor could not find a compatible mod set.\n" + details)
-                if dependency_report["fixed"] and status_cb:
-                    status_cb("Doctor repaired and verified the mod versions")
+                    raise ModCompatibilityError(dependency_report, mc_version, loader, version_id, runtime_versions)
                 try:
                     from .content import sync_content_to_game
                     sync_content_to_game(mc_version, loader, version_id)

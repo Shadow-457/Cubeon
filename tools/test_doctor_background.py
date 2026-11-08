@@ -21,22 +21,22 @@ class BackgroundDoctorTests(unittest.TestCase):
         tree = ast.parse(source)
         wanted = {'_start_repair', 'run_mod_repair', 'auto_check'}
         functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in wanted]
-        jobs, calls, statuses = [], [], []
+        jobs, calls, statuses, popups = [], [], [], []
         class Worker:
             def __init__(self, target, **kw): self.target = target
             def start(self): jobs.append(self.target)
         state = {'selected_mc_version':'1.21.1', 'mod_loader':'fabric'}
-        def doctor(*a, **kw):
-            calls.append(kw)
-            return {'fixed': [], 'unfixed': [{'mod':'Example Mod', 'detail':'Needs Fabric API'}]}
+        def check(target, **kw):
+            calls.append((target, kw))
+            return {'fixed': [], 'unfixed': [{'mod':'Example Mod', 'detail':'Example Mod: Needs Fabric API'}]}
         scope = dict(state=state, version_dropdown=types.SimpleNamespace(value='instance'),
                      check_repair_btn=types.SimpleNamespace(disabled=False),
                      repair_lock=threading.Lock(), auto_check_state={'last':{}},
                      AUTO_CHECK_SECONDS=900, _ct=lambda:'mod', _is_mod=lambda:True,
                      _repair_sections=lambda:['mods'],
                      _set_repair_status=lambda *a:statuses.append(a),
-                     core=types.SimpleNamespace(run_doctor=doctor),
-                     refresh_mods_list=lambda:None, i18n=i18n,
+                     check_content=check, show_content_issues=lambda *a, **kw:popups.append((a, kw)),
+                     page=object(), refresh_mods_list=lambda **kw:None, i18n=i18n,
                      thread_safe_ui=types.SimpleNamespace(TREE_LOCK=threading.RLock(), refresh=lambda c:None),
                      threading=types.SimpleNamespace(Thread=Worker),
                      time=__import__('time'), logging=__import__('logging'))
@@ -45,26 +45,23 @@ class BackgroundDoctorTests(unittest.TestCase):
         scope['auto_check']()
         self.assertEqual(len(jobs), 1)
         jobs.pop()()
-        self.assertIsNone(calls[-1]['approve_cb'])
-        self.assertFalse(calls[-1]['check_online'])
+        self.assertEqual(calls[-1], (('mod', '1.21.1', 'fabric', 'instance'), {}))
+        self.assertEqual(len(popups), 1)
         self.assertIn('need attention', statuses[-1][0])
         self.assertIn('Example Mod: Needs Fabric API', statuses[-1][1])
         scope['run_mod_repair']()
         scope['run_mod_repair']()
         self.assertEqual(len(jobs), 1)
-        self.assertEqual(state['fixing_mods'], 'instance')
+        self.assertIsNone(state.get('fixing_mods'))
         jobs.pop()()
-        self.assertIsNone(state['fixing_mods'])
-        self.assertTrue(calls[-1]['approve_cb']({'action':'disable'}))
-        self.assertTrue(calls[-1]['check_online'])
-        self.assertEqual(calls[-1]['include'], ['mods'])
+        self.assertIsNone(state.get('fixing_mods'))
+        self.assertEqual(calls[-1][1], {})
+        self.assertEqual(len(popups), 2)
         self.assertFalse(scope['check_repair_btn'].disabled)
-        scope['core'].run_doctor = lambda *a, **kw: {
-            'fixed':[{'mod':'Sodium', 'fixed':True, 'fix':'turned off duplicate sodium-older.jar'}],
-            'unfixed':[]}
+        scope['check_content'] = lambda *a, **kw: {'fixed':[], 'unfixed':[], 'elapsed':.005}
         scope['run_mod_repair']()
         jobs.pop()()
-        self.assertIn('Sodium: turned off duplicate sodium-older.jar', statuses[-1][1])
+        self.assertEqual(statuses[-1], ('Compatible · 5 ms',))
         state['running_version'] = 'instance'
         scope['run_mod_repair']()
         self.assertFalse(jobs)

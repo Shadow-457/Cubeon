@@ -40,6 +40,9 @@ from cubeon import eta as cubeon_eta  # measured "time left" for downloads
 from cubeon import status_text  # keeps "<... at 0x...>" out of labels
 from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
+from cubeon.content_checks import check_content
+from cubeon.fuzzy_search import search_items
+from ui.content_checks import show_content_issues
 from cubeon import instances as instance_info  # the selected instance's real loader
 from ui.install_feedback import InstallRegistry, compact_status, progress_text
 from ui.content_states import loading_rows, empty_state
@@ -593,7 +596,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # this instance's profile: packs follow the version+loader now,
             # exactly like mods do.
         query = installed_filter_field.value.strip().lower()
-        mods = [m for m in all_mods if query in m["display_name"].lower()] if query else all_mods
+        mods = search_items(all_mods, query)
 
         rows = []
         installed_count_text.value = 'Checking installed content...' if loading else (
@@ -662,13 +665,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         # Keep the "Installed (N)" tab label in step with reality.
         _build_view_segment()
 
-    # Checks stay in the tab: no approval or result windows during automatic
-    # scans. An explicit Check & repair click authorizes reversible changes;
-    # a passive check never disables or replaces an existing mod.
     repair_status = ft.Text("", size=11.5, color=TEXT_DIM,
                             font_family=FONT_MONO, visible=False)
     repair_details = ft.Text("", size=12, color=TEXT_DIM, visible=False,
-                             data="mods-repair-details", selectable=True)
+                             data="mods-check-details", selectable=True)
     repair_lock = threading.Lock()
     AUTO_CHECK_SECONDS = 15 * 60
     auto_check_state = {"last": {}}
@@ -686,57 +686,56 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     def _repair_sections():
         return ["mods"] if _is_mod() else ["shaders" if _ct() == "shader" else "resourcepacks"]
 
+    def _check_install_issues(target, report=None):
+        try:
+            report = report if report is not None else check_content(target)
+            if report.get("unfixed"):
+                show_content_issues(page, state, target, report)
+        except Exception as error:
+            logging.getLogger(__name__).warning("post-install compatibility check failed", exc_info=True)
+            dialogs.show_snack(page, f"Installed, but the compatibility check could not finish: {error}",
+                               bgcolor=SURFACE_HI, text_color=TEXT)
+
     def _start_repair(mc, loader, version_id, sections, *, explicit=False):
         if (state.get("running_version") or state.get("installing_version")
                 or state.get("launching_version") or state.get("fixing_mods")):
             if explicit:
-                _set_repair_status("Close the game and finish installs before repairing")
+                _set_repair_status("Close the game and finish installs before checking")
             return False
         if not repair_lock.acquire(blocking=False):
             return False
         with thread_safe_ui.TREE_LOCK:
-            if explicit:
-                state["fixing_mods"] = version_id
             check_repair_btn.disabled = True
             thread_safe_ui.refresh(check_repair_btn)
-        if explicit:
-            _set_repair_status("Checking…")
+        _set_repair_status("Checking compatibility…")
+        target = ("mod" if sections == ["mods"] else "shader" if sections == ["shaders"] else "resourcepack",
+                  mc, loader, version_id)
+
+        def done(report):
+            if version_dropdown.value == version_id and _repair_sections() == sections:
+                refresh_mods_list(background=True)
+                unresolved = report.get("unfixed") or []
+                _set_repair_status(f"{len(unresolved)} issues need attention" if unresolved else "Everything is compatible")
 
         def worker():
             try:
-                report = core.run_doctor(
-                    mc, loader, auto_fix=True, check_online=explicit,
-                    approve_cb=(lambda change: True) if explicit else None,
-                    version_id=version_id, include=sections)
-                fixed = len((report or {}).get("fixed") or [])
+                report = check_content(target)
                 unresolved = (report or {}).get("unfixed") or []
-                # Mod names are a separate report field; detail alone used to
-                # leave users with "requires X" and no mod to find in Installed.
-                # Explicit repairs also show exactly what changed, inline - and
-                # `format_problem` keeps the ERROR attached to every fixed row,
-                # so "disabled it" never arrives without "duplicate copies".
-                from cubeon.doctor import format_problem
-                problems = unresolved + (list((report or {}).get("fixed") or []) if explicit else [])
-                detail = "\n".join(format_problem(p) for p in problems[:10])
-                if len(problems) > 10:
-                    detail += f"\n{len(problems) - 10} more results; check the marked Installed rows."
+                detail = "\n".join(p.get("detail") or p.get("mod") or p.get("item") or "Unknown issue"
+                                   for p in unresolved[:10])
                 if version_dropdown.value == version_id and _repair_sections() == sections:
-                    if fixed:
-                        refresh_mods_list()
                     if unresolved:
-                        _set_repair_status(f"Fixed {fixed}; {len(unresolved)} need attention", detail)
-                    elif fixed:
-                        _set_repair_status(f"Fixed {fixed} problem{'s' if fixed != 1 else ''}", detail)
+                        _set_repair_status(f"{len(unresolved)} issues need attention", detail)
+                        show_content_issues(page, state, target, report, on_done=done,
+                                            on_status=_set_repair_status)
                     else:
-                        _set_repair_status("No problems found")
+                        label = "Mods checked · runtime checked on Play" if report.get("runtime_unverified") else "Compatible"
+                        _set_repair_status(f"{label} · {report.get('elapsed', 0) * 1000:.0f} ms")
             except Exception as error:
                 logging.getLogger(__name__).warning("background content check failed", exc_info=True)
-                if explicit:
-                    _set_repair_status(f"Could not complete this check: {error}")
+                _set_repair_status(f"Could not complete this check: {error}")
             finally:
                 with thread_safe_ui.TREE_LOCK:
-                    if explicit and state.get("fixing_mods") == version_id:
-                        state["fixing_mods"] = None
                     check_repair_btn.disabled = False
                     thread_safe_ui.refresh(check_repair_btn)
                 repair_lock.release()
@@ -744,8 +743,6 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         try:
             threading.Thread(target=worker, daemon=True, name="cubeon-content-check").start()
         except Exception:
-            if explicit and state.get("fixing_mods") == version_id:
-                state["fixing_mods"] = None
             check_repair_btn.disabled = False
             thread_safe_ui.refresh(check_repair_btn)
             repair_lock.release()
@@ -766,14 +763,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     check_repair_btn = attach_hover(ft.Container(
         content=ft.Row(
-            [ft.Icon(ft.Icons.BUILD_ROUNDED, color=TEXT_DIM, size=14),
-             ft.Text(i18n.t("Check & repair"), color=TEXT_DIM, size=12,
+            [ft.Icon(ft.Icons.FACT_CHECK_OUTLINED, color=TEXT_DIM, size=14),
+             ft.Text(i18n.t("Check compatibility"), color=TEXT_DIM, size=12,
                      weight=ft.FontWeight.W_600)], spacing=4, tight=True),
         border=ft.border.Border.all(1, CARD_BORDER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
-        tooltip="Repair missing dependencies and conflicts in the background. "
-                "Changed mods are kept as disabled backups.",
-        ink=False, on_click=run_mod_repair, data="mods-check-repair",
+        tooltip="Quick offline check. Review missing dependencies and conflicts before making changes.",
+        ink=False, on_click=run_mod_repair, data="mods-check-compatibility",
     ), "transparent", ROW_HOVER)
 
     def auto_check(force=False):
@@ -802,7 +798,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         detail = (compat.get("reason") or "").strip()
         if compat.get("ok") is False:
             return [ft.Text(
-                "Incompatible - use Check & repair",
+                "Incompatible — check compatibility",
                 size=10.5, color=DANGER,
                 tooltip=detail or "The game would show this as incompatible.")]
         return [ft.Text(
@@ -1469,6 +1465,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         with thread_safe_ui.TREE_LOCK:
             if selected_content['value'] == new_type:
                 return
+            close_mod_detail()
             _cancel_search_timer()
             pending = _filter_debounce['timer']
             if pending is not None:
@@ -1904,6 +1901,21 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             border=None if accent else ft.border.Border.all(1, CARD_BORDER),
         )
 
+    detail_host = ft.Column(visible=False, expand=True, spacing=16, data="mod-detail-page")
+    detail_navigation = {"generation": 0}
+
+    def close_mod_detail(event=None):
+        if not detail_host.visible:
+            return False
+        with thread_safe_ui.TREE_LOCK:
+            detail_navigation["generation"] += 1
+            detail_host.visible = False
+            catalogue_host.visible = True
+            detail_host.controls.clear()
+            thread_safe_ui.refresh(detail_host)
+            thread_safe_ui.refresh(catalogue_host)
+        return True
+
     def open_mod_detail(mod, content_type=None):
         """Open the full menu for one mod, keyed by its Modrinth id or slug.
         Manually dropped-in files have neither, so there is nothing to look
@@ -1923,71 +1935,52 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         icon_url = mod.get("icon_url")
         blurb = (mod.get("description") or "").strip()
 
-        _body_h = 560
-        try:
-            _wh = getattr(page, "height", None)
-            if not _wh and getattr(page, "window", None) is not None:
-                _wh = page.window.height
-            if _wh:
-                _body_h = max(360, min(640, int(_wh) - 210))
-        except Exception:
-            _body_h = 560
-
+        detail_navigation["generation"] += 1
+        generation = detail_navigation["generation"]
         detail_body = ft.Column(
             [_detail_loading_row()],
-            spacing=16, width=680, height=_body_h,
+            spacing=16, expand=True,
             scroll=ft.ScrollMode.AUTO,
+            data="mod-detail-body",
         )
+        hero_action = ft.Container(content=ft.Text("Loading…", color=TEXT_DIM, size=12))
+        hero_title = ft.Text(title, size=22, color=ACCENT, font_family=FONT_DISPLAY,
+                             weight=ft.FontWeight.W_700, max_lines=2)
+        hero_description = ft.Text(blurb, size=12.5, color=TEXT_DIM, max_lines=2)
+        hero_meta = ft.Text(f"{(detail_loader or 'vanilla').title()} · {detail_mc or 'Choose an instance'}",
+                            size=11.5, color=TEXT_DIM)
+        hero = ft.Container(content=ft.Row([
+            _art_image(icon_url, 58, 58) if icon_url else ft.Container(
+                width=58, height=58, bgcolor=CARD_FILL, border_radius=RADIUS,
+                content=ft.Icon(ft.Icons.EXTENSION_OUTLINED, color=TEXT_FAINT, size=26),
+                alignment=ft.Alignment.CENTER),
+            ft.Column([hero_title, hero_meta, hero_description], spacing=5, expand=True),
+            hero_action], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=16, bgcolor=SURFACE_HI, border_radius=RADIUS)
+        detail_tabs = ft.Row(spacing=8, data="mod-detail-tabs")
+        with thread_safe_ui.TREE_LOCK:
+            catalogue_host.visible = False
+            detail_host.visible = True
+            detail_host.controls = [ft.Row([
+                ft.TextButton(content=i18n.t("Back"), icon=ft.Icons.ARROW_BACK_ROUNDED,
+                              on_click=close_mod_detail, data="mod-detail-back",
+                              style=ft.ButtonStyle(color=ACCENT)),
+                ft.Container(expand=True),
+                ft.Text(f"{(detail_loader or 'vanilla').title()} {detail_mc or ''}", size=11, color=TEXT_DIM)],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER), hero, detail_tabs, detail_body]
+            thread_safe_ui.refresh(catalogue_host)
+            thread_safe_ui.refresh(detail_host)
 
-        def _close(e=None):
-            dialogs.close_dialog(page, dlg)
+        def current():
+            return detail_host.visible and detail_navigation["generation"] == generation
 
-        def _hero(url, *, width, height, radius=RADIUS):
-            return _art_image(url, width, height, radius)
-
-        dlg = ft.AlertDialog(
-            modal=False, bgcolor=SURFACE,
-            content=ft.Container(
-                width=720,
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                (_hero(icon_url, width=64, height=64)
-                                 if icon_url else
-                                 ft.Container(width=64, height=64, bgcolor=CARD_FILL,
-                                              border_radius=RADIUS,
-                                              content=ft.Icon(
-                                                  ft.Icons.EXTENSION_OUTLINED,
-                                                  color=TEXT_FAINT, size=26),
-                                              alignment=ft.Alignment.CENTER)),
-                                ft.Column(
-                                    [
-                                        ft.Text(title, size=20, color=TEXT,
-                                                weight=ft.FontWeight.W_800,
-                                                max_lines=2),
-                                        ft.Text(blurb or " ", size=12.5,
-                                                color=TEXT_DIM, max_lines=2)
-                                        if blurb else ft.Container(height=0),
-                                    ],
-                                    spacing=4, expand=True,
-                                ),
-                                ft.IconButton(ft.Icons.CLOSE_ROUNDED,
-                                              icon_color=TEXT_DIM, icon_size=20,
-                                              tooltip=i18n.t("Close"), on_click=_close),
-                            ],
-                            spacing=16,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        pixel_divider(),
-                        detail_body,
-                    ],
-                    spacing=16, tight=True,
-                ),
-            ),
-        )
-
-        dialogs.open_dialog(page, dlg)
+        def _http_url(value):
+            from urllib.parse import urlsplit
+            try:
+                parsed = urlsplit(value or "")
+                return value if parsed.scheme in ("https", "http") and parsed.netloc else None
+            except ValueError:
+                return None
 
         installed_now = {}
         try:
@@ -2063,23 +2056,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         _refresh_after_install((content_type, detail_mc, detail_loader, detail_version))
                         on_error(RuntimeError("Installed, but dependencies failed: "
                                               + ", ".join(result["failed"])))
+                        _check_install_issues((content_type, detail_mc, detail_loader, detail_version), result.get("compatibility"))
                         return
-                    # Automatic repair: an install is exactly when a stale
-                    # duplicate or a missing dependency tends to appear.
-                    fixed = 0
-                    try:
-                        report = (core.mod_doctor(
-                            detail_mc, detail_loader,
-                            auto_fix=True, status_cb=on_status, approve_cb=None,
-                            version_id=detail_version)
-                            if content_type == "mod" else {})
-                        fixed = len(report.get("fixed") or [])
-                    except Exception:
-                        fixed = 0
                     _refresh_after_install((content_type, detail_mc, detail_loader, detail_version))
                     with thread_safe_ui.TREE_LOCK:
                         installed_now[v["filename"]] = {"filename": v["filename"]}
-                        on_done(fixed)
+                        on_done(0)
+                    _check_install_issues((content_type, detail_mc, detail_loader, detail_version), result.get("compatibility"))
                 except Exception as ex:
                     on_error(ex)
             try:
@@ -2199,7 +2182,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             scanning a long list required."""
             compat = [v for v in versions if v.get("compatible") and v.get("url")]
             compat.sort(key=lambda v: v.get("date_published") or "", reverse=True)
-            holder = ft.Container()
+            holder = ft.Container(width=180)
 
             def _paint():
                 if not compat:
@@ -2236,7 +2219,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                          font_family=FONT_DISPLAY)],
                                 spacing=4, expand=True),
                              _install_button(best, details,
-                                             label="Install latest", big=True)],
+                                             label="Install", big=True)],
                             spacing=12,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 try:
@@ -2246,53 +2229,27 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
             quick_state["repaints"].append(_paint)
             _paint()
-            holder.bgcolor = CARD_FILL
-            holder.border = ft.border.Border.all(1, CARD_BORDER)
-            holder.border_radius = RADIUS
-            holder.padding = ft.padding.Padding.symmetric(horizontal=16, vertical=12)
             return holder
 
         def _description_block(body):
-            """The README is useful but enormous; show a three-line teaser with
-            a 'Read more' toggle instead of burying the versions below a wall
-            of text."""
-            preview = _plain_preview(body)
-            if not preview:
-                return None
-            full = {"ctrl": None, "shown": False}
-            holder = ft.Column(spacing=8)
-            toggle_text = ft.Text("Read more", size=12, color=ACCENT,
-                                  weight=ft.FontWeight.W_700)
-            toggle = ft.Container(
-                content=toggle_text, ink=False,
-                padding=ft.padding.Padding.symmetric(vertical=4))
-            text_ctrl = ft.Text(
-                preview + ("…" if len(body) > len(preview) else ""),
-                size=12.5, color=TEXT_DIM)
+            def open_link(event):
+                safe_url = _http_url(event.data)
+                if safe_url and callable(getattr(page, "run_task", None)):
+                    page.run_task(ft.UrlLauncher().launch_url, safe_url)
 
-            def _toggle(e=None):
-                if full["shown"]:
-                    holder.controls = [text_ctrl, toggle]
-                    toggle_text.value = "Read more"
-                    full["shown"] = False
-                else:
-                    if full["ctrl"] is None:
-                        full["ctrl"] = ft.Markdown(
-                            body, selectable=True,
-                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                            shrink_wrap=True)
-                    holder.controls = [full["ctrl"], toggle]
-                    toggle_text.value = "Show less"
-                    full["shown"] = True
-                thread_safe_ui.refresh(holder)
-
-            toggle.on_click = _toggle
-            holder.controls = [text_ctrl, toggle]
-            return ft.Column(
-                [ft.Text("About this mod", size=15, color=TEXT,
-                         weight=ft.FontWeight.W_700, font_family=FONT_DISPLAY),
-                 holder],
-                spacing=8)
+            return ft.Markdown(body or blurb or "No description available.", selectable=True,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB, shrink_wrap=True,
+                image_error_content=ft.Text("Image unavailable", color=TEXT_DIM, size=11),
+                on_tap_link=open_link, md_style_sheet=ft.MarkdownStyleSheet(
+                    p_text_style=ft.TextStyle(color=TEXT, size=13, height=1.6),
+                    a_text_style=ft.TextStyle(color=ACCENT),
+                    h1_text_style=ft.TextStyle(color=TEXT, size=22, weight=ft.FontWeight.W_700),
+                    h2_text_style=ft.TextStyle(color=TEXT, size=18, weight=ft.FontWeight.W_700),
+                    h3_text_style=ft.TextStyle(color=TEXT, size=15, weight=ft.FontWeight.W_600),
+                    list_bullet_text_style=ft.TextStyle(color=TEXT_DIM, size=13),
+                    code_text_style=ft.TextStyle(color=ACCENT, font_family=FONT_MONO, size=12),
+                    block_spacing=14),
+                data="mod-detail-readme")
 
         def _versions_section(details, versions):
             """Compatible builds first, and only a handful of them - a mod like
@@ -2348,24 +2305,66 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 spacing=8)
 
         def _render_details(details, versions):
-            controls = []
+            if not current():
+                return
             gallery = [g for g in (details.get("gallery") or []) if g.get("url")]
-            if gallery:
-                controls.append(_gallery_strip(gallery))
-            meta = _meta_line(details)
-            if meta is not None:
-                controls.append(meta)
-            controls.append(_quick_action(details, versions))
-            desc = _description_block(details.get("body") or "")
-            if desc is not None:
-                controls.append(pixel_divider())
-                controls.append(desc)
-            controls.append(pixel_divider())
-            controls.append(_versions_section(details, versions))
+            hero_title.value = details.get("title") or title
+            hero_description.value = details.get("description") or blurb
+            author = details.get("author") or mod.get("author")
+            hero_meta.value = " · ".join(filter(None, [f"by {author}" if author else "",
+                (detail_loader or "vanilla").title(), detail_mc]))
+            hero_action.content = _quick_action(details, versions)
+            thread_safe_ui.refresh(hero)
+            sidebar = ft.Column(spacing=10)
+            sidebar.controls.append(ft.Text(i18n.t("About this mod"), color=ACCENT, size=13,
+                                            font_family=FONT_DISPLAY))
+            for label, value in (("Downloads", f"{details.get('downloads', 0):,}"),
+                                 ("License", details.get("license") or "Not specified"),
+                                 ("Categories", ", ".join(details.get("categories") or []) or "Not specified"),
+                                 ("Environment", f"Client: {details.get('client_side') or 'Unknown'}\nServer: {details.get('server_side') or 'Unknown'}")):
+                sidebar.controls.append(ft.Column([
+                    ft.Text(i18n.t(label), color=TEXT_DIM, size=10.5),
+                    ft.Text(str(value), color=TEXT, size=11.5, selectable=True)], spacing=4))
+            sidebar.controls.append(ft.Text(i18n.t("Links"), color=ACCENT, size=13, font_family=FONT_DISPLAY))
+            from urllib.parse import quote
+            for label, url in (("Project on Modrinth", f"https://modrinth.com/{content_type}/{quote(details.get('slug') or ref, safe='')}"),
+                               ("Source code", details.get("source_url")), ("Report an issue", details.get("issues_url")),
+                               ("Wiki", details.get("wiki_url")), ("Discord", details.get("discord_url"))):
+                safe_url = _http_url(url)
+                if safe_url:
+                    sidebar.controls.append(ft.TextButton(content=i18n.t(label), url=safe_url,
+                        icon=ft.Icons.OPEN_IN_NEW_ROUNDED, style=ft.ButtonStyle(color=ACCENT),
+                        tooltip=safe_url))
+            metadata = ft.Container(content=sidebar, padding=16, bgcolor=SURFACE_HI,
+                border_radius=RADIUS, col={"xs": 12, "md": 3}, data="mod-detail-metadata")
+            panes = {}
+            active = {"value": "Overview"}
 
-            detail_body.controls.clear()
-            detail_body.controls.extend(controls)
-            thread_safe_ui.refresh(detail_body)
+            def select(name):
+                if not current():
+                    return
+                active["value"] = name
+                if name not in panes:
+                    if name == "Overview":
+                        overview = ft.Column([_description_block(details.get("body") or "")], spacing=16)
+                        panes[name] = ft.ResponsiveRow([
+                            ft.Container(content=overview, col={"xs": 12, "md": 9}), metadata],
+                            spacing=24, run_spacing=16, vertical_alignment=ft.CrossAxisAlignment.START)
+                    elif name == "Versions":
+                        panes[name] = _versions_section(details, versions)
+                    else:
+                        panes[name] = ft.Column([
+                            _gallery_strip(gallery) if gallery else ft.Text("No gallery images available.", color=TEXT_DIM)], spacing=16)
+                detail_tabs.controls = [ft.TextButton(content=i18n.t(label),
+                    on_click=lambda event, chosen=label: select(chosen), data="mod-detail-tab-" + label.lower(),
+                    style=ft.ButtonStyle(color=ACCENT if label == name else TEXT_DIM,
+                        bgcolor=SURFACE_HI if label == name else None,
+                        shape=ft.RoundedRectangleBorder(radius=RADIUS))) for label in ("Overview", "Versions", "Gallery")]
+                detail_body.controls = [panes[name]]
+                thread_safe_ui.refresh(detail_tabs)
+                thread_safe_ui.refresh(detail_body)
+
+            select(active["value"])
 
         def _build_version_row(v, details):
             vnum = str(v.get("version_number") or v.get("name")
@@ -2447,7 +2446,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         "connection and try again.", size=13, color=TEXT_DIM))
                     thread_safe_ui.refresh(detail_body)
                 with thread_safe_ui.TREE_LOCK:
-                    _failed()
+                    if current():
+                        _failed()
                 return
             with thread_safe_ui.TREE_LOCK:
                 _render_details(details, versions)
@@ -2456,8 +2456,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             threading.Thread(target=worker, daemon=True).start()
         except Exception as error:
             with thread_safe_ui.TREE_LOCK:
-                detail_body.controls[:] = [empty_state('Couldn\'t load details', str(error))]
-                thread_safe_ui.refresh(detail_body)
+                if current():
+                    detail_body.controls[:] = [empty_state('Couldn\'t load details', str(error))]
+                    thread_safe_ui.refresh(detail_body)
 
     def _browse_page_prev(e=None):
         ft.context.disable_auto_update()
@@ -2626,6 +2627,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         if result["failed"]:
                             feedback.finish(file_info["filename"], error="Installed, but dependencies failed: " + ", ".join(result["failed"]))
                             _refresh_after_install((content_type, selected_mc, selected_loader, selected_version))
+                            _check_install_issues((content_type, selected_mc, selected_loader, selected_version), result.get("compatibility"))
                             return
                     else:
                         # hashes = Modrinth's per-file sha512/sha1; passing them
@@ -3078,10 +3080,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     if modpacks_content is not None:
         modpacks_content.visible = False
-    mods_tab = ft.Column([content_selector, mods_body,
-                          *([modpacks_content] if modpacks_content is not None else [])],
-                         spacing=16, expand=True)
+    catalogue_host = ft.Column([content_selector, mods_body,
+                               *([modpacks_content] if modpacks_content is not None else [])],
+                              spacing=16, expand=True, data="mods-catalogue")
+    mods_tab = ft.Column([catalogue_host, detail_host], spacing=0, expand=True)
     mods_tab.select_content_type = on_content_type_change
+    mods_tab.close_detail = close_mod_detail
     def refresh_client_preference():
         with thread_safe_ui.TREE_LOCK:
             _render_installed_snapshot(_cached_installed(), loading=_installed_target() not in installed_snapshots)
