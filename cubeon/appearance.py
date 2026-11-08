@@ -192,7 +192,7 @@ class CharacterModel:
             slim = entry.get("model") == "slim" or (entry.get("model") != "classic" and skins._detect_slim_model(sheet))
         cape_path = None
         if cfg.get("active_cape"):
-            cape_path = capes.get_custom_cape_path(cfg["active_cape"])
+            cape_path = capes.get_cape_path(cfg["active_cape"])
         elif not cfg.get("hide_cubeon_cape"):
             # No custom cape and the shared cape is not hidden -> show the
             # shared Cubeon cape in the preview, exactly as the game does.

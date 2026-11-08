@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "capes": [
+    {
+      "filename": "builtin_verdant_crest.png",
+      "name": "Verdant Crest",
+      "animated": false
+    },
+    {
+      "filename": "builtin_ember_sigil.png",
+      "name": "Ember Sigil",
+      "animated": false
+    },
+    {
+      "filename": "builtin_lunar_veil.png",
+      "name": "Lunar Veil",
+      "animated": false
+    },
+    {
+      "filename": "builtin_royal_chevron.png",
+      "name": "Royal Chevron",
+      "animated": false
+    },
+    {
+      "filename": "builtin_aurora_flow.png",
+      "name": "Aurora Flow",
+      "animated": true
+    },
+    {
+      "filename": "builtin_prism_cascade.png",
+      "name": "Prism Cascade",
+      "animated": true
+    },
+    {
+      "filename": "builtin_ender_rift.png",
+      "name": "Ender Rift",
+      "animated": true
+    },
+    {
+      "filename": "builtin_solar_pulse.png",
+      "name": "Solar Pulse",
+      "animated": true
+    }
+  ]
+}

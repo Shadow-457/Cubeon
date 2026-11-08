@@ -561,7 +561,7 @@ SUITES = [
     "test_forge189_client.py", "test_native_client.py",
     "test_game_feature_switches.py",
     "test_perf_loader_support.py",
-    "test_capes.py", "test_gif_capes.py", "test_ingame_skins.py", "test_ui_smoke.py", "test_winwindow.py",
+    "test_capes.py", "test_builtin_capes.py", "test_gif_capes.py", "test_ingame_skins.py", "test_ui_smoke.py", "test_winwindow.py",
     "test_winchrome.py",
     "test_startup.py",
     "test_source_runtime.py", "test_startup_recovery.py",

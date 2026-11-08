@@ -38,6 +38,7 @@ only has to be a real, decodable image; shape is not a precondition:
 import json
 import io
 import os
+from functools import lru_cache
 import re
 import uuid
 import tempfile
@@ -57,6 +58,7 @@ _DEFAULT_CAPE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspat
 # same {"filename", "name"} record list skins.py keeps, minus the slim flag
 # (that's a skin-model concept; capes have no arm width).
 CAPES_META_PATH = os.path.join(CAPES_DIR, "capes.json")
+BUILTIN_CAPES_DIR = os.path.join(os.path.dirname(_DEFAULT_CAPE_PATH), "builtin")
 
 # Vanilla capes are 64x32. Modern "HD" capes keep the same 2:1 layout scaled
 # up to a power-of-two width, so accept those too - the preview/sync math is
@@ -207,7 +209,7 @@ def _gif_bytes(frames, durations, loop):
 
 def animation_info(filename):
     """Small validated manifest; frames stay on disk outside HTTP responses."""
-    path = get_custom_cape_path(filename) + ".frames.json"
+    path = get_cape_path(filename) + ".frames.json"
     try:
         if os.path.islink(path) or os.path.getsize(path) > 64 * 1024:
             raise ValueError("That GIF cape needs to be imported again.")
@@ -230,6 +232,49 @@ def animation_info(filename):
 def list_custom_capes() -> list[dict]:
     with _LOCK:
         return _load_capes_meta()["capes"]
+
+
+@lru_cache(maxsize=8)
+def _builtin_catalogue(folder):
+    try:
+        path = os.path.join(folder, "catalog.json")
+        if os.path.getsize(path) > 64 * 1024:
+            return ()
+        with open(path, encoding="utf-8") as stream:
+            data = json.load(stream)
+        if not isinstance(data, dict) or data.get("schema") != 1:
+            return ()
+        entries = data.get("capes")
+        if not isinstance(entries, list) or len(entries) > 64:
+            return ()
+        return tuple({"filename": entry["filename"], "name": entry["name"][:80],
+                      "animated": entry.get("animated") is True, "builtin": True}
+                     for entry in entries if isinstance(entry, dict)
+                     and isinstance(entry.get("name"), str)
+                     and isinstance(entry.get("filename"), str)
+                     and re.fullmatch(r"builtin_[a-z0-9_]+\.png", entry["filename"]))
+    except (OSError, ValueError):
+        return ()
+
+
+def list_builtin_capes() -> list[dict]:
+    return [dict(entry) for entry in _builtin_catalogue(BUILTIN_CAPES_DIR)]
+
+
+def is_builtin_cape(filename) -> bool:
+    return any(entry["filename"] == filename for entry in list_builtin_capes())
+
+
+def list_capes() -> list[dict]:
+    builtins = list_builtin_capes()
+    reserved = {entry["filename"] for entry in builtins}
+    return builtins + [entry for entry in list_custom_capes()
+                       if isinstance(entry, dict) and entry.get("filename") not in reserved]
+
+
+def get_cape_path(filename: str) -> str:
+    custom = get_custom_cape_path(filename)
+    return os.path.join(BUILTIN_CAPES_DIR, filename) if is_builtin_cape(filename) else custom
 
 
 def add_custom_cape(src_path: str, display_name: str) -> dict:
@@ -272,6 +317,8 @@ def add_custom_cape(src_path: str, display_name: str) -> dict:
 
 
 def delete_custom_cape(filename: str) -> None:
+    if is_builtin_cape(filename):
+        raise ValueError("Built-in capes cannot be deleted.")
     path = os.path.join(CAPES_DIR, filename)
     get_custom_cape_path(filename)  # validate before changing metadata
     with _LOCK:
@@ -294,11 +341,11 @@ def get_custom_cape_path(filename: str) -> str:
 
 def set_active_cape(cfg: dict, filename: str | None) -> None:
     if filename is not None:
-        path = get_custom_cape_path(filename)
+        path = get_cape_path(filename)
         if not os.path.isfile(path) or os.path.islink(path):
             raise ValueError("That cape is no longer in your library.")
         info = animation_info(filename)
-        entry = next((entry for entry in list_custom_capes() if entry.get("filename") == filename), {})
+        entry = next((entry for entry in list_capes() if entry.get("filename") == filename), {})
         if entry.get("animated") and info is None:
             raise ValueError("That GIF cape needs to be imported again.")
         if info:
@@ -403,7 +450,7 @@ def sync_local_cape_to_csl(cfg: dict) -> None:
         os.makedirs(instance_csl_path(CSL_LOCAL_CAPES_DIR), exist_ok=True)
         dest = os.path.join(instance_csl_path(CSL_LOCAL_CAPES_DIR), f"{username}.png")
         if filename:
-            src = get_custom_cape_path(filename)
+            src = get_cape_path(filename)
             if not os.path.isfile(src):
                 return
             with open(src, "rb") as source:
@@ -461,7 +508,7 @@ def render_cape_preview(filename: str, out_path: str, scale: int = 10) -> str:
     (1,1). HD capes scale that layout by width/64, so the crop is computed
     relative to the sheet's own resolution and always grabs the same panel.
     """
-    src_path = get_custom_cape_path(filename)
+    src_path = get_cape_path(filename)
     info = animation_info(filename)
     if info:
         with Image.open(src_path + ".frames.png") as source:

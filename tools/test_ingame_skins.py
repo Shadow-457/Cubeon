@@ -222,6 +222,9 @@ public final class SkinTest {
 
 class SkinTests(unittest.TestCase):
     def setUp(self):
+        builtin_catalogue = patch.object(capes, "list_builtin_capes", return_value=[])
+        builtin_catalogue.start()
+        self.addCleanup(builtin_catalogue.stop)
         skins._save_skins_meta({"skins": []})
         capes._save_capes_meta({"capes": []})
         self.cfg = dict(config.DEFAULT_CONFIG, username="SkinTester", manage_skin_mod=False,

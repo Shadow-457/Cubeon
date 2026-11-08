@@ -123,6 +123,7 @@ from cubeon.faces import get_face_b64
 # --- custom capes (upload/store/preview + LocalSkin sync, mirrors skins) ---
 from cubeon.capes import (
     validate_cape_file, list_custom_capes, add_custom_cape, delete_custom_cape,
+    list_builtin_capes, list_capes, get_cape_path,
     get_custom_cape_path, set_active_cape, sync_local_cape_to_csl,
     set_hide_cubeon_cape,
     render_cape_preview,

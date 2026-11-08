@@ -28,12 +28,12 @@ class InGameCapes:
                 and not value.startswith(".") and not any(c in value for c in "/\\\x00"))
 
     def _entries(self):
-        return [e for e in capes.list_custom_capes()
+        return [e for e in capes.list_capes()
                 if isinstance(e, dict) and self._safe_id(e.get("filename"))]
 
     def _entry(self, filename):
         if filename in {"", NONE}:
-            return {"filename": filename, "name": "No cape" if filename else "Cubeon Cape"}
+            return {"filename": filename, "name": "No cape" if filename else "Cubeon Cape", "builtin": True}
         if not self._safe_id(filename):
             raise ValueError("Choose a cape from your library.")
         entry = next((e for e in self._entries() if e["filename"] == filename), None)
@@ -47,8 +47,9 @@ class InGameCapes:
             return None
         if not filename:
             return Path(capes._DEFAULT_CAPE_PATH).resolve()
-        path = Path(capes.get_custom_cape_path(filename))
-        if path.is_symlink() or path.resolve().parent != Path(paths.CAPES_DIR).resolve():
+        path = Path(capes.get_cape_path(filename))
+        folder = capes.BUILTIN_CAPES_DIR if capes.is_builtin_cape(filename) else paths.CAPES_DIR
+        if path.is_symlink() or path.resolve().parent != Path(folder).resolve():
             raise ValueError("That cape is not in your cape library.")
         return path
 
@@ -76,10 +77,11 @@ class InGameCapes:
         image.save(buf, "PNG")
         result = {"id": filename, "name": str(entry.get("name") or "Cape")[:80],
                   "model": "cape", "slim": False, "hidden": filename == NONE,
+                  "builtin": bool(entry.get("builtin")),
                   "png": base64.b64encode(buf.getvalue()).decode("ascii")}
         if entry.get("animated"):
-            gif = Path(capes.get_custom_cape_path(filename) + ".gif")
-            if gif.is_symlink() or gif.resolve().parent != Path(paths.CAPES_DIR).resolve():
+            gif = Path(str(path) + ".gif")
+            if gif.is_symlink() or gif.resolve().parent != path.resolve().parent:
                 raise ValueError("That GIF cape needs to be imported again.")
             result["gif_path"] = str(gif.resolve())
         if len(self._images) >= PAGE_SIZE + 3:
@@ -129,8 +131,9 @@ class InGameCapes:
             if entry.get("animated"):
                 raise ValueError("That GIF cape needs to be imported again.")
             return None
-        path = Path(capes.get_custom_cape_path(filename) + ".frames.png")
-        if path.is_symlink() or path.resolve().parent != Path(paths.CAPES_DIR).resolve():
+        source = self._path(entry)
+        path = Path(str(source) + ".frames.png")
+        if path.is_symlink() or path.resolve().parent != source.resolve().parent:
             raise ValueError("That GIF cape needs to be imported again.")
         stat = path.stat()
         if stat.st_size > capes.MAX_SOURCE_BYTES:
@@ -243,7 +246,7 @@ class InGameCapes:
                 self._apply(selected, body)
             elif operation == "delete":
                 self._entry(selected)
-                if selected in {"", NONE}:
+                if selected in {"", NONE} or capes.is_builtin_cape(selected):
                     raise ValueError("Built-in cape choices cannot be deleted.")
                 if selected == (self.cfg.get("active_cape") or ""):
                     raise ValueError("Confirm another cape before deleting the one you are wearing.")

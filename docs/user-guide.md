@@ -240,7 +240,11 @@ Microsoft/Mojang account.
   and trouser layers and save those visibility settings. Keep Cubeon open and
   enable **CustomSkinLoader** under Settings → Game → In game. Other players'
   views still depend on their compatible skin support and service/cache refresh.
-  The **Capes** tab offers **Cubeon Cape**, **No Cape**, and your uploaded capes.
+  The **Capes** tab offers **Cubeon Cape**, **No Cape**, eight original built-in
+  capes, and your uploaded capes. Verdant Crest, Ember Sigil, Lunar Veil and
+  Royal Chevron are static; Aurora Flow, Prism Cascade, Ender Rift and Solar
+  Pulse are animated. They are also available in launcher **Cosmetics → Cape**
+  without downloads or uploads. Built-in capes cannot be deleted.
   Import or drop a cape image, rotate the player to preview it, then choose
   **CONFIRM** to save and update it immediately. Animated GIFs keep their frames,
   timing, transparency and loop count, including when Minecraft starts. Uploads
@@ -249,7 +253,7 @@ Microsoft/Mojang account.
   128×64; still HD capes retain their original resolution in game. Animation
   requires the updated Fabric Cubeon Client; clients without it show the first
   frame through CustomSkinLoader. Keep Cubeon open while playing.
-  Cape pages stay loaded when switching tabs. Custom cape
+  Cape pages stay loaded when switching tabs. Built-in and custom cape
   choices and No Cape affect your own screen; friends still see the shared
   Cubeon cape, as with the launcher's Cape pane.
 - **Skin arms:** each uploaded skin has an **Auto / Alex / Steve** control.

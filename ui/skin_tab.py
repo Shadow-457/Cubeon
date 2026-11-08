@@ -340,10 +340,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             variant = "alex_" if entry.get("slim") else "steve_"
         suffix = "png"
         if kind == "cape":
-            entry = next((c for c in core.list_custom_capes() if c.get("filename") == filename), {})
+            entry = next((c for c in core.list_capes() if c.get("filename") == filename), {})
             suffix = "gif" if entry.get("animated") else "png"
         out = os.path.join(folder, f"_thumb_{variant}{filename}.{suffix}")
-        src = os.path.join(folder, filename)
+        src = core.get_cape_path(filename) if kind == "cape" else os.path.join(folder, filename)
         try:
             # The preview depends on the sheet and arm model, so an up-to-date
             # thumb file on disk IS the render - skip the composite entirely.
@@ -588,7 +588,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             return False
         if filename:
             render_cape_preview_for(filename)
-            entry = next((c for c in core.list_custom_capes()
+            entry = next((c for c in core.list_capes()
                           if c.get("filename") == filename), None)
             cape_preview_name.value = (entry or {}).get("name") or "Custom cape"
             cape_status.value = ""
@@ -649,7 +649,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 card.set_selected(selected)
 
     def refresh_capes_list():
-        capes = core.list_custom_capes()
+        capes = core.list_capes()
         cape_cards.clear()
         capes_list_col.controls.clear()
 
@@ -688,10 +688,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 src=cached,
                 lazy_thumb=None if cached else ("cape", c["filename"]),
                 label=c["name"],
-                sublabel="Animated GIF" if c.get("animated") else "",
+                sublabel=("Built-in · Animated" if c.get("animated") else "Built-in")
+                         if c.get("builtin") else "Animated GIF" if c.get("animated") else "",
                 active=is_active,
                 on_use=lambda e, fn=c["filename"]: set_active_cape(fn),
-                on_delete=lambda e, fn=c["filename"]: delete_cape(fn),
+                on_delete=None if c.get("builtin") else lambda e, fn=c["filename"]: delete_cape(fn),
                 preview_w=64, preview_h=84,
             ))
 
@@ -787,7 +788,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         _active_cape = cfg["active_cape"]
         render_cape_preview_for(_active_cape)
         _active_cape_entry = next(
-            (c for c in core.list_custom_capes()
+            (c for c in core.list_capes()
              if c.get("filename") == _active_cape), None)
         cape_preview_name.value = (_active_cape_entry or {}).get("name") or "Custom cape"
     else:
