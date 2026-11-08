@@ -53,9 +53,12 @@ def error_of(fn):
 
 
 def fake_fetch(dest, fetch_fn, hashes):
+    import json
+    import zipfile
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    with open(dest, "wb") as fh:
-        fh.write(b"jar")
+    with zipfile.ZipFile(dest, "w") as archive:
+        archive.writestr("fabric.mod.json", json.dumps({
+            "schemaVersion": 1, "id": os.path.basename(dest).removesuffix('.jar'), "version": "1.0"}))
 
 
 def main():

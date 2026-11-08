@@ -1270,7 +1270,6 @@ async def main(page: ft.Page):
     except Exception:
         pass
     _startup_mark("splash revealed and flushed to the client")
-    _splash_min_until = time.monotonic() + 3.0
 
     # cfg was loaded above, before the saved geometry was applied to the
     # window.
@@ -1371,6 +1370,7 @@ async def main(page: ft.Page):
 
     # --- Get the list of already installed Minecraft versions ---
     _initial_versions = core.get_installed_versions()  # List of version info dicts
+    _startup_mark("storage ready and installed versions read")
 
     # --- State dictionary to hold dynamic data that changes during the app's lifetime ---
     # We use this to track the selected version, installed versions, running processes, etc.
@@ -4334,7 +4334,8 @@ async def main(page: ft.Page):
             logging.getLogger(__name__).warning(
                 "version selection repaint failed", exc_info=True)
 
-    def refresh_version_list(online=False, _available_versions=None, _latest_release=None):
+    def refresh_version_list(online=False, _available_versions=None, _latest_release=None,
+                             _installed_versions=None):
         """
         Populates the version dropdown with available versions.
 
@@ -4362,8 +4363,9 @@ async def main(page: ft.Page):
                              name="instance-version-list").start()
             return
 
-        # First, get the currently installed versions (might have changed since last time)
-        installed = core.get_installed_versions()
+        # Startup reuses its just-read snapshot. Later refreshes read current disk state.
+        installed = (core.get_installed_versions() if _installed_versions is None
+                     else _installed_versions)
         state["installed"] = {v["id"] for v in installed}
         state["installed_meta"] = {v["id"]: v for v in installed}
         _refresh_pack_index()  # keep the version+loader -> pack-name map current
@@ -7000,7 +7002,13 @@ async def main(page: ft.Page):
         alignment=ft.Alignment.CENTER, ink=False, on_click=run_tidy_up,
     )
 
-    detected_java = core.find_java()  # Try to auto-detect Java
+    # Java probing can take eight seconds per broken executable. Settings'
+    # informational label must not hold the splash open; populate it after paint.
+    detected_java_label = ft.Text(
+        i18n.t("Detected automatically"), size=11.5, color=TEXT_FAINT,
+        font_family=FONT_MONO, rtl=False, max_lines=2,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
 
     # -----------------------------------------------------------------
     # BACKUP SYSTEM (Settings tab)
@@ -7763,7 +7771,8 @@ async def main(page: ft.Page):
         ram_label=ram_label, ram_warning=ram_warning,
         width_field=width_field, height_field=height_field,
         java_path_field=java_path_field, custom_jvm_field=custom_jvm_field,
-        detected_java=detected_java, import_pane=import_pane,
+        detected_java=None, detected_java_label=detected_java_label,
+        import_pane=import_pane,
         screenshot_gallery=screenshot_gallery_tab,
         refresh_screenshot_gallery=refresh_screenshot_gallery,
         backup_enabled_switch=backup_enabled_switch,
@@ -8137,17 +8146,13 @@ async def main(page: ft.Page):
         animate_opacity=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
         **_bg_kwargs,
     )
-    # Keep the painted splash up for at least three seconds, including build
-    # time. Yield only for the remainder so slower starts incur no extra delay.
-    _splash_remaining = _splash_min_until - time.monotonic()
-    if _splash_remaining > 0:
-        await asyncio.sleep(_splash_remaining)
+    # Replace the splash as soon as the shell is ready; no minimum display time.
     page.controls.clear()
     page.controls.append(_app_root)
     page.update()
 
     # Finally, populate the version dropdown for the first time (offline mode)
-    refresh_version_list()
+    refresh_version_list(_installed_versions=_initial_versions)
     _startup_mark("UI built and control tree mounted")
 
     # Marks the initial synchronous mount as done. Must come after
@@ -8410,6 +8415,15 @@ async def main(page: ft.Page):
     # Warm Java resolution after first paint. Play also probes on its worker;
     # successful executable probes are cached by stat fingerprint for 60s.
     def _warm_java_check():
+        try:
+            detected = core.find_java()
+            with thread_safe_ui.TREE_LOCK:
+                detected_java_label.value = (f"{i18n.t('Found')}: {detected}"
+                                             if detected else i18n.t("Detected automatically"))
+                detected_java_label.tooltip = detected
+                thread_safe_ui.refresh(detected_java_label)
+        except Exception:
+            logging.getLogger(__name__).debug("Java label discovery failed", exc_info=True)
         try:
             selected = version_dropdown.value or state.get("selected_version")
             if not selected:

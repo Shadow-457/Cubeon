@@ -10,7 +10,7 @@ import threading
 
 import flet as ft
 
-from . import theme, thread_safe_ui
+from . import incident, theme, thread_safe_ui
 from .updater import APP_VERSION
 
 
@@ -41,7 +41,7 @@ def install(source, destination, *, root=None, progress=lambda text: None):
     if shutil.disk_usage(parent).free < needed:
         raise ValueError(f'Free at least {needed / 1024**2:.0f} MB in the installation drive, then try again.')
     progress('Installing Cubeon and adding it to your application menu…')
-    env = dict(os.environ, CUBEON_INSTALL_DIR=str(destination), CUBEON_ICON=str(icon))
+    env = incident.client_environment(dict(os.environ, CUBEON_INSTALL_DIR=str(destination), CUBEON_ICON=str(icon)))
     result = subprocess.run(['bash', str(script), str(source)], env=env,
                             capture_output=True, text=True, timeout=300)
     if result.returncode:
@@ -51,7 +51,7 @@ def install(source, destination, *, root=None, progress=lambda text: None):
 
 
 def open_launcher(path):
-    env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT='1')
+    env = incident.client_environment(dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT='1'))
     for key in ('APPIMAGE', 'APPDIR', 'CUBEON_APPIMAGE_PATH'):
         env.pop(key, None)
     subprocess.Popen([str(path)], env=env, start_new_session=True,
@@ -221,4 +221,7 @@ def run_installer():
             await asyncio.wait_for(page.window.to_front(), timeout=5)
         except Exception:
             pass
-    ft.run(main, assets_dir=str(bundle_root() / 'assets'), view=ft.AppView.FLET_APP_HIDDEN)
+    # Installer dispatch happens before main.py installs its native-client hook.
+    # Flet must use host graphics libraries here too. Keep Python's path intact.
+    with incident.isolated_flet_environment():
+        ft.run(main, assets_dir=str(bundle_root() / 'assets'), view=ft.AppView.FLET_APP_HIDDEN)

@@ -76,7 +76,10 @@ def _session():
                 s = requests.Session()
                 adapter = requests.adapters.HTTPAdapter(
                     pool_connections=MAX_CONCURRENT_DOWNLOADS * 2,
-                    pool_maxsize=MAX_CONCURRENT_DOWNLOADS * 2,
+                    # Metadata and artwork also share this pool, in addition
+                    # to the four gated downloads. Retain their connections
+                    # instead of discarding them during a Mods-tab refresh.
+                    pool_maxsize=32,
                     max_retries=0,  # retry policy lives in get_with_retry()
                 )
                 s.mount("https://", adapter)

@@ -527,7 +527,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        screenshot_gallery=None, refresh_screenshot_gallery=None,
                        account_pane=None, on_replay_onboarding=None,
                        on_check_updates=None,
-                       on_motion_change=None):
+                       on_motion_change=None, detected_java_label=None):
     """Assemble Settings from the existing controls and callbacks.
 
     `save_width_height_java` is main.py's save_settings() minus the button
@@ -548,6 +548,14 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     sections = [(key, icon, i18n.t(label)) for key, icon, label in SECTIONS
                 if key != "account" or account_pane is not None]
     active_section = {"value": sections[0][0]}
+
+    if detected_java_label is None:
+        detected_java_label = ft.Text(
+            f"{i18n.t('Found')}: {detected_java}" if detected_java else i18n.t("Detected automatically"),
+            size=11.5, color=TEXT_FAINT, font_family=FONT_MONO,
+            rtl=False, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
+            tooltip=detected_java,
+        )
 
     def row(title, subtitle, control):
         return _row(title, subtitle, control, TEXT=TEXT, TEXT_DIM=TEXT_DIM)
@@ -723,11 +731,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             _body(ft.Column(
                 [
                     java_path_field,
-                    ft.Text(f"{i18n.t('Found')}: {detected_java}"
-                            if detected_java else i18n.t("Detected automatically"),
-                            size=11.5, color=TEXT_FAINT, font_family=FONT_MONO,
-                            rtl=False, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
-                            tooltip=detected_java),
+                    detected_java_label,
                     custom_jvm_field,
                     ft.Text(i18n.t("Leave blank to use automatic Java and default flags."),
                             size=11.5, color=TEXT_FAINT),

@@ -31,6 +31,7 @@ describes what happened, so a bug here can never change recovery behaviour.
 Every public function is total - a crash path must not be able to raise.
 """
 import logging
+from contextlib import contextmanager
 import os
 import signal
 import sys
@@ -417,6 +418,29 @@ def client_environment(env, *, frozen=None, platform=None) -> dict:
         else:
             out.pop("LD_LIBRARY_PATH", None)
     return out
+
+
+@contextmanager
+def isolated_flet_environment():
+    """Apply native child isolation to Flet entry points outside main.py.
+
+    Patch the final located environment, shared by Flet's sync/async spawns,
+    without changing the frozen Python process's environment or Flet lifecycle.
+    """
+    import flet_desktop
+
+    original = flet_desktop.__locate_and_unpack_flet_view
+
+    def locate(*args, **kwargs):
+        command, env, pid_file = original(*args, **kwargs)
+        return command, client_environment(env), pid_file
+
+    flet_desktop.__locate_and_unpack_flet_view = locate
+    try:
+        yield
+    finally:
+        if flet_desktop.__locate_and_unpack_flet_view is locate:
+            flet_desktop.__locate_and_unpack_flet_view = original
 
 
 def capture_rendering_overrides(env=None) -> None:

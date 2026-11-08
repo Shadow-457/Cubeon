@@ -1858,7 +1858,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         matched_query = results[0].get("search_query", _browse_query()) if results else ""
         browse_status_text.value = (
-            f'Related matches for "{matched_query}"' if matched_query and matched_query != _browse_query()
+            "No filtered matches · showing other versions, loaders or categories"
+            if any(item.get('search_broadened') for item in results)
+            else f'Related matches for "{matched_query}"' if matched_query and matched_query != _browse_query()
             else f"{len(displayed_results)} result(s)" if displayed_results else "")
         browse_pager_label.value = f"Page {page_num + 1} of {total_pages}"
         browse_pager_row.visible = total_pages > 1

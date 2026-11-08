@@ -50,6 +50,16 @@ class LaunchMemoryTests(unittest.TestCase):
             'pack', 'Alex', 5120, 854, 480, custom_jvm_flags=custom,
             default_jvm_flags_enabled=enabled, game_dir=str(self.root / 'my-world'))
 
+    def test_imported_literal_and_duplicate_game_directories_use_selected_instance(self):
+        profile = self.profile('pack', ['-cp', '${classpath}'])
+        data = json.loads(profile.read_text())
+        data['arguments']['game'] = ['--gameDir', '/old/launcher', '--width', '854',
+                                     '--gameDir=/another/instance']
+        profile.write_text(json.dumps(data))
+        argv = self.command()
+        self.assertEqual(argv[argv.index('game.Main') + 1:],
+                         ['--gameDir', str(self.root / 'my-world'), '--width', '854'])
+
     def test_inherited_profile_cannot_reduce_selected_five_gb(self):
         base = self.profile('base', ['-Xmx2G', '-Xms2G', '-Dpack.setting=true',
                                      '-cp', '${classpath}'])

@@ -1344,12 +1344,33 @@ def get_recommended_mods(mc_version: str | None = None, loader: str | None = "fa
 def _mod_search_queries(query: str) -> list[str]:
     words = query.split()
     candidates = [query]
+    # Loader errors use IDs (cloth_config, yet_another_config_lib_v3), while
+    # players often split single-word titles such as BetterGrassify.
+    spaced = re.sub(r"[_-]+", " ", query).strip()
+    compact = re.sub(r"[^a-z0-9]", "", query.lower())
+    aliases = {
+        "fabricapi": "Fabric API",
+        "fabriclanguagekotlin": "Fabric Language Kotlin",
+        "clothconfig": "Cloth Config",
+        "clothconfigapi": "Cloth Config",
+        "yacl": "YetAnotherConfigLib",
+        "yetanotherconfiglibv3": "YetAnotherConfigLib",
+        "architectury": "Architectury API",
+        "fzzyconfig": "Fzzy Config",
+        "placeholderapi": "Text Placeholder API",
+    }
+    if compact in aliases:
+        candidates.append(aliases[compact])
+    if spaced != query:
+        candidates.append(spaced)
     if any(word.lower() == "armour" for word in words):
         candidates.append(" ".join("armor" if word.lower() == "armour" else word for word in words))
-    if len(words) > 1:
+    if compact and (len(words) == 2 or spaced != query):
+        candidates.append(compact)
+    if len(words) > 2:
         width = min(2, len(words) - 1)
         candidates.extend((" ".join(words[-width:]), " ".join(words[:width])))
-    return list(dict.fromkeys(candidates))
+    return list(dict.fromkeys(candidates))[:5]
 
 
 def _mod_project_reference(query: str) -> str | None:
@@ -1414,7 +1435,7 @@ def search_mods(query: str, mc_version: str | None = None, loader: str | None = 
     cache_key = {
         "query": query, "mc_version": mc_version, "loader": loader,
         "categories": categories or [], "limit": limit, "offset": offset,
-        "revision": 2,
+        "revision": 3,
     }
 
     def _fetch() -> list[dict]:
@@ -1429,15 +1450,17 @@ def search_mods(query: str, mc_version: str | None = None, loader: str | None = 
 
         effective_query = query
         candidates = _mod_search_queries(query)
-        if offset and len(candidates) > 1:
+        broadened = False
+        if offset and query:
             first_page = search_mods(query, mc_version=mc_version, loader=loader,
                                      categories=categories, limit=limit)
             if not first_page:
                 return []
             effective_query = first_page[0].get("search_query", query)
+            broadened = bool(first_page[0].get("search_broadened"))
         params = {
             "query": effective_query, "limit": str(limit), "offset": str(offset),
-            "facets": json.dumps(facets),
+            "facets": json.dumps([["project_type:mod"]] if broadened else facets),
             "index": modrinth_search_index(query),
         }
         for candidate in ([effective_query] if offset else candidates):
@@ -1446,8 +1469,21 @@ def search_mods(query: str, mc_version: str | None = None, loader: str | None = 
                                 headers=modrinth_headers(), timeout=10)
             if data.get("hits"):
                 return rank_search_hits([
-                    _mod_search_hit(hit, candidate) for hit in data["hits"]
+                    dict(_mod_search_hit(hit, candidate), search_broadened=broadened)
+                    for hit in data["hits"]
                 ], candidate)
+        # A missing compatible/category match must not make a real project
+        # undiscoverable. Show broad matches with their actual support metadata;
+        # the UI and installer still enforce the selected version and loader.
+        if query and not offset and len(facets) > 1:
+            params["query"] = query
+            params["facets"] = json.dumps([["project_type:mod"]])
+            data = net.get_json(f"{MODRINTH_API}/search", params=params,
+                                headers=modrinth_headers(), timeout=10)
+            return rank_search_hits([
+                dict(_mod_search_hit(hit, query), search_broadened=True)
+                for hit in data.get("hits", [])
+            ], query)
         return []
 
     # Browse/search: 6 hours fresh (long enough that a browsing session never
@@ -1549,6 +1585,9 @@ def _select_download(versions, *, mc_version=None, loader=None, predicates=(), e
         return {'filename': chosen['filename'], 'url': chosen['url'],
                 'size_kb': round(max(0, size) / 1024, 1) if isinstance(size, (int, float)) else 0,
                 'version_number': version.get('version_number'),
+                'project_id': version.get('project_id'),
+                'modrinth_version_id': version.get('id'),
+                'dependencies': version.get('dependencies') or [],
                 'hashes': chosen['hashes'] if isinstance(chosen.get('hashes'), dict) else {}}
     return None
 
@@ -1576,7 +1615,7 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     if mc_version:
         params["game_versions"] = json.dumps([mc_version])
 
-    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 3}
+    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 4}
     if version_predicates is not None:
         cache_key["predicates"] = list(version_predicates)
 
@@ -1861,22 +1900,21 @@ def _satisfies_range(version: str, expr: str) -> bool:
 def _tilde_caret_bounds(term: str):
     """(floor, ceiling) version strings for `~1.21.5` / `^1.2.3`, or None.
 
-    Fabric/Quilt semver: `~X.Y.Z` = >=X.Y.Z <X.(Y+1).0 (`~X` = <(X+1)), and
-    `^X.Y.Z` = >=X.Y.Z up to the next bump of the left-most non-zero part
-    (^1.2.3 -> <2.0.0, ^0.2.3 -> <0.3.0). Without this a jar declaring
+    Fabric's VersionComparisonOperator keeps the same major for ^ (including
+    major zero) and the same major/minor for ~. Without this a jar declaring
     `"minecraft": "~1.21.5"` was compared as an EXACT version, judged
     "built for another Minecraft version" on 1.21.11, and offered for removal."""
-    match = re.match(r"^[~^]\s*(\d+(?:\.\d+)*)", term)
+    match = re.fullmatch(r"[~^]\s*((\d+(?:\.\d+)*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)", term)
     if not match:
         return None
-    nums = [int(p) for p in match.group(1).split(".")]
-    floor = ".".join(str(n) for n in nums)
+    nums = [int(p) for p in match.group(2).split(".")]
+    # The lower bound includes the prerelease. Dropping it makes an installed
+    # 1.0.0-beta.1 fail its own ^1.0.0-beta.1 requirement (Yumi/LambDynamicLights).
+    floor = match.group(1)
     if term[0] == "~":
-        ceiling = [nums[0] + 1] if len(nums) == 1 else [nums[0], nums[1] + 1]
+        ceiling = [nums[0], (nums[1] if len(nums) > 1 else 0) + 1]
     else:
-        padded = (nums + [0, 0, 0])[:3]
-        index = next((i for i, n in enumerate(padded) if n), 2)
-        ceiling = padded[:index] + [padded[index] + 1]
+        ceiling = [nums[0] + 1]
     return floor, ".".join(str(n) for n in ceiling)
 
 
@@ -1888,7 +1926,8 @@ def _satisfies_term(version: str, term: str) -> bool:
         bounds = _tilde_caret_bounds(term)
         if bounds is not None:
             floor, ceiling = bounds
-            return _cmp_versions(version, floor) >= 0 and _cmp_versions(version, ceiling) < 0
+            numeric = version.split("+", 1)[0].split("-", 1)[0]
+            return _cmp_versions(version, floor) >= 0 and _cmp_versions(numeric, ceiling) < 0
     if "x" in term.lower() or "*" in term:
         return _match_wildcard(version, term)
     for op in ("<=", ">=", "!=", "==", "=", "<", ">"):
@@ -2070,7 +2109,10 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                             provided={entry["modid"].lower(): str(entry.get("version") or "") for entry in declared},
                             _secondary_descriptors=[legacy_identity(entry) for entry in declared[1:]])
             if descriptor == "fabric.mod.json":
-                d = json.loads(descriptor_bytes("fabric.mod.json").decode("utf-8", "replace"))
+                # Fabric's Gson reader accepts literal newlines inside strings
+                # (e.g. BetterGrassify 1.8.7's description). Python's default
+                # strict string decoder otherwise rejects a loadable mod.
+                d = json.loads(descriptor_bytes("fabric.mod.json").decode("utf-8-sig"), strict=False)
                 if not isinstance(d.get("depends") or {}, dict) or not isinstance(d.get("breaks") or {}, dict):
                     raise ValueError("Invalid mod dependency descriptor")
                 return {
@@ -3190,56 +3232,79 @@ def installed_project_ids(mc_version: str | None, loader: str | None,
 def required_dependencies(project_id_or_slug: str, mc_version: str | None,
                           loader: str = "fabric",
                           filename: str | None = None) -> list[dict]:
-    """The REQUIRED Modrinth dependencies of a mod's latest version, resolved
-    to downloadable files for (mc_version, loader).
+    """Resolve the chosen build's complete required Modrinth dependency graph.
 
-    Pass `filename` when installing a specific build: the version whose
-    `files[].filename` matches is used instead of the newest one, because a
-    newer build can require different (or newer) dependencies than the jar the
-    user actually chose. Without it the newest version is used, as before.
-
-    Returns a list of the same shape get_mod_download returns, plus the
-    dependency's project id: [{"project_id", "filename", "url", "size_kb",
-    "hashes"}]. Optional/embedded/incompatible dependencies are ignored -
-    only dependency_type == "required" is what makes a mod refuse to load
-    without it.
-
-    Fail-soft by design: the dependency graph is a nicety layered on top of a
-    download that already worked. Any API change, missing data or network hiccup
-    yields an empty list (the mod still installs; the user just installs the
-    deps by hand like before), never an exception into the click handler.
+    Keep project IDs and exact version IDs distinct, as Modrinth specifies.
+    Embedded/optional dependencies need no separate download. Resolve before
+    publishing files; unavailable dependencies are errors, never a clean graph.
     """
-    try:
-        params = {"loaders": json.dumps([loader]) if loader else None,
-                  "game_versions": json.dumps([mc_version]) if mc_version else None}
-        params = {k: v for k, v in params.items() if v}
-        versions = net.get_json(
-            f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-            params=params, headers=modrinth_headers(), timeout=10,
-        )
-        if not versions:
-            return []
-        chosen = versions[0]
-        if filename:
-            wanted = filename[:-len(".disabled")] if filename.endswith(".disabled") else filename
-            for version in versions:
-                names = [f.get("filename") for f in (version.get("files") or [])
-                         if isinstance(f, dict)]
-                if wanted in names:
-                    chosen = version
-                    break
-        deps = chosen.get("dependencies") or []
-        required_ids = sorted({d.get("project_id") for d in deps
-                               if d.get("dependency_type") == "required"
-                               and d.get("project_id")})
-        out = []
-        for dep_id in required_ids:
-            file_info = get_mod_download(dep_id, mc_version=mc_version, loader=loader)
-            if file_info:
-                out.append({"project_id": dep_id, **file_info})
-        return out
-    except Exception:
-        return []
+    params = {"loaders": json.dumps([loader]) if loader else None,
+              "game_versions": json.dumps([mc_version]) if mc_version else None}
+    params = {k: v for k, v in params.items() if v}
+    versions = net.get_json(
+        f"{MODRINTH_API}/project/{project_id_or_slug}/version",
+        params=params, headers=modrinth_headers(), timeout=10,
+    )
+    if not versions:
+        raise ValueError(f"No compatible build found for {project_id_or_slug}")
+    chosen = versions[0]
+    if filename:
+        wanted = filename.removesuffix(".disabled")
+        chosen = next((v for v in versions if any(
+            f.get("filename") == wanted for f in v.get("files", [])
+            if isinstance(f, dict))), None)
+        if chosen is None:
+            raise ValueError(f"Cannot find dependency metadata for {wanted}; refresh the mod's versions and retry")
+
+    # Traverse releases once, not filenames or display names. A cycle ends at
+    # an already visited release; conflicting exact pins must not silently win.
+    root_id = chosen.get("project_id") or project_id_or_slug
+    queue = list(chosen.get("dependencies") or [])
+    queue.sort(key=lambda d: not bool(d.get("version_id")) if isinstance(d, dict) else True)
+    resolved, visited = {}, {(root_id, chosen.get("id"))}
+    while queue:
+        dep = queue.pop(0)
+        if not isinstance(dep, dict) or dep.get("dependency_type") != "required":
+            continue
+        project, pin = dep.get("project_id"), dep.get("version_id")
+        if not project and not pin:
+            raise ValueError("A required dependency has no Modrinth project or version ID")
+        previous = resolved.get(project)
+        if previous and (not pin or pin == previous.get("modrinth_version_id")):
+            continue
+        if (project, pin) in visited:
+            continue
+        if len(visited) >= 128:
+            raise ValueError("The mod dependency graph exceeds 128 releases")
+        visited.add((project, pin))
+        if pin:
+            release = net.get_json(f"{MODRINTH_API}/version/{pin}",
+                                   headers=modrinth_headers(), timeout=10)
+            if not isinstance(release, dict) or release.get("id") != pin:
+                raise ValueError(f"Invalid required dependency version: {pin}")
+            if project and release.get("project_id") != project:
+                raise ValueError(f"Dependency version {pin} belongs to another project")
+            file_info = _select_download([release], mc_version=mc_version, loader=loader)
+            project = release.get("project_id")
+        else:
+            file_info = get_mod_download(project, mc_version=mc_version, loader=loader)
+        if not file_info or not project:
+            raise ValueError(f"Required dependency {project or pin} has no compatible file for {mc_version} / {loader}")
+        if project == root_id:
+            if pin and pin != chosen.get("id"):
+                raise ValueError(f"Conflicting required versions of {project}")
+            continue
+        previous = resolved.get(project)
+        if previous and previous.get("modrinth_version_id") != file_info.get("modrinth_version_id"):
+            if previous.get("pinned"):
+                raise ValueError(f"Conflicting required versions of {project}")
+            # Resolve pins before unpinned requests below, so this can only
+            # arise through a transitive edge. Refuse an ambiguous plan.
+            raise ValueError(f"Dependency {project} needs another version; choose a compatible mod build")
+        resolved[project] = dict(file_info, project_id=project, pinned=bool(pin))
+        queue.extend(file_info.get("dependencies") or [])
+        queue.sort(key=lambda d: not bool(d.get("version_id")) if isinstance(d, dict) else True)
+    return list(resolved.values())
 
 
 def install_mod_with_dependencies(download_url: str, filename: str,
@@ -3256,8 +3321,8 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     status_cb(text) is called with human progress ("Installing Fabric API...")
     so the UI can show what's happening between the clicks. Returns
     {"installed": [filenames], "skipped": n, "failed": [names]} - partial
-    success is success for the main mod: a dependency that fails to resolve is
-    reported, never raised.
+    Required metadata must resolve before publishing the main mod. Transfer
+    failures and unresolved actual JAR requirements are returned in failed.
     """
     require_mod_loader(mc_version, loader, "download a mod")
     # Reject a bad name before any network work: the dependency list and the
@@ -3304,8 +3369,18 @@ def install_mod_with_dependencies(download_url: str, filename: str,
                                          filename=filename):
             dep_id = dep.get("project_id")
             if dep_id and dep_id in have:
-                skipped += 1
-                continue
+                # A project ID alone cannot satisfy an exact version pin.
+                # Recognize even renamed local copies by the release's hash.
+                exact = not dep.get("pinned")
+                if not exact and dep.get("hashes"):
+                    directory = resolve_profile_dir(mc_version, loader, version_id)
+                    exact = any(global_mod_cache._matches_hashes(
+                        os.path.join(directory, item["filename"]), dep["hashes"])
+                        for item in list_mods(mc_version, loader, version_id)
+                        if item.get("enabled"))
+                if exact:
+                    skipped += 1
+                    continue
             pending.append(dep)
 
     # Batch-aggregated progress (bugs-and-flaws follow-up): a mod like Sodium
@@ -3368,6 +3443,16 @@ def install_mod_with_dependencies(download_url: str, filename: str,
                 have.add(dep_id)
         except Exception:
             failed.append(name_stem(dep.get("filename") or "a dependency"))
+    # Provider dependencies are only part of the contract: actual JARs carry
+    # ranges, nested modules and breaks that Modrinth does not expose. Finish
+    # the install with the same graph verification as Play, so the user sees
+    # any unresolved requirement now instead of a surprise at launch.
+    from .mod_dependencies import run_dependency_doctor
+    if status_cb:
+        status_cb("Verifying installed mod dependencies...")
+    report = run_dependency_doctor(mc_version, loader, version_id=version_id,
+                                   status_cb=status_cb)
+    failed.extend(item["detail"] for item in report["unfixed"])
     return {"installed": installed, "skipped": skipped, "failed": failed}
 
 

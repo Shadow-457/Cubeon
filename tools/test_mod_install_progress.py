@@ -147,9 +147,9 @@ check("the total (3) is reported on the FIRST callback - resolved before the "
       LOG["progress"][:3])
 check("the total never changes during the batch",
       {t for _v, t in LOG["progress"]} == {3.0}, LOG["progress"])
-check("progress is reported in file units, exactly 1/3 per file",
-      [round(v, 2) for v, _t in LOG["progress"]] ==
-      [0.0, 0.33, 1.0, 1.0, 1.33, 2.0, 2.0, 2.33, 3.0],
+check("progress advances through each file, including cached completion callbacks",
+      list(dict.fromkeys(round(v, 2) for v, _t in LOG["progress"])) ==
+      [0.0, 0.33, 1.0, 1.33, 2.0, 2.33, 3.0],
       LOG["progress"])
 check("percent never moves backwards - no restart for the deps",
       _monotonic(percents), percents)
@@ -168,7 +168,8 @@ check("each dependency is labelled as file N of the batch",
       LOG["status"] == [
           "Checking dependencies...",
           f"Dependency 2/3: {mods.name_stem(API_FILE)}",
-          f"Dependency 3/3: {mods.name_stem(CLOTH_FILE)}"],
+          f"Dependency 3/3: {mods.name_stem(CLOTH_FILE)}",
+          "Verifying installed mod dependencies..."],
       LOG["status"])
 
 # ---------------------------------------------------------------------------

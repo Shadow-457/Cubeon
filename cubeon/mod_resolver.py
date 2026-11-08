@@ -95,7 +95,10 @@ def issues(selected, runtime, mc_version, loader):
                 if actual is not None and mods.version_satisfies(actual, predicate):
                     problems.append(dict(kind="conflict", owner=key, dependency=identity, mod=name,
                                          predicate=predicate, detail=f"{name} {descriptor.get('version') or ''} conflicts with {identity} {actual} ({predicate})"))
-    return problems
+    # The same bundled module can occur in several parents; report its failed
+    # requirement once per root, without losing distinct constraints.
+    return list({(p['kind'], p['owner'], p['dependency'], p['detail']): p
+                 for p in problems}.values())
 
 
 class Resolver:
@@ -201,6 +204,8 @@ class Resolver:
         project = self._project(key)
         if key.startswith("@") or key in mods.DOCTOR_RUNTIME_IDS:
             return
+        if self.status:
+            self.status(f"Doctor: finding a compatible build of {project}")
         predicates = None
         if project == key and problem["kind"] == "required" and key == problem["dependency"]:
             providers, _ = _providers(selected, self.runtime)

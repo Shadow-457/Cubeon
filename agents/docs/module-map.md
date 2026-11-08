@@ -110,8 +110,14 @@ keep builders consistent with the shared `THEME` contract.
   reapplies geometry as an interrupted-setup fallback; never recenter the visible finished UI.
   Do not map Linux windows with native `window.opacity=0`: GTK can stall waiting for frames.
   Entrance/page fades use control opacity, with the existing motion preference.
-- Startup keeps the painted loading splash visible for at least 3 seconds using
-  a monotonic deadline; await only the remaining time before replacing its controls.
+- Startup replaces the splash as soon as the shell is ready; do not add a
+  minimum display delay. Keep the initial 120 ms paint yield, awaited native
+  reveals and hidden-window geometry ordering. Initial version-list population
+  reuses `_initial_versions`; later refreshes rescan. Settings' passive Java label
+  is populated by the post-reveal `cubeon-java-warm` worker through TREE_LOCK and
+  a scoped repaint: `find_java()` runs executable probes with 8-second timeouts
+  and must not run while building the splash/UI. Play retains its own verified
+  Java selection. Optional `detected_java_label` preserves existing Settings callers.
 - Idle daemons block on an Event, they do not sleep-poll: `main._bar_loop` waits on `_bar_wake`
   (set by `set_bar`, the only thing that starts a progress animation) and `_wedge_watchdog` waits on
   `_wedge_wake` (set by `_wedge_arm`). Each clears its event *before* re-reading the state, so a
@@ -764,6 +770,12 @@ keep builders consistent with the shared `THEME` contract.
 - Dependency numeric versions are zero-padded (`1.1` equals `1.1.0`); semantic prereleases
   sort below releases, build metadata is ignored, and operator whitespace is accepted.
   Keep the non-semantic fallback. This prevents Doctor replacing valid Ingenium API for OldCannons.
+- Fabric `^` retains the same major (including zero), and `~` the same major/minor;
+  preserve the full prerelease lower bound and exclude the next numeric series even
+  when it is a prerelease. Dropping `-beta.1` falsely rejected LambDynamicLights'
+  bundled Yumi. Fabric JSON strings may contain literal newlines (BetterGrassify
+  1.8.7); `read_mod_metadata` uses `strict=False` for that descriptor, matching the
+  loader. These valid jars must take the offline clean path, never repair searches.
 - Doctor runs without repair windows: Installed's "Check & repair" starts a scoped worker and the click
   authorizes reversible changes; passive checks use `check_online=False` and no approver, and install
   checks use no approver. Old jars are renamed, never deleted. Results stay inline; `repair_details`
@@ -901,8 +913,20 @@ keep builders consistent with the shared `THEME` contract.
   dependency repair and Doctor include these providers and compare their versions:
   Fabric 0.20.1 supplies MixinExtras 0.5.5; 0.5.4 cannot satisfy a >=0.5.5 request.
   Do not infer availability from the loader version or require a duplicate standalone JAR.
-- `required_dependencies(..., filename=...)` picks the build whose `files[].filename` matches; without a
-  match (or without the argument) it uses `versions[0]`. The install path must pass the jar filename.
+- `required_dependencies(..., filename=...)` requires the build whose `files[].filename`
+  matches; only callers without a filename use the newest build. It walks required
+  dependencies transitively, resolves exact `version_id` pins through `/version/{id}`
+  (including version-only edges), checks loader/version, bounds cycles and rejects
+  conflicting pins or unavailable dependencies before publishing the main file.
+  Download cache revision 4 includes dependency/project/version metadata. An installed
+  project ID alone cannot satisfy a pin; verify its hashes. Install finishes with the
+  actual JAR dependency resolver and surfaces unresolved requirements immediately.
+  `test_mod_install_graph.py` also verifies file-manager copies/imports/listing/Play
+  all use the selected instance's real `mods/` folder.
+- Mod-name search recognizes common loader IDs and split project names. Empty filtered
+  searches get one labeled all-Modrinth fallback with stable pagination; incompatible
+  projects remain inspectable and cannot bypass install validation. Imported literal
+  or repeated `--gameDir` arguments normalize to the selected instance's directory.
 - `_write_meta` MERGES into `<jar>.cubeon.json` (never replace it with just the caller's fields);
   `download_mod` resolves the missing slug/project_id before writing + dedup, so an older copy that
   recorded only the other id is still replaced instead of left disabled.
@@ -1758,6 +1782,14 @@ keep builders consistent with the shared `THEME` contract.
   compatible. `/linuxinstaller` maps to the graphical asset in the download Worker.
   Installer mode applies green in `cubeon/__init__.py` before seasonal resolution, even with a
   color argument, and `installer_ui.run_installer()` applies green for source-mode use too.
+  `main.py` dispatches `--cubeon-installer` before its Flet client hook: Setup must
+  wrap `ft.run` in `incident.isolated_flet_environment()` so its native child gets
+  the same original library path as the normal launcher. This wraps Flet 0.86's
+  final sync/async locator and restores it on exit; never change the frozen parent
+  environment. Setup's install-script and installed-launcher children also use
+  `client_environment()` before spawn, preventing a setup bundle path becoming
+  the next launcher's `LD_LIBRARY_PATH_ORIG`. The Fedora 1.4.3 EGL report named
+  the Setup AppImage; its dispatcher previously bypassed the normal isolation.
   Confirmed setup exit uses guarded `window.destroy()` because its close handler intercepts
   graceful close; only exact Session-closed errors count as successful teardown.
 - Preserve all three Windows reveal paths: forced visible transition, `to_front()` call, and the native

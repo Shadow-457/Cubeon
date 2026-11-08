@@ -1088,6 +1088,34 @@ def _normalize_heap_arguments(command: list[str], ram_mb: int,
             *(token for index, token in enumerate(command[1:], 1) if index not in remove)]
 
 
+def _normalize_game_directory(command: list[str], game_dir: str) -> list[str]:
+    """Keep imported literal/duplicate --gameDir arguments out of the launch."""
+    cleaned = []
+    index = 0
+    inserted = False
+    while index < len(command):
+        arg = command[index]
+        if arg == "--gameDir":
+            if not inserted:
+                cleaned.extend(["--gameDir", os.path.abspath(game_dir)])
+                inserted = True
+            index += 1
+            if index < len(command) and not command[index].startswith("--"):
+                index += 1
+            continue
+        if arg.startswith("--gameDir="):
+            if not inserted:
+                cleaned.extend(["--gameDir", os.path.abspath(game_dir)])
+                inserted = True
+            index += 1
+            continue
+        cleaned.append(arg)
+        index += 1
+    if not inserted:
+        cleaned.extend(["--gameDir", os.path.abspath(game_dir)])
+    return cleaned
+
+
 def build_launch_command(version_id: str, username: str, ram_mb: int,
                           width: int, height: int, java_path: str | None = None,
                           custom_jvm_flags: str | None = None,
@@ -1208,7 +1236,7 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         i += 1
     command = cleaned
 
-    return command
+    return _normalize_game_directory(command, options["gameDirectory"])
 
 
 @_launch_transaction
@@ -1262,6 +1290,17 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                            game_env=child_env)
     from .versions import validate_launch_profile
     validate_launch_profile(version_id)
+    # A file-manager copy is visible in Installed even on a vanilla instance.
+    # Never silently start vanilla and leave every enabled mod unloaded.
+    if loader == "vanilla":
+        from .mods import list_mods
+        enabled_mods = [item for item in list_mods(mc_version, loader, version_id)
+                        if item.get("enabled")]
+        if enabled_mods:
+            raise RuntimeError(
+                f"This Vanilla instance contains {len(enabled_mods)} enabled mod JARs. "
+                "Vanilla cannot load mods. Select an instance with the matching "
+                "Fabric, Quilt, Forge or NeoForge loader and import the mods there.")
     from . import watchdog
     if watchdog.stale_session() is not None:
         raise RuntimeError("Minecraft is already running. Close it before starting another instance.")

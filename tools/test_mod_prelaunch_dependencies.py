@@ -114,6 +114,38 @@ class DependencyTests(unittest.TestCase):
         self.assertLess(mods._cmp_versions('1.1-rc.2', '1.1-rc.10'), 0)
         self.assertLess(mods._cmp_versions('1.1-1', '1.1-alpha'), 0)
 
+    def test_bundled_yumi_prerelease_is_clean_without_network(self):
+        self.profile.joinpath('cloth.jar').write_bytes(jar('cloth-config', '16.0.141'))
+        version = '1.0.0-beta.1+1.21.11'
+        self.profile.joinpath('lamb.jar').write_bytes(jar(
+            'lambdynlights', '4.9.1', {'yumi_mc_core': '^' + version},
+            nested={'yumi': jar('yumi_mc_core', version)}))
+        report = self.run_doctor()
+        self.assertEqual(report['unfixed'], [])
+        self.assertEqual(self.lookups, [])
+        for predicate in ('^' + version, '~' + version):
+            self.assertTrue(mods.version_satisfies(version, predicate))
+            self.assertFalse(mods.version_satisfies('1.0.0-beta.0', predicate))
+            self.assertTrue(mods.version_satisfies('1.0.0', predicate))
+            self.assertFalse(mods.version_satisfies('2.0.0', predicate))
+            self.assertFalse(mods.version_satisfies('2.0.0-alpha.1', predicate))
+        self.assertTrue(mods.version_satisfies('0.9.0', '^0.2.3'))
+        self.assertFalse(mods.version_satisfies('1.1.0-alpha.1', '~1.0.0'))
+        self.assertFalse(mods.version_satisfies('1.1', '~1'))
+
+    def test_fabric_multiline_description_is_not_an_unreadable_jar(self):
+        self.profile.joinpath('cloth.jar').write_bytes(jar('cloth-config', '16.0.141'))
+        path = self.profile / 'BetterGrassify.jar'
+        with zipfile.ZipFile(path, 'w') as archive:
+            archive.writestr('fabric.mod.json', '{"schemaVersion":1,"id":"bettergrass",'
+                             '"version":"1.8.7","description":"Touch grass!\nBetter grass.",'
+                             '"depends":{"minecraft":"1.21.11"}}')
+        report = self.run_doctor()
+        self.assertEqual(report['unfixed'], [])
+        self.assertEqual(self.lookups, [])
+        from cubeon.local_mods import _inspect
+        self.assertEqual(_inspect(path, self.mc, 'fabric')[0]['id'], 'bettergrass')
+
     def test_outdated_dependency_is_replaced_with_byte_identical_backup(self):
         old = jar("cloth-config", "15.0.1")
         self.profile.joinpath("cloth-old.jar").write_bytes(old)

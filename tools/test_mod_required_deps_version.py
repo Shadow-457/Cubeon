@@ -10,7 +10,7 @@ Locked-in behaviour:
   * with a `filename` that matches one of the version's files, that version's
     `dependencies` are used;
   * without one (the doctor cache, old callers) the newest version is used;
-  * an unknown filename falls back to the newest version rather than failing;
+  * an unknown filename fails before installing a build with guessed dependencies;
   * `install_mod_with_dependencies` passes the jar it is installing.
 
 Run: python tools/test_mod_required_deps_version.py
@@ -82,9 +82,12 @@ def main():
     # --- backwards compatibility ------------------------------------------
     check("no filename still uses the newest version",
           deps_for(None) == ["new-dep"], str(deps_for(None)))
-    check("an unknown filename falls back to the newest version",
-          deps_for("some-other.jar") == ["new-dep"],
-          str(deps_for("some-other.jar")))
+    try:
+        deps_for("some-other.jar")
+    except ValueError as error:
+        check("an unknown filename refuses guessed dependencies", "dependency metadata" in str(error))
+    else:
+        check("an unknown filename refuses guessed dependencies", False)
     check("a disabled jar name still matches its build",
           deps_for("sodium-1.5.0.jar.disabled") == ["old-dep"],
           str(deps_for("sodium-1.5.0.jar.disabled")))
