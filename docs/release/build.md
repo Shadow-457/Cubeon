@@ -19,8 +19,12 @@ network access to obtain the desktop client and build tools. Linux builds
 need the system libraries required by Flet; running an AppImage may also
 require FUSE support.
 
-The mod jars and plugins in `assets/jars/` are runtime assets. If you change
-the mod, rebuild its jars before packaging:
+The companion mod jars in `assets/jars/` are bundled runtime assets. The platform
+scripts stage assets through `packaging/runtime_assets.py`, which excludes only
+`connect-spigot.jar`: Paper setup downloads that plugin from its developer's
+GitHub release and caches a verified copy for later servers. Keep the desktop
+client, companion jars and other launcher assets bundled. If you change the
+mod, rebuild its jars before packaging:
 
 ```bash
 python tools/build_mod_jars.py
@@ -149,15 +153,17 @@ before changing that policy.
 
 - Bundle the Flet desktop client at build time. A frozen app must not depend
   on installing or downloading its window client on first launch.
-- Include `assets/` and `mod/brackets.json`, including the required jars.
+- Include the staged `assets/` and `mod/brackets.json`, including the required
+  companion jars but not the on-demand Connect plugin.
 - Collect the Python modules and binaries used by Flet and
   `minecraft_launcher_lib`.
 - Include dynamically loaded color templates. The Windows script lists
   them explicitly; update that list when adding a palette.
 
-`Cubeon.spec` supports a direct PyInstaller build, but the platform scripts
-perform additional preparation. Do not replace their collection options
-with a generic command without checking the resulting artifact.
+`Cubeon.spec` is a generated local build file, not the maintained packaging entry
+point. Use the platform scripts so asset filtering and desktop-client preparation
+remain intact. Do not replace their collection options with a generic command
+without checking the resulting artifact.
 
 ## Versions and releases
 

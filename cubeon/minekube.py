@@ -61,11 +61,12 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import time
 import zipfile
 import zlib
 
-from .paths import APP_NAME, SERVERS_DIR, user_agent
+from .paths import APP_NAME, CACHE_DIR, SERVERS_DIR, user_agent
 from .server import (
     CONNECT_PLUGIN_NAME as PLUGIN_NAME,
     SERVER_TYPE_PAPER,
@@ -93,6 +94,7 @@ HTTP_TIMEOUT = (5, 30)
 # A truncated/corrupt plugin jar is worse than a missing one: Paper fails
 # to enable it at boot and the user has no idea why there's no address.
 MIN_PLUGIN_BYTES = 100_000
+_PLUGIN_INSTALL_LOCK = threading.Lock()
 
 
 class MinekubeError(Exception):
@@ -249,6 +251,10 @@ def plugin_jar_path(version_id: str) -> str:
     return os.path.join(get_plugins_dir(version_id), PLUGIN_NAME)
 
 
+def plugin_cache_path() -> str:
+    return os.path.join(CACHE_DIR, "server-plugins", PLUGIN_NAME)
+
+
 def _plugin_jar_valid(path: str) -> bool:
     try:
         if os.path.getsize(path) < MIN_PLUGIN_BYTES:
@@ -270,17 +276,24 @@ def is_plugin_installed(version_id: str) -> bool:
 def find_local_plugin(search_dirs: list[str] | None = None) -> str | None:
     """A Connect plugin jar the user already has on disk, or None.
 
-    The shipped assets/jars folder is searched first (that's where the jar
-    Cubeon distributes lives, next to the Friends mod jars), then the app
-    dir, cwd, and the servers dir - for users who were handed the jar to
-    drop somewhere. Verified by opening the zip and reading its plugin.yml
-    rather than by filename alone: "I downloaded a jar" and "this is the
+    The download cache is checked first, followed by legacy bundled copies,
+    manually supplied jars and existing servers. Verified by opening the zip
+    and reading its plugin.yml rather than by filename alone: "I downloaded a jar" and "this is the
     right jar" are different claims, and the wrong jar fails at server boot
     with nothing pointing back here."""
     if search_dirs is None:
+        cached = plugin_cache_path()
+        if _plugin_jar_valid(cached):
+            return cached
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         search_dirs = [os.path.join(app_dir, "assets", "jars"), app_dir,
                        os.getcwd(), SERVERS_DIR]
+        try:
+            with os.scandir(SERVERS_DIR) as servers:
+                search_dirs.extend(os.path.join(server.path, "plugins")
+                                   for server in servers if server.is_dir(follow_symlinks=False))
+        except OSError:
+            pass
 
     candidates = []
     for directory in search_dirs:
@@ -308,8 +321,39 @@ def find_local_plugin(search_dirs: list[str] | None = None) -> str | None:
     return max(candidates)[1]
 
 
+def _cache_plugin(source: str) -> None:
+    """Save a verified copy for later servers without making caching mandatory."""
+    destination = plugin_cache_path()
+    temporary = None
+    try:
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        descriptor, temporary = tempfile.mkstemp(
+            dir=os.path.dirname(destination), prefix=".connect-", suffix=".part")
+        os.close(descriptor)
+        shutil.copyfile(source, temporary)
+        if not _plugin_jar_valid(temporary):
+            raise MinekubeError("The cached Connect plugin is incomplete or invalid.")
+        os.replace(temporary, destination)
+    except (OSError, MinekubeError):
+        log.warning("Could not cache the installed Connect plugin", exc_info=True)
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+
 def install_plugin(version_id: str, *, progress_cb=None, status_cb=None,
                    force: bool = False) -> str:
+    """Install once per server and share a validated download cache across servers."""
+    with _PLUGIN_INSTALL_LOCK:
+        return _install_plugin(version_id, progress_cb=progress_cb,
+                               status_cb=status_cb, force=force)
+
+
+def _install_plugin(version_id: str, *, progress_cb=None, status_cb=None,
+                    force: bool = False) -> str:
     """Puts connect-spigot.jar into the server's plugins folder.
 
     Uses a local copy when find_local_plugin() can verify one (no download
@@ -335,7 +379,8 @@ def install_plugin(version_id: str, *, progress_cb=None, status_cb=None,
     try:
         if local:
             if status_cb:
-                status_cb(f"Using your Connect plugin ({os.path.basename(local)})")
+                status_cb("Using cached server-sharing plugin" if local == plugin_cache_path()
+                          else f"Using your Connect plugin ({os.path.basename(local)})")
             shutil.copyfile(local, tmp)
         else:
             if status_cb:
@@ -346,6 +391,8 @@ def install_plugin(version_id: str, *, progress_cb=None, status_cb=None,
         if not _plugin_jar_valid(tmp):
             raise MinekubeError("The Connect plugin is incomplete or invalid. Try again.")
         os.replace(tmp, dest)
+        if local != plugin_cache_path():
+            _cache_plugin(dest)
     except net.DownloadError as ex:
         raise MinekubeError(
             "Couldn't download the Minekube Connect plugin. Check your "

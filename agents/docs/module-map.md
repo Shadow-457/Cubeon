@@ -340,12 +340,18 @@ keep builders consistent with the shared `THEME` contract.
   and has three separate steps: loader →
   compatible Minecraft version → block/mob/custom icon. Back preserves choices; only final Download & Play
   commits through `main._create_new_instance`. The icon is saved to the resulting loader instance ID,
-  never a sibling vanilla version. `mod_loaders.get_loader_minecraft_versions` caches support for 1h.
+  never a sibling vanilla version. Opening New Instance starts Mojang/default-loader discovery
+  concurrently during the loader step; Next reuses completed or in-flight requests.
+  Mojang and loader support catalogues cache for 1h and serve expired data immediately while
+  refreshing in the background. Cold reads use pooled `net` requests with 5s timeouts and one
+  attempt per endpoint (both Mojang mirrors remain available); per-catalogue locks coalesce
+  simultaneous cold reads. `tools/test_versions_manifest.py` and `tools/test_new_instance_steps.py`
+  cover cache behavior, support parsing and setup preloading without live network/native windows.
 - Legacy and loader support are separate gates: opting into Legacy includes old alpha/beta manifest
   rows and permits 1.8 Vanilla; Fabric still only offers its supported versions. New instance excludes
   existing installs (including 1.8.9); searched empty lists explain an installed version or incompatible
   loader instead of implying the release does not exist. `test_version_ui.py` exercises the 1.8 path.
-  Fabric discovery uses the official `meta.fabricmc.net` service through mll; the Legacy preference
+  Fabric discovery uses the official `meta.fabricmc.net` service through `cubeon.net`; the Legacy preference
   does not switch to the separate Legacy Fabric project, which is not an integrated loader.
 - Snapshot and Legacy checkboxes live together on New Instance → Install's Java version step;
   they refetch the catalogue immediately, preserve Legacy across restarts, and stay hidden on
@@ -1831,8 +1837,22 @@ keep builders consistent with the shared `THEME` contract.
   not collapse them as accidental duplication. The `zoom-double`/`zoom-float` split follows
   `GameRenderer.getFov`'s return type (double through 1.21.1, float from 1.21.2), not a HUD era.
 - Current mod assembly needs JDK 25+ for Gradle, while bytecode targets Java 17.
-- Bundle the Flet desktop client, color templates, required mod jars, and
-  `assets/jars/connect-spigot.jar`. The large tunnel JAR is a runtime dependency.
+- Bundle the Flet desktop client, color templates and required companion mod jars.
+  `packaging/runtime_assets.py` stages assets for Linux/Windows/macOS while excluding
+  only `assets/jars/connect-spigot.jar`; public/no-Friends builds already omit all jars.
+  Keep the source/legacy plugin available, but do not put its roughly 62 MB payload
+  back into release bundles. Staged assets are temporary: rerun the platform script,
+  not its generated local spec. Graphical/shell Linux installers and Debian inherit AppDir.
+- Paper installation calls `minekube.install_plugin()` with status/download progress;
+  the existing official GitHub release URL is the source, not a new Cubeon-hosted copy.
+  Archive/marker/CRC validation and atomic publication apply to server and cache copies.
+  `minekube.plugin_cache_path()` is `CACHE_DIR/server-plugins/connect-spigot.jar`;
+  serialized installs reuse it or existing server plugins without repeated downloads.
+  A failed optional download keeps Paper usable locally and startup retries plugin setup;
+  a failed cache write does not invalidate an installed plugin. First use needs internet
+  unless a verified local copy exists. Setup never accepts EULA or starts a server.
+  `tools/test_server_plugin_delivery.py` covers delivery/cache/failure paths and asset
+  exclusion; `tools/test_server_integrity.py` retains the server/plugin integrity cases.
 
 ## Documentation and repository hygiene
 

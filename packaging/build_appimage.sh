@@ -10,6 +10,8 @@ BUILD_DIST="${CUBEON_BUILD_DIST:-$PWD/dist}"
 BUILD_WORK="${CUBEON_BUILD_WORK:-$PWD/build/linux}"
 mkdir -p "$BUILD_DIST" "$BUILD_WORK"
 export PYINSTALLER_CONFIG_DIR="$BUILD_WORK/cache"
+RUNTIME_ASSETS="$(python packaging/runtime_assets.py)"
+trap 'rm -rf "$RUNTIME_ASSETS"' EXIT
 
 FLET_VERSION="$(python -c 'import flet_desktop.version; print(flet_desktop.version.version)')"
 CLIENT_TAR="$(python -c 'import flet_desktop; print(flet_desktop.get_artifact_filename())')"
@@ -24,7 +26,7 @@ echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
 
 python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --distpath "$BUILD_DIST" --workpath "$BUILD_WORK/work" --specpath "$BUILD_WORK" \
-  --add-data "$PWD/assets:assets" \
+  --add-data "$RUNTIME_ASSETS:assets" \
   --add-data "$PWD/mod/brackets.json:mod" \
   --add-data "$PWD/packaging/install_linux.sh:setup" \
   --collect-data flet \
@@ -79,4 +81,3 @@ else
   tar -czf "$BUILD_DIST/Cubeon-Linux-x86_64.tar.gz" -C "$BUILD_DIST" AppDir
   echo "Built $BUILD_DIST/Cubeon-Linux-x86_64.tar.gz"
 fi
-

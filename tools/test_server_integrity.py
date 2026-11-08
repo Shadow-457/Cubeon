@@ -51,6 +51,11 @@ paper = jar({"META-INF/MANIFEST.MF": "Main-Class: io.papermc.paperclip.Main\n",
 connect = jar({"plugin.yml": "name: connect\nmain: example.Connect\n",
                "example/Connect.class": b"class"}, M.MIN_PLUGIN_BYTES)
 
+
+def install_paper_fixture(*args, **kwargs):
+    with patch.object(M, "install_plugin", return_value=str(plugin_source)):
+        return S.install_server(*args, **kwargs)
+
 with tempfile.TemporaryDirectory(prefix="cubeon-server-integrity-") as scratch:
     root = Path(scratch)
     source = root / "paper.jar"
@@ -59,10 +64,11 @@ with tempfile.TemporaryDirectory(prefix="cubeon-server-integrity-") as scratch:
     plugin_source.write_bytes(connect)
     servers = root / "servers"
     with patch.object(S, "SERVERS_DIR", str(servers)), \
+            patch.object(M, "CACHE_DIR", str(root / "cache")), \
             patch("cubeon.paths.ensure_disk_space"), \
             patch.object(S, "find_local_paper_jar", return_value=None):
         version = "1.21.11"
-        S.install_server(version, local_jar_path=str(source))
+        install_paper_fixture(version, local_jar_path=str(source))
         final = Path(S._typed_jar_path(version, S.SERVER_TYPE_PAPER))
         check("Paper install publishes a complete archive", final.read_bytes() == paper)
         check("Paper install is detected", S.is_server_installed(version))
@@ -80,7 +86,7 @@ with tempfile.TemporaryDirectory(prefix="cubeon-server-integrity-") as scratch:
                  for name in ("server.properties", "eula.txt", "server_type.txt")}
         source.write_bytes(paper[:-30])
         refused("truncated Paper update is refused",
-                lambda: S.install_server(version, local_jar_path=str(source)))
+                lambda: install_paper_fixture(version, local_jar_path=str(source)))
         check("failed Paper update preserves prior installation", final.read_bytes() == paper)
         check("failed Paper update preserves settings and consent",
               all((final.parent / name).read_bytes() == data for name, data in state.items()))
@@ -92,11 +98,11 @@ with tempfile.TemporaryDirectory(prefix="cubeon-server-integrity-") as scratch:
         final.write_bytes(paper)
         source.write_bytes(jar({"unrelated.txt": "not a server"}, S.MIN_SERVER_BYTES))
         refused("ordinary zip cannot replace Paper",
-                lambda: S.install_server(version, local_jar_path=str(source)))
+                lambda: install_paper_fixture(version, local_jar_path=str(source)))
         corrupt = paper.replace(b"a" * 20, b"b" + b"a" * 19, 1)
         source.write_bytes(corrupt)
         refused("Paper CRC failure is refused",
-                lambda: S.install_server(version, local_jar_path=str(source)))
+                lambda: install_paper_fixture(version, local_jar_path=str(source)))
 
         downloads = []
 
@@ -111,11 +117,12 @@ with tempfile.TemporaryDirectory(prefix="cubeon-server-integrity-") as scratch:
         with patch.object(S, "_get_paper_download_url", return_value=("https://example.invalid/paper", "1")), \
                 patch.object(S.requests, "head", return_value=SimpleNamespace(headers={"content-length": str(len(paper))})), \
                 patch.object(net, "download_to", side_effect=download):
-            S.install_server(version)
+            install_paper_fixture(version)
             check("known-length download works with progress_cb=None", final.read_bytes() == paper)
             progress = []
-            S.install_server(version, progress_cb=progress.append)
-            check("provided progress callback receives bytes", progress == [len(paper)])
+            install_paper_fixture(version, progress_cb=progress.append)
+            check("provided progress callback receives server and plugin bytes",
+                  progress == [len(paper), len(connect)])
             check("Paper attempts use unique staging paths", len(set(downloads)) == 2)
 
         targets = []
@@ -197,7 +204,7 @@ with tempfile.TemporaryDirectory(prefix="cubeon-server-integrity-") as scratch:
             with patch.object(S, "_get_paper_download_url", return_value=("https://example.invalid/paper", "1")), \
                     patch.object(S.requests, "head", return_value=SimpleNamespace(headers={})), \
                     patch.object(net, "download_to", side_effect=interrupted_download):
-                refused("interrupted Paper download is refused", lambda: S.install_server(version))
+                refused("interrupted Paper download is refused", lambda: install_paper_fixture(version))
                 check("interrupted Paper download preserves installed bytes", final.read_bytes() == paper)
                 check("interrupted Paper download cleans nested partial", not list(final.parent.glob(".server-*")))
 
@@ -232,7 +239,7 @@ with tempfile.TemporaryDirectory(prefix="cubeon-server-integrity-") as scratch:
                 patch.object(S.requests, "head",
                              return_value=SimpleNamespace(headers={"content-length": str(len(paper))})), \
                 patch.object(net, "download_to", side_effect=paper_download):
-            S.install_server(loader_version, status_cb=statuses.append)
+            install_paper_fixture(loader_version, status_cb=statuses.append)
             check("a Fabric profile's server install asks Paper for the bare "
                   "Minecraft version",
                   asked == ["https://fill.papermc.io/v3/projects/paper/"

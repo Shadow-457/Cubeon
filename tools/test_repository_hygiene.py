@@ -79,7 +79,7 @@ def main():
     checks = {
         "generated outputs are not tracked": not generated,
         "generated outputs remain ignored": set(samples) <= ignored,
-        "the server tunnel plugin remains bundled": "assets/jars/connect-spigot.jar" in tracked,
+        "the legacy server plugin remains available for source installs": "assets/jars/connect-spigot.jar" in tracked,
         "companion mod jars remain bundled": any(path.startswith("assets/jars/cubeon-client-") for path in tracked),
         "bundled client jars contain the cosmetic catalogue": not stale_jars,
         "the Gradle wrapper remains available": "mod/gradle/wrapper/gradle-wrapper.jar" in tracked,

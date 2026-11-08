@@ -16,6 +16,7 @@ is itself a Paper plugin - so vanilla support only ever meant a second,
 less capable code path.
 """
 import json
+import logging
 import os
 import re
 import shutil
@@ -677,8 +678,9 @@ def install_server(version_id: str, server_type: str = SERVER_TYPE_PAPER,
     is blocked; its MC version is whatever the user chose, so they're
     responsible for picking one matching the selected version.
 
-    The install only "counts" once a complete jar is in place - if this
-    raises partway, nothing about the app's recorded state changes."""
+    A complete Paper install also prepares the cached Connect plugin. Plugin
+    failures keep the local server usable and are retried at server startup.
+    The install only "counts" once a complete server jar is in place."""
     if status_cb:
         status_cb("Looking up Paper server jar")
 
@@ -762,8 +764,34 @@ def install_server(version_id: str, server_type: str = SERVER_TYPE_PAPER,
     if not os.path.isfile(os.path.join(server_dir, "eula.txt")):
         set_eula_accepted(version_id, False)
 
-    if status_cb:
-        status_cb("Server ready")
+    from . import minekube
+
+    def sharing_progress(done, total):
+        if total:
+            if max_cb:
+                max_cb(total)
+            if progress_cb:
+                progress_cb(done)
+
+    try:
+        if status_cb:
+            status_cb("Preparing server-sharing plugin")
+        plugin = minekube.install_plugin(version_id, status_cb=status_cb,
+                                        progress_cb=sharing_progress)
+        size = os.path.getsize(plugin)
+        if max_cb:
+            max_cb(size)
+        if progress_cb:
+            progress_cb(size)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Paper installed, but the sharing plugin could not be prepared; "
+            "server startup will retry", exc_info=True)
+        if status_cb:
+            status_cb("Server ready for local play. Sharing plugin unavailable; startup will retry.")
+    else:
+        if status_cb:
+            status_cb("Server ready")
 
 
 def get_server_properties(version_id: str) -> dict:

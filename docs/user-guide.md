@@ -414,6 +414,14 @@ messages as **hello ×4** within ten seconds. Different senders, intervening
 messages and server changes start a new stack. This is always enabled and
 changes only the displayed lines; original message history and signatures remain.
 
+Installing a Paper server also prepares its Connect plugin: when no verified
+local copy exists, Cubeon downloads it from the plugin developer's GitHub release,
+checks the archive, installs it into the server's `plugins` folder and caches it
+for other servers. It is no longer included in the launcher download. First use
+needs internet unless a valid local copy is available. If the plugin download
+fails, the local server remains installed; starting it retries plugin setup.
+Downloading the server does not accept the Minecraft EULA or start it automatically.
+
 Local server hosting runs on your computer. Built-in public tunnels and
 automatic internet world sharing are no longer supported. Players outside
 your local network need a separately configured, reachable server address.

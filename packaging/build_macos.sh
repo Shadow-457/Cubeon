@@ -5,7 +5,7 @@
 # run. Signing/notarization needs an Apple Developer account ($99/yr).
 #
 # NOTE: --add-data assets is REQUIRED - assets/jars holds the Friends mod
-# jars and the Connect plugin.
+# jars. Connect is downloaded during server setup, not bundled.
 #
 # flet_desktop MUST be collected: without it the frozen app can't import it,
 # flet tries to pip-install at runtime (fails frozen), and the app dies
@@ -13,6 +13,8 @@
 # app never needs to download it on first run (see build_windows.py).
 set -e
 cd "$(dirname "$0")/.."
+RUNTIME_ASSETS="$(python packaging/runtime_assets.py)"
+trap 'rm -rf "$RUNTIME_ASSETS"' EXIT
 
 FLET_VERSION="$(python -c 'import flet_desktop.version; print(flet_desktop.version.version)')"
 CLIENT_TAR="flet-macos.tar.gz"
@@ -27,7 +29,7 @@ echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
 
 python -m PyInstaller --noconfirm --onedir --windowed \
   --name Cubeon \
-  --add-data "assets:assets" \
+  --add-data "$RUNTIME_ASSETS:assets" \
   --add-data "mod/brackets.json:mod" \
   --collect-data flet \
   --collect-submodules flet \

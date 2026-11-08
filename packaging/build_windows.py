@@ -3,11 +3,11 @@ Build the Windows installer payload. Run from the repo root:
     python packaging/build_windows.py
 Output: dist/Cubeon/ for build_windows_installer.py; distribute the setup executable.
 
-NOTE: --add-data assets is REQUIRED - assets/jars holds the Friends mod jars
-and the Connect plugin, and the launcher resolves them from there when
+NOTE: --add-data assets is REQUIRED - assets/jars holds the Friends mod jars,
+and the launcher resolves them from there when
 packaged. Forgetting it produces a launcher with no friends mod. Only
 mod/brackets.json is bundled: Java sources and Gradle build files are release
-tooling, not runtime data.
+tooling, not runtime data. Connect is downloaded during server setup, not bundled.
 
 FLET DESKTOP CLIENT (the window itself):
 --collect-data flet_desktop --collect-submodules flet_desktop
@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+from runtime_assets import make_runtime_assets
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEP = ";" if os.name == "nt" else ":"  # PyInstaller path separator
@@ -85,6 +86,14 @@ def _fetch_flet_client() -> str:
 def main():
     os.chdir(ROOT)
     _fetch_flet_client()
+    assets = make_runtime_assets(ROOT)
+    try:
+        _build_payload(assets)
+    finally:
+        shutil.rmtree(assets, ignore_errors=True)
+
+
+def _build_payload(assets):
     cmd = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir",
         "--windowed",
@@ -93,7 +102,7 @@ def main():
         # shortcuts to it). Omitting it shipped the generic PyInstaller
         # bootloader art as "the app icon" on Windows.
         "--icon=assets/icon.ico",
-        f"--add-data=assets{SEP}assets",
+        f"--add-data={assets}{SEP}assets",
         f"--add-data=mod/brackets.json{SEP}mod",
         # NO --add-data for templates/: palettes ship as bytecode via
         # --collect-submodules templates only - raw .py data would put
