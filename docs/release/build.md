@@ -178,7 +178,7 @@ python tools/release_version.py stamp 1.4.0
 `next` is a preview. `stamp` modifies files. Current channel policy treats
 versions with a zero patch component as stable and nonzero patches as beta,
 except explicit maintainer promotions in `STABLE_PROMOTIONS` (v1.3.27, v1.3.28,
-v1.3.38, v1.3.45, v1.4.20 and v1.4.21). Stable stamps update English and localized website version labels.
+v1.3.38, v1.3.45 and v1.4.20). Stable stamps update English and localized website version labels.
 Promoting a published build preserves its tag and binaries. Commit promotion
 metadata and website stamps with `[skip ci]` so the push does not create another
 beta. Do not rerun an older workflow commit that predates the promotion policy;
