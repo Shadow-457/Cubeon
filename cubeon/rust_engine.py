@@ -26,8 +26,8 @@ from . import atomicio, net, paths, storage
 
 VERSION = "26.3"
 INSTANCE_ID = "cubeon-rust-26.3"
-BUILD = "26.3-beta.1"
-RELEASE_BASE = "https://github.com/Shadow-457/Cubeon/releases/download/rust-26.3-beta.1"
+BUILD = "26.3-beta.2"
+RELEASE_BASE = f"https://github.com/Shadow-457/Cubeon/releases/download/rust-{BUILD}"
 _lock = threading.RLock()
 
 

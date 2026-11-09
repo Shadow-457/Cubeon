@@ -51,7 +51,7 @@ system, artifact, and results. Do not mark untested platforms as verified.
 
 - [ ] Test the public download page for each platform's asset.
 - [ ] Confirm the stable and beta update feeds return the intended versions.
-- [ ] Check that the running app offers the correct update and download page.
+- [ ] Confirm the download page offers the new installers for manual upgrades.
 - [ ] Review reported startup or launch failures, with sensitive log data removed.
 
 ## Failed or defective releases

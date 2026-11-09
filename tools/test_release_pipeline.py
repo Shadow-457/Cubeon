@@ -120,6 +120,10 @@ check("publish does not wait for the disabled macOS builder", "build-macos" not 
 check("publish waits for supported builders",
       all(f"- {b}" in pub.split("needs:")[1].split("\n")[0] or b in pub
           for b in ("build-linux-appimage", "build-windows-exe")))
+check("Windows packaging verifies the actual installer transactions",
+      "test_launcher_installers.py --native-windows" in job_block("build-windows-exe"))
+check("Windows packaging has no dependency on the removed automatic updater",
+      "test_auto_update.py" not in job_block("build-windows-exe"))
 check("publish un-drafts (that is the whole point of the draft)",
       "--draft=false" in pub)
 check("the workflow pins GH_REPO at the top level (the publish job has no "

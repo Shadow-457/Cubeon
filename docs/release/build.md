@@ -190,16 +190,13 @@ publishing. Betas are prereleases and must not replace the stable download.
 The test jobs run separately; successful publishing does not imply that
 every test passed.
 
-The automatic updater uses the unauthenticated public GitHub
-`repos/Shadow-457/Cubeon/releases/latest` endpoint. It requires a numeric newer
-version, `draft=false`, `prerelease=false`, an uploaded platform asset and its
-GitHub `sha256:` digest. It consumes `Cubeon-Windows-x64-Setup.exe` or the normal
-`Cubeon-x86_64.AppImage`; graphical Linux setup images are not update payloads.
-Never ship a token or silently fall back to an unverified download. A beta is
-not offered by this feed. Windows build CI executes the PowerShell/NSIS update
-handoff fixtures before building/uploading; Linux helper tests are included in
-`tools/test_auto_update.py`. The first-paint acknowledgement must remain in
-future AppImage versions so failed startups can be rolled back.
+Launcher upgrades are manual: download the new installer and rerun it for the
+existing installation folder. Startup does not check releases or start an
+automatic update. Windows packaging verifies the real NSIS installation,
+upgrade and rollback transactions before building the installer; it does not
+depend on the retained automatic-update helper tests. Those legacy fixtures
+use an explicit starting version so a release stamp cannot invalidate them.
+The downloads Worker retains update feeds for previously released launchers.
 
 The download Worker depends on these release asset names:
 
@@ -207,7 +204,7 @@ The download Worker depends on these release asset names:
 | --- | --- |
 | Linux | `Cubeon-x86_64.AppImage`, `Cubeon-Linux-x86_64-Setup.AppImage`, `Cubeon-Linux-x86_64-Setup.sh`, `cubeon_<version>_amd64.deb` |
 | Windows | `Cubeon-Windows-x64-Setup.exe` |
-| macOS | `Cubeon-macOS.zip` |
+| macOS | Disabled while desktop verification is pending |
 
 Renaming an asset requires corresponding changes to the workflow and
 `worker/cubeon-downloads.js`.

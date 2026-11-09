@@ -672,14 +672,15 @@ keep builders consistent with the shared `THEME` contract.
   installed runtime intact. Worlds/settings are untouched. Distributed installs
   use Cubeon's pinned release manifest.
   `.github/workflows/rust-beta.yml` builds on relevant pushes to main and manual
-  dispatch, producing artifacts only. Run 42064514681 at f68ff468 completed Linux,
-  Windows, CLI, preparer and manifest verification; the pinned runtime release
-  [`rust-26.3-beta.1`](https://github.com/Shadow-457/Cubeon/releases/tag/rust-26.3-beta.1)
-  was published on 2026-11-06 from that run. Its public manifest and Windows/Linux
-  archives are accessible; GitHub asset sizes/digests match the verified CI files.
-  That immutable build predates fresh-profile Balanced defaults: it used `fast`,
-  VSync on, max FPS 120 and simulation distance 12. Source changes/local bundles do
-  not update public installations; publish a separately verified runtime to deliver them.
+  dispatch, producing artifacts only. The pinned runtime release
+  [`rust-26.3-beta.2`](https://github.com/Shadow-457/Cubeon/releases/tag/rust-26.3-beta.2)
+  was published on 2026-11-09 from successful run 42564833017 at 7490365f.
+  Both platform archives, individual files and GitHub asset digests were verified;
+  the packaged Linux release passed terrain/save/reopen and companion controls.
+  Beta 2 uses `release` and the current Balanced defaults. The earlier beta 1
+  (run 42064514681 at f68ff468) used `fast`, VSync on, max FPS 120 and simulation 12.
+  Source changes/local bundles do not update public installations; publish a
+  separately verified runtime and change the launcher/workflow build pin together.
   Java's FPS-boost graphics and Sodium/Lithium paths do not apply to Rust; FPS
   comparisons must match each engine's actual video options, not just launcher switches.
   `tools/publish_rust_beta.py` verifies
@@ -2208,6 +2209,9 @@ requires retrying with normal system access, not changing unrelated app code.
   published binaries/tag; use `[skip ci]` for metadata/site commits to avoid minting a new beta.
   Rebuild with the current workflow, not an old pre-promotion commit. Preserve concurrent release
   metadata and do not force-push over another change.
+  Windows packaging verifies NSIS transactions without depending on the removed
+  auto-updater; retained helper tests must pass an explicit fixture version,
+  since using the stamped APP_VERSION invalidates their older release metadata.
   Stable website stamps include English, Arabic, Russian and Ukrainian fallback
   homepage/download labels, preserving translated prefixes and archive URLs.
 - macOS is untested: homepage/download controls are native disabled grey buttons

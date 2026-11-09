@@ -127,12 +127,12 @@ it never downloads, and invalid local bundles preserve the installed runtime.
 Worlds and settings are untouched.
 Distributed builds use only Cubeon's pinned release assets, with no Horizon
 fallback. The current release destination is
-`Shadow-457/Cubeon`, tag `rust-26.3-beta.1`, published on 2026-11-06 from
-CI run `42064514681` at `f68ff468`. That immutable runtime used the `fast`
-profile and earlier defaults (VSync on, 120 FPS cap, simulation distance 12).
-Current source defaults for fresh profiles are Balanced, VSync off, 240 FPS
-and simulation distance 8; existing settings are preserved. Source edits and
-local rebuilds do not update the installed public release.
+`Shadow-457/Cubeon`, tag `rust-26.3-beta.2`, published on 2026-11-09 from
+CI run `42564833017` at `7490365f`. This runtime uses the production `release`
+profile. Fresh profiles start Balanced, VSync off, 240 FPS and simulation
+distance 8; existing settings are preserved. The earlier `rust-26.3-beta.1`
+runtime used `fast`, VSync on, a 120 FPS cap and simulation distance 12.
+Source edits and local rebuilds do not update the installed public release.
 
 `.github/workflows/rust-beta.yml` runs on relevant main pushes or manual dispatch, builds Linux/Windows
 x64 artifacts and merges verified platform manifests. It does not publish.

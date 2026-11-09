@@ -502,9 +502,6 @@ jobs:
       - name: Test Windows installer transactions
         run: python tools/test_launcher_installers.py --native-windows
 
-      - name: Test Windows automatic update handoff
-        run: python tools/test_auto_update.py --native-windows
-
       - name: Build Windows installer payload
         run: python packaging/build_windows.py
 
