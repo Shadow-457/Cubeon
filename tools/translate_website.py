@@ -829,6 +829,29 @@ def translate_page(page: str, lang: str) -> tuple[str, set[str]]:
     source = translate_jsonld(source, renderer.t, page, lang if lang in translated_languages() else "en")
     source = rewrite_links(source, lang)
     source = patch_common(source, page, lang)
+    # Answers with inline links and plain JSON-LD have separate catalogue
+    # entries. Use the rendered text so older plain translations cannot drift.
+    from prepare_website_faq import Answers
+    answers = Answers(source).answers
+    if answers:
+        def sync_faq(match):
+            opening, body, closing = match.groups()
+            try:
+                data = json.loads(body)
+            except ValueError:
+                return match.group(0)
+            if not isinstance(data, dict):
+                return match.group(0)
+            changed = False
+            for node in data.get("@graph", []):
+                if node.get("@type") == "FAQPage":
+                    node["mainEntity"] = answers
+                    changed = True
+            if not changed:
+                return match.group(0)
+            return opening + "\n" + json.dumps(data, ensure_ascii=False, indent=2) + "\n" + closing
+        source = re.sub(r'(<script[^>]*type=["\']application/ld\+json["\'][^>]*>)(.*?)(</script>)',
+                        sync_faq, source, flags=re.S)
     return source, renderer.missing
 
 

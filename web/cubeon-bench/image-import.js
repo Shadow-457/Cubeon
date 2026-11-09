@@ -105,7 +105,8 @@
     if(target.animated)$('importScope').options[0].textContent='Frame '+(target.frameNumber+1);
     function scopeHint(){
       $('importScopeHint').textContent=$('importScope').value==='frame'?(target.shared>1?'This source frame appears '+target.shared+' times in the timeline. All its appearances update together.':'Only this frame changes. Timing and other frames stay intact.'):'Replaces every pixel in the sheet. Frame order and timing stay intact.';
-      $('importApplyHint').textContent=target.animated?($('importScope').value==='frame'?'Apply to frame '+(target.frameNumber+1)+'. Undo restores its previous pixels.':'Apply to the entire sheet. Undo restores every frame.'):'Apply to '+target.name+'. You can undo this change.';
+      if(target.animated)$('importApplyHint').textContent=$('importScope').value==='frame'?'Apply to frame '+(target.frameNumber+1)+'. Undo restores its previous pixels.':'Apply to the entire sheet. Undo restores every frame.';
+      else window.BenchI18n.text($('importApplyHint'),'Apply to {name}. You can undo this change.',{name:target.name});
     }
     resolutions();scopeHint();
     function orient(){

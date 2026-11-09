@@ -37,6 +37,9 @@
 <script src="texture-codec.js"></script>
 <script src="texture-animation.js"></script>
 <script src="texture-surface.js"></script>
+<script src="texture-depth.js"></script>
+<script src="bench-languages.js"></script>
+<script src="bench-i18n.js"></script>
 <script src="vendor/fflate.js"></script>
 <script src="archive.js"></script>
 <script src="ui-dialog.js"></script>
@@ -525,12 +528,14 @@ body.inapp .theme{display:none}
 <link rel="stylesheet" href="image-import.css">
 <link rel="stylesheet" href="surface-studio.css">
 <link rel="stylesheet" href="mobile-editor.css">
+<link rel="stylesheet" href="bench-i18n.css">
 </head>
 <body>
 <button class="theme" id="theme" type="button" aria-label="Toggle dark theme">
   <svg class="moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a.6.6 0 0 0-.8-.7A9.5 9.5 0 1 0 21.2 15a.6.6 0 0 0-.7-.8Z"/></svg>
   <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M5.3 18.7l1.5-1.5M17.2 6.8l1.5-1.5"/></svg>
 </button>
+<select class="bench-language-select bench-welcome-language" data-bench-language aria-label="Language"><option value="auto">Language</option></select>
 <main class="shell">
   <section class="left">
     <div class="brand">
@@ -612,6 +617,7 @@ body.inapp .theme{display:none}
     <header class="top">
       <label class="srch"><i data-i="search"></i><input id="q" type="search" placeholder="Search projects and blocks" autocomplete="off" aria-label="Search"></label>
       <div class="tr">
+        <button class="ibtn" type="button" data-bench-language-open aria-label="Language" title="Language"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></button>
         <button class="connection-badge" type="button" id="connectionBadge" data-ready="false" aria-label="Offline access settings">Online</button>
         <button class="ibtn" id="appHelp" type="button" aria-label="Help and keyboard shortcuts" title="Help · F1">?</button>
         <button class="ibtn newm" type="button" data-new aria-label="New project"><i data-i="plus"></i></button>
@@ -685,6 +691,7 @@ body.inapp .theme{display:none}
           <div class="fr"><div><b>Storage</b><br><small class="mu" id="localUsage">Checking available space…</small><br><small class="mu" id="localProtection">Export ZIP backups to keep a portable copy.</small></div><button class="gb" type="button" id="protectStorage">Protect local saves</button></div>
         </div>
         <div class="card" data-settings-page="appearance" hidden><h4>Appearance</h4>
+          <div class="fr bench-language-setting"><div><label for="benchLanguage"><b>Language</b></label><br><small class="mu">Language changes apply immediately.</small></div><select class="bench-language-select" id="benchLanguage" data-bench-language aria-label="Language"><option value="auto">Use browser language</option></select></div>
           <div class="fr"><b>Theme</b><div class="sgs" data-k="theme"><button class="sg" type="button" data-v="system" aria-pressed="false">System</button><button class="sg" type="button" data-v="light" aria-pressed="false">Light</button><button class="sg" type="button" data-v="dark" aria-pressed="false">Dark</button></div></div>
           <div class="fr"><div><b>Reduce motion</b><br><small class="mu">Calms animations across the app.</small></div><button class="tg" type="button" role="switch" aria-checked="false" data-k="calm" aria-label="Reduce motion"></button></div>
         </div>
@@ -694,6 +701,7 @@ body.inapp .theme{display:none}
           <div class="fr"><b>Show pixel grid</b><button class="tg" type="button" role="switch" aria-checked="false" data-k="grid" aria-label="Show pixel grid"></button></div>
         </div>
         <div class="card" data-settings-page="workspace" hidden><h4>Workspace</h4>
+          <div class="fr"><div><b>What’s new</b><br><small class="mu">Edit pixel depth</small></div><button class="gb" type="button" id="benchWhatsNew">What’s new</button></div>
           <div class="fr"><div><b>Remember this workspace</b><br><small class="mu">Open the workspace automatically next time.</small></div><button class="tg" type="button" role="switch" aria-checked="false" data-k="remember" aria-label="Remember this workspace"></button></div>
           <div class="fr"><div><b>Replay onboarding</b><br><small class="mu">Walk through the setup again.</small></div><button class="gb" type="button" id="replay">Replay</button></div>
           <div class="fr"><div><b>Move all projects to Trash</b><br><small class="mu">Restore them below whenever you need them.</small></div><button class="dg" type="button" id="clr">Move all to Trash</button></div>
@@ -788,7 +796,7 @@ body.inapp .theme{display:none}
         <div class="canvas-bar" id="canvasBar" hidden>
           <div class="canvas-document"><b id="canvasTextureName"></b><small id="canvasDocumentMeta"></small></div>
           <button class="gb canvas-import" id="canvasImport" type="button" title="Import an image as this texture · Ctrl / ⌘ Shift I" aria-label="Import image as texture"><i data-i="upload"></i><span>Import image</span></button>
-          <button class="gb canvas-surface" id="canvasSurface" type="button" aria-label="Add texture depth" hidden><i data-i="cube"></i><span>Add depth</span></button>
+          <button class="gb canvas-surface" id="canvasSurface" type="button" aria-label="Edit pixel depth" aria-pressed="false" hidden><i data-i="cube"></i><span>Depth</span></button>
           <button class="gb canvas-animate" id="canvasAnimate" type="button" hidden><i data-i="pack"></i>Create animation</button>
           <button class="gb animation-rail-toggle" id="edFramesToggle" type="button" aria-label="Animation frames" aria-controls="edFrames" aria-expanded="false" title="Animation frames" hidden><i data-i="pack"></i>Frames</button>
         </div>
@@ -862,7 +870,25 @@ body.inapp .theme{display:none}
           </details>
           <div class="fr2" id="tintRow" hidden><span>In-game colors</span><button class="tg" id="tintToggle" type="button" role="switch" aria-checked="true" aria-label="Show natural Minecraft colors"></button></div>
         </div>
-        <div class="rc surface-tools" id="surfaceTools" hidden><h5>3D texture</h5><button class="gb surface-open" id="surfaceOpen" type="button"><i data-i="cube"></i><span>Add depth</span></button><small id="surfaceSummary">Give this texture height and shine.</small></div>
+        <div class="rc surface-tools" id="surfaceTools" hidden><h5>3D texture</h5>
+          <button class="gb surface-open" id="surfaceMode" type="button" aria-pressed="false"><i data-i="cube"></i><span>Edit pixel depth</span></button>
+          <div class="depth-controls" id="depthControls" hidden>
+            <p class="depth-guide">Select pixels, then raise, lower, or set their height. Brushes stay inside the selection.</p>
+            <div class="depth-selection-tools" role="group" aria-label="Depth selection"><button class="gb" type="button" data-depth-tool="select">Rectangle select</button><button class="gb" type="button" data-depth-tool="lasso">Lasso</button><button class="gb" type="button" data-depth-tool="pencil">Depth brush</button></div>
+            <small id="depthSelectionStatus" role="status"></small>
+            <label class="depth-range" for="depthAmount"><span>Change amount<output id="depthAmountValue">10%</output></span><input id="depthAmount" type="range" min="1" max="100" value="10"></label>
+            <div class="depth-adjust-actions"><button class="gb" type="button" data-depth-adjust="raise">Raise selection</button><button class="gb" type="button" data-depth-adjust="lower">Lower selection</button></div>
+            <label class="depth-set-height" for="depthValue"><span>Exact height</span><input id="depthValue" type="number" min="0" max="100" value="50"><span>%</span><button class="gb" type="button" data-depth-adjust="set">Set</button></label>
+            <div class="depth-adjust-actions"><button class="gb" type="button" data-depth-adjust="reset">Flatten selection</button><button class="gb" type="button" data-depth-deselect>Deselect</button></div>
+            <details class="editor-disclosure"><summary>Depth brush settings</summary>
+              <div class="depth-brush-actions" role="group" aria-label="Depth brush action"><button class="gb" type="button" data-depth-action="raise" aria-pressed="true">Raise</button><button class="gb" type="button" data-depth-action="lower" aria-pressed="false">Lower</button><button class="gb" type="button" data-depth-action="set" aria-pressed="false">Set height</button></div>
+              <label class="depth-range" for="depthSoftness"><span>Soft brush edge</span><input id="depthSoftness" type="range" min="0" max="100" value="0"></label>
+            </details>
+            <label class="depth-view-label" for="depthView">Canvas view<select id="depthView"><option value="texture">Texture + depth</option><option value="height">Height map</option></select></label>
+            <small>Green raises the surface; purple lowers it. Gray is flat.</small>
+          </div>
+          <button class="gb surface-open" id="surfaceOpen" type="button"><i data-i="set"></i><span>Surface settings</span></button><small id="surfaceSummary">Give this texture height and shine.</small>
+        </div>
         <div class="rc options-card"><details class="editor-disclosure" id="brushOptions"><summary>Brush settings</summary>
           <div class="fr2"><label for="brushCustom">Custom size</label><input id="brushCustom" type="number" min="1" max="32" value="1" aria-label="Brush size in pixels"></div>
           <div class="fr2"><span>Size</span><div class="sgs" id="edSize"><button class="sg" type="button" data-v="1" aria-pressed="true">1</button><button class="sg" type="button" data-v="2" aria-pressed="false">2</button><button class="sg" type="button" data-v="3" aria-pressed="false">3</button></div></div>
@@ -886,6 +912,7 @@ body.inapp .theme{display:none}
       <span id="mobileToolsSlot" class="mobile-editor-slot"></span>
       <button class="mobile-editor-action" id="mobileColor" type="button" aria-label="Colors" aria-controls="edRight" aria-expanded="false"><span class="mobile-color-swatch" id="mobileColorSwatch" aria-hidden="true"></span><span>Color</span></button>
       <button class="mobile-editor-action" id="mobileFrames" type="button" aria-label="Animation frames" aria-controls="edFrames" aria-expanded="false"><i data-i="pack"></i><span>Animate</span></button>
+      <button class="mobile-editor-action" id="mobileDepth" type="button" aria-label="Edit pixel depth" aria-pressed="false"><i data-i="cube"></i><span>Depth</span></button>
       <button class="mobile-editor-action" id="mobilePreview" type="button" aria-label="3D preview" aria-pressed="false"><i data-i="cube"></i><span>Preview</span></button>
     </nav>
   </div>
@@ -1124,7 +1151,7 @@ body.inapp .theme{display:none}
       MT.load('entity/player/wide/steve').then(function(img){var ctx=cv.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.drawImage(img,8,8,8,8,0,0,16,16)});
     }else MT.draw(cv,MT.resolve(p.texture||p.block||'block/grass_block_top'));
   }
-  function ago(t){var s=(Date.now()-t)/1000;if(s<60)return 'Just now';if(s<3600)return ((s/60)|0)+' min ago';if(s<86400)return ((s/3600)|0)+' h ago';if(s<604800)return ((s/86400)|0)+' d ago';return new Date(t).toLocaleDateString()}
+  function ago(t){var s=(Date.now()-t)/1000;if(s<60)return BenchI18n.t('Just now');if(s<3600)return BenchI18n.t('{count} min ago',{count:(s/60)|0});if(s<86400)return BenchI18n.t('{count} h ago',{count:(s/3600)|0});if(s<604800)return BenchI18n.t('{count} d ago',{count:(s/86400)|0});return BenchI18n.date(new Date(t))}
 
   var D={storageVersion:2,profile:{name:'Builder',color:'#A4D168',picture:''},onboarded:false,signedIn:false,projects:[],trash:[],activity:{},textureActivity:{},set:{remember:true,theme:'system',calm:false,size:16,pal:'meadow',grid:true,naturalColors:true}};
   var hydrated=false,ready,lastStorageRead=0,lastSaveError='';
@@ -1153,7 +1180,7 @@ body.inapp .theme{display:none}
     lastStorageRead=Date.now();
     if(!navigator.storage||!navigator.storage.estimate){$('#localUsage').textContent='Local space is managed by your browser.';$('#protectStorage').hidden=true;return;}
     try{
-      var info=await navigator.storage.estimate(),mb=function(n){return (n/1048576).toLocaleString(undefined,{maximumFractionDigits:1})+' MB'};
+      var info=await navigator.storage.estimate(),mb=function(n){return (n/1048576).toLocaleString(BenchI18n.language(),{maximumFractionDigits:1})+' MB'};
       $('#localUsage').textContent=mb(info.usage||0)+' used'+(info.quota?' · '+mb(info.quota)+' available to this workspace':'');
       var protectedStorage=navigator.storage.persisted&&await navigator.storage.persisted();
       $('#localProtection').textContent=protectedStorage?'Protected from automatic browser cleanup. Keep ZIP backups too.':'Export ZIP backups to keep a portable copy.';
@@ -1172,7 +1199,7 @@ body.inapp .theme{display:none}
   function match(p){return !q||p.name.toLowerCase().indexOf(q)>-1}
   function hasPicture(){return typeof D.profile.picture==='string'&&/^data:image\/(png|jpeg|webp);base64,/.test(D.profile.picture)}
   function avatar(sz){return '<span class="av'+(hasPicture()?' av-photo':'')+'" style="background:'+D.profile.color+';width:'+sz+'px;height:'+sz+'px;font-size:'+((sz*.45)|0)+'px">'+(hasPicture()?'<img src="'+esc(D.profile.picture)+'" width="'+sz+'" height="'+sz+'" alt="">':esc((D.profile.name.trim()[0]||'B').toUpperCase()))+'</span>'}
-  function card(p){var scale=p.type==='skin'?'64×64':p.size===16?'Original textures':(p.size/16)+'× textures';return '<article class="pc" tabindex="0" aria-label="Open '+esc(p.name)+'" data-id="'+esc(p.id)+'">'+(p.favorite?'<span class="favorite-mark">★ Favorite</span>':'')+'<div class="th"><canvas data-t="'+esc(p.id)+'"></canvas></div><div class="pi"><b class="pn">'+esc(p.name)+'</b><span class="pm">'+T[p.type]+' · '+scale+'</span><span class="pt">'+ago(p.edited)+' · '+Object.keys(p.edits||{}).length+' edited</span></div><button class="dots" type="button" aria-label="Project menu for '+esc(p.name)+'">'+ic('dots')+'</button></article>'}
+  function card(p){var scale=p.type==='skin'?'64×64':p.size===16?'Original textures':(p.size/16)+'× textures';return '<article class="pc" tabindex="0" aria-label="'+esc(BenchI18n.t('Open {name}',{name:p.name}))+'" data-id="'+esc(p.id)+'">'+(p.favorite?'<span class="favorite-mark">★ Favorite</span>':'')+'<div class="th"><canvas data-t="'+esc(p.id)+'"></canvas></div><div class="pi"><b class="pn" translate="no" dir="auto">'+esc(p.name)+'</b><span class="pm">'+T[p.type]+' · '+scale+'</span><span class="pt">'+ago(p.edited)+' · '+Object.keys(p.edits||{}).length+' edited</span></div><button class="dots" type="button" aria-label="'+esc(BenchI18n.t('Project menu for {name}',{name:p.name}))+'">'+ic('dots')+'</button></article>'}
   var ADD='<button class="pc add" type="button" data-new>'+ic('plus')+'New project</button>';
   var SK='<article class="pc sk"><div class="th"></div><div class="pi"><span style="width:70%"></span><span style="width:45%;height:10px"></span></div></article>';
   function paint(root){
@@ -1181,15 +1208,15 @@ body.inapp .theme{display:none}
   }
   function tiles(arr){return arr.map(function(e){return '<button class="bt" type="button" data-texture="'+esc(e.id)+'" data-b="'+esc(e.n)+'" title="'+esc(e.src)+' · '+e.w+'×'+e.h+'"><canvas data-texture="'+esc(e.id)+'"></canvas><span>'+esc(e.n)+'</span><small>'+esc(e.folder)+'/</small></button>'}).join('')}
   function renderUser(){
-    $('#usr').innerHTML=avatar(40)+'<span><b>'+esc(D.profile.name)+'</b><small>Local workspace</small></span>';
+    $('#usr').innerHTML=avatar(40)+'<span><b translate="no" dir="auto">'+esc(D.profile.name)+'</b><small>Local workspace</small></span>';
     $('#avb').innerHTML=avatar(46);$('#setAv').innerHTML=avatar(72);
     $('#removeProfilePicture').hidden=!hasPicture();$('#pcol').hidden=hasPicture();
   }
   function renderHome(){
     var h=new Date().getHours(),g=h<5?'Still up':h<12?'Good morning':h<18?'Good afternoon':'Good evening';
-    $('#gh').textContent=g+', '+D.profile.name+'.';
+    BenchI18n.text($('#gh'),'{greeting}, {name}.',{greeting:BenchI18n.t(g),name:D.profile.name});
     $('#st-n').textContent=D.projects.length;
-    $('#st-l').textContent=D.projects.length?'Last edited '+ago(Math.max.apply(null,D.projects.map(function(p){return p.edited}))):'Nothing yet. Start below.';
+    if(D.projects.length)BenchI18n.text($('#st-l'),'Last edited {text}',{text:ago(Math.max.apply(null,D.projects.map(function(p){return p.edited})))});else BenchI18n.text($('#st-l'),'Create your first project');
     $('#st-s').innerHTML=PL[D.set.pal].c.map(function(c){return '<i style="background:'+c+'"></i>'}).join('');
     var gr=$('#home-grid'),arr=D.projects.filter(match).sort(function(a,b){return b.edited-a.edited}).slice(0,4);
     if(skel)gr.innerHTML=SK+SK+SK+SK;
@@ -1200,7 +1227,7 @@ body.inapp .theme{display:none}
   function renderProjects(){
     var gr=$('#pj-grid');
     var a=D.projects.filter(function(p){return (ftype==='all'||p.type===ftype||ftype==='favorite'&&p.favorite)&&match(p)});
-    a.sort(sort==='name'?function(x,y){return x.name.localeCompare(y.name)}:function(x,y){return y.edited-x.edited});
+    a.sort(sort==='name'?function(x,y){return x.name.localeCompare(y.name,BenchI18n.language())}:function(x,y){return y.edited-x.edited});
     if(skel)gr.innerHTML=SK+SK+SK;
     else gr.innerHTML=a.length?a.map(card).join('')+ADD:D.projects.length?'<div class="empty"><b>No projects match these filters.</b><br>Try another filter or create a project.</div>'+ADD:'<button class="first-project" type="button" data-new>'+ic('plus')+'<span><b>Create your first project</b><small>Start a skin or resource pack.</small></span>'+ic('chevr')+'</button>';
     paint(gr);
@@ -1209,7 +1236,7 @@ body.inapp .theme{display:none}
     if(view!=='library')return;
     var all=MT.entries.filter(function(e){return MT.within(e,libFolder)&&MT.matches(e,q)}),pages=Math.max(1,Math.ceil(all.length/60));
     libPage=Math.max(0,Math.min(libPage,pages-1));
-    $('#libCat').value=libFolder.split('/')[0];$('#libCount').textContent=all.length.toLocaleString()+' textures';
+    $('#libCat').value=libFolder.split('/')[0];BenchI18n.text($('#libCount'),'{count} textures',{count:all.length.toLocaleString(BenchI18n.language())});
     var nav=MT.navigation(libFolder);if($('#libFolders').innerHTML!==nav)$('#libFolders').innerHTML=nav;
     $('#lib-grid').innerHTML=all.length?tiles(all.slice(libPage*60,libPage*60+60)):'<div class="empty"><b>No textures match “'+esc(q)+'”</b></div>';
     paint($('#lib-grid'));
@@ -1243,10 +1270,10 @@ body.inapp .theme{display:none}
         dt=new Date(start);dt.setDate(start.getDate()+w*7+d);
         if(dt>today){cells+='<i class="hc fut"></i>';continue}
         k=dkey(dt);n=D.activity[k]||0;total+=n;if(n)days++;
-        cells+='<i class="hc l'+lvl(n)+(k===dkey(today)?' today':'')+'" style="--w:'+w+'" title="'+(n?n+(n===1?' texture edited':' textures edited'):'No textures edited')+' on '+dt.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})+'"></i>';
+        cells+='<i class="hc l'+lvl(n)+(k===dkey(today)?' today':'')+'" style="--w:'+w+'" title="'+esc(BenchI18n.t('{count} textures edited',{count:n})+' · '+BenchI18n.date(dt,{weekday:'short',month:'short',day:'numeric'}))+'"></i>';
       }
       var m0=new Date(start);m0.setDate(start.getDate()+w*7);
-      if(m0.getMonth()!==lm&&w-last>=3){months+='<span style="grid-column:'+(w+1)+'">'+m0.toLocaleDateString(undefined,{month:'short'})+'</span>';last=w}
+      if(m0.getMonth()!==lm&&w-last>=3){months+='<span style="grid-column:'+(w+1)+'">'+BenchI18n.date(m0,{month:'short'})+'</span>';last=w}
       lm=m0.getMonth();
     }
     var cur=0,dd=new Date(today);if(!(D.activity[dkey(dd)]>0))dd.setDate(dd.getDate()-1);
@@ -1255,9 +1282,9 @@ body.inapp .theme{display:none}
     keys.forEach(function(x){var t=new Date(x+'T12:00:00');run=(prev&&Math.round((t-prev)/864e5)===1)?run+1:1;if(run>best)best=run;prev=t});
     var cols='style="grid-template-columns:repeat('+W+',var(--cs))"';
     var editedToday=(D.textureActivity[dkey(today)]||[]).length;
-    $('#streak').innerHTML='<div class="sth"><div><h3>Activity <span class="today-count" id="editedToday">'+editedToday+(editedToday===1?' texture edited today':' textures edited today')+'</span></h3><span class="mu">'+total+(total===1?' texture edited':' textures edited')+' in the last year</span></div>'+
+    $('#streak').innerHTML='<div class="sth"><div><h3>'+BenchI18n.t('Activity')+' <span class="today-count" id="editedToday">'+BenchI18n.t('{count} textures edited today',{count:editedToday})+'</span></h3><span class="mu">'+BenchI18n.t('{count} textures edited in the last year',{count:total})+'</span></div>'+
       '<div class="stk"><div><b>'+ic('flame')+cur+'</b><span>Current streak</span></div><div><b>'+best+'</b><span>Longest streak</span></div><div><b>'+days+'</b><span>Active days</span></div></div></div>'+
-      '<div class="hmw"><div class="hm-d"><span style="grid-row:1">Mon</span><span style="grid-row:3">Wed</span><span style="grid-row:5">Fri</span></div>'+
+      '<div class="hmw"><div class="hm-d">'+[0,2,4].map(function(day){return '<span style="grid-row:'+(day+1)+'">'+BenchI18n.date(new Date(2026,0,5+day),{weekday:'short'})+'</span>';}).join('')+'</div>'+
       '<div class="hms" id="hms"><div class="hmm" '+cols+'>'+months+'</div><div class="hm" '+cols+'>'+cells+'</div></div></div>'+
       '<div class="lgd"><span>Less</span><i class="hc l0"></i><i class="hc l1"></i><i class="hc l2"></i><i class="hc l3"></i><i class="hc l4"></i><span>More</span></div>';
     var sc=$('#hms');if(sc)sc.scrollLeft=sc.scrollWidth;
@@ -1479,7 +1506,7 @@ body.inapp .theme{display:none}
     if(D.signedIn&&D.onboarded&&D.set.remember!==false){try{D.set.theme=localStorage.getItem('cb-theme')||'system'}catch(e){}showApp(true);}
   });
   ready.catch(function(error){storageStatus({state:'error',error:error.message});toast(error.message)});
-  window.CB={D:D,ready:ready,save:save,find:find,bump:bump,recordTextureEdit:recordTextureEdit,ic:ic,PL:PL,BL:BL,drawBlock:drawBlock,hash:hash,toast:toast,esc:esc,renderAll:renderAll,go:go,settingsPage:settingsPage,newProject:openNew,openDetails:function(p){openNew({project:p})},applyWorkspace:function(state){hydrate(state);applyTheme(D.set.theme);renderAll()}};
+  window.CB={D:D,ready:ready,save:save,find:find,bump:bump,recordTextureEdit:recordTextureEdit,ic:ic,PL:PL,BL:BL,drawBlock:drawBlock,hash:hash,toast:toast,esc:esc,renderAll:renderAll,go:go,settingsPage:settingsPage,newProject:openNew,openDetails:function(p){openNew({project:p})},applyWorkspace:function(state){hydrate(state);applyTheme(D.set.theme);if(BenchI18n.normalize(D.set.language))BenchI18n.set(D.set.language,false);renderAll()}};
   window.cbReturning=function(){return D.onboarded};
 })();
 </script>
@@ -1493,6 +1520,7 @@ body.inapp .theme{display:none}
 <script src="mobile-editor.js"></script>
 <script src="workspace.js"></script>
 <script src="app-shell.js"></script>
+<script src="bench-updates.js"></script>
 <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
 <script defer src="/_vercel/insights/script.js"></script>
 </body>

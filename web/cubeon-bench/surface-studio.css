@@ -50,10 +50,21 @@
 .surface-tools .surface-open{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;width:100%}
 .surface-tools svg{width:18px;height:18px}
 .surface-tools small{display:block;color:var(--muted);font-size:11px;line-height:1.5;margin-top:10px}
+.surface-tools .surface-open[aria-pressed=true],.canvas-surface[aria-pressed=true]{background:var(--sel);color:var(--acc);border-color:var(--acc)}
+.surface-tools .surface-open+.surface-open,.depth-controls+.surface-open{margin-top:14px}
+.depth-guide{font-size:12px;line-height:1.6;margin:12px 0;color:var(--muted)}
+.depth-selection-tools,.depth-adjust-actions,.depth-brush-actions{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.depth-controls .gb{flex:1;min-height:40px;font-size:11px;padding:7px;white-space:normal}
+.depth-selection-tools button[aria-pressed=true],.depth-brush-actions button[aria-pressed=true]{border-color:var(--acc);background:var(--sel);color:var(--acc)}
+.depth-range{display:block;margin:12px 0;font-size:12px}.depth-range>span{display:flex;justify-content:space-between;gap:8px}.depth-range input{width:100%;height:32px;accent-color:var(--acc)}
+.depth-set-height{display:flex;align-items:center;gap:6px;font-size:12px}.depth-set-height input{width:52px;height:38px;border:1px solid var(--line);border-radius:8px;padding:5px;background:var(--btn);color:var(--ink)}
+.depth-view-label{display:grid;gap:6px;font-size:12px;margin:12px 0}.depth-view-label select{width:100%;min-height:40px;border:1px solid var(--line);border-radius:8px;background:var(--btn);color:var(--ink);padding:8px;font:inherit}
+#depthOverlay{position:absolute;inset:0;pointer-events:none;z-index:2;image-rendering:pixelated}
+.ed.depth-editing #editorColors{display:none}.ed.depth-editing .canvas-document small{color:var(--acc)}
 .pv.has-depth .pv-shadow{display:none}
 @media(max-width:900px){
-  .ed .canvas-surface{width:44px;padding:0!important}
-  .ed .canvas-surface>span{display:none}
+  .ed .canvas-surface{min-width:44px;padding:0 8px!important}
+  .depth-controls .gb,.depth-view-label select,.depth-set-height input{min-height:44px;font-size:13px}
   .ed .pvc{flex-wrap:wrap;justify-content:center;width:min(380px,calc(100% - 24px))}
   .pv.has-depth .pvh{bottom:125px}
 }

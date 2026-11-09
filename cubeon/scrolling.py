@@ -50,3 +50,8 @@ def follow_end(page, control):
 def to_top(page, control):
     """Reset changed search/page results with one native animated command."""
     return _scroll(page, control, 0)
+
+
+def to_offset(page, control, offset):
+    """Reveal a retained navigation item with the same bounded native scroll."""
+    return _scroll(page, control, max(0, offset))

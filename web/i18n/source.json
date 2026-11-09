@@ -784,6 +784,22 @@
    "parts": []
   },
   {
+   "key": "Why does my Cubeon search show Cubion?{0}",
+   "kind": "text",
+   "pages": [
+    "index"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Search engines may suggest the similarly spelled Cubion when you search for Cubeon. This project's name is Cubeon Launcher, with an e. To find this launcher, search for Cubeon Minecraft Launcher or use the official website at <a href=\"https://www.ylet.online/\">www.ylet.online</a> and the <a href=\"https://github.com/Shadow-457/Cubeon\">Shadow-457/Cubeon repository on GitHub</a>.",
+   "kind": "text",
+   "pages": [
+    "index"
+   ],
+   "parts": []
+  },
+  {
    "key": "Which Minecraft edition and mod loaders does Cubeon support?{0}",
    "kind": "text",
    "pages": [
@@ -1689,7 +1705,7 @@
    "parts": []
   },
   {
-   "key": "Download Cubeon, a free, open-source Minecraft Java launcher for Windows and Linux. Install mods and modpacks, manage instances, and customize skins.",
+   "key": "Cubeon Launcher (sometimes searched as Cubion) is a free, open-source Minecraft Java launcher for Windows and Linux, with mods, modpacks and skins.",
    "kind": "attr",
    "pages": [
     "index"
@@ -1991,6 +2007,22 @@
   },
   {
    "key": "Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows and Linux. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is www.ylet.online and the source repository is Shadow-457/Cubeon on GitHub. Read the official project facts for supported profiles, downloads and limitations.",
+   "kind": "jsonld",
+   "pages": [
+    "index"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Why does my Cubeon search show Cubion?",
+   "kind": "jsonld",
+   "pages": [
+    "index"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Search engines may suggest the similarly spelled Cubion when you search for Cubeon. This project's name is Cubeon Launcher, with an e. To find this launcher, search for Cubeon Minecraft Launcher or use the official website at www.ylet.online and the Shadow-457/Cubeon repository on GitHub.",
    "kind": "jsonld",
    "pages": [
     "index"
@@ -3251,6 +3283,14 @@
   },
   {
    "key": "Small interface preferences",
+   "kind": "text",
+   "pages": [
+    "cookies"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Cubeon Bench stores {0} locally after you open its workspace, so later visits can skip the introduction. Bench projects and preferences remain in this browser. Bench's pages use the same cookieless Vercel page counts as the main website; the first-visit preference and project contents are not analytics events.",
    "kind": "text",
    "pages": [
     "cookies"
@@ -9975,6 +10015,14 @@
   },
   {
    "key": "Page counts on the website",
+   "kind": "text",
+   "pages": [
+    "privacy"
+   ],
+   "parts": []
+  },
+  {
+   "key": "Cubeon Bench's landing page and workspace use these same anonymous page counts on this domain. Your Bench projects, imported files, profile name, edits and workspace backups are not sent to analytics. The browser remembers that you opened Bench so future visits can open the workspace directly; that preference stays on your device.",
    "kind": "text",
    "pages": [
     "privacy"

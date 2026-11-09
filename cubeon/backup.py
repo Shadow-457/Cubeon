@@ -95,8 +95,8 @@ def load_backup_settings() -> dict:
 
 def save_backup_settings(settings: dict) -> None:
     os.makedirs(BACKUPS_DIR, exist_ok=True)
-    with open(BACKUP_META_PATH, "w") as f:
-        json.dump(settings, f, indent=2)
+    from . import atomicio
+    atomicio.write_json(BACKUP_META_PATH, settings)
 
 
 def _iter_files(root: str, arc_root: "str | None" = None):

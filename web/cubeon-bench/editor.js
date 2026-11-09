@@ -1,16 +1,18 @@
 (function(){
   var CB=window.CB,MT=window.MinecraftTextures;if(!CB||!MT)return;
   var $=function(s,r){return (r||document).querySelector(s)},$$=function(s,r){return [].slice.call((r||document).querySelectorAll(s))};
-  var D=CB.D,ic=CB.ic,esc=CB.esc,ed=$('#ed'),codec=window.TextureCodec,TA=window.TextureAnimation;
+  var D=CB.D,ic=CB.ic,esc=CB.esc,ed=$('#ed'),codec=window.TextureCodec,TA=window.TextureAnimation,TD=window.TextureDepth;
   var SKIN=[Object.assign({},MT.resolve('entity/player/wide/steve'),{id:'skin',n:'Skin',cat:'Skin'})];
 
   /* ---------- state ---------- */
   var E={p:null,catalog:MT,loading:false,docs:{},pending:{},open:[],cur:null,last:null,doc:null,faceModel:null,tool:'pencil',color:'#7AC24A',alpha:100,size:1,mx:false,my:false,zoom:16,grid:true,uv:true,cat:'',q:'',page:0,res:[],ri:0,lb:0};
   var BC={},hover=null,drag=null,activeToken=0,clipboard=null;
-  var panning=null,lastTool=null,PALETTE_PAGE=16,frameClipboard=null,spaceHand=null;
+  var panning=null,lastTool=null,PALETTE_PAGE=16,frameClipboard=null,spaceHand=null,depthClipboard=null;
+  E.depthEditing=false;E.depthAction='raise';E.depthAmount=10;E.depthValue=50;E.depthSoftness=0;E.depthView='texture';
   var TOOL_HELP={pencil:['Draw','Drag on the canvas to draw.'],eraser:['Erase','Drag to erase pixels.'],fill:['Fill','Click to fill connected pixels of the same color.'],pick:['Pick','Click a pixel to reuse its color.'],line:['Line','Drag to draw a line.'],rect:['Rectangle','Drag an outline. Hold Shift to fill it.'],ellipse:['Ellipse','Drag an oval. Hold Shift to fill it.'],select:['Select','Drag to select pixels, then copy or clear.'],light:['Lighten','Drag to make pixels lighter.'],dark:['Darken','Drag to make pixels darker.']};
   var ec=$('#ec'),eo=$('#eo'),ectx=ec.getContext('2d'),octx=eo.getContext('2d'),wrap=$('#edWrap'),tintCanvas=document.createElement('canvas');
   tintCanvas.id='et';tintCanvas.setAttribute('aria-hidden','true');wrap.insertBefore(tintCanvas,eo);
+  var depthOverlay=document.createElement('canvas');depthOverlay.id='depthOverlay';depthOverlay.hidden=true;depthOverlay.setAttribute('aria-hidden','true');wrap.insertBefore(depthOverlay,eo);
   var preview=new window.MinecraftPreview(function(id){return getDoc(id)});
   var packSession=null;
   var picker=new window.ColorChooser({button:$('#edCol'),read:function(){return {hex:E.color,alpha:E.alpha}},
@@ -84,14 +86,18 @@
   /* ---------- pixels & tools ---------- */
   function rgba(){var h=E.color;return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16),Math.round(E.alpha*2.55)]}
   function hex2(n){return ('0'+n.toString(16)).slice(-2)}
-  function setPx(x,y,c){var d=E.doc,r=paintRect(d);if(x<r.x||y<r.y||x>=r.x+r.w||y>=r.y+r.h)return;var a=d.data.data,i=(y*d.w+x)*4;a[i]=c[0];a[i+1]=c[1];a[i+2]=c[2];a[i+3]=c[3]}
+  function setPx(x,y,c){var d=E.doc,r=paintRect(d);if(x<r.x||y<r.y||x>=r.x+r.w||y>=r.y+r.h||!TD.contains(d.selection,x,y))return;var a=d.data.data,i=(y*d.w+x)*4;a[i]=c[0];a[i+1]=c[1];a[i+2]=c[2];a[i+3]=c[3]}
   function apply(x,y){
-    var d=E.doc,t=drag.t,r=paintRect(d);if(x<r.x||y<r.y||x>=r.x+r.w||y>=r.y+r.h)return;
+    var d=E.doc,t=drag.t,r=paintRect(d);if(x<r.x||y<r.y||x>=r.x+r.w||y>=r.y+r.h||!TD.contains(d.selection,x,y))return;
     if(t==='eraser')setPx(x,y,[0,0,0,0]);
     else if(t==='light'||t==='dark'){var a=d.data.data,i=(y*d.w+x)*4;if(a[i+3]){var k=t==='light'?1.14:.86;a[i]=Math.min(255,a[i]*k);a[i+1]=Math.min(255,a[i+1]*k);a[i+2]=Math.min(255,a[i+2]*k)}}
     else setPx(x,y,rgba());
   }
-  function stamp(x,y){var s=E.size,o=(s-1)>>1;for(var j=0;j<s;j++)for(var i=0;i<s;i++)apply(x-o+i,y-o+j)}
+  function depthOperation(){return drag.t==='eraser'?'reset':drag.t==='light'?'raise':drag.t==='dark'?'lower':E.depthAction;}
+  function stamp(x,y){
+    if(E.depthEditing){TD.brush(TD.layer(E.doc),drag.depthStroke,x,y,E.size,E.depthSoftness,E.doc.selection,viewRect(E.doc),depthOperation(),E.depthAmount,E.depthValue,drag.pressure);return;}
+    var s=E.size,o=(s-1)>>1;for(var j=0;j<s;j++)for(var i=0;i<s;i++)apply(x-o+i,y-o+j)
+  }
   function plot(x,y){
     var d=E.doc,r=viewRect(d);stamp(x,y);
     if(E.mx)stamp(2*r.x+r.w-1-x,y);if(E.my)stamp(x,2*r.y+r.h-1-y);if(E.mx&&E.my)stamp(2*r.x+r.w-1-x,2*r.y+r.h-1-y);
@@ -118,10 +124,11 @@
     var d=E.doc;if(!d||E.cur==='preview')return;if(drag)end();
     if(action==='all'){d.selection=Object.assign({},viewRect(d));sync();ovl();return}
     if(action==='none'){d.selection=null;sync();ovl();return}
+    if(E.depthEditing){depthSelectionAction(action);return}
     var r=paintRect(d);if(!r.w||!r.h)return;
     if(action==='copy'||action==='cut'){
       clipboard=new ImageData(r.w,r.h);
-      for(var y=0;y<r.h;y++)clipboard.data.set(d.data.data.subarray(((r.y+y)*d.w+r.x)*4,((r.y+y)*d.w+r.x+r.w)*4),y*r.w*4);
+      for(var y=0;y<r.h;y++)for(var x=0;x<r.w;x++)if(TD.contains(d.selection,r.x+x,r.y+y))clipboard.data.set(d.data.data.subarray(((r.y+y)*d.w+r.x+x)*4,((r.y+y)*d.w+r.x+x)*4+4),(y*r.w+x)*4);
       CB.toast('Copied '+r.w+'×'+r.h+' pixels. Paste into any open texture.');
       if(action==='copy'){sync();return}
     }
@@ -133,16 +140,54 @@
     }else{
       pushUndo(d);for(var y=r.y;y<r.y+r.h;y++)for(var x=r.x;x<r.x+r.w;x++)setPx(x,y,[0,0,0,0]);
     }
-    redraw();commit(d);ovl();
+    d.depthLayer=null;redraw();commit(d);ovl();
+  }
+  function depthSelectionAction(action){
+    var d=E.doc,r=paintRect(d),map=TD.layer(d);if(!r.w||!r.h)return;
+    if(action==='copy'||action==='cut'){
+      depthClipboard=new ImageData(r.w,r.h);
+      for(var y=0;y<r.h;y++)for(var x=0;x<r.w;x++)if(TD.contains(d.selection,r.x+x,r.y+y))depthClipboard.data.set(map.data.subarray(((r.y+y)*d.w+r.x+x)*4,((r.y+y)*d.w+r.x+x)*4+4),(y*r.w+x)*4);
+      if(action==='copy'){CB.toast('Depth selection copied.');return;}
+    }
+    if(action==='paste'&&!depthClipboard)return;
+    pushUndo(d);
+    if(action==='paste'){
+      for(var y=0;y<Math.min(r.h,depthClipboard.height);y++)for(var x=0;x<Math.min(r.w,depthClipboard.width);x++){
+        var i=(y*depthClipboard.width+x)*4;if(depthClipboard.data[i+3]&&TD.contains(d.selection,r.x+x,r.y+y))map.data.set(depthClipboard.data.subarray(i,i+4),((r.y+y)*d.w+r.x+x)*4);
+      }
+    }else TD.adjust(map,d.selection,viewRect(d),'reset',E.depthAmount,E.depthValue);
+    TD.save(d);redraw();commit(d);ovl();
+  }
+  function setDepthMode(on){
+    if(E.cur==='preview')return activate(E.last||E.open[0]).then(function(){setDepthMode(on)});
+    var d=E.doc;if(!d||E.p.type==='skin'||!window.TextureSurface.supported(d.data))return;
+    if(drag)end();picker.close(false);E.depthEditing=on;E.hand=false;E.tool=on?'select':'pencil';lastTool=null;
+    ed.classList.toggle('depth-editing',on);
+    redraw();sync();ovl();
+    if(on&&innerWidth<=900)openDepthPanel();
+  }
+  function openDepthPanel(){ed.dataset.toolSection='tools';ed.classList.add('r-open');ed.classList.remove('l-open','frames-open');animationControls.layoutRail();$('#edRight').scrollTop=$('#surfaceTools').offsetTop-64;}
+  function adjustDepth(operation){
+    var d=E.doc;if(!d||!E.depthEditing||!d.selection)return;if(drag)end();
+    pushUndo(d);TD.adjust(TD.layer(d),d.selection,viewRect(d),operation,E.depthAmount,E.depthValue);TD.save(d);redraw();commit(d);ovl();
   }
   function fill(x,y){
+    if(E.depthEditing){
+      var d=E.doc,r=viewRect(d),map=TD.layer(d),level=map.data[(y*d.w+x)*4],stack=[x,y],visited=new Uint8Array(d.w*d.h);
+      while(stack.length){
+        var py=stack.pop(),px=stack.pop();if(px<r.x||py<r.y||px>=r.x+r.w||py>=r.y+r.h||!TD.contains(d.selection,px,py))continue;
+        var index=py*d.w+px;if(visited[index]||drag.depthStroke.before[index*4]!==level)continue;visited[index]=1;
+        TD.pixel(map,drag.depthStroke,px,py,depthOperation(),E.depthAmount,E.depthValue,1);stack.push(px+1,py,px-1,py,px,py+1,px,py-1);
+      }
+      return;
+    }
     var d=E.doc,w=d.w,h=d.h,a=d.data.data,r=paintRect(d);if(x<r.x||y<r.y||x>=r.x+r.w||y>=r.y+r.h)return;
     var i0=(y*w+x)*4,t=[a[i0],a[i0+1],a[i0+2],a[i0+3]],n=rgba();
     if(t[0]===n[0]&&t[1]===n[1]&&t[2]===n[2]&&t[3]===n[3])return;
     var st=[x,y],seen=new Uint8Array(r.w*r.h);
     while(st.length){
       var cy=st.pop(),cx=st.pop();if(cx<r.x||cy<r.y||cx>=r.x+r.w||cy>=r.y+r.h)continue;
-      var k=(cy-r.y)*r.w+cx-r.x;if(seen[k])continue;var i=(cy*w+cx)*4;
+      var k=(cy-r.y)*r.w+cx-r.x;if(seen[k]||!TD.contains(d.selection,cx,cy))continue;var i=(cy*w+cx)*4;
       if(a[i]!==t[0]||a[i+1]!==t[1]||a[i+2]!==t[2]||a[i+3]!==t[3])continue;
       seen[k]=1;a[i]=n[0];a[i+1]=n[1];a[i+2]=n[2];a[i+3]=n[3];
       st.push(cx+1,cy,cx-1,cy,cx,cy+1,cx,cy-1);
@@ -150,18 +195,28 @@
   }
   function pickAt(c){
     var d=E.doc,r=viewRect(d);if(c[0]<r.x||c[1]<r.y||c[0]>=r.x+r.w||c[1]>=r.y+r.h)return;
+    if(E.depthEditing){E.depthValue=Math.round(TD.layer(d).data[(c[1]*d.w+c[0])*4]/255*100);$('#depthValue').value=E.depthValue;return;}
     var a=d.data.data,i=(c[1]*d.w+c[0])*4;if(!a[i+3])return;
     setColor('#'+hex2(a[i])+hex2(a[i+1])+hex2(a[i+2]),true);
     setAlpha(Math.round(a[i+3]/255*100));
   }
   function checkpoint(d){return {data:clone(d.data),animation:TA.copy(d.animationOverride),surface:d.surface,frame:d.frame,frameView:d.frameView,selection:d.selection&&Object.assign({},d.selection)}}
-  function historyBytes(items){var heights=new Set();return items.reduce(function(sum,item){var height=item.surface&&item.surface.height;if(height&&!heights.has(height)){heights.add(height);sum+=height.pixels.length*2}return sum+item.data.data.byteLength},0)}
+  function historyBytes(items){
+    var heights=new Set(),selections=new Set();return items.reduce(function(sum,item){
+      var height=item.surface&&item.surface.height;if(height&&!heights.has(height.pixels)){heights.add(height.pixels);sum+=height.pixels.length*2;}
+      var selection=item.selection;if(selection){
+        if(selection.mask&&!selections.has(selection.mask)){selections.add(selection.mask);sum+=selection.mask.byteLength;}
+        if(selection.edges&&!selections.has(selection.edges)){selections.add(selection.edges);sum+=selection.edges.length*64;}
+      }
+      return sum+item.data.data.byteLength;
+    },0);
+  }
   function pushUndo(d){d.undo.push(checkpoint(d));while(d.undo.length>1&&(d.undo.length>60||historyBytes(d.undo)>25165824))d.undo.shift();d.redo.length=0;sync()}
-  function restoreCheckpoint(d,item){d.data=item.data;d.animationOverride=TA.copy(item.animation);d.surface=item.surface||null;d.frame=item.frame;d.frameView=item.frameView;d.selection=item.selection;redraw();setZoom(fitZoom(d),true);commit(d)}
+  function restoreCheckpoint(d,item){d.data=item.data;d.animationOverride=TA.copy(item.animation);d.surface=item.surface||null;d.depthLayer=null;d.frame=item.frame;d.frameView=item.frameView;d.selection=item.selection;redraw();setZoom(fitZoom(d),true);commit(d)}
   function changeSurface(value){
     var d=E.doc;if(!d||d.id==='skin')return false;
     var surface=window.TextureSurface.settings(value);
-    if(JSON.stringify(surface)!==JSON.stringify(d.surface)){pushUndo(d);d.surface=surface;d.version++;}
+    if(JSON.stringify(surface)!==JSON.stringify(d.surface)){pushUndo(d);d.surface=surface;d.depthLayer=null;redraw();d.version++;}
     return commit(d);
   }
   function heightDocument(d){
@@ -170,15 +225,19 @@
       frame:d.frame,frameView:d.frameView,animationOverride:TA.copy(d.animationOverride)};
   }
   function heightChange(d,result){
-    if(result&&result.data)d.surface=Object.assign({},d.surface,{height:codec.encode(result.data)});
+    d.depthLayer=null;if(result&&result.data)d.surface=Object.assign({},d.surface,{height:codec.encode(result.data)});
   }
   function redraw(){
     var d=E.doc;d.w=d.data.width;d.h=d.data.height;
+    if(E.depthEditing&&!window.TextureSurface.supported(d.data)){E.depthEditing=false;ed.classList.remove('depth-editing');}
     if(d.cv.width!==d.w||d.cv.height!==d.h){d.cv.width=d.w;d.cv.height=d.h}
     refreshEntry(d);var r=viewRect(d),resized=ec.width!==r.w||ec.height!==r.h;
     if(resized){ec.width=r.w;ec.height=r.h}
-    d.ctx.putImageData(d.data,0,0);ectx.clearRect(0,0,ec.width,ec.height);ectx.putImageData(d.data,-r.x,-r.y,r.x,r.y,r.w,r.h);d.version++;
-    var color=MT.tintColor(d.e);tintCanvas.hidden=!color||!d.viewTint;
+    var heightView=E.depthEditing&&E.depthView==='height';
+    d.ctx.putImageData(d.data,0,0);ectx.clearRect(0,0,ec.width,ec.height);ectx.putImageData(heightView?TD.layer(d):d.data,-r.x,-r.y,r.x,r.y,r.w,r.h);d.version++;
+    depthOverlay.hidden=!E.depthEditing||heightView;
+    if(!depthOverlay.hidden){depthOverlay.width=r.w;depthOverlay.height=r.h;depthOverlay.getContext('2d').putImageData(TD.overlay(TD.layer(d)),-r.x,-r.y,r.x,r.y,r.w,r.h);}
+    var color=MT.tintColor(d.e);tintCanvas.hidden=heightView||!color||!d.viewTint;
     if(!tintCanvas.hidden){tintCanvas.width=ec.width;tintCanvas.height=ec.height;tintCanvas.getContext('2d').putImageData(MT.tintImage(ectx.getImageData(0,0,ec.width,ec.height),color),0,0)}
     if(resized)setZoom(E.zoom);
   }
@@ -190,14 +249,14 @@
     if(kind==='reset'){
       var size=docSize(d.source),original=clone(await base(d.source,size.w,size.h));
       if(token!==activeToken||E.doc!==d)return;
-      pushUndo(d);d.selection=null;d.data=original;d.surface=null;d.animationOverride=undefined;d.frame=0;d.frameView=false;redraw();setZoom(fitZoom(d),true);commit(d);return;
+      pushUndo(d);d.selection=null;d.data=original;d.surface=null;d.depthLayer=null;d.animationOverride=undefined;d.frame=0;d.frameView=false;redraw();setZoom(fitZoom(d),true);commit(d);return;
     }
     try{var result=TA.transformAnimation(d,kind),height=heightDocument(d),heightResult=height?TA.transformAnimation(height,kind):null;pushUndo(d);heightChange(d,heightResult);applyAnimationChange(d,result)}catch(error){CB.toast(error.message)}
   }
   function applyAnimationChange(d,result){
     d.selection=null;
     var previous=viewRect(d);
-    if(result.data)d.data=result.data;
+    if(result.data){d.data=result.data;d.depthLayer=null;}
     if(Object.prototype.hasOwnProperty.call(result,'animation'))d.animationOverride=TA.copy(result.animation);
     if(result.frame!==undefined)d.frame=result.frame;
     if(result.frameView!==undefined)d.frameView=result.frameView;
@@ -292,6 +351,7 @@
   function hud(c){
     var d=E.doc;if(!d)return;var r=viewRect(d),inb=c&&c[0]>=r.x&&c[1]>=r.y&&c[0]<r.x+r.w&&c[1]<r.y+r.h;
     $('#edHud').textContent=inb?'Pixel '+(c[0]-r.x)+', '+(c[1]-r.y):r.w+' × '+r.h+' pixels';
+    if(inb&&E.depthEditing)$('#edHud').textContent+=' · Height '+Math.round(TD.layer(d).data[(c[1]*d.w+c[0])*4]/255*100)+'%';
   }
   ec.addEventListener('pointerdown',function(e){
     if(!E.doc||e.button>0||E.hand)return;
@@ -300,9 +360,11 @@
     try{ec.setPointerCapture(e.pointerId)}catch(_){}
     if(t==='pick'){pickAt(c);drag={t:'pick'};return}
     if(t==='select'){drag={t:t,s:c,l:c};selectArea(c,c);return}
-    pushUndo(d);drag={t:t,s:c,l:c};
+    if(t==='lasso'){drag={t:t,points:[[c[0],c[1]]],l:c};d.selection=null;sync();return;}
+    pushUndo(d);drag={t:t,s:c,l:c,pressure:e.pointerType==='pen'?e.pressure||1:1};
+    if(E.depthEditing)drag.depthStroke=TD.stroke(TD.layer(d));
     if(t==='fill'){fill(c[0],c[1])}
-    else if(t==='line'||t==='rect'||t==='ellipse'){drag.snap=new Uint8ClampedArray(d.data.data);if(t==='line')line(c,c);else if(t==='ellipse')ellipse(c,c,e.shiftKey);else rectShape(c,c,e.shiftKey)}
+    else if(t==='line'||t==='rect'||t==='ellipse'){drag.snap=new Uint8ClampedArray(E.depthEditing?TD.layer(d).data:d.data.data);if(t==='line')line(c,c);else if(t==='ellipse')ellipse(c,c,e.shiftKey);else rectShape(c,c,e.shiftKey)}
     else plot(c[0],c[1]);
     redraw();
     if(t==='fill')end();
@@ -312,14 +374,22 @@
     var c=cellAt(e);hover=c;hud(c);
     if(drag){
       var d=E.doc;
+      if(drag.depthStroke)drag.pressure=e.pointerType==='pen'?e.pressure||1:1;
       if(drag.t==='pick')pickAt(c);
       else if(drag.t==='select'){selectArea(drag.s,c)}
-      else if(drag.t==='line'||drag.t==='rect'||drag.t==='ellipse'){d.data.data.set(drag.snap);if(drag.t==='line')line(drag.s,c);else if(drag.t==='ellipse')ellipse(drag.s,c,e.shiftKey);else rectShape(drag.s,c,e.shiftKey);redraw()}
+      else if(drag.t==='lasso'){if((c[0]!==drag.l[0]||c[1]!==drag.l[1])&&drag.points.length<4096){drag.points.push(c);drag.l=c;}}
+      else if(drag.t==='line'||drag.t==='rect'||drag.t==='ellipse'){(E.depthEditing?TD.layer(d).data:d.data.data).set(drag.snap);if(drag.depthStroke)drag.depthStroke.weights.fill(0);if(drag.t==='line')line(drag.s,c);else if(drag.t==='ellipse')ellipse(drag.s,c,e.shiftKey);else rectShape(drag.s,c,e.shiftKey);redraw()}
       else if(c[0]!==drag.l[0]||c[1]!==drag.l[1]){line(drag.l,c,true);drag.l=c;redraw()}
     }
     ovl();
   });
-  function end(){if(!drag)return;var t=drag.t;drag=null;if(t==='pick'||t==='select')return;pushRecent();commit(E.doc)}
+  function end(){
+    if(!drag)return;var t=drag.t;
+    if(t==='lasso'){E.doc.selection=TD.lasso(drag.points,viewRect(E.doc));drag=null;sync();ovl();return;}
+    drag=null;if(t==='pick'||t==='select')return;
+    if(E.depthEditing)TD.save(E.doc);else{E.doc.depthLayer=null;pushRecent();}
+    commit(E.doc);
+  }
   ec.addEventListener('pointerup',end);ec.addEventListener('pointercancel',end);
   ec.addEventListener('pointerleave',function(){hover=null;ovl();hud(null)});
   var area=$('#edArea');
@@ -346,7 +416,13 @@
   var UV=[['Head',0,0,32,16],['Body',16,16,24,16],['R leg',0,16,16,16],['R arm',40,16,16,16],['L leg',16,48,16,16],['L arm',32,48,16,16]],FR=[[8,8,8,8],[20,20,8,12],[44,20,4,12],[4,20,4,12],[20,52,4,12],[36,52,4,12]];
   function ovl(){
     var d=E.doc;octx.clearRect(0,0,eo.width,eo.height);if(!d)return;var z=E.zoom,r=viewRect(d);
-    if(d.selection){var s=d.selection;octx.lineWidth=2;octx.strokeStyle='#172610';octx.strokeRect((s.x-r.x)*z+1,(s.y-r.y)*z+1,s.w*z-2,s.h*z-2);octx.setLineDash([5,4]);octx.strokeStyle='#fff';octx.strokeRect((s.x-r.x)*z+1,(s.y-r.y)*z+1,s.w*z-2,s.h*z-2);octx.setLineDash([])}
+    if(d.selection){
+      var s=d.selection;octx.beginPath();
+      if(s.mask)TD.outline(s).forEach(function(edge){octx.moveTo((edge[0]-r.x)*z,(edge[1]-r.y)*z);octx.lineTo((edge[2]-r.x)*z,(edge[3]-r.y)*z);});
+      else octx.rect((s.x-r.x)*z+1,(s.y-r.y)*z+1,s.w*z-2,s.h*z-2);
+      octx.lineWidth=2;octx.strokeStyle='#172610';octx.stroke();octx.setLineDash([5,4]);octx.strokeStyle='#fff';octx.stroke();octx.setLineDash([]);
+    }
+    if(drag&&drag.t==='lasso'){octx.beginPath();drag.points.forEach(function(point,index){var x=(point[0]-r.x)*z,y=(point[1]-r.y)*z;if(index)octx.lineTo(x,y);else octx.moveTo(x,y);});octx.closePath();octx.lineWidth=2;octx.strokeStyle='#fff';octx.setLineDash([5,4]);octx.stroke();octx.setLineDash([]);}
     if(E.p.type==='skin'&&E.uv){
       octx.lineWidth=2;octx.strokeStyle='rgba(79,138,28,.95)';octx.fillStyle='rgba(20,30,10,.85)';octx.font='700 12px sans-serif';
       UV.forEach(function(u){octx.strokeRect(u[1]*z+1,u[2]*z+1,u[3]*z-2,u[4]*z-2);octx.fillText(u[0],u[1]*z+6,u[2]*z+16)});
@@ -368,6 +444,7 @@
     var r=viewRect(d),wd=r.w*z,ht=r.h*z;
     ec.style.width=wd+'px';ec.style.height=ht+'px';eo.width=wd;eo.height=ht;eo.style.width=wd+'px';eo.style.height=ht+'px';
     tintCanvas.style.width=wd+'px';tintCanvas.style.height=ht+'px';
+    depthOverlay.style.width=wd+'px';depthOverlay.style.height=ht+'px';
     wrap.style.setProperty('--z',z+'px');wrap.classList.toggle('nogrid',!E.grid||z<6);
     $('#edZoom').value=z;$('#canvasZoomValue').textContent=Math.round(z*100)+'%';
     $('#canvasZoomOut').disabled=z<=.125;$('#canvasZoomIn').disabled=z>=48;
@@ -511,14 +588,21 @@
     var d=E.doc;$('#edRight').classList.toggle('off',!d||E.cur==='preview');$('#edUndo').disabled=!d||!d.undo.length;$('#edRedo').disabled=!d||!d.redo.length;
     var visible=!!d&&E.cur!=='preview';$('#canvasBar').hidden=!visible;$('#canvasFooter').hidden=!visible;
     var canSurface=!!d&&E.p.type!=='skin'&&window.TextureSurface.supported(d.data);
+    if(!canSurface){E.depthEditing=false;ed.classList.remove('depth-editing');}
     $('#canvasSurface').hidden=!visible||!canSurface;$('#surfaceTools').hidden=!canSurface;
     $('#previewSurface').hidden=!canSurface||E.cur!=='preview';
-    var surfaceLabel=d&&d.surface?'Edit depth':'Add depth';
-    $('#canvasSurface span').textContent=surfaceLabel;$('#canvasSurface').setAttribute('aria-label',surfaceLabel);
-    $('#surfaceOpen span').textContent=surfaceLabel;
+    $('#canvasSurface').setAttribute('aria-pressed',String(E.depthEditing));$('#surfaceMode').setAttribute('aria-pressed',String(E.depthEditing));
+    $('#surfaceMode span').textContent=E.depthEditing?'Back to colors':'Edit pixel depth';$('#depthControls').hidden=!E.depthEditing;
+    $('#depthSelectionStatus').textContent=d&&d.selection?(d.selection.count===undefined?d.selection.w*d.selection.h:d.selection.count)+' pixels selected':'Select pixels or use the depth brush.';
+    $$('[data-depth-adjust]').forEach(function(button){button.disabled=!d||!d.selection;});
+    $$('[data-depth-tool]').forEach(function(button){button.setAttribute('aria-pressed',String(button.dataset.depthTool===E.tool));});
+    $$('[data-depth-action]').forEach(function(button){button.setAttribute('aria-pressed',String(button.dataset.depthAction===E.depthAction));});
+    $('#depthAmount').value=E.depthAmount;$('#depthAmountValue').textContent=E.depthAmount+'%';$('#depthValue').value=E.depthValue;$('#depthSoftness').value=E.depthSoftness;$('#depthView').value=E.depthView;
     $('#surfaceSummary').textContent=d&&d.surface?'Depth '+Math.round(d.surface.depth)+'% · Shine '+Math.round(d.surface.shine)+'%':'Give this texture height and shine.';
-    if(d){var r=viewRect(d);$('#canvasTextureName').textContent=d.e.n||d.id.split('/').pop();$('#canvasDocumentMeta').textContent=d.layout?(d.frameView?'Editing frame '+(d.frame+1)+' of '+d.layout.steps.length:'Full animation sheet'):'Pixel canvas';}
-    var help=E.hand?['Hand','Zoom in, then drag to move around. Click Hand again to paint.']:TOOL_HELP[E.tool];
+    if(d){var r=viewRect(d);$('#canvasTextureName').textContent=d.e.n||d.id.split('/').pop();$('#canvasDocumentMeta').textContent=E.depthEditing?'Editing pixel depth':d.layout?(d.frameView?'Editing frame '+(d.frame+1)+' of '+d.layout.steps.length:'Full animation sheet'):'Pixel canvas';}
+    var help=E.hand?['Hand','Zoom in, then drag to move around. Click Hand again to paint.']:E.tool==='lasso'?['Lasso','Draw around the pixels to select. Then raise, lower, or set their height.']:TOOL_HELP[E.tool];
+    if(E.depthEditing&&E.tool==='select')help=['Select depth','Drag to select pixels. Use the depth controls to raise, lower, or set height.'];
+    if(E.depthEditing&&E.tool==='pencil')help=['Depth brush','Paint height inside the selection. Choose Raise, Lower, or Set height in the depth controls.'];
     $('#canvasToolName').textContent=help[0];$('#canvasToolHint').textContent=help[1];$('#toolGuide').textContent=help[1];
     $('#canvasPan').setAttribute('aria-pressed',String(!!E.hand));area.classList.toggle('hand-mode',!!E.hand);
     $('#canvasGrid').setAttribute('aria-pressed',String(!!E.grid));
@@ -537,7 +621,13 @@
     if(t.closest('#texturePaletteMore')&&E.doc){E.doc.palettePage=((E.doc.palettePage||0)+1)%Math.ceil(E.doc.palette.length/PALETTE_PAGE);textureColors();return}
     if(t.closest('#tintToggle')&&E.doc){var d=E.doc;d.viewTint=!d.viewTint;E.p.tintView=E.p.tintView||{};E.p.tintView[d.id]=d.viewTint;CB.save();redraw();sync();renderLeft();renderTabs();ovl();return}
     if(t.closest('#textureImport,#canvasImport')){importImage();return}
-    if(t.closest('#canvasSurface,#surfaceOpen,#previewSurface')){if(drag)end();preview.stop();surfaceStudio.open();return}
+    if(t.closest('#mobileDepth')){if(E.depthEditing)openDepthPanel();else setDepthMode(true);return}
+    if(t.closest('#canvasSurface,#surfaceMode')){setDepthMode(!E.depthEditing);return}
+    if(b=t.closest('[data-depth-tool]')){if(drag)end();E.hand=false;E.tool=b.dataset.depthTool;if(innerWidth<=900)ed.classList.remove('r-open');sync();ovl();return}
+    if(b=t.closest('[data-depth-adjust]')){adjustDepth(b.dataset.depthAdjust);return}
+    if(b=t.closest('[data-depth-action]')){E.depthAction=b.dataset.depthAction;E.tool='pencil';sync();return}
+    if(t.closest('[data-depth-deselect]')){selectionAction('none');return}
+    if(t.closest('#surfaceOpen,#previewSurface')){if(drag)end();preview.stop();surfaceStudio.open();return}
     if(t.closest('#textureExport')){exportPNG();return}
     if(t.closest('#edDetails')){picker.close(false);CB.openDetails(E.p);return}
     if(t.closest('#edExport')){picker.close(false);window.ResourcePacks.exportProject(E.p);return}
@@ -567,6 +657,10 @@
   $('#edCat').innerHTML=MT.options();
   $('#edCat').addEventListener('change',function(){E.cat=this.value;E.page=0;renderLeft();persist()});
   $('#edZoom').addEventListener('input',function(){setZoom(+this.value,false)});
+  $('#depthAmount').addEventListener('input',function(){E.depthAmount=Number(this.value);$('#depthAmountValue').textContent=E.depthAmount+'%';});
+  $('#depthValue').addEventListener('input',function(){E.depthValue=Math.max(0,Math.min(100,Number(this.value)||0));});
+  $('#depthSoftness').addEventListener('input',function(){E.depthSoftness=Number(this.value);});
+  $('#depthView').addEventListener('change',function(){E.depthView=this.value;redraw();ovl();});
   $('#brushCustom').addEventListener('input',function(){E.size=Math.max(1,Math.min(32,Math.round(Number(this.value)||1)));ovl();});
   $('#brushCustom').addEventListener('change',sync);
   $('#texturePicker').addEventListener('change',function(){if(this.files[0])importImage(this.files[0]);this.value='';});
@@ -625,7 +719,7 @@
     if(k==='h'){e.preventDefault();if(!e.repeat)$('#canvasPan').click();return}
     if(k==='f'){e.preventDefault();$('#edFit').click();return}
     if(k==='0'){e.preventDefault();setZoom(1,false);return}
-    if(k==='c'){e.preventDefault();picker.open();return}
+    if(k==='c'){e.preventDefault();if(E.depthEditing)setDepthMode(false);picker.open();return}
     var map={b:'pencil',e:'eraser',g:'fill',i:'pick',l:'line',r:'rect',o:'ellipse',m:'select',u:'light',d:'dark'};
     if(map[k]){e.preventDefault();releaseSpaceHand();E.hand=false;E.tool=map[k];sync();ovl()}
     else if(k==='['){e.preventDefault();E.size=Math.max(1,E.size-1);sync();ovl()}
@@ -681,7 +775,7 @@
         if(image.width!==r.w||image.height!==r.h)throw new Error('Keep the current dimensions to preserve this animation.');
         var next=clone(d.data);for(var y=0;y<r.h;y++)next.data.set(image.data.subarray(y*r.w*4,(y+1)*r.w*4),((r.y+y)*d.w+r.x)*4);image=next;
       }
-      pushUndo(d);d.data=image;d.selection=null;redraw();setZoom(fitZoom(d),true);ovl();
+      pushUndo(d);d.data=image;d.depthLayer=null;d.selection=null;redraw();setZoom(fitZoom(d),true);ovl();
       var saved=await commit(d);
       if(saved)CB.toast(result.scope==='frame'?'Image applied to frame '+(d.frame+1)+'. Undo restores its pixels.':'Texture replaced. Image applied and saved locally. Undo restores the previous pixels.');
       else CB.toast('Image applied, but it could not be saved locally. Export a backup or retry saving.');
@@ -704,7 +798,7 @@
     if(drag)end();
     var token=++activeToken;surfaceStudio.close(false);preview.stop();picker.close(false);ImageImporter.close();animationControls.stop();
     if(packSession){packSession.release();packSession=null;}
-    E.loading=true;E.doc=null;E.catalog=MT;$('#edQ').disabled=true;
+    E.depthEditing=false;ed.classList.remove('depth-editing');E.loading=true;E.doc=null;E.catalog=MT;$('#edQ').disabled=true;
     E.p=p;p.edits=p.edits||{};E.docs={};E.pending={};BC={};E.faceModel=null;E.open=[];E.cur=null;E.last=null;E.q='';E.page=0;E.tool='pencil';E.size=1;E.mx=E.my=false;E.alpha=100;E.grid=D.set.grid!==false;hover=null;animationControls.refresh();
     $('#edName').textContent=p.name;$('#edPath').textContent='';$('#edArea').style.display='none';$('#edPv').classList.remove('on');$('#edRight').classList.add('off');
     $('#edEmpty').style.display='flex';$('#edEmpty b').textContent='Opening local project…';$('#edEmpty span').textContent='';
@@ -741,5 +835,5 @@
     if(packSession){packSession.release();packSession=null;}
     E.doc=null;E.p=null;E.loading=false;E.docs={};E.pending={};BC={};E.catalog=MT;drag=null;CB.save();CB.renderAll();
   }
-  window.Ed={open:open,close:close,refreshDetails:refreshDetails,readPNG:readPNG,importImage:importImage,replacePNG:importImage,exportPNG:exportPNG,selectionAction:selectionAction,refreshLayout:function(light){if(E.p&&!E.loading&&ed.classList.contains('show')){if(!light)renderLeft();if(E.cur==='preview')preview.transform();else fitViewport()}},prepareExport:function(){if(drag)end();CB.save()}};
+  window.Ed={open:open,close:close,enterDepth:function(){return setDepthMode(true)},exitDepth:function(){if(E.depthEditing)return setDepthMode(false)},refreshDetails:refreshDetails,readPNG:readPNG,importImage:importImage,replacePNG:importImage,exportPNG:exportPNG,selectionAction:selectionAction,refreshLayout:function(light){if(E.p&&!E.loading&&ed.classList.contains('show')){if(!light)renderLeft();if(E.cur==='preview')preview.transform();else fitViewport()}},prepareExport:function(){if(drag)end();CB.save()}};
 })();

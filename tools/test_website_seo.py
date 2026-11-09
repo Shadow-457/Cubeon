@@ -309,7 +309,8 @@ class SEOTests(unittest.TestCase):
                     self.assertTrue(hosts[host]['permanent'])
             self.assertNotIn('www.ylet.online', hosts, 'Canonical host must not redirect to itself')
         for key in self.pages:
-            source = (WEB / f'{key}.html').read_text()
+            path = WEB / 'cubeon-bench/index.html' if key == 'cubeon-bench' else WEB / f'{key}.html'
+            source = path.read_text()
             with self.subTest(page=key):
                 self.assertNotIn('https://cubeon.ylet.online', source)
                 self.assertNotRegex(source, r'>Ylet<|operated by Ylet|Ylet.*product')

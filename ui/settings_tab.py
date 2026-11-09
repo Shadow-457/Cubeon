@@ -9,9 +9,9 @@ import unicodedata
 from cubeon import i18n
 from cubeon import motion
 from cubeon import osnotify
-from cubeon import thread_safe_ui
+from cubeon import thread_safe_ui, scrolling
 from cubeon.theme import (
-    RADIUS, RADIUS_LG, ROW_HOVER, ACCENT_TINT, TEXT_FAINT,
+    RADIUS, RADIUS_LG, ROW_HOVER, ACCENT_TINT, TEXT_FAINT, keyboard_target,
 )
 
 # Labels stay short; keys also serve existing links from the launcher.
@@ -101,24 +101,28 @@ def _save_preference(cfg, key, value, *, set_status, error):
 
 
 def _row(title, subtitle, control, *, TEXT, TEXT_DIM):
-    """One setting: title (+ at most one short grey line) on the left, the
-    control on the right. The only row pattern in the whole tab."""
+    """Keep switches beside their label; wide actions stack in narrow forms."""
+    labels = ft.Column([
+        ft.Text(i18n.t(title), size=14, color=TEXT, weight=ft.FontWeight.W_600),
+        *([ft.Text(i18n.t(subtitle), size=12, color=TEXT_DIM)] if subtitle else []),
+    ], spacing=4, expand=True)
+    if isinstance(control, (ft.Switch, ft.Checkbox)):
+        content = ft.Row([labels, control], spacing=16,
+                         vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    else:
+        if isinstance(control, ft.Dropdown):
+            control.expand = True
+            control = ft.Row([control], spacing=0)
+        elif isinstance(control, ft.TextField):
+            control = ft.Column([control], spacing=0,
+                                horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+        content = ft.ResponsiveRow([
+            ft.Container(labels, col={"xs": 12, "wide": 7}),
+            ft.Container(control, col={"xs": 12, "wide": 5}, alignment=ft.Alignment.CENTER_RIGHT),
+        ], breakpoints={"xs": 0, "wide": 500}, spacing=16, run_spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER)
     return ft.Container(
-        content=ft.Row(
-            [
-                ft.Column(
-                    [
-                        ft.Text(i18n.t(title), size=14, color=TEXT,
-                                weight=ft.FontWeight.W_600),
-                        *([ft.Text(i18n.t(subtitle), size=12, color=TEXT_DIM)]
-                          if subtitle else []),
-                    ],
-                    spacing=4, expand=True,
-                ),
-                control,
-            ],
-            spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
+        content=content,
         padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
     )
 
@@ -126,6 +130,8 @@ def _row(title, subtitle, control, *, TEXT, TEXT_DIM):
 def _body(control, *, pad_v=14):
     """A full-width cell inside a group (fields, sliders - things that are not
     a title/control pair)."""
+    if isinstance(control, ft.Column):
+        control.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
     return ft.Container(
         content=control,
         padding=ft.padding.Padding.symmetric(horizontal=16, vertical=pad_v),
@@ -306,7 +312,8 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
 
     rows = ft.ListView(spacing=4, height=288, visible=False)
     chevron = ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT_DIM)
-    summary = ft.Text("", size=11.5, color=TEXT_FAINT)
+    summary = ft.Text("", size=11.5, color=TEXT_FAINT, width=120, max_lines=2,
+                      overflow=ft.TextOverflow.ELLIPSIS)
     open_state = {"v": False}
     # Advanced Java choices affect launch precedence, not pointer interaction.
     ram_slider.disabled = False
@@ -386,6 +393,7 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
             # that puts its noun first still reads correctly.
             summary.value = f"{applied} {i18n.t('flags added')}" + (
                 f", {skipped} {i18n.t('not on this machine')}" if skipped else "")
+        summary.tooltip = summary.value
         # Repaint only this panel: the rest of Settings is untouched.
         thread_safe_ui.refresh(rows)
         thread_safe_ui.refresh(summary)
@@ -557,6 +565,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         )
 
     def row(title, subtitle, control):
+        if isinstance(control, ft.Container) and callable(control.on_click):
+            control = keyboard_target(control, i18n.t(title))
         return _row(title, subtitle, control, TEXT=TEXT, TEXT_DIM=TEXT_DIM)
 
     def group(rows):
@@ -576,8 +586,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
 
+    disclosures = []
+
     def advanced(label, content, *, data):
-        return ft.ExpansionTile(
+        duration = motion.BASE_MS if motion.transforms() else 0
+        tile = ft.ExpansionTile(
             title=ft.Text(i18n.t(label), size=13, color=TEXT,
                           weight=ft.FontWeight.W_600),
             controls=[content], maintain_state=True, dense=True,
@@ -587,9 +600,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             bgcolor=SURFACE_HI, collapsed_bgcolor=SURFACE_HI,
             shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
             collapsed_shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
-            animation_style=ft.AnimationStyle(duration=0, reverse_duration=0),
+            animation_style=ft.AnimationStyle(duration=duration, reverse_duration=duration),
             data=data,
         )
+        disclosures.append(tile)
+        return tile
 
     def compact(btn):
         """Shrink a full-width button to a row-sized one."""
@@ -653,6 +668,10 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 set_status(i18n.t("Full motion") if sw.value else
                            i18n.t("Motion reduced - fades only, nothing moves on its own"))
             sw.value = motion.transforms()
+            duration = motion.BASE_MS if motion.transforms() else 0
+            for tile in disclosures:
+                tile.animation_style = ft.AnimationStyle(duration=duration, reverse_duration=duration)
+                thread_safe_ui.refresh(tile)
             thread_safe_ui.refresh(sw)
 
     motion_switch.on_change = _on_motion_change
@@ -703,8 +722,15 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "In Minecraft's F3 screen, check the maximum after the slash on the Mem line. "
         "Allocated shows the memory Java has reserved so far and can be lower.")
     if len(ram_range_row.controls) >= 3:
-        ram_range_row.controls[1].expand = True
-        ram_range_row.controls[1].text_align = ft.TextAlign.CENTER
+        minimum, recommendation, maximum = ram_range_row.controls[:3]
+        recommendation.expand = False
+        recommendation.text_align = ft.TextAlign.CENTER
+        ram_range_row.controls[:] = [ft.Column([
+            ft.Row([minimum, maximum], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            recommendation,
+        ], spacing=6, expand=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)]
+    ram_warning.max_lines = 2
+    ram_warning.overflow = ft.TextOverflow.ELLIPSIS
     performance_pane = pane(
         i18n.t("Performance"),
         block(i18n.t("Memory"), group([
@@ -720,7 +746,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                     ),
                     ram_slider,
                     ram_range_row,
-                    ram_warning,
+                    ft.Container(ram_warning, height=40),
                     memory_status,
                 ],
                 spacing=8,
@@ -781,6 +807,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # ======================================================================
     seasonal_status_text.expand = True
     seasonal_restart_note.expand = True
+    season_dropdown.width = None
     seasonal_pane = pane(
         i18n.t("Theme"),
         block(i18n.t("Look"), group([
@@ -800,9 +827,12 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             _body(ft.Column(
                 [
                     season_pin_note,
-                    ft.Row([seasonal_restart_btn, seasonal_restart_note],
-                           spacing=12,
-                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.ResponsiveRow([
+                        ft.Container(keyboard_target(seasonal_restart_btn, i18n.t("Restart")),
+                                     col={"xs": 12, "wide": 4}),
+                        ft.Container(seasonal_restart_note, col={"xs": 12, "wide": 8}),
+                    ], breakpoints={"xs": 0, "wide": 500}, spacing=12, run_spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 ],
                 spacing=8,
             ), pad_v=10),
@@ -889,11 +919,18 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # FILES AND BACKUPS
     # ======================================================================
 
+    frequency_dropdown.expand = True
+    keep_last_field.width = None
+    backup_now_btn.expand = open_folder_btn.expand = False
     backup_rows = [
         row("Automatic backups", "Runs while Cubeon is open",
             backup_enabled_switch),
         advanced("Backup schedule",
-                 _body(ft.Row([frequency_dropdown, keep_last_field], spacing=12), pad_v=12),
+                 _body(ft.ResponsiveRow([
+                     ft.Container(ft.Row([frequency_dropdown], spacing=0), col={"xs": 12, "wide": 7}),
+                     ft.Container(ft.Column([keep_last_field], spacing=0,
+                                  horizontal_alignment=ft.CrossAxisAlignment.STRETCH), col={"xs": 12, "wide": 5}),
+                 ], breakpoints={"xs": 0, "wide": 420}, spacing=12, run_spacing=12), pad_v=12),
                  data="settings-backup-schedule"),
         row("Include world saves", "Much larger backups", include_saves_switch),
         _body(ft.Column(
@@ -904,10 +941,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                      ft.Container(content=backup_status_text, expand=True)],
                     spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                # Expanded buttons need a bounded, unwrapped Row. Flutter's
-                # Wrap cannot lay out flex children and paints an error panel.
-                ft.Row([backup_now_btn, open_folder_btn], spacing=12),
-                restore_btn,
+                ft.ResponsiveRow([
+                    ft.Container(keyboard_target(backup_now_btn, i18n.t("Back up now")), col={"xs": 12, "wide": 6}),
+                    ft.Container(keyboard_target(open_folder_btn, i18n.t("Open backups folder")), col={"xs": 12, "wide": 6}),
+                ], breakpoints={"xs": 0, "wide": 500}, spacing=12, run_spacing=12),
+                keyboard_target(restore_btn, i18n.t("Restore from a backup zip")),
             ],
             spacing=12,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
@@ -926,7 +964,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                ft.TextButton(i18n.t("Open tour"), data="replay-onboarding",
                              on_click=lambda e: on_replay_onboarding()))]
           if on_replay_onboarding else []),
-    ]), ft.Row([cubeon_web_link, minekube_badge], spacing=16,
+    ]), ft.Row([keyboard_target(cubeon_web_link, "Cubeon Web"), minekube_badge], spacing=16,
                vertical_alignment=ft.CrossAxisAlignment.CENTER))
 
     # ======================================================================
@@ -969,8 +1007,9 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 for k, p in panes.items():
                     p.visible = (k == key)
                 _rebuild_rail()
-                thread_safe_ui.refresh(rail)
+                thread_safe_ui.refresh(compact_rail if layout["compact"] else rail)
                 thread_safe_ui.refresh(pane_host)
+            reveal_selection()
         if key == 'images':
             if callable(refresh_screenshot_gallery):
                 refresh_screenshot_gallery()
@@ -1008,10 +1047,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     rail_host = ft.Container(content=ft.Column([rail], scroll=ft.ScrollMode.AUTO,
                                               expand=True), width=168)
+    divider = ft.Container(width=1, bgcolor=BORDER)
     settings_tab = ft.Row(
         [
             rail_host,
-            ft.Container(width=1, bgcolor=BORDER),
+            divider,
             pane_host,
         ],
         spacing=16,
@@ -1020,8 +1060,47 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     )
 
     # Mounted once in the launcher's retained Settings tab.
-    host = ft.Column([settings_tab], spacing=0, expand=True,
-                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    compact_rail = ft.Row(spacing=6, scroll=ft.ScrollMode.AUTO,
+                          data="settings-compact-navigation")
+    compact_host = ft.Container(compact_rail, height=54, visible=False)
+    rail_targets = tuple(rail.controls)
+    layout = {"compact": False}
+    host = ft.Column([compact_host, settings_tab], spacing=12, expand=True,
+                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                     data="settings-layout")
+
+    def reveal_selection():
+        if layout["compact"]:
+            try:
+                mounted_page = compact_rail.page
+            except RuntimeError:
+                return
+            index = next(index for index, (key, _, _) in enumerate(sections)
+                         if key == active_section["value"])
+            scrolling.to_offset(mounted_page, compact_rail, index * 150)
+
+    def layout_changed(event):
+        ft.context.disable_auto_update()
+        compact_mode = float(event.width or 1000) < 760
+        with thread_safe_ui.TREE_LOCK:
+            if compact_mode == layout["compact"]:
+                return
+            layout["compact"] = compact_mode
+            # Move the same keyboard targets. No field or section is rebuilt
+            # when a resized window changes the navigation's orientation.
+            rail.controls[:] = [] if compact_mode else rail_targets
+            compact_rail.controls[:] = rail_targets if compact_mode else []
+            for item in rail_items.values():
+                item.width = 144 if compact_mode else None
+                item.height = 48 if compact_mode else None
+            compact_host.visible = compact_mode
+            rail_host.visible = divider.visible = not compact_mode
+            settings_tab.spacing = 0 if compact_mode else 16
+            pane_host.padding = 0 if compact_mode else ft.Padding(0, 0, 8, 0)
+            thread_safe_ui.refresh(host)
+            reveal_selection()
+    host.on_size_change = layout_changed
+    host.size_change_interval = 100
 
     # --- instant save on blur (width/height/java) ---------------------------
     fields = (('width', width_field), ('height', height_field),
@@ -1049,8 +1128,16 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                     else:
                         cfg.pop(key, None)
                 saved_fields['failed'] = True
+                for index, (_key, field) in enumerate(fields):
+                    if field_values()[index] != saved_fields['values'][index]:
+                        field.error = i18n.t("Couldn't save this change. Try again.")
+                        thread_safe_ui.refresh(field)
                 set_status(f"{i18n.t('Could not save settings')}: {ex}")
                 return False
+            for _, field in fields:
+                if field.error:
+                    field.error = None
+                    thread_safe_ui.refresh(field)
             saved_fields.update(values=field_values(), failed=False)
             set_status(i18n.t("Settings saved"))
             return True

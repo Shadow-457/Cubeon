@@ -95,6 +95,19 @@ class WebsiteTranslation(unittest.TestCase):
                 self.assertEqual([entry['item'] for entry in graph['BreadcrumbList']['itemListElement']],
                                  [translations.page_url(p, 'ar') for p in ('index', 'docs', name)])
 
+    def test_faq_uses_rendered_answers_when_plain_translation_is_stale(self):
+        from prepare_website_faq import Answers
+        from test_website_seo import Page
+        original = Answers(translations.read_page('index')).answers
+        catalog = translations.load_catalog('ar')
+        catalog[original[0]['acceptedAnswer']['text']] = 'Stale plain answer'
+        with patch.object(translations, 'load_catalog', return_value=catalog):
+            source, _ = translations.translate_page('index', 'ar')
+        schema = json.loads(Page(source).schemas[0])
+        faq = next(node for node in schema['@graph'] if node['@type'] == 'FAQPage')
+        self.assertEqual(faq['mainEntity'], Answers(source).answers)
+        self.assertNotIn('Stale plain answer', source)
+
 
 if __name__ == '__main__':
     unittest.main()

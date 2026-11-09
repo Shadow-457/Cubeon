@@ -93,6 +93,7 @@
       ['remember', 'calm', 'grid', 'naturalColors'].forEach(function (key) { if (typeof settings[key] === 'boolean') next.set[key] = settings[key]; });
       if (['system', 'light', 'dark'].includes(settings.theme)) next.set.theme = settings.theme;
       if ([16, 32, 64].includes(settings.size)) next.set.size = settings.size;
+      if (window.BenchI18n.normalize(settings.language)) next.set.language = window.BenchI18n.normalize(settings.language);
     }
     var activity = backup.state.textureActivity || {};next.textureActivity=next.textureActivity||{};
     Object.keys(activity).forEach(function (key) { if (/^\d{4}-\d{2}-\d{2}$/.test(key) && Array.isArray(activity[key])) {next.textureActivity[key]=Array.from(new Set((next.textureActivity[key]||[]).concat(activity[key].filter(function(item){return typeof item==='string'&&item.length<300}))));next.activity[key]=next.textureActivity[key].length;} });
@@ -116,7 +117,7 @@
     document.getElementById('trashCount').textContent = trash.length + (trash.length === 1 ? ' project in Trash' : ' projects in Trash');
     document.getElementById('emptyTrash').disabled = !trash.length;
     root.innerHTML = trash.length ? trash.map(function (p) { return '<div class="trash-row"><span><b>' + CB.esc(p.name) + '</b><small class="mu">' + (p.type === 'skin' ? 'Skin' : 'Texture pack') + '</small></span><button type="button" class="gb" data-restore="' + CB.esc(p.id) + '">Restore</button></div>'; }).join('') : '<p class="mu">Deleted projects appear here until you empty Trash.</p>';
-    document.getElementById('backupStatus').textContent = CB.D.lastBackup ? 'Last backup: ' + new Date(CB.D.lastBackup).toLocaleString() : 'Back up every project, texture edit, and imported file in one ZIP.';
+    window.BenchI18n.text(document.getElementById('backupStatus'),CB.D.lastBackup?'Last backup: {text}':'Back up every project, texture edit, and imported file in one ZIP.',{text:new Date(CB.D.lastBackup).toLocaleString(window.BenchI18n.language())});
   }
   function removeProject(identifier) {
     var project = CB.find(identifier); if (!project) return;

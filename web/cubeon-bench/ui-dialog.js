@@ -26,6 +26,7 @@
     accept.classList.toggle('danger-action', !!options.danger);
     cancel.onclick = function () { close(null); };
     accept.onclick = function () { close(options.read ? options.read(host) : true); };
+    if(window.BenchI18n)window.BenchI18n.translate(host);
     return new Promise(function (resolve) { finish = resolve; host.showModal(); accept.focus(); window.Motion.surface(host); });
   }
   window.AppDialog = {open: open, close: close};

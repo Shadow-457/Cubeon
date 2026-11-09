@@ -226,8 +226,8 @@ keep builders consistent with the shared `THEME` contract.
   replay cascade/shimmer animations on refresh.
 - Rows with expanding spacers must not use `wrap=True`; Flutter's wrapped layout cannot host flex
   children. Check actual rendering, not only Python builds.
-  Settings' backup actions use two expanded buttons in an unwrapped Row and a separate restore row;
-  the history text has a flexible wrapper. Wrapping the expanded buttons caused the gray error panel.
+  Settings' backup actions use ResponsiveRows with native-width columns and a separate restore row;
+  the history text has a flexible wrapper. Wrapping expanded buttons caused the gray error panel.
 - Tab loads repaint their own region: `ui/mods_tab.py` and `ui/modpacks_tab.py` browse loading,
   cached-page render and content-type switches use `thread_safe_ui.refresh(...)`, not `page.update()`.
   A whole-tree diff in the same moment a tab is built/fetched was the "clicking Mods stalls the app"
@@ -478,6 +478,22 @@ keep builders consistent with the shared `THEME` contract.
   use native keyboard buttons; rail hover preserves selection. Failed settings-owned
   saves restore live values/config key presence and remain retryable; Enter then blur
   saves unchanged fields only once. Sound previews follow successful saves.
+- Settings switches its existing category targets to a horizontal native-scrolling
+  strip when the actual host width is below 760px; wider hosts restore the rail.
+  Retain every field/section during resize, repaint the active navigation host,
+  and use `scrolling.to_offset` to reveal compact selections. Dropdowns expand
+  inside bounded Rows; fields/actions stack with ResponsiveRow in narrow forms.
+  Native disclosures retain state and follow the live reduced-motion preference.
+  Flet 0.86 TextField errors use `.error`, not the silently ignored `.error_text`.
+  Account validation and RAM warnings reserve space to avoid pushing later controls.
+  `test_settings_polish.py` covers resize retention, failed saves/retries and worker
+  cleanup; `capture_settings_layout.py` checks native 1200/800/480/360px forms and
+  a short viewport's retained scroll position.
+- Backup preferences use `atomicio.write_json`; failed writes preserve the prior
+  file and live values. Retention 0 means keep all. Manual backup/restore share a
+  busy gate, capture options before worker launch, disable their keyboard targets,
+  and release actions on worker or thread-start errors. Repaint the backup region
+  and Account picture controls through scoped refreshes, never a whole-page diff.
 - Settings → Game → In game exposes independent `client_mod_enabled` and `csl_enabled`
   switches, applied on the next launch; pack installation respects them too. CSL opt-out
   renames active JARs to `.jar.disabled` and records only its own moves in the profile's
@@ -2109,6 +2125,11 @@ requires retrying with normal system access, not changing unrelated app code.
   Explicit OAI-SearchBot/ChatGPT-User/Claude-SearchBot/Claude-User groups retain `/api/`
   exclusions. `tools/prepare_website_faq.py` regenerates homepage FAQPage answers from
   visible `.q-a`/`.q-body` HTML; run it after FAQ edits. Answers also expand without JS.
+- Homepage descriptions and its visible spelling FAQ mention Cubion as a search
+  spelling, while the product/site names and canonical identity remain Cubeon.
+  `translate_website.translate_page` derives FAQ answers from each rendered
+  language's text, overriding stale plain JSON-LD catalogue entries. Keep that
+  match when translating linked answers; `test_website_translation.py` guards it.
   `/llms.txt`, linked by About, is optional reference text, not an AI indexing requirement.
   Browser/spoofed-UA HTTP 200 checks cannot verify real crawler-IP firewall access or
   index inclusion; Bing Webmaster URL inspection requires the owner's account.

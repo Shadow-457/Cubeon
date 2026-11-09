@@ -18,10 +18,10 @@
     handle.setAttribute('aria-label','Resize '+side+' editor sidebar');handle.setAttribute('aria-valuemin',min[side]);handle.setAttribute('aria-valuemax','460');
     handle.title='Drag to resize · arrow keys adjust width';body.appendChild(handle);var drag=null;
     handle.addEventListener('pointerdown',function(event){if(event.button!==0)return;event.preventDefault();var panel=document.getElementById(side==='left'?'edLeft':'edRight');widths[side]=Math.round(panel.getBoundingClientRect().width);drag={x:event.clientX,width:widths[side]};handle.setPointerCapture(event.pointerId);ed.classList.add('resizing');});
-    handle.addEventListener('pointermove',function(event){if(drag){if(event.buttons!==1){end();return}apply(side,drag.width+(event.clientX-drag.x)*(side==='left'?1:-1));}});
+    handle.addEventListener('pointermove',function(event){if(drag){if(event.buttons!==1){end();return}apply(side,drag.width+(event.clientX-drag.x)*(side==='left'?1:-1)*(document.documentElement.dir==='rtl'?-1:1));}});
     function end(){if(!drag)return;drag=null;ed.classList.remove('resizing');CB.D.set.editorLeft=widths.left;CB.D.set.editorRight=widths.right;CB.save();window.Ed.refreshLayout();}
     handle.addEventListener('pointerup',end);handle.addEventListener('pointercancel',end);handle.addEventListener('lostpointercapture',end);window.addEventListener('pointerup',end);window.addEventListener('blur',end);
-    handle.addEventListener('keydown',function(event){if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();apply(side,widths[side]+(event.key==='ArrowRight'?1:-1)*(side==='left'?1:-1)*16);CB.D.set.editorLeft=widths.left;CB.D.set.editorRight=widths.right;CB.save();}});
+    handle.addEventListener('keydown',function(event){if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();apply(side,widths[side]+(event.key==='ArrowRight'?1:-1)*(side==='left'?1:-1)*(document.documentElement.dir==='rtl'?-1:1)*16);CB.D.set.editorLeft=widths.left;CB.D.set.editorRight=widths.right;CB.save();}});
     handle.addEventListener('dblclick',function(){apply(side,side==='left'?248:288);CB.D.set.editorLeft=widths.left;CB.D.set.editorRight=widths.right;CB.save();});
     apply(side,widths[side]);
   });

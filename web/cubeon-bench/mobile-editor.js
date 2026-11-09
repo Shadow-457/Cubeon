@@ -35,6 +35,9 @@
     document.getElementById('mobilePreview').querySelector('span').textContent = preview ? 'Canvas' : 'Preview';
     var unavailable = tools.classList.contains('off');
     document.getElementById('mobileColor').disabled = unavailable;
+    document.getElementById('mobileDepth').disabled = document.getElementById('canvasSurface').hidden;
+    document.getElementById('mobileDepth').setAttribute('aria-pressed',String(ed.classList.contains('depth-editing')));
+    document.getElementById('mobileDepth').setAttribute('aria-expanded',String(right&&!color&&ed.classList.contains('depth-editing')));
     document.getElementById('mobileFrames').disabled = unavailable ||
       (document.getElementById('canvasAnimate').hidden && document.getElementById('edFramesToggle').hidden);
     document.getElementById('mobileColorSwatch').style.backgroundColor = document.querySelector('#edCol > span').style.backgroundColor;
@@ -56,6 +59,7 @@
     if (event.target.closest('[data-editor-dismiss]')) { closePanels(); return; }
     if (event.target.closest('#mobileColor')) {
       var already = ed.classList.contains('r-open') && ed.dataset.toolSection === 'color';
+      window.Ed.exitDepth();
       closePanels(); ed.dataset.toolSection = 'color';
       ed.classList.toggle('r-open', !already); sync();
       if (!already) tools.scrollTop = document.getElementById('editorColors').offsetTop - tools.querySelector('.mobile-panel-header').offsetHeight;

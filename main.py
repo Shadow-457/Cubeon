@@ -2075,7 +2075,7 @@ async def main(page: ft.Page):
     )
     profile_dialog_username = ft.Text(
         cfg["username"], size=16, color=TEXT, font_family=FONT_DISPLAY,
-        weight=ft.FontWeight.W_600,
+        weight=ft.FontWeight.W_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
     )
     profile_pfp_status = ft.Text("", size=12, color=TEXT_DIM)
 
@@ -2090,42 +2090,68 @@ async def main(page: ft.Page):
         profile_dialog_avatar.foreground_image_src = src
         sidebar_username_text.value = cfg["username"]
         profile_dialog_username.value = cfg["username"]
+        for control in (sidebar_avatar, profile_dialog_avatar,
+                        sidebar_username_text, profile_dialog_username):
+            thread_safe_ui.refresh(control)
+
+    _pfp_busy = {"value": False}
+
+    def _refresh_account_picture():
+        for control in (profile_pfp_upload_btn, profile_pfp_remove_btn):
+            target = getattr(control, "cubeon_keyboard_button", None)
+            if target is not None:
+                target.disabled = control.disabled
+                thread_safe_ui.refresh(target)
+        thread_safe_ui.refresh(account_pane)
+        thread_safe_ui.refresh(sidebar_avatar)
+        thread_safe_ui.refresh(sidebar_username_text)
 
     def handle_pfp_files(files):
+        ft.context.disable_auto_update()
         if not files:
             return
         picked = files[0]
-        profile_pfp_status.value = "Uploading..."
-        profile_pfp_upload_btn.disabled = True
-        profile_pfp_remove_btn.disabled = True
-        page.update()
+        with thread_safe_ui.TREE_LOCK:
+            if _pfp_busy["value"]:
+                return
+            _pfp_busy["value"] = True
+            profile_pfp_status.value = "Uploading..."
+            profile_pfp_upload_btn.disabled = profile_pfp_remove_btn.disabled = True
+            _refresh_account_picture()
+
+        def finish(message):
+            with thread_safe_ui.TREE_LOCK:
+                _pfp_busy["value"] = False
+                profile_pfp_status.value = message
+                profile_pfp_upload_btn.disabled = profile_pfp_remove_btn.disabled = False
+                _refresh_account_picture()
 
         def _work():
-            # The upload runs OFF the UI thread: set_profile_picture decodes
-            # and LANCZOS-resizes the chosen image, which is hundreds of ms
-            # for a big photo - on the UI thread it froze typing/scrolling
-            # for the whole resize.
             try:
                 core.set_profile_picture(picked.path)
-                cfg["profile_picture"] = "avatar.png"
-                core.save_config(cfg)
-                refresh_avatars()
-                profile_pfp_status.value = "Profile picture updated."
-            except ValueError as ve:
-                profile_pfp_status.value = str(ve)
-            except Exception as ex:
-                profile_pfp_status.value = f"Upload failed: {ex}"
-            finally:
-                profile_pfp_upload_btn.disabled = False
-                profile_pfp_remove_btn.disabled = False
-                # Per-control diffs from this background thread - a
-                # page.update() here would stomp on whatever the user is
-                # doing in the foreground.
-                thread_safe_ui.refresh(account_panel)
-                thread_safe_ui.refresh(top_bar)
+                with thread_safe_ui.TREE_LOCK:
+                    existed, previous = "profile_picture" in cfg, cfg.get("profile_picture")
+                    cfg["profile_picture"] = "avatar.png"
+                    try:
+                        core.save_config(cfg)
+                    except Exception:
+                        if existed:
+                            cfg["profile_picture"] = previous
+                        else:
+                            cfg.pop("profile_picture", None)
+                        raise
+                    refresh_avatars()
+                message = "Profile picture updated."
+            except ValueError as error:
+                message = str(error)
+            except Exception as error:
+                message = f"Upload failed: {error}"
+            finish(message)
 
-        threading.Thread(target=_work, daemon=True,
-                         name="cubeon-pfp-upload").start()
+        try:
+            threading.Thread(target=_work, daemon=True, name="cubeon-pfp-upload").start()
+        except Exception as error:
+            finish(f"Couldn't start upload: {error}")
 
     def on_pfp_picked(e):
         # Old-Flet path: pick_files() ran synchronously and the result
@@ -2233,18 +2259,21 @@ async def main(page: ft.Page):
             pass
 
     def on_remove_pfp(e=None):
-        if not cfg.get("profile_picture"):
-            return  # nothing to remove - don't flash a pointless status
-        try:
-            core.clear_profile_picture(cfg)
-        except Exception:
-            logging.getLogger(__name__).warning("pfp removal failed", exc_info=True)
-            profile_pfp_status.value = "Couldn't remove the profile picture."
-            page.update()
-            return
-        refresh_avatars()
-        profile_pfp_status.value = "Profile picture removed."
-        page.update()
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if _pfp_busy["value"] or not cfg.get("profile_picture"):
+                return
+            previous = cfg["profile_picture"]
+            try:
+                core.clear_profile_picture(cfg)
+            except Exception:
+                cfg["profile_picture"] = previous
+                logging.getLogger(__name__).warning("pfp removal failed", exc_info=True)
+                profile_pfp_status.value = "Couldn't remove the profile picture."
+            else:
+                refresh_avatars()
+                profile_pfp_status.value = "Profile picture removed."
+            _refresh_account_picture()
 
     # --- Username field (Profile tab's own copy) ---
     # Mirrors the Play tab's username field - offline accounts are keyed
@@ -2263,7 +2292,6 @@ async def main(page: ft.Page):
         text_style=ft.TextStyle(font_family=FONT_MONO),
         bgcolor=SURFACE_HI,
         border_radius=RADIUS,
-        height=44,
         # Pencil affordance inside the field (right edge) - the field is
         # directly editable, the icon just signals "this is editable" the
         # way the target layout shows it.
@@ -2285,9 +2313,9 @@ async def main(page: ft.Page):
     _name_sync_lock = threading.Lock()
 
     def _name_validate_into(field):
-        name = field.value.strip()
+        name = (field.value or "").strip()
         ok, err = core.validate_username(name)
-        field.error_text = None if ok else err
+        field.error = None if ok else err
         return ok, name
 
     def _publish_username(generation=None):
@@ -2303,11 +2331,20 @@ async def main(page: ft.Page):
             if not ok or name == cfg.get("username"):
                 thread_safe_ui.refresh(field)
                 return
+            candidate = dict(cfg)
+            candidate["username"] = name
+            try:
+                core.save_config(candidate)
+            except Exception:
+                field.error = "Couldn't save the username. Try again."
+                _name_state["pending"] = _publish_username
+                thread_safe_ui.refresh(field)
+                return
             cfg["username"] = name
-            core.save_config(cfg)
             for other in (username_field, profile_username_field):
                 if other is not field and other.value != name:
                     other.value = name
+                other.error = None
                 thread_safe_ui.refresh(other)
             if friends_service is not None:
                 try:
@@ -2359,7 +2396,7 @@ async def main(page: ft.Page):
             cfg["username"] = name
             for field in (username_field, profile_username_field):
                 field.value = name
-                field.error_text = None
+                field.error = None
                 thread_safe_ui.refresh(field)
 
     def _fire_pending_name(e=None, generation=None):
@@ -2392,6 +2429,7 @@ async def main(page: ft.Page):
 
     profile_username_field.on_change = lambda e=None: on_name_keystroke(profile_username_field)
     profile_username_field.on_blur = _fire_pending_name
+    profile_username_field.on_submit = _fire_pending_name
 
     # --- Skin section container. The section used to be rebuilt from
     # scratch on EVERY visit to the Cosmetics tab (~150 ms of control
@@ -2441,7 +2479,7 @@ async def main(page: ft.Page):
                 ft.Icon(ft.Icons.UPLOAD_ROUNDED, color=ON_ACCENT, size=14),
                 ft.Text(i18n.t("Upload profile picture"), color=ON_ACCENT, weight=ft.FontWeight.W_700, size=12),
             ],
-            alignment=ft.MainAxisAlignment.CENTER, spacing=4, tight=True,
+            alignment=ft.MainAxisAlignment.CENTER, spacing=4,
         ),
         bgcolor=ACCENT, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
@@ -2672,7 +2710,7 @@ async def main(page: ft.Page):
         # rename done on the Play tab shows up here too.
         profile_dialog_username.value = cfg["username"]
         profile_username_field.value = cfg["username"]
-        profile_username_field.error_text = None
+        profile_username_field.error = None
         sidebar_username_text.value = cfg["username"]
         profile_pfp_status.value = ""
         switch_tab("settings")
@@ -2717,7 +2755,7 @@ async def main(page: ft.Page):
         selected version/loader) rather than whatever was last built."""
         profile_pfp_status.value = ""
         profile_username_field.value = cfg["username"]
-        profile_username_field.error_text = None
+        profile_username_field.error = None
         rebuild_skin_section()
 
     # Brand mark - the cube icon and wordmark, mounted at the top bar above the
@@ -4744,10 +4782,10 @@ async def main(page: ft.Page):
         username = username_field.value.strip()
         ok, err = core.validate_username(username)
         if not ok:
-            username_field.error_text = err
+            username_field.error = err
             page.update()
             return False
-        username_field.error_text = None
+        username_field.error = None
 
         version_id = version_dropdown.value
         if not version_id:
@@ -6786,7 +6824,10 @@ async def main(page: ft.Page):
     def _update_ram_warning(value: int):
         if value > recommended_ram_mb:
             ram_warning.value = (
-                f"⚠ Above the recommended half-point ({recommended_ram_mb} MB). "
+                f"⚠ Above the recommended {recommended_ram_mb} MB. "
+                "Leave memory for your system and other apps."
+            )
+            ram_warning.tooltip = (
                 f"Allocating too much RAM to Minecraft can starve your computer "
                 f"and other apps, or cause instability."
             )
@@ -6836,7 +6877,15 @@ async def main(page: ft.Page):
             try:
                 core.save_config(cfg)
             except Exception as ex:
+                value = _ram_saved["value"]
+                cfg["ram_mb"] = value
+                ram_slider.value = value
+                ram_slider.active_color = ram_slider.thumb_color = _ram_color(value)
+                ram_label.value = f"{value} MB maximum"
+                thread_safe_ui.refresh(ram_slider)
+                thread_safe_ui.refresh(ram_label)
                 ram_warning.value = f"⚠ Couldn't save the RAM setting: {ex}"
+                ram_warning.tooltip = ram_warning.value
                 ram_warning.visible = True
                 thread_safe_ui.refresh(ram_warning)
             else:
@@ -6884,6 +6933,7 @@ async def main(page: ft.Page):
         """Saves width/height/java_path/custom JVM flags from the UI fields
         to the config file. Called on field blur/submit by the Settings tab
         (instant save - there is no Save button anymore)."""
+        values = {}
         for key, field, default, minimum, maximum in (
             ("width", width_field, 1280, 320, 7680),
             ("height", height_field, 720, 240, 4320),
@@ -6892,13 +6942,19 @@ async def main(page: ft.Page):
                 value = int(field.value)
             except (TypeError, ValueError, OverflowError):
                 value = default
-            cfg[key] = max(minimum, min(maximum, value))
-            field.value = str(cfg[key])
+            values[key] = max(minimum, min(maximum, value))
+        values["java_path"] = (java_path_field.value or "").strip() or None
+        values["custom_jvm_flags"] = (custom_jvm_field.value or "").strip()
+        # Normalize only after publication succeeds. A failed save leaves the
+        # editable text and the launch configuration at their prior values.
+        candidate = dict(cfg)
+        candidate.update(values)
+        core.save_config(candidate)
+        cfg.update(values)
+        for key, field in (("width", width_field), ("height", height_field)):
+            field.value = str(values[key])
             thread_safe_ui.refresh(field)
-        cfg["java_path"] = java_path_field.value.strip() or None
-        cfg["custom_jvm_flags"] = custom_jvm_field.value.strip()
-        core.save_config(cfg)
-        set_status("Settings saved")
+        return True
 
     # Client and skin-loader switches save independently; launch preparation
     # applies each preference before staging the active instance's mods.
@@ -6948,12 +7004,33 @@ async def main(page: ft.Page):
         active_color=ACCENT, scale=0.85,
     )
 
+    def _save_launcher_preferences(values, error):
+        with thread_safe_ui.TREE_LOCK:
+            previous = {key: (key in cfg, cfg.get(key)) for key in values}
+            cfg.update(values)
+            try:
+                core.save_config(cfg)
+            except Exception:
+                for key, (existed, value) in previous.items():
+                    if existed:
+                        cfg[key] = value
+                    else:
+                        cfg.pop(key, None)
+                set_status(error)
+                return False
+            return True
+
     def on_glass_change(e):
-        cfg["glass_mode_enabled"] = bool(glass_cb.value)
-        core.save_config(cfg)
-        set_status("Glass background " +
-                   ("on - restart Cubeon to apply" if glass_cb.value
-                    else "off - restart Cubeon to apply"))
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if not _save_launcher_preferences({"glass_mode_enabled": bool(glass_cb.value)},
+                                               "Couldn't save the glass setting"):
+                glass_cb.value = bool(cfg.get("glass_mode_enabled", True))
+            else:
+                set_status("Glass background " +
+                           ("on - restart Cubeon to apply" if glass_cb.value
+                            else "off - restart Cubeon to apply"))
+            thread_safe_ui.refresh(glass_cb)
 
     glass_cb.on_change = on_glass_change
 
@@ -6971,13 +7048,17 @@ async def main(page: ft.Page):
         )
 
         def on_custom_chrome_change(e):
-            cfg[winchrome.CONFIG_KEY] = bool(custom_chrome_cb.value)
-            cfg["custom_window_chrome_chosen"] = True
-            core.save_config(cfg)
-            set_status("Custom window frame " +
-                       ("on - restart Cubeon to apply"
-                        if custom_chrome_cb.value
-                        else "off - restart Cubeon to apply"))
+            ft.context.disable_auto_update()
+            with thread_safe_ui.TREE_LOCK:
+                if not _save_launcher_preferences(
+                    {winchrome.CONFIG_KEY: bool(custom_chrome_cb.value), "custom_window_chrome_chosen": True},
+                    "Couldn't save the title bar setting"):
+                    custom_chrome_cb.value = bool(winchrome.custom_chrome_enabled(cfg))
+                else:
+                    set_status("Custom window frame " +
+                               ("on - restart Cubeon to apply" if custom_chrome_cb.value
+                                else "off - restart Cubeon to apply"))
+                thread_safe_ui.refresh(custom_chrome_cb)
 
         custom_chrome_cb.on_change = on_custom_chrome_change
 
@@ -7027,15 +7108,18 @@ async def main(page: ft.Page):
     def _refresh_backup_status():
         existing = core.backup_module.list_backups()
         if not existing:
-            backup_status_text.value = "No backups yet."
-            return
-        newest = existing[0]
-        import datetime
-        when = datetime.datetime.fromtimestamp(newest.created_ts).strftime("%Y-%m-%d %H:%M")
-        backup_status_text.value = (
-            f"{len(existing)} backup(s) saved. Most recent: {when} "
-            f"({core.backup_module.human_size(newest.size_bytes)})."
-        )
+            value = "No backups yet."
+        else:
+            newest = existing[0]
+            import datetime
+            when = datetime.datetime.fromtimestamp(newest.created_ts).strftime("%Y-%m-%d %H:%M")
+            value = (f"{len(existing)} backup(s) saved. Most recent: {when} "
+                     f"({core.backup_module.human_size(newest.size_bytes)}).")
+        with thread_safe_ui.TREE_LOCK:
+            backup_status_text.value = value
+            backup_status_text.tooltip = value
+            backup_status_text.color = TEXT_DIM
+            thread_safe_ui.refresh(backup_status_text)
 
     _refresh_backup_status()
 
@@ -7070,58 +7154,108 @@ async def main(page: ft.Page):
     )
 
     def _persist_backup_settings():
-        backup_settings["enabled"] = backup_enabled_switch.value
-        backup_settings["frequency"] = frequency_dropdown.value
-        backup_settings["include_saves"] = include_saves_switch.value
-        try:
-            backup_settings["keep_last"] = max(0, int(keep_last_field.value or 5))
-        except ValueError:
-            backup_settings["keep_last"] = 5
-        core.backup_module.save_backup_settings(backup_settings)
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            candidate = dict(backup_settings)
+            try:
+                keep = max(0, int(keep_last_field.value or 5))
+            except (ValueError, TypeError, OverflowError):
+                backup_enabled_switch.value = backup_settings["enabled"]
+                frequency_dropdown.value = backup_settings["frequency"]
+                include_saves_switch.value = backup_settings["include_saves"]
+                keep_last_field.error = "Enter a whole number. Use 0 to keep all."
+                for control in (backup_enabled_switch, frequency_dropdown, include_saves_switch, keep_last_field):
+                    thread_safe_ui.refresh(control)
+                return False
+            frequency = frequency_dropdown.value
+            if frequency not in ("manual", "daily", "weekly"):
+                frequency = backup_settings["frequency"]
+            candidate.update(enabled=bool(backup_enabled_switch.value), frequency=frequency,
+                             include_saves=bool(include_saves_switch.value), keep_last=keep)
+            try:
+                if candidate != backup_settings:
+                    core.backup_module.save_backup_settings(candidate)
+            except Exception:
+                backup_enabled_switch.value = backup_settings["enabled"]
+                frequency_dropdown.value = backup_settings["frequency"]
+                include_saves_switch.value = backup_settings["include_saves"]
+                keep_last_field.value = str(backup_settings["keep_last"])
+                keep_last_field.error = None
+                set_status("Couldn't save backup settings")
+                saved = False
+            else:
+                backup_settings.update(candidate)
+                keep_last_field.value = str(keep)
+                keep_last_field.error = None
+                set_status("Backup settings saved")
+                saved = True
+            frequency_dropdown.disabled = keep_last_field.disabled = not backup_settings["enabled"]
+            for control in (backup_enabled_switch, frequency_dropdown, include_saves_switch, keep_last_field):
+                thread_safe_ui.refresh(control)
+            return saved
 
     def on_backup_enabled_change(e):
-        # Auto-backup off -> its knobs go grey too (frequency AND retention);
-        # include-saves stays live because the manual "Back up now" reads it.
-        frequency_dropdown.disabled = not backup_enabled_switch.value
-        keep_last_field.disabled = not backup_enabled_switch.value
-        _persist_backup_settings()
-        set_status("Backup settings saved")
-        page.update()
+        return _persist_backup_settings()
 
     def on_backup_setting_change(e):
-        _persist_backup_settings()
-        set_status("Backup settings saved")
-        page.update()
+        return _persist_backup_settings()
 
     backup_enabled_switch.on_change = theme.toggle_wrap(on_backup_enabled_change, backup_enabled_switch)
     frequency_dropdown.on_select = on_backup_setting_change
     include_saves_switch.on_change = theme.toggle_wrap(on_backup_setting_change, include_saves_switch)
     keep_last_field.on_blur = on_backup_setting_change
+    keep_last_field.on_submit = on_backup_setting_change
 
     backup_busy = {"value": False}
 
-    def run_backup_now(e):
-        """Runs a manual backup on a background thread so a large mods
-        folder or saves/ inclusion doesn't freeze the UI."""
-        if backup_busy["value"]:
-            return
-        backup_busy["value"] = True
-        backup_now_btn.content.value = "Backing up..."
-        backup_now_btn.disabled = True
-        page.update()
+    def _sync_backup_busy():
+        for control in (backup_now_btn, restore_btn):
+            control.disabled = backup_busy["value"]
+            target = getattr(control, "cubeon_keyboard_button", None)
+            if target is not None:
+                target.disabled = control.disabled
+                thread_safe_ui.refresh(target)
+            thread_safe_ui.refresh(control)
 
-        def worker():
-            result = core.backup_module.create_backup(
-                include_saves=include_saves_switch.value,
-            )
+    def _finish_backup_action(message):
+        try:
+            _refresh_backup_status()
+        except Exception:
+            logging.getLogger(__name__).warning("could not refresh backup list", exc_info=True)
+        with thread_safe_ui.TREE_LOCK:
             backup_busy["value"] = False
             backup_now_btn.content.value = "Back up now"
-            backup_now_btn.disabled = False
-            _refresh_backup_status()
-            set_status(result.message if result.ok else f"Backup failed: {result.message}")
-            page.update()
+            restore_btn.content.controls[1].value = "Restore from a backup zip..."
+            _sync_backup_busy()
+            if message.startswith(("Backup failed", "Restore failed", "Couldn't start")):
+                backup_status_text.value = backup_status_text.tooltip = message
+                backup_status_text.color = DANGER
+                thread_safe_ui.refresh(backup_status_text)
+            set_status(message)
 
-        threading.Thread(target=worker, daemon=True).start()
+    def run_backup_now(e):
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if backup_busy["value"]:
+                return
+            backup_busy["value"] = True
+            include_saves = bool(include_saves_switch.value)
+            backup_now_btn.content.value = "Backing up..."
+            _sync_backup_busy()
+
+        def worker():
+            try:
+                result = core.backup_module.create_backup(include_saves=include_saves)
+                message = result.message if result.ok else f"Backup failed: {result.message}"
+            except Exception as error:
+                logging.getLogger(__name__).warning("backup failed", exc_info=True)
+                message = f"Backup failed: {error}"
+            _finish_backup_action(message)
+
+        try:
+            threading.Thread(target=worker, name="cubeon-manual-backup", daemon=True).start()
+        except Exception as error:
+            _finish_backup_action(f"Couldn't start backup: {error}")
 
     backup_now_btn = ft.Container(
         content=ft.Text("Back up now", color=BG, weight=ft.FontWeight.W_700, size=14),
@@ -7222,14 +7356,31 @@ async def main(page: ft.Page):
             set_status("Couldn't read the selected file's path")
             return
 
-        def worker():
-            result = core.backup_module.restore_backup(path)
-            set_status(result.message if result.ok else f"Restore failed: {result.message}")
-            page.update()
+        with thread_safe_ui.TREE_LOCK:
+            if backup_busy["value"]:
+                return
+            backup_busy["value"] = True
+            restore_btn.content.controls[1].value = "Restoring backup..."
+            _sync_backup_busy()
 
-        threading.Thread(target=worker, daemon=True).start()
+        def worker():
+            try:
+                result = core.backup_module.restore_backup(path)
+                message = result.message if result.ok else f"Restore failed: {result.message}"
+            except Exception as error:
+                logging.getLogger(__name__).warning("restore failed", exc_info=True)
+                message = f"Restore failed: {error}"
+            _finish_backup_action(message)
+
+        try:
+            threading.Thread(target=worker, name="cubeon-restore-backup", daemon=True).start()
+        except Exception as error:
+            _finish_backup_action(f"Couldn't start restore: {error}")
 
     def pick_restore_file(e):
+        ft.context.disable_auto_update()
+        if backup_busy["value"]:
+            return
         run_file_picker(
             page, restore_file_picker, on_files=do_restore,
             allow_multiple=False, allowed_extensions=["zip"],
@@ -7239,8 +7390,9 @@ async def main(page: ft.Page):
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.RESTORE_ROUNDED, size=15, color=TEXT_FAINT),
-                ft.Text("Restore from a backup zip...", color=TEXT_DIM,
-                        weight=ft.FontWeight.W_600, size=13),
+                ft.Text("Restore from a backup zip...", color=TEXT_DIM, expand=True,
+                        weight=ft.FontWeight.W_600, size=13, max_lines=2,
+                        overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER),
             ],
             spacing=8, tight=True, alignment=ft.MainAxisAlignment.CENTER,
         ),
@@ -7428,7 +7580,7 @@ async def main(page: ft.Page):
         label and the "why" line can never disagree with each other.
         """
         info = info or cubeon_seasonal.current()
-        seasonal_status_icon.name = season_icon(info)
+        seasonal_status_icon.icon = season_icon(info)
         seasonal_status_text.value = f"{info.label} - {info.place}"
         seasonal_source_text.value = cubeon_seasonal.describe_source(info)
         for ctrl in (seasonal_status_icon, seasonal_status_text,
@@ -7443,8 +7595,8 @@ async def main(page: ft.Page):
         thread_safe_ui.refresh(season_badge)
         thread_safe_ui.refresh(season_perch)
 
-    seasonal_switch = ft.Checkbox(
-        label="", value=bool(cfg.get("seasonal_theme", False)), active_color=ACCENT,
+    seasonal_switch = ft.Switch(
+        value=bool(cfg.get("seasonal_theme", False)), active_color=ACCENT, scale=.85, data="settings-seasonal-enabled",
     )
     season_dropdown = ft.Dropdown(
         value=str(cfg.get("season_override") or "auto").lower(),
@@ -7455,11 +7607,11 @@ async def main(page: ft.Page):
         text_style=ft.TextStyle(color=TEXT, size=13),
         label_style=ft.TextStyle(color=TEXT_DIM),
     )
-    season_pet_switch = ft.Checkbox(
-        label="", value=bool(cfg.get("season_pet", False)), active_color=ACCENT,
+    season_pet_switch = ft.Switch(
+        value=bool(cfg.get("season_pet", False)), active_color=ACCENT, scale=.85, data="settings-buddy-enabled",
     )
-    season_overlay_switch = ft.Checkbox(
-        label="", value=bool(cfg.get("season_overlay", True)), active_color=ACCENT,
+    season_overlay_switch = ft.Switch(
+        value=bool(cfg.get("season_overlay", True)), active_color=ACCENT, scale=.85, data="settings-scenery-enabled",
     )
 
     # Full-window "Restarting…" cover, shown the instant the Restart button is
@@ -7603,79 +7755,70 @@ async def main(page: ft.Page):
     # Each one: write cfg -> save -> re-resolve -> repaint the block -> apply the
     # runtime half (`_season_runtime_apply`, defined in the layout section where
     # the ambience band and the ticker are actually built).
+    _season_picker_saved = {"value": season_dropdown.value}
+
     def _on_seasonal_toggle(e=None):
-        cfg["seasonal_theme"] = bool(seasonal_switch.value)
-        try:
-            core.save_config(cfg)
-        except Exception:
-            pass
-        _season_controls_sync(cubeon_seasonal.refresh(cfg))
-        _season_runtime_apply()
-        set_status("Seasonal look on" if seasonal_switch.value else
-                   "Seasonal look off - the next start uses the normal colors")
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if not _save_launcher_preferences({"seasonal_theme": bool(seasonal_switch.value)},
+                                               "Couldn't save the seasonal setting"):
+                seasonal_switch.value = bool(cfg.get("seasonal_theme", False))
+            else:
+                _season_controls_sync(cubeon_seasonal.refresh(cfg))
+                _season_runtime_apply()
+                set_status("Seasonal look on" if seasonal_switch.value else
+                           "Seasonal look off - the next start uses the normal colors")
+            thread_safe_ui.refresh(seasonal_switch)
 
     def _on_season_change(e=None):
-        choice = str(season_dropdown.value or "auto").lower()
-        if choice == "off":
-            # "Off" in the Season list means the same as the master switch:
-            # no seasonal layer at all. Keeping them in sync matters - two
-            # controls that disagree about the same setting is how a settings
-            # page starts lying.
-            cfg["seasonal_theme"] = False
-            seasonal_switch.value = False
-        else:
-            cfg["season_override"] = choice
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            choice = str(season_dropdown.value or "auto").lower()
+            if choice not in {key for key, _label in _SEASON_CHOICES}:
+                season_dropdown.value = _season_picker_saved["value"]
+                thread_safe_ui.refresh(season_dropdown)
+                return
+            values = {"seasonal_theme": False} if choice == "off" else {"season_override": choice}
             if choice in cubeon_seasonal.SEASONS:
-                cfg["seasonal_theme"] = True     # picking a season implies wanting it
-                seasonal_switch.value = True
-        try:
-            core.save_config(cfg)
-        except Exception as ex:
-            # A silent save failure was reported by a user as "my pick keeps
-            # reverting to autumn" - the config on disk still said auto. If
-            # saving fails, SAY so; a launcher that lies is worse than one
-            # that complains.
-            traceback.print_exc()
-            set_status(f"Couldn't save your season choice: {ex}")
-            _show_snack(f"Couldn't save the season choice ({ex}) - it will "
-                        "revert on the next start.", duration=6000)
-        _season_controls_sync(cubeon_seasonal.refresh(cfg))
-        _season_runtime_apply()
-        thread_safe_ui.refresh(seasonal_switch)
-        _season_controls_sync()
-        # The env pin outranks this setting BY DESIGN (it is the test and
-        # screenshot contract) - but a pick that is silently ignored reads as
-        # "the picker is broken". Name the winner out loud.
-        env_pin = cubeon_seasonal.env_pin()
-        if env_pin:
-            _show_snack(
-                f"Saved: you picked {cubeon_seasonal.PRETTY.get(choice, choice)}."
-                f" But this terminal has CUBEON_SEASON={env_pin} set, which "
-                "outranks the picker - run Cubeon from a terminal without it "
-                "(or `unset CUBEON_SEASON`) to see your choice.",
-                duration=8000)
-            set_status(f"Saved {cubeon_seasonal.PRETTY.get(choice, choice)} - "
-                       f"but CUBEON_SEASON={env_pin} is pinning this launch")
-        else:
-            set_status("Season set to "
-                       + (cubeon_seasonal.PRETTY.get(choice) or "Auto")
-                       + " - restart to apply")
+                values["seasonal_theme"] = True
+            if not _save_launcher_preferences(values, "Couldn't save your season choice"):
+                season_dropdown.value = _season_picker_saved["value"]
+                seasonal_switch.value = bool(cfg.get("seasonal_theme", False))
+                thread_safe_ui.refresh(season_dropdown)
+                thread_safe_ui.refresh(seasonal_switch)
+                return
+            _season_picker_saved["value"] = choice
+            seasonal_switch.value = bool(cfg.get("seasonal_theme", False))
+            _season_controls_sync(cubeon_seasonal.refresh(cfg))
+            _season_runtime_apply()
+            thread_safe_ui.refresh(seasonal_switch)
+            env_pin = cubeon_seasonal.env_pin()
+            if env_pin:
+                set_status(f"Saved {cubeon_seasonal.PRETTY.get(choice, choice)} - "
+                           f"but CUBEON_SEASON={env_pin} is pinning this launch")
+            else:
+                set_status("Season set to " + (cubeon_seasonal.PRETTY.get(choice) or choice.title())
+                           + " - restart to apply")
 
     def _on_season_pet_toggle(e=None):
-        cfg["season_pet"] = bool(season_pet_switch.value)
-        try:
-            core.save_config(cfg)
-        except Exception:
-            pass
-        _season_runtime_apply()
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if not _save_launcher_preferences({"season_pet": bool(season_pet_switch.value)},
+                                               "Couldn't save the buddy setting"):
+                season_pet_switch.value = bool(cfg.get("season_pet", False))
+            else:
+                _season_runtime_apply()
+            thread_safe_ui.refresh(season_pet_switch)
 
     def _on_season_overlay_toggle(e=None):
-        cfg["season_overlay"] = bool(season_overlay_switch.value)
-        try:
-            core.save_config(cfg)
-        except Exception:
-            set_status("Couldn't save the scenery setting")
-        _season_runtime_apply()
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if not _save_launcher_preferences({"season_overlay": bool(season_overlay_switch.value)},
+                                               "Couldn't save the scenery setting"):
+                season_overlay_switch.value = bool(cfg.get("season_overlay", True))
+            else:
+                _season_runtime_apply()
+            thread_safe_ui.refresh(season_overlay_switch)
 
     seasonal_switch.on_change = _on_seasonal_toggle
     season_dropdown.on_select = _on_season_change
@@ -7736,23 +7879,24 @@ async def main(page: ft.Page):
                         profile_avatar_with_parrot,
                         ft.Column(
                             [profile_dialog_username, account_badges],
-                            spacing=4, tight=True,
+                            spacing=4, tight=True, expand=True,
                         ),
                     ],
                     spacing=16,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Container(height=16),
-                profile_username_field,
+                ft.Container(profile_username_field, height=84),
                 ft.Container(height=12),
-                ft.Row(
-                    [profile_pfp_upload_btn, profile_pfp_remove_btn,
-                     profile_pfp_status],
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
+                ft.ResponsiveRow([
+                    ft.Container(theme.keyboard_target(profile_pfp_upload_btn, "Upload profile picture"),
+                                 col={"xs": 12, "wide": 8}),
+                    ft.Container(theme.keyboard_target(profile_pfp_remove_btn, "Remove profile picture"),
+                                 col={"xs": 12, "wide": 4}),
+                ], breakpoints={"xs": 0, "wide": 500}, spacing=8, run_spacing=8),
+                ft.Container(profile_pfp_status, height=40, margin=ft.Margin(0, 8, 0, 0)),
             ],
-            spacing=0,
+            spacing=0, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         ),
         bgcolor=SURFACE_HI, border_radius=RADIUS_LG,
         padding=ft.padding.Padding.all(24),
