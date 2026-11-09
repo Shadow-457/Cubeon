@@ -91,6 +91,8 @@ jobs:
             # checking (test_mod_compile) stays, building does not.
             case "$t" in
               tools/test_visual_*.py) echo "skip (manual) $t"; continue;;
+              tools/test_cosmetic_elytra_native.py|tools/test_live_cape_native.py)
+                echo "skip (installed game + graphical desktop) $t"; continue;;
               # Spawns REAL flet GUI clients (wedge detector + software-GL
               # ladder); has no display on CI and fails there identically
               # (documented 2026-10-14: fails the same on a clean tree).
