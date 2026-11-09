@@ -120,8 +120,11 @@ release manifest under `build/rust-engine/`, recording `build_profile` in both
 runtime and release metadata. Shipped builds use Cargo's `release` profile
 (thin LTO, one codegen unit); `fast` is for iteration.
 
-Source checkouts use the verified local platform bundle. A rebuilt local bundle
-replaces an earlier bundle with the same beta identifier when its hashes differ.
+Source checkouts use the verified local platform bundle. At install or normal
+Play, a rebuilt local bundle replaces an earlier bundle with the same beta
+identifier when its hashes differ. Play only refreshes verified local artifacts;
+it never downloads, and invalid local bundles preserve the installed runtime.
+Worlds and settings are untouched.
 Distributed builds use only Cubeon's pinned release assets, with no Horizon
 fallback. The current release destination is
 `Shadow-457/Cubeon`, tag `rust-26.3-beta.1`, published on 2026-11-06 from

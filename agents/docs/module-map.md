@@ -667,7 +667,10 @@ keep builders consistent with the shared `THEME` contract.
   Runtime/platform/merged manifests record `build_profile`. Compiled probes can use
   `test_rust_profile_native.py --profile release`; rustc must match the build toolchain.
   Source checkouts reuse verified `build/rust-engine/<platform>` bundles, including
-  same-beta rebuilds; distributed installs use Cubeon's pinned release manifest.
+  same-beta rebuilds at normal Play as well as install. Play's local-only refresh
+  verifies/stages replacements and never downloads; invalid local bundles leave the
+  installed runtime intact. Worlds/settings are untouched. Distributed installs
+  use Cubeon's pinned release manifest.
   `.github/workflows/rust-beta.yml` builds on relevant pushes to main and manual
   dispatch, producing artifacts only. Run 42064514681 at f68ff468 completed Linux,
   Windows, CLI, preparer and manifest verification; the pinned runtime release
@@ -677,6 +680,8 @@ keep builders consistent with the shared `THEME` contract.
   That immutable build predates fresh-profile Balanced defaults: it used `fast`,
   VSync on, max FPS 120 and simulation distance 12. Source changes/local bundles do
   not update public installations; publish a separately verified runtime to deliver them.
+  Java's FPS-boost graphics and Sodium/Lithium paths do not apply to Rust; FPS
+  comparisons must match each engine's actual video options, not just launcher switches.
   `tools/publish_rust_beta.py` verifies
   downloaded CI provenance, archive/file hashes and both platforms before a preview;
   explicit `--publish` creates the pinned prerelease without changing latest stable.
