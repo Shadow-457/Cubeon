@@ -95,7 +95,14 @@ visibility is saved. Mobile frame selection closes the drawer so you can paint.
 blending, moving/removing frames, the full sheet view, and disabling animation.
 Saved frame/sheet view preferences are respected.
 
-Choose **Add depth** above a texture, or in **Tools → 3D texture**. Pick **Soft**,
+Depth controls and the depth-update announcement are temporarily hidden. Existing
+saved depth maps are retained. The implementation below remains in the repository
+behind `bench-features.js`'s `depth` flag.
+
+Choose **Depth** above the canvas, select pixels with a rectangle or lasso, then
+raise, lower, set an exact height, or flatten the selection. The depth brush stays
+inside the selection and supports soft edges. Undo restores height changes without
+altering texture colors. **Surface settings** retains the original dialog: pick **Soft**,
 **Raised**, or **Metal**, adjust **Depth** and **Shine**, then choose **Apply depth**.
 The starting height map is generated from the texture, so no extra image is needed.
 The **Height map** tab lets you paint **Raise** and **Lower**, undo a stroke, or
@@ -250,4 +257,10 @@ workflow also checks large projects and a full browser restart. Read
 whenever shipped app assets change.
 
 ZIP support uses the vendored MIT-licensed fflate library
-(`vendor/fflate.LICENSE`). Inter is bundled under `fonts/OFL.txt`.
+(`vendor/fflate.LICENSE`). Inter is bundled under `fonts/OFL.txt`; script fonts
+use `fonts/Noto-LICENSE.txt`.
+
+Use the header language button or **Settings → Appearance → Language** to switch
+between 18 languages. The choice applies immediately and is saved locally.
+Arabic, Urdu and Farsi use right-to-left layouts. Untranslated text falls back to
+English; project names and file identifiers keep their original text.

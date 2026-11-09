@@ -2478,7 +2478,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                 }
                 let version = format!("Minecraft {} · Rust Beta", cubeon_core::VANILLA_VERSION);
                 batch.text(atlas, &version, 2.0, h - 20.0, u32::MAX, true);
-                batch.text(atlas, "Cubeon · Ported from Horizon · MIT", 2.0, h - 10.0, 0xFFAA_AAAA, true);
                 // A nightly names its build in the top-left corner, the one spot no button reaches at any GUI
                 // scale, so screenshots and reports say which build they come from.
                 if let Some(nightly) = cubeon_core::release::nightly_label() {

@@ -57,7 +57,7 @@
 .depth-controls .gb{flex:1;min-height:40px;font-size:11px;padding:7px;white-space:normal}
 .depth-selection-tools button[aria-pressed=true],.depth-brush-actions button[aria-pressed=true]{border-color:var(--acc);background:var(--sel);color:var(--acc)}
 .depth-range{display:block;margin:12px 0;font-size:12px}.depth-range>span{display:flex;justify-content:space-between;gap:8px}.depth-range input{width:100%;height:32px;accent-color:var(--acc)}
-.depth-set-height{display:flex;align-items:center;gap:6px;font-size:12px}.depth-set-height input{width:52px;height:38px;border:1px solid var(--line);border-radius:8px;padding:5px;background:var(--btn);color:var(--ink)}
+.depth-set-height{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px}.depth-set-height input{box-sizing:border-box;flex:0 0 56px;width:56px;height:38px;border:1px solid var(--line);border-radius:8px;padding:5px;background:var(--btn);color:var(--ink)}
 .depth-view-label{display:grid;gap:6px;font-size:12px;margin:12px 0}.depth-view-label select{width:100%;min-height:40px;border:1px solid var(--line);border-radius:8px;background:var(--btn);color:var(--ink);padding:8px;font:inherit}
 #depthOverlay{position:absolute;inset:0;pointer-events:none;z-index:2;image-rendering:pixelated}
 .ed.depth-editing #editorColors{display:none}.ed.depth-editing .canvas-document small{color:var(--acc)}
@@ -90,3 +90,5 @@
   .surface-preview-pane{padding:10px}
   .surface-footer{padding:8px 16px}
 }
+.bench-depth-disabled :is(#canvasSurface,#surfaceTools,#previewSurface,#mobileDepth,#surfaceStudio,#benchDepthNoticeRow){display:none!important}
+.bench-depth-disabled .mobile-editor-dock{grid-template-columns:repeat(5,minmax(0,1fr))}

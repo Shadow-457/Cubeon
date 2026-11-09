@@ -159,6 +159,7 @@
     TD.save(d);redraw();commit(d);ovl();
   }
   function setDepthMode(on){
+    if(on&&!window.BenchFeatures.depth)return;
     if(E.cur==='preview')return activate(E.last||E.open[0]).then(function(){setDepthMode(on)});
     var d=E.doc;if(!d||E.p.type==='skin'||!window.TextureSurface.supported(d.data))return;
     if(drag)end();picker.close(false);E.depthEditing=on;E.hand=false;E.tool=on?'select':'pencil';lastTool=null;
@@ -350,8 +351,8 @@
   function cellAt(e){var r=ec.getBoundingClientRect(),d=E.doc,b=viewRect(d);return [Math.max(b.x,Math.min(b.x+b.w-1,b.x+Math.floor((e.clientX-r.left)/r.width*b.w))),Math.max(b.y,Math.min(b.y+b.h-1,b.y+Math.floor((e.clientY-r.top)/r.height*b.h)))]}
   function hud(c){
     var d=E.doc;if(!d)return;var r=viewRect(d),inb=c&&c[0]>=r.x&&c[1]>=r.y&&c[0]<r.x+r.w&&c[1]<r.y+r.h;
-    $('#edHud').textContent=inb?'Pixel '+(c[0]-r.x)+', '+(c[1]-r.y):r.w+' × '+r.h+' pixels';
-    if(inb&&E.depthEditing)$('#edHud').textContent+=' · Height '+Math.round(TD.layer(d).data[(c[1]*d.w+c[0])*4]/255*100)+'%';
+    BenchI18n.text($('#edHud'),inb?(E.depthEditing?'Pixel {x}, {y} · Height {height}%':'Pixel {x}, {y}'):'{width} × {height} pixels',
+      {x:inb?c[0]-r.x:0,y:inb?c[1]-r.y:0,height:inb&&E.depthEditing?Math.round(TD.layer(d).data[(c[1]*d.w+c[0])*4]/255*100):r.h,width:r.w});
   }
   ec.addEventListener('pointerdown',function(e){
     if(!E.doc||e.button>0||E.hand)return;
@@ -587,7 +588,7 @@
     $('#rowUV').style.display=E.p.type==='skin'?'':'none';
     var d=E.doc;$('#edRight').classList.toggle('off',!d||E.cur==='preview');$('#edUndo').disabled=!d||!d.undo.length;$('#edRedo').disabled=!d||!d.redo.length;
     var visible=!!d&&E.cur!=='preview';$('#canvasBar').hidden=!visible;$('#canvasFooter').hidden=!visible;
-    var canSurface=!!d&&E.p.type!=='skin'&&window.TextureSurface.supported(d.data);
+    var canSurface=window.BenchFeatures.depth&&!!d&&E.p.type!=='skin'&&window.TextureSurface.supported(d.data);
     if(!canSurface){E.depthEditing=false;ed.classList.remove('depth-editing');}
     $('#canvasSurface').hidden=!visible||!canSurface;$('#surfaceTools').hidden=!canSurface;
     $('#previewSurface').hidden=!canSurface||E.cur!=='preview';
@@ -627,7 +628,7 @@
     if(b=t.closest('[data-depth-adjust]')){adjustDepth(b.dataset.depthAdjust);return}
     if(b=t.closest('[data-depth-action]')){E.depthAction=b.dataset.depthAction;E.tool='pencil';sync();return}
     if(t.closest('[data-depth-deselect]')){selectionAction('none');return}
-    if(t.closest('#surfaceOpen,#previewSurface')){if(drag)end();preview.stop();surfaceStudio.open();return}
+    if(t.closest('#surfaceOpen,#previewSurface')){if(!window.BenchFeatures.depth)return;if(drag)end();preview.stop();surfaceStudio.open();return}
     if(t.closest('#textureExport')){exportPNG();return}
     if(t.closest('#edDetails')){picker.close(false);CB.openDetails(E.p);return}
     if(t.closest('#edExport')){picker.close(false);window.ResourcePacks.exportProject(E.p);return}

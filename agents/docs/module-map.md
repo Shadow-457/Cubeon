@@ -626,9 +626,11 @@ keep builders consistent with the shared `THEME` contract.
   Preparations remove both stamp names before work so interruption cannot validate
   stale resources. Keep gameplay's `horizontal` vocabulary intact when rebranding.
 - Native standard menus use locally prepared Minecraft button/slider/background
-  sprites and title art; only the edition banner becomes Rust Edition. Cubeon and
-  Horizon MIT credit remain in the small footer; companion controls keep their own
-  styling. Fresh profiles start Balanced (12 render/8 simulation, VSync off, 240 FPS,
+  sprites and title art; only the edition banner becomes Rust Edition. Boot/title/
+  window branding says Minecraft; upstream credits remain in packaged LICENSE/notices,
+  with the title's not-affiliated notice retained. The game icon is original grass-block
+  artwork (`tools/make_rust_game_icon.py`), independent of launcher icons.
+  Companion controls keep their own styling. Fresh profiles start Balanced (12 render/8 simulation, VSync off, 240 FPS,
   native resolution); saved options and partial graphics configurations are preserved.
   Balanced/Performance enable settled block-entity caches; Performance also removes
   VSync/forced FIFO caps. Theme/UI/title assets live in `cubeon-theme`, client `ui_theme.rs`/
@@ -661,6 +663,9 @@ keep builders consistent with the shared `THEME` contract.
   save/reopen without screenshots, waiting for loaded terrain before menus.
 - `tools/build_rust_engine.py` packages both executables, compiled original exporters,
   source fingerprints and license notices, never Mojang JARs/assets/generated data.
+  Shipping CI uses `release` (thin LTO, one codegen unit); `fast` is for iteration.
+  Runtime/platform/merged manifests record `build_profile`. Compiled probes can use
+  `test_rust_profile_native.py --profile release`; rustc must match the build toolchain.
   Source checkouts reuse verified `build/rust-engine/<platform>` bundles, including
   same-beta rebuilds; distributed installs use Cubeon's pinned release manifest.
   `.github/workflows/rust-beta.yml` builds on relevant pushes to main and manual
@@ -669,6 +674,9 @@ keep builders consistent with the shared `THEME` contract.
   [`rust-26.3-beta.1`](https://github.com/Shadow-457/Cubeon/releases/tag/rust-26.3-beta.1)
   was published on 2026-11-06 from that run. Its public manifest and Windows/Linux
   archives are accessible; GitHub asset sizes/digests match the verified CI files.
+  That immutable build predates fresh-profile Balanced defaults: it used `fast`,
+  VSync on, max FPS 120 and simulation distance 12. Source changes/local bundles do
+  not update public installations; publish a separately verified runtime to deliver them.
   `tools/publish_rust_beta.py` verifies
   downloaded CI provenance, archive/file hashes and both platforms before a preview;
   explicit `--publish` creates the pinned prerelease without changing latest stable.
@@ -2062,8 +2070,18 @@ requires retrying with normal system access, not changing unrelated app code.
   extensionless page routes; `file:` keeps `.html`. `mobile-editor.js`/`.css` move the
   existing search, panel buttons and Help at 900 px into a bottom dock and sliding panels,
   then restore their original desktop positions. Hidden mobile panels are inert.
+  Depth access is temporarily disabled by `bench-features.js` (`depth:false`):
+  editor entry points, the mobile Depth action, Help instructions and the depth
+  release notice stay hidden. Keep the implementation and saved maps; previews,
+  pack export and reimport still preserve existing depth data. `texture-depth.js`
+  retains the rectangle/lasso selection and grayscale height-editing helpers.
+  `bench-i18n.js`/`bench-languages.js` provide 18 saved UI language choices,
+  browser-language detection, RTL layout and local Arabic/Devanagari/Bengali fonts.
+  Protect user names, texture paths and option values from translation; untranslated
+  messages fall back to English. The dormant `bench-updates.js` notice uses the
+  release marker in `cb-bench-update` and `set.lastBenchNotice`, after a shown dialog.
   `texture-surface.js` generates depth/normal/material maps; `surface-studio.js`/`.css`
-  provide a draft-only Add depth dialog. Apply saves immutable `project.surfaces[id]`
+  retain a draft-only Surface settings dialog. Apply saves immutable `project.surfaces[id]`
   settings through editor undo/history; custom height follows frame and transform edits.
   Texture colors stay unchanged. Depth is limited to 1,048,576 pixels, excludes skin
   projects, and previews as a displaced surface tile using the bundled Three.js.

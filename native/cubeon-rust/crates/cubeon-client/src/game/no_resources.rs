@@ -94,7 +94,7 @@ impl ApplicationHandler for Missing {
             return;
         }
         let attributes = Window::default_attributes()
-            .with_title("Cubeon")
+            .with_title("Minecraft Rust Edition")
             .with_window_icon(cubeon_client::window::icon())
             .with_inner_size(winit::dpi::LogicalSize::new(1040.0, 700.0));
         let made = event_loop

@@ -161,6 +161,8 @@ pub mod icons {
 /// Cubeon's icon at 64 px (PNG), for window title bars and task bars at run time. Rendered from
 /// `docs/media/brand/icon.svg` by `cargo run -p xtask -- icons`.
 pub const ICON_PNG: &[u8] = include_bytes!("../icons/cubeon-64.png");
+/// Original grass-block artwork for the game, independent of launcher branding.
+pub const GAME_ICON_PNG: &[u8] = include_bytes!("../icons/game64.png");
 
 /// How a type step sizes on the web.
 #[derive(Clone, Copy, Debug, PartialEq)]

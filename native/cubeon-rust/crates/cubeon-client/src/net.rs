@@ -417,7 +417,7 @@ pub fn save_friends_relay(relay: &str) {
 /// and open the tunnel: the loopback address to connect to.
 fn join_friend(code: &str, lang: &Language, send: &Sender<Event>) -> Result<(String, u16), Reason> {
     let _ = (code, lang, send);
-    Err(Reason::plain("World sharing is unavailable in Cubeon Rust beta."))
+    Err(Reason::plain("World sharing is unavailable in Minecraft Rust beta."))
 }
 
 fn status(send: &Sender<Event>, text: &str) {
@@ -425,7 +425,7 @@ fn status(send: &Sender<Event>, text: &str) {
 }
 
 /// Shown when an online-mode server asks a client without an account to authenticate.
-pub const NOT_SIGNED_IN: &str = "This server requires an online account. Cubeon Rust beta supports local profiles only.";
+pub const NOT_SIGNED_IN: &str = "This server requires an online account. Minecraft Rust beta supports local profiles only.";
 
 /// A translation, or the key itself (Language.getOrDefault).
 fn tr(lang: &Language, key: &str) -> String {

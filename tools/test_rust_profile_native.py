@@ -1,15 +1,19 @@
 """Exercise the actual compiled Rust profile API without linking a second game test suite."""
+import argparse
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-DEPENDENCIES = ROOT / "native/cubeon-rust/target/fast/deps"
 
 
 def main():
-    libraries = list(DEPENDENCIES.glob("libcubeon_client_render-*.rlib"))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--profile", choices=("fast", "release"), default="fast")
+    args = parser.parse_args()
+    dependencies = ROOT / "native/cubeon-rust/target" / args.profile / "deps"
+    libraries = list(dependencies.glob("libcubeon_client_render-*.rlib"))
     library = max(libraries, key=lambda p: p.stat().st_mtime)
     with tempfile.TemporaryDirectory(prefix="cubeon-rust-profile-") as temp:
         folder = Path(temp)
@@ -43,7 +47,7 @@ fn main() {
 ''')
         executable = folder / ("profile.exe" if os.name == "nt" else "profile")
         subprocess.run(["rustc", "--edition=2024", str(source), "--extern",
-                        f"cubeon_client_render={library}", "-L", f"dependency={DEPENDENCIES}",
+                        f"cubeon_client_render={library}", "-L", f"dependency={dependencies}",
                         "-o", str(executable)], check=True)
         env = {**os.environ, "HOME": str(folder), "USERPROFILE": str(folder),
                "CUBEON_RUST_PLAYER_UUID": "01234567-89ab-cdef-0123-456789abcdef"}

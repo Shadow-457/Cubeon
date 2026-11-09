@@ -14,7 +14,7 @@ impl Game<'_> {
                 rect[1],
                 rect[2],
                 rect[3],
-                &cubeon_client::text::Text::literal("Cubeon Client"),
+                &cubeon_client::text::Text::literal("Client"),
                 true,
                 cubeon_client::ui::hovered(self.cursor, rect[0], rect[1], rect[2], rect[3]),
             );

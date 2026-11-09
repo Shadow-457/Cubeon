@@ -66,6 +66,8 @@
   }
   </script>
   <script src="entry.js" data-bench-surface="landing"></script>
+  <script src="bench-languages.js"></script>
+  <script src="bench-i18n.js"></script>
   <meta name="theme-color" content="#f6f7f2">
   <script>try{document.documentElement.dataset.theme=localStorage.getItem('bench-landing-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')}catch(_){document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}</script>
   <link rel="icon" href="icons/bench-32.png" sizes="32x32">
@@ -73,6 +75,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="preload" href="fonts/Inter.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="stylesheet" href="landing.css">
+  <link rel="stylesheet" href="bench-i18n.css">
   <script src="landing.js" defer></script>
 </head>
 <body>
@@ -91,7 +94,7 @@
   <header class="site-header">
     <a class="wordmark" href="landing" aria-label="Cubeon Bench home"><img src="icons/bench-logo.png" alt="" width="36" height="36"><span>cubeon <b>bench</b><span class="brand-period">.</span></span></a>
     <nav aria-label="Main navigation"><a href="#workspace">Workspace</a><a href="#possibilities">Features</a><a href="#questions">FAQ</a></nav>
-    <button class="landing-theme" id="landingTheme" type="button" aria-label="Switch to dark theme" aria-pressed="false"><svg><use href="#moon"/></svg></button><a class="button button-small" href="workspace">Open Bench <svg><use href="#arrow"/></svg></a>
+    <select class="bench-language-select" data-bench-language aria-label="Language"><option value="auto">Language</option></select><button class="landing-theme" id="landingTheme" type="button" aria-label="Switch to dark theme" aria-pressed="false"><svg><use href="#moon"/></svg></button><a class="button button-small" href="workspace">Open Bench <svg><use href="#arrow"/></svg></a>
   </header>
   <main id="main">
     <div class="hero-scroll" id="heroScroll"><section class="hero section-width" aria-labelledby="hero-title">

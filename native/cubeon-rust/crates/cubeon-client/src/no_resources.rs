@@ -5,11 +5,11 @@
 use crate::ui_theme::{self, Face, Ui, color};
 
 /// The launcher's download page.
-pub const DOWNLOAD_URL: &str = "https://cubeon.ylet.uk/download.html";
+pub const DOWNLOAD_URL: &str = "https://www.ylet.online/download";
 
-const TITLE: &str = "Install Rust 26.3 in Cubeon";
+const TITLE: &str = "Prepare Minecraft 26.3";
 const PARAGRAPHS: [&str; 3] = [
-    "Cubeon Rust needs locally prepared Minecraft 26.3 resources.",
+    "Minecraft Rust Edition needs locally prepared Minecraft 26.3 resources.",
     "Open Cubeon, choose Instances, New instance, then Rust Beta and 26.3.",
     "The launcher downloads verified resource inputs and prepares them on this computer.",
 ];

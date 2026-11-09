@@ -79,7 +79,8 @@
       ['Resize focused sidebar divider', '← / →'], ['Focus controls / activate button', 'Tab / Shift Tab; Enter / Space']]]
   ];
   function help() {
-    var html = '<p>Choose Draw and a color to paint. Use <b>Create animation</b> to add frames, then Play to preview them. Choose <b>Add depth</b> for easy 3D texture presets and height painting.</p>' +
+    var html = '<p>Choose Draw and a color to paint. Use <b>Create animation</b> to add frames, then Play to preview them.' +
+      (window.BenchFeatures.depth ? ' Choose <b>Add depth</b> for easy 3D texture presets and height painting.' : '') + '</p>' +
       '<p class="mu">Click a frame for frame shortcuts, or the canvas for pixel shortcuts. Frame copies include timing. Text fields keep their normal keys.</p>' +
       '<label class="lb" for="shortcutSearch">Find a shortcut</label><input class="command-search" id="shortcutSearch" type="search" placeholder="Try copy, frame, zoom…" autocomplete="off">' +
       '<table class="shortcut-table">' + shortcutGroups.map(function(group) {

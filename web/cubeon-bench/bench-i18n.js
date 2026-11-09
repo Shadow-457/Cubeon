@@ -29,6 +29,7 @@
     var canonical=data.aliases[key]||key,index=data.languages.findIndex(function(row){return row.code===language;})-1;
     var translated=index>=0&&data.messages[canonical]&&data.messages[canonical][index];
     var result=replace(translated||source,parameters);
+    if(language==='en'&&parameters&&Number(parameters.count)===1)result=result.replace(/\b(pixels|textures|frames|projects)\b/g,function(word){return word.slice(0,-1);});
     if(!translated){
       if(language!=='en'&&source.includes(' · '))return source.split(' · ').map(function(part){return t(part);}).join(' · ');
       return result;

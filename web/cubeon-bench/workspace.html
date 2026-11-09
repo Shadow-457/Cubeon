@@ -36,6 +36,7 @@
 <script src="local-store.js"></script>
 <script src="texture-codec.js"></script>
 <script src="texture-animation.js"></script>
+<script src="bench-features.js"></script>
 <script src="texture-surface.js"></script>
 <script src="texture-depth.js"></script>
 <script src="bench-languages.js"></script>
@@ -701,7 +702,7 @@ body.inapp .theme{display:none}
           <div class="fr"><b>Show pixel grid</b><button class="tg" type="button" role="switch" aria-checked="false" data-k="grid" aria-label="Show pixel grid"></button></div>
         </div>
         <div class="card" data-settings-page="workspace" hidden><h4>Workspace</h4>
-          <div class="fr"><div><b>What’s new</b><br><small class="mu">Edit pixel depth</small></div><button class="gb" type="button" id="benchWhatsNew">What’s new</button></div>
+          <div class="fr" id="benchDepthNoticeRow" hidden><div><b>What’s new</b><br><small class="mu">Edit pixel depth</small></div><button class="gb" type="button" id="benchWhatsNew">What’s new</button></div>
           <div class="fr"><div><b>Remember this workspace</b><br><small class="mu">Open the workspace automatically next time.</small></div><button class="tg" type="button" role="switch" aria-checked="false" data-k="remember" aria-label="Remember this workspace"></button></div>
           <div class="fr"><div><b>Replay onboarding</b><br><small class="mu">Walk through the setup again.</small></div><button class="gb" type="button" id="replay">Replay</button></div>
           <div class="fr"><div><b>Move all projects to Trash</b><br><small class="mu">Restore them below whenever you need them.</small></div><button class="dg" type="button" id="clr">Move all to Trash</button></div>
@@ -912,7 +913,7 @@ body.inapp .theme{display:none}
       <span id="mobileToolsSlot" class="mobile-editor-slot"></span>
       <button class="mobile-editor-action" id="mobileColor" type="button" aria-label="Colors" aria-controls="edRight" aria-expanded="false"><span class="mobile-color-swatch" id="mobileColorSwatch" aria-hidden="true"></span><span>Color</span></button>
       <button class="mobile-editor-action" id="mobileFrames" type="button" aria-label="Animation frames" aria-controls="edFrames" aria-expanded="false"><i data-i="pack"></i><span>Animate</span></button>
-      <button class="mobile-editor-action" id="mobileDepth" type="button" aria-label="Edit pixel depth" aria-pressed="false"><i data-i="cube"></i><span>Depth</span></button>
+      <button class="mobile-editor-action" id="mobileDepth" type="button" aria-label="Edit pixel depth" aria-pressed="false" hidden><i data-i="cube"></i><span>Depth</span></button>
       <button class="mobile-editor-action" id="mobilePreview" type="button" aria-label="3D preview" aria-pressed="false"><i data-i="cube"></i><span>Preview</span></button>
     </nav>
   </div>

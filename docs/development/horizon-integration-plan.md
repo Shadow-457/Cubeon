@@ -116,17 +116,25 @@ after a name change; remote offline server and guest identity rules are retained
 `tools/build_rust_engine.py` builds both native binaries and packages original
 compiled exporter classes, source fingerprints, research lock and licenses.
 It writes per-file SHA-256 metadata, a platform ZIP and an archive-size/digest
-release manifest under `build/rust-engine/`.
+release manifest under `build/rust-engine/`, recording `build_profile` in both
+runtime and release metadata. Shipped builds use Cargo's `release` profile
+(thin LTO, one codegen unit); `fast` is for iteration.
 
 Source checkouts use the verified local platform bundle. A rebuilt local bundle
 replaces an earlier bundle with the same beta identifier when its hashes differ.
 Distributed builds use only Cubeon's pinned release assets, with no Horizon
 fallback. The current release destination is
-`Shadow-457/Cubeon`, tag `rust-26.3-beta.1`; it is **not published yet**.
+`Shadow-457/Cubeon`, tag `rust-26.3-beta.1`, published on 2026-11-06 from
+CI run `42064514681` at `f68ff468`. That immutable runtime used the `fast`
+profile and earlier defaults (VSync on, 120 FPS cap, simulation distance 12).
+Current source defaults for fresh profiles are Balanced, VSync off, 240 FPS
+and simulation distance 8; existing settings are preserved. Source edits and
+local rebuilds do not update the installed public release.
 
-`.github/workflows/rust-beta.yml` is manually triggered, builds Linux/Windows
+`.github/workflows/rust-beta.yml` runs on relevant main pushes or manual dispatch, builds Linux/Windows
 x64 artifacts and merges verified platform manifests. It does not publish.
-The Linux package exists locally; Windows CI/execution requires a later run.
+The published Linux/Windows artifacts passed CI and archive verification;
+Windows gameplay remains unverified.
 
 ## Verification and remaining work
 
@@ -152,7 +160,7 @@ Completed checks:
 These resolve the earlier dependency, UUID persistence and exporter-packaging
 prototype questions. Interactive gameplay coverage and Windows execution remain
 limited; the smoke tests do not certify every inherited game feature.
-Public release and measured FPS remain pending. Benchmarking must use matched
+Measured FPS comparisons remain pending. Benchmarking must use matched
 worlds, graphics, resolution, distances, camera movement, VSync and frame limits.
 
 ## Source references

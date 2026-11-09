@@ -54,15 +54,15 @@ jobs:
         run: python tools/fetch_rust_build_inputs.py
       - name: Compile and package owned runtime
         shell: bash
-        run: python tools/build_rust_engine.py --profile fast --java-home "$JAVA_HOME" --minecraft-dir build/rust-inputs --server-jar build/rust-inputs/server.jar
+        run: python tools/build_rust_engine.py --profile release --java-home "$JAVA_HOME" --minecraft-dir build/rust-inputs --server-jar build/rust-inputs/server.jar
       - name: Verify native CLI and exporter compatibility
         shell: bash
         run: |
           suffix=""
           if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
-          native/cubeon-rust/target/fast/cubeon-rust$suffix --launch-api > build/rust-engine/launch-api.json
+          native/cubeon-rust/target/release/cubeon-rust$suffix --launch-api > build/rust-engine/launch-api.json
           python -c 'import json; d=json.load(open("build/rust-engine/launch-api.json")); assert "session" not in str(d).lower(), d'
-          cargo test --locked --manifest-path native/cubeon-rust/Cargo.toml --profile fast --jobs 2 -p cubeon-prepare -- --test-threads=2
+          cargo test --locked --manifest-path native/cubeon-rust/Cargo.toml --profile release --jobs 2 -p cubeon-prepare -- --test-threads=2
       - uses: actions/upload-artifact@v4
         with:
           name: cubeon-rust-${{ matrix.platform }}
@@ -86,10 +86,10 @@ jobs:
           import hashlib, json, os
           from pathlib import Path
           root = Path('artifacts')
-          merged = {'engine': 'rust', 'build': '26.3-beta.1', 'minecraft': '26.3', 'platforms': {}}
+          merged = {'engine': 'rust', 'build': '26.3-beta.1', 'minecraft': '26.3', 'build_profile': 'release', 'platforms': {}}
           for manifest in sorted(root.glob('*/manifest.json')):
               data = json.loads(manifest.read_text())
-              assert all(data[key] == merged[key] for key in ('engine', 'build', 'minecraft'))
+              assert all(data[key] == merged[key] for key in ('engine', 'build', 'minecraft', 'build_profile'))
               for platform, item in data['platforms'].items():
                   archive = manifest.parent / item['url'].rsplit('/', 1)[-1]
                   assert archive.stat().st_size == item['size']

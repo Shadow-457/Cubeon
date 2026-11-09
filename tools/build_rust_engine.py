@@ -31,7 +31,9 @@ def sha256(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def package(binary_dir, exporter_dir, destination):
+def package(binary_dir, exporter_dir, destination, *, build_profile=None):
+    if build_profile not in (None, "release", "fast"):
+        raise ValueError("Unknown Rust build profile")
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="rust-bundle-", dir=destination.parent) as temp:
         stage = Path(temp) / "runtime"
@@ -74,6 +76,8 @@ def package(binary_dir, exporter_dir, destination):
                     "upstream_commit": "33816de710f3c14632ee10be5915fca7240b9754",
                     "files": {p.relative_to(stage).as_posix(): sha256(p)
                               for p in sorted(stage.rglob("*")) if p.is_file()}}
+        if build_profile is not None:
+            manifest["build_profile"] = build_profile
         (stage / "cubeon-runtime.json").write_text(json.dumps(manifest, indent=2) + "\n")
         if destination.exists():
             shutil.rmtree(destination)
@@ -118,9 +122,10 @@ def main():
             raise RuntimeError(result.stderr)
         exporters = Path(result.stdout.strip().splitlines()[-1])
     destination = ROOT / "build/rust-engine" / platform_tag()
-    package(binaries, exporters, destination)
+    package(binaries, exporters, destination, build_profile=args.profile)
     item = archive_bundle(destination)
     manifest = {"engine": "rust", "build": BUILD, "minecraft": VERSION,
+                "build_profile": args.profile,
                 "platforms": {platform_tag(): item}}
     (destination.parent / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Verified bundle: {destination}")

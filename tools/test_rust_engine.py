@@ -20,6 +20,8 @@ _sandbox_home.isolate()
 from cubeon import rust_engine as rust, paths, launch, versions, watchdog
 from ui.versions import VersionPicker
 from app_driver import DriverPage
+import build_rust_engine
+from publish_rust_beta import verify_archive
 
 
 def bundle(directory):
@@ -43,6 +45,31 @@ class RustEngineTests(unittest.TestCase):
         self.patch = patch.object(paths, "CUBEON_HOME", str(self.home / "launcher"))
         self.patch.start()
         self.addCleanup(self.patch.stop)
+
+    def test_packaged_profiles_keep_hashes_notices_and_exclude_game_assets(self):
+        binaries = self.home / "binaries"
+        binaries.mkdir()
+        for name in (rust._exe("cubeon-rust"), rust._exe("cubeon-rust-prepare")):
+            (binaries / name).write_bytes(b"owned executable fixture")
+        exporters = self.home / "exporters"
+        classes = exporters / "client/dev/cubeonlab/parity"
+        classes.mkdir(parents=True)
+        (classes / "Fixture.class").write_bytes(b"original class fixture")
+        (exporters / "manifest.json").write_text("{}")
+        (exporters / "minecraft-assets.png").write_bytes(b"must not ship")
+        for profile in ("fast", "release"):
+            with self.subTest(profile=profile):
+                destination = self.home / profile / rust.platform_tag()
+                build_rust_engine.package(binaries, exporters, destination, build_profile=profile)
+                metadata = json.loads((destination / "cubeon-runtime.json").read_text())
+                self.assertEqual(metadata["build_profile"], profile)
+                self.assertTrue(rust._runtime_valid(destination))
+                for notice in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+                    self.assertEqual((destination / notice).read_bytes(),
+                                     (build_rust_engine.SOURCE / notice).read_bytes())
+                self.assertFalse((destination / "exporters/minecraft-assets.png").exists())
+                item = build_rust_engine.archive_bundle(destination)
+                verify_archive(destination.parent / item["url"].rsplit("/", 1)[-1], rust.platform_tag())
 
     def test_paths_are_separate_and_reject_symlinks(self):
         native = Path(paths.game_dir_for(rust.INSTANCE_ID, create=False))
@@ -346,15 +373,18 @@ class RustPickerTests(unittest.TestCase):
 
     def test_existing_picker_offers_26_3_offline_and_commits_only_at_finish(self):
         committed = []
+        online_requests = []
         p = VersionPicker(DriverPage(), get_selected=lambda: None, label_for=lambda v: v,
                           on_pick=lambda _: self.fail("Must commit through New instance"),
                           loaders=[("vanilla", "Vanilla"), ("rust", "Rust · Beta")],
-                          on_browse_online=lambda: self.fail("Rust must not fetch loader versions"),
+                          on_browse_online=lambda: online_requests.append("fetch"),
                           get_supported_versions=lambda _: self.fail("Rust has no Java loader"),
                           on_create=lambda *args: committed.append(args))
         p._browse()
+        self.assertEqual(online_requests, ["fetch"])  # the initial Vanilla catalogue
         p._set_install_loader("rust")
         p._next()
+        self.assertEqual(online_requests, ["fetch"], "Rust must stay offline")
         self.assertEqual([e["id"] for e in p._available_entries()], ["26.3"])
         self.assertFalse(p.filter_field.visible)
         self.assertFalse(p.retry_link.visible)

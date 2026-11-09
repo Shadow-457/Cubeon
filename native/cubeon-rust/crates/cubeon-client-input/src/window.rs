@@ -612,10 +612,10 @@ pub fn fullscreen_request(
     }
 }
 
-/// Cubeon's icon for the window's title bar and the task bar (X11 and Windows; Wayland takes
+/// The game's grass-block icon for the window's title bar and the task bar (X11 and Windows; Wayland takes
 /// it from the `cubeon.desktop` entry, macOS from the app bundle). `None` if it can't be read.
 pub fn icon() -> Option<winit::window::Icon> {
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(cubeon_theme::ICON_PNG));
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(cubeon_theme::GAME_ICON_PNG));
     decoder.ignore_checksums(true);
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info().ok()?;

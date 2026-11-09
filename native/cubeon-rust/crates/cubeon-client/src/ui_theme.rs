@@ -560,21 +560,19 @@ pub fn draw_boot(atlas: &HudAtlas, batch: &mut HudBatch, logs: &[String]) {
 
 /// The wordmark with its tagline, centred.
 fn wordmark(atlas: &HudAtlas, batch: &mut HudBatch) {
-    let mark = (batch.width / 16.0).clamp(48.0, 80.0);
-    batch.sprite_scaled(atlas, "cubeon/logo", (batch.width - mark) / 2.0, batch.height / 2.0 - mark - 66.0, mark, mark, u32::MAX);
     let mut ui = Ui::new(atlas, batch, (0.0, 0.0));
-    let size = (ui.w / 16.0).clamp(DISPLAY, 96.0);
+    let size = (ui.w / 20.0).clamp(DISPLAY, 76.0);
     let small = (size * 0.25).clamp(MICRO, 18.0);
     let block = size * 1.45 + small * 0.6 + small * 1.5;
     let top = (ui.h - block) / 2.0;
-    ui.text_centered(Face::SemiBold, size, ui.w / 2.0, top, BOOT_TEXT, "Cubeon");
+    ui.text_centered(Face::SemiBold, size, ui.w / 2.0, top, BOOT_TEXT, "Minecraft");
     ui.text_centered(
         Face::Mono,
         small,
         ui.w / 2.0,
         top + size * 1.45 + small * 0.6,
         BOOT_LOG,
-        "Rust edition · Ported from Horizon (MIT)",
+        "Rust Edition · Beta",
     );
     ui.finish();
 }
@@ -592,7 +590,8 @@ pub fn draw_boot_log(atlas: &HudAtlas, batch: &mut HudBatch, logs: &[String]) {
     let mut y = ui.h - pad - line;
     let mut drawn = 0;
     'lines: for text in logs.iter().rev() {
-        let chunks = wrapping_lines(&ui, Face::Mono, size, text, max_w);
+        let display = text.replace("Cubeon: ", "");
+        let chunks = wrapping_lines(&ui, Face::Mono, size, &display, max_w);
         for chunk in chunks.iter().rev() {
             if drawn == max_rows {
                 break 'lines;

@@ -36,6 +36,7 @@
     var unavailable = tools.classList.contains('off');
     document.getElementById('mobileColor').disabled = unavailable;
     document.getElementById('mobileDepth').disabled = document.getElementById('canvasSurface').hidden;
+    document.getElementById('mobileDepth').hidden = !window.BenchFeatures.depth;
     document.getElementById('mobileDepth').setAttribute('aria-pressed',String(ed.classList.contains('depth-editing')));
     document.getElementById('mobileDepth').setAttribute('aria-expanded',String(right&&!color&&ed.classList.contains('depth-editing')));
     document.getElementById('mobileFrames').disabled = unavailable ||

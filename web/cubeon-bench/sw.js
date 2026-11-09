@@ -1,10 +1,10 @@
 /* Bump the version whenever a shipped application asset changes. */
 'use strict';
-var VERSION = 'cubeon-bench-v2-20261109-24';
+var VERSION = 'cubeon-bench-v2-20261109-25';
 var DEVELOPMENT = ['localhost','127.0.0.1','[::1]'].includes(self.location.hostname);
 var ROOT = new URL('./', self.location.href);
 var SHELL = ['index.html', 'workspace.html', 'entry.js', 'workbench.css', 'app.css', 'studio.css', 'fonts/Inter.ttf', 'minecraft-textures.js', 'textures-manifest.js', 'textures-local.js',
-  'local-store.js', 'texture-codec.js', 'texture-animation.js', 'texture-surface.js', 'texture-depth.js', 'surface-studio.js', 'surface-studio.css',
+  'local-store.js', 'texture-codec.js', 'texture-animation.js', 'bench-features.js', 'texture-surface.js', 'texture-depth.js', 'surface-studio.js', 'surface-studio.css',
   'bench-languages.js', 'bench-i18n.js', 'bench-i18n.css', 'bench-updates.js', 'fonts/NotoSansArabicUI-Regular.ttf', 'fonts/NotoSansDevanagariUI-Regular.ttf', 'fonts/NotoSansBengaliUI-Regular.ttf',
   'archive.js', 'vendor/fflate.js', 'resource-packs.js',
   'motion.js', 'minecraft-preview.js', 'color-chooser.js', 'animation-controls.js', 'image-import.js', 'image-import.css', 'editor.js', 'ui-dialog.js',

@@ -422,7 +422,7 @@ impl Game<'_> {
     }
     pub(super) fn cubeon_screen(&mut self, batch: &mut HudBatch) {
         cubeon_client::widgets::begin_screen(|| {
-            cubeon_client::widgets::ScreenInfo::new("cubeon_client", "Cubeon Client")
+            cubeon_client::widgets::ScreenInfo::new("cubeon_client", "Client")
         });
         if self.companion.tab == 5 {
             self.cubeon_emote_wheel(batch);
@@ -447,7 +447,7 @@ impl Game<'_> {
         let atlas = &self.gui.atlas;
         batch.text(
             atlas,
-            "Cubeon Client · Rust Edition",
+            "Client · Rust Edition",
             x,
             14.,
             u32::MAX,
@@ -509,9 +509,9 @@ impl Game<'_> {
             let snapshot = self.companion.bridge.snapshot().clone();
             let label = if self.companion.tab == 2 {
                 if snapshot.up {
-                    "Connected to Cubeon"
+                    "Connected to launcher"
                 } else {
-                    "Looking for Cubeon launcher"
+                    "Looking for launcher"
                 }
             } else {
                 &self.companion.friend_name

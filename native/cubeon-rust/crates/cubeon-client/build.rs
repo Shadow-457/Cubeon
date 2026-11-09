@@ -1,4 +1,4 @@
-//! Embeds Cubeon's icon (`packaging/icons/cubeon.ico`) in the Windows executables, as icon
+//! Embeds the game's grass-block icon (`packaging/icons/game.ico`) in the Windows executables, as icon
 //! resource 1: Explorer and the task bar show it, and the window takes it as its icon.
 //! The optional Segment Heap manifest is embedded in the same resource compilation.
 fn main() {
@@ -8,7 +8,7 @@ fn main() {
     cubeon_mod_api_gen::generate(&root, &out_dir, cubeon_mod_api_gen::Target::Client)
         .expect("generating native mod API");
     let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-    let ico = format!("{dir}/../../packaging/icons/cubeon.ico");
+    let ico = format!("{dir}/../../packaging/icons/game.ico");
     println!("cargo:rerun-if-changed={ico}");
     // The game's main thread gets 8 MB of stack on Windows as on macOS and Linux (Windows gives 1
     // MB): splitscreen builds a joining player's `Game`, ~67 KB, deep in the event loop.
@@ -23,6 +23,8 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let mut resource = winresource::WindowsResource::new();
         resource.set_icon(&ico);
+        resource.set("FileDescription", "Minecraft Rust Edition");
+        resource.set("ProductName", "Minecraft Rust Edition");
         if std::env::var_os("CARGO_FEATURE_WINDOWS_SEGMENT_HEAP").is_some() {
             let manifest = format!("{dir}/windows-segment-heap.manifest");
             println!("cargo:rerun-if-changed={manifest}");
@@ -36,7 +38,7 @@ fn main() {
                 panic!("embedding Windows resources: {e}");
             }
             println!(
-                "cargo:warning=building without Cubeon's icon: embedding Windows resources failed: {e}"
+                "cargo:warning=building without the game icon: embedding Windows resources failed: {e}"
             );
         }
     }

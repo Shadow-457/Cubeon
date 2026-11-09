@@ -307,7 +307,7 @@ class VersionPicker:
             "quilt": "For Quilt-compatible mods.",
             "forge": "For Forge mods and modpacks.",
             "neoforge": "For NeoForge mods and modpacks.",
-            "rust": "26.3 only · Local profiles · 1000 FPS target",
+            "rust": "26.3 only · Local profiles · Experimental engine",
         }
         for lid, label in self.loaders:
             chip = ft.Container(

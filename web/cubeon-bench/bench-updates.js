@@ -9,6 +9,7 @@
     !document.getElementById('modal').classList.contains('show')&&!document.getElementById('ed').classList.contains('show');}
   function remember(){seen=true;window.CB.D.set.lastBenchNotice=release;try{localStorage.setItem(storageKey,release);}catch(_){}window.CB.save();}
   async function show(manual){
+    if(!window.BenchFeatures.depth)return;
     if(showing||!ready||!manual&&(hasSeen()||!available()))return;
     showing=true;
     try{
@@ -27,7 +28,8 @@
     }catch(error){window.CB.toast(error.message);}
     finally{showing=false;}
   }
-  function queue(){if(queued||!ready||hasSeen())return;queued=true;requestAnimationFrame(function(){queued=false;show(false);});}
+  function queue(){if(!window.BenchFeatures.depth||queued||!ready||hasSeen())return;queued=true;requestAnimationFrame(function(){queued=false;show(false);});}
+  document.getElementById('benchDepthNoticeRow').hidden=!window.BenchFeatures.depth;
   window.CB.ready.then(function(){ready=true;queue();},function(){});
   document.addEventListener('cb-render',queue);document.addEventListener('close',queue,true);
   new MutationObserver(queue).observe(document.body,{attributes:true,attributeFilter:['class']});
