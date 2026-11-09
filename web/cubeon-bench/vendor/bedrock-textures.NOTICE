@@ -1,0 +1,5 @@
+Bedrock texture path catalogue
+Source: https://github.com/Mojang/bedrock-samples/blob/main/resource_pack/textures/texture_list.json
+Retrieved 2026-11-09. Contains path identifiers, not Minecraft image assets.
+These identifiers are used to verify supported resource-pack conversions.
+Minecraft is a trademark of Mojang and Microsoft. Cubeon is not affiliated with them.
