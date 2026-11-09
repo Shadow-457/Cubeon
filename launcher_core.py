@@ -113,7 +113,7 @@ from cubeon.skins import (
     validate_skin_file, list_custom_skins, add_custom_skin, delete_custom_skin,
     get_custom_skin_path, set_active_skin, set_skin_model, skin_mod_installed,
     sync_local_skin_to_csl,
-    render_local_skin_preview, get_skin_face_url,
+    render_local_skin_preview, get_skin_face_url, get_discord_face_url,
     name_contested,
 )
 

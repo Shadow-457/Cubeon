@@ -77,6 +77,8 @@ class DiscordPresence:
         # (the retry thread takes it once per cycle), so an RLock is enough.
         self._lock = threading.RLock()
         self._last = {}             # last sent activity, to dedupe no-op updates
+        self._image_provider = None
+        self._image_text = None
         self._stop = threading.Event()
         # Discord may not be running when the launcher starts (or may be
         # restarted mid-session). set_activity only fires on real state changes,
@@ -103,9 +105,11 @@ class DiscordPresence:
             with self._lock:
                 if not self._last:
                     continue  # nothing to announce yet
+                activity = self._with_avatar(self._last.get("activity") or {})
+                self._last["activity"] = activity
                 payload = {
                     "cmd": "SET_ACTIVITY",
-                    "args": {"pid": os.getpid(), "activity": self._last.get("activity") or {}},
+                    "args": {"pid": os.getpid(), "activity": activity},
                     "nonce": _nonce(),
                 }
                 try:
@@ -122,6 +126,7 @@ class DiscordPresence:
     def set_activity(self, *, details=None, state=None, start=None, end=None,
                      large_image=None, large_text=None,
                      small_image=None, small_text=None,
+                     small_image_provider=None,
                      buttons=SITE_BUTTONS) -> None:
         """Publish a Rich Presence activity. Any field may be omitted (empty
         fields are dropped, as Discord rejects clutter). Thread-safe; a no-op if
@@ -162,7 +167,12 @@ class DiscordPresence:
             "args": {"pid": os.getpid(), "activity": activity},
             "nonce": _nonce(),
         }
-        self._memoize_and_send("activity", activity, payload)
+        with self._lock:
+            self._image_provider = small_image_provider
+            self._image_text = small_text
+            activity = self._with_avatar(activity)
+            payload["args"]["activity"] = activity
+            self._memoize_and_send("activity", activity, payload)
 
     def clear(self) -> None:
         """Removes Cubeon's activity from the profile (empty activity, per the
@@ -173,7 +183,10 @@ class DiscordPresence:
             "args": {"pid": os.getpid(), "activity": {}},
             "nonce": _nonce(),
         }
-        self._memoize_and_send("activity", None, payload)
+        with self._lock:
+            self._image_provider = None
+            self._image_text = None
+            self._memoize_and_send("activity", None, payload)
 
     def close(self) -> None:
         """Best-effort clear + drop the socket. Also stops the retry thread so
@@ -190,6 +203,29 @@ class DiscordPresence:
     # ------------------------------------------------------------------
     # Internal plumbing.
     # ------------------------------------------------------------------
+
+    def _with_avatar(self, activity):
+        """Refresh the local publication marker on the existing IPC retry loop."""
+        if not activity or self._image_provider is None:
+            return activity
+        try:
+            image = self._image_provider()
+        except Exception:
+            return activity
+        result = dict(activity)
+        assets = dict(result.get("assets") or {})
+        if image:
+            assets["small_image"] = str(image)
+            if self._image_text:
+                assets["small_text"] = str(self._image_text)
+        else:
+            assets.pop("small_image", None)
+            assets.pop("small_text", None)
+        if assets:
+            result["assets"] = assets
+        else:
+            result.pop("assets", None)
+        return result
 
     def _memoize_and_send(self, key, value, payload) -> None:
         if not self.enabled or not self.client_id:

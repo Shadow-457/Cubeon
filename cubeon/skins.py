@@ -659,6 +659,7 @@ def _publish_skin_serial(cfg: dict) -> None:
                 or state.get("model") != model
                 or state.get("uuid") != machine_uuid
                 or state.get("base") != csl.CUBEON_API_BASE
+                or state.get("face_version") != 1
             )
         else:
             skin_changed = False
@@ -718,24 +719,6 @@ def _publish_skin_serial(cfg: dict) -> None:
                 cosmetics_changed = False
                 _save_publish_state(state)
 
-        if cosmetics_changed:
-            try:
-                resp = _post(
-                    csl.CUBEON_API_BASE + "/api/cosmetics",
-                    json={"uuid": machine_uuid, **cosmetics}, headers=headers,
-                    timeout=_NET_TIMEOUT,
-                )
-                if resp.status_code == 200:
-                    state["cosmetics"] = cosmetics
-                    state.pop("retry_not_before", None)
-                    _save_publish_state(state)
-                else:
-                    _record_publish_failure(state, resp)
-                    return  # Stop this batch: do not spend another request on an unhealthy service.
-            except requests.RequestException:
-                _record_publish_failure(state)
-                return
-
         # 2. Then the sheet itself, if it moved. Skipped entirely when only
         # the name changed (the texture under the UUID didn't) and when
         # there's no custom content to ship (never upload default Steve).
@@ -765,7 +748,9 @@ def _publish_skin_serial(cfg: dict) -> None:
                 return
 
             if resp.status_code == 200:
-                state.update({"hash": digest, "model": model})
+                state.update({"hash": digest, "model": model,
+                              "face_version": 1,
+                              "face_hash": hashlib.sha256(face).hexdigest() if face else None})
                 state.pop("retry_not_before", None)
                 _save_publish_state(state)
             else:
@@ -775,6 +760,25 @@ def _publish_skin_serial(cfg: dict) -> None:
                 return
             # A non-200 leaves hash/model unrecorded so the next sync retries;
             # the identity half already saved above stays accurate as-is.
+        # Publish the skin/face before optional cosmetic selections: a failed
+        # cosmetic clear must not leave a selected skin private-only.
+        if cosmetics_changed:
+            try:
+                resp = _post(
+                    csl.CUBEON_API_BASE + "/api/cosmetics",
+                    json={"uuid": machine_uuid, **cosmetics}, headers=headers,
+                    timeout=_NET_TIMEOUT,
+                )
+                if resp.status_code == 200:
+                    state["cosmetics"] = cosmetics
+                    state.pop("retry_not_before", None)
+                    _save_publish_state(state)
+                else:
+                    _record_publish_failure(state, resp)
+                    return
+            except requests.RequestException:
+                _record_publish_failure(state)
+                return
         state.pop("failure_count", None)
         state.pop("retry_not_before", None)
         _save_publish_state(state)
@@ -1004,3 +1008,14 @@ def get_skin_face_url(username: str) -> str:
     # avatar rendered as an empty circle. The Worker resolves every claimed
     # Cubeon name; the UI falls back to a color chip when it can't.
     return csl.CUBEON_API_BASE + f"/faces/{username}.png"
+
+
+def get_discord_face_url(username: str) -> str | None:
+    """Return a confirmed immutable public face; never advertise a pending upload."""
+    state = _load_publish_state()
+    face = state.get("face_hash")
+    if (state.get("base") != csl.CUBEON_API_BASE
+            or str(state.get("username", "")).lower() != (username or "").strip().lower()
+            or not isinstance(face, str) or not re.fullmatch(r"[a-f0-9]{64}", face)):
+        return None
+    return csl.CUBEON_API_BASE + "/textures/" + face

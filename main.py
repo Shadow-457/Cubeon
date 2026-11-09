@@ -1321,7 +1321,7 @@ async def main(page: ft.Page):
             "state": "In the launcher",
             "large_image": _discord_img,
             "large_text": _discord_img_text,
-            "small_image": core.get_skin_face_url(cfg.get("username", "")),
+            "small_image_provider": lambda: core.get_discord_face_url(cfg.get("username", "")),
             "small_text": cfg.get("username", ""),
         },
         daemon=True,
@@ -5276,7 +5276,7 @@ async def main(page: ft.Page):
                             friends_service.set_version(None)
                         _rpc.set_activity(state="In the launcher",
                                           large_image=_discord_img, large_text=_discord_img_text,
-                                          small_image=core.get_skin_face_url(cfg.get("username", "")),
+                                          small_image_provider=lambda: core.get_discord_face_url(cfg.get("username", "")),
                                           small_text=cfg.get("username", ""))
                     except Exception:
                         logging.getLogger(__name__).debug("exit presence cleanup failed", exc_info=True)
@@ -5527,7 +5527,7 @@ async def main(page: ft.Page):
                         start=int(time.time() * 1000),
                         large_image=_discord_img,
                         large_text=_discord_img_text,
-                        small_image=core.get_skin_face_url(username),
+                        small_image_provider=lambda: core.get_discord_face_url(username),
                         small_text=username,
                     )
                 except Exception:

@@ -172,9 +172,10 @@ check('the playing Discord card retains its elapsed timer and artwork',
       rpc_activity.call_args is not None
       and isinstance(rpc_activity.call_args.kwargs.get('start'), int)
       and 'large_image' in rpc_activity.call_args.kwargs)
-check('Discord omits the repeated app name and includes the player skin face',
+check('Discord omits the repeated app name and resolves the published player face',
       'details' not in rpc_activity.call_args.kwargs
-      and rpc_activity.call_args.kwargs.get('small_image') == stubs.core.get_skin_face_url('tester')
+      and callable(rpc_activity.call_args.kwargs.get('small_image_provider'))
+      and rpc_activity.call_args.kwargs['small_image_provider']() == stubs.core.get_discord_face_url('tester')
       and rpc_activity.call_args.kwargs.get('small_text') == 'tester')
 
 scope['progress_bar'].visible = True

@@ -442,8 +442,14 @@ keep builders consistent with the shared `THEME` contract.
 - Discord's playing status uses the launch worker's `launch_mc` and `loader_id` (for example
   `Playing Minecraft 1.21.11 (Fabric)`), never a later selection's shared `state["mod_loader"]`.
   Discord supplies the app name; omit redundant `details="Cubeon"`. Launcher/game/exit
-  activity carries the player's public Worker `/faces/<username>.png` as `small_image`,
+  activity carries the confirmed public Worker `/textures/<face-hash>` as `small_image`,
   with their name in `small_text`; retain the cube artwork and playing timer.
+  `skin_net.json` records the face hash only after upload success; `face_version`
+  migrates older unchanged skins once. RPC's existing ten-second IPC replay refreshes
+  this local marker so pending uploads never advertise a missing avatar URL. Keep
+  image composition and network writes outside the RPC loop.
+  Publish skin/face before optional cosmetic selections; retain confirmed skin
+  writes and service backoff if the later cosmetic request fails.
 - After building the Java command, `runtime_libraries.ensure` checks declared JARs
   inside the runtime `libraries/` directory, including inherited Fabric intermediary
   dependencies without manifest hashes. SHA-1/size and ZIP/CRC checks use a bounded
@@ -2205,7 +2211,7 @@ requires retrying with normal system access, not changing unrelated app code.
 - A push to `main` starts the release workflow. Publishing, committing, deploying, and rewriting history
   require the user's explicit request.
 - `tools/release_version.py` owns stamping/channel policy. Zero-patch versions and explicit
-  `STABLE_PROMOTIONS` (v1.3.27, v1.3.28, v1.3.38, v1.3.45 and v1.4.20) are stable; other patches default to beta. Promotion preserves
+  `STABLE_PROMOTIONS` (v1.3.27, v1.3.28, v1.3.38, v1.3.45, v1.4.20 and v1.4.21) are stable; other patches default to beta. Promotion preserves
   published binaries/tag; use `[skip ci]` for metadata/site commits to avoid minting a new beta.
   Rebuild with the current workflow, not an old pre-promotion commit. Preserve concurrent release
   metadata and do not force-push over another change.
