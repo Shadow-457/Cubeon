@@ -93,7 +93,11 @@
     A.download(await A.write(source), name + (target === 'bedrock' ? '.mcpack' : '.zip'));
     state('Pack downloaded.' + (report && report.warnings.length ? '\n' + report.warnings.join('\n') : ''), 'success');
   }
-  async function savePack(files, name) { await window.ResourcePacks.importFile(new File([await A.write(files['pack.mcmeta'] || files['manifest.json'] ? files : pack(files, name))], (name || 'Cubeon creation') + (files['manifest.json'] ? '.mcpack' : '.zip'), {type: 'application/zip'})); }
+  async function savePack(files, name) {
+    var source = files['pack.mcmeta'] || files['manifest.json'] ? files : pack(files, name), edition = $('#toolEdition') ? value('toolEdition') : source['manifest.json'] ? 'bedrock' : 'java';
+    if ((source['manifest.json'] ? 'bedrock' : 'java') !== edition) source = C.convertPack(source, edition, {name: name || 'Cubeon creation', version: $('#toolVersion') ? value('toolVersion') : null}).files;
+    return window.ResourcePacks.importFile(new File([await A.write(source)], (name || 'Cubeon creation') + (edition === 'bedrock' ? '.mcpack' : '.zip'), {type: 'application/zip'}));
+  }
   function diagnostics(report) { return '<p class="tool-note">' + report.files + ' files · ' + report.textures + ' images · ' + (report.bytes / 1048576).toFixed(1) + ' MB · ' + (report.edition === 'java' ? 'Java' : 'Bedrock') + '</p>' + (report.issues.length ? report.issues.map(function (issue) { return '<div class="tool-issue" data-level="' + issue.level + '"><b>' + CB.esc(issue.message) + '</b><code translate="no">' + CB.esc(issue.path) + '</code></div>'; }).join('') : '<p class="tool-output" data-state="success">No structural problems found. Test the exported pack in your target Minecraft version.</p>'); }
   function hub() {
     dispose(); current = null;
@@ -125,7 +129,13 @@
     on('toolImport', function () { $('#packImport').value = ''; $('#packImport').click(); }); on('toolBackup', function () { return window.Workspace.exportBackup(); });
     $('#toolResults').onclick = function (event) { var open = event.target.closest('[data-collection-open]'), share = event.target.closest('[data-collection-share]'), favorite = event.target.closest('[data-collection-favorite]'); if (open) window.Ed.open(CB.find(open.dataset.collectionOpen)); if (share) window.ResourcePacks.exportProject(CB.find(share.dataset.collectionShare)); if (favorite) { var p = CB.find(favorite.dataset.collectionFavorite); p.favorite = !p.favorite; CB.save(); handlers.collection(); } };
   };
-  window.Toolbox = {register: function (id, fn) { handlers[id] = fn; }, tools: tools, open: open, hub: hub, mount: mount, cleanup: cleanup, current: function (token) { return token === generation; }, token: function () { return generation; },
+  handlers.layers = async function () {
+    var project = CB.D.projects.slice().sort(function (a, b) { return b.edited - a.edited; })[0];
+    if (!project) return CB.newProject({type: 'pack'});
+    await window.Ed.open(project); document.getElementById('layerOptions').open = true;
+    if (innerWidth <= 900) { document.getElementById('ed').dataset.toolSection = 'tools'; document.getElementById('ed').classList.add('r-open'); }
+  };
+  window.Toolbox = {register: function (id, fn) { handlers[id] = fn; }, tools: tools, open: open, hub: hub, suspend: function () { dispose(); current = null; }, mount: mount, cleanup: cleanup, current: function (token) { return token === generation; }, token: function () { return generation; },
     $: $, field: field, input: input, select: select, file: file, check: check, row: row, value: value, selectedFile: selectedFile, edition: edition, buttons: buttons, on: on, watch: watch, state: state, preview: preview, results: results,
     imageBytes: imageBytes, downloadImage: downloadImage, pack: pack, exportPack: exportPack, savePack: savePack, diagnostics: diagnostics};
   CB.ready.then(function () { if (!$('#v-tools').children.length) hub(); });

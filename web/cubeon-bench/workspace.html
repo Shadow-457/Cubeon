@@ -36,6 +36,7 @@
 <script src="local-store.js"></script>
 <script src="texture-codec.js"></script>
 <script src="texture-animation.js"></script>
+<script src="texture-layers.js"></script>
 <script src="bench-features.js"></script>
 <script src="texture-surface.js"></script>
 <script src="texture-depth.js"></script>
@@ -43,6 +44,9 @@
 <script src="bench-i18n.js"></script>
 <script src="vendor/fflate.js"></script>
 <script src="archive.js"></script>
+<script src="bedrock-textures.js"></script>
+<script src="toolbox-core.js"></script>
+<script src="world-tools.js"></script>
 <script src="ui-dialog.js"></script>
 <script src="resource-packs.js"></script>
 <script src="motion.js"></script>
@@ -526,6 +530,7 @@ body.inapp .theme{display:none}
 <link rel="stylesheet" href="workbench.css">
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="studio.css">
+<link rel="stylesheet" href="toolbox.css">
 <link rel="stylesheet" href="image-import.css">
 <link rel="stylesheet" href="surface-studio.css">
 <link rel="stylesheet" href="mobile-editor.css">
@@ -609,6 +614,7 @@ body.inapp .theme{display:none}
       <button class="nvb" type="button" data-go="home" aria-current="page"><i data-i="home"></i>Home</button>
       <button class="nvb" type="button" data-go="projects" aria-current="false"><i data-i="proj"></i>Projects</button>
       <button class="nvb" type="button" data-go="library" aria-current="false"><i data-i="cube"></i>Library</button>
+      <button class="nvb" type="button" data-go="tools" aria-current="false"><i data-i="item"></i>Toolbox</button>
       <button class="nvb" type="button" data-go="settings" aria-current="false"><i data-i="set"></i>Settings</button>
     </nav>
     <button class="usr" id="usr" type="button" aria-label="Profile menu"></button>
@@ -633,10 +639,11 @@ body.inapp .theme{display:none}
         <div class="hl">
           <p class="kicker">Workspace</p>
           <div class="gh" id="gh"></div>
-          <p class="sb2">Create a texture pack or skin.</p>
+          <p class="sb2">Create a texture pack, a character, or something new.</p>
           <div class="qk">
             <button class="qkb" type="button" data-qk="skin"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c1-4 4-6 8-6s7 2 8 6"></path></svg><span><b>Skin</b><small>Character</small></span></button>
             <button class="qkb" type="button" data-qk="pack"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 21 8l-9 5-9-5Z"></path><path d="m3 12 9 5 9-5M3 16l9 5 9-5"></path></svg><span><b>Texture pack</b><small>Blocks and items</small></span></button>
+            <button class="qkb" type="button" data-go="tools"><i data-i="item"></i><span><b>Toolbox</b><small>Explore every tool</small></span></button>
           </div>
         </div>
         <div class="hr">
@@ -679,6 +686,8 @@ body.inapp .theme{display:none}
       <div class="lg" id="lib-grid"></div>
       <div class="edpg" id="libPager"></div>
     </section>
+
+    <section class="view" id="v-tools" aria-label="Cubeon Toolbox"></section>
 
     <section class="view" id="v-settings">
       <div class="sh vh settings-heading"><div><h3 class="vt">Settings</h3><p class="page-subtitle">Manage appearance, editor preferences, offline access, and backups.</p></div><button class="gb logout-button" type="button" id="lo"><i data-i="out"></i><span>Log out</span></button></div>
@@ -747,6 +756,9 @@ body.inapp .theme{display:none}
         </div>
         <label class="lb" for="mminecraft">Minecraft Java version</label>
         <select class="folder-select" id="mminecraft"></select>
+        <label class="lb" for="medition">Export edition</label>
+        <select class="folder-select" id="medition"><option value="java">Java resource pack (.zip)</option><option value="bedrock">Bedrock resource pack (.mcpack)</option></select>
+        <small class="mu">Bedrock exports include supported textures and retain edition-specific source files with a conversion report.</small>
         <div class="pack-icon-row">
           <div class="pack-icon-preview" id="miconPreview" aria-label="Pack icon preview"></div>
           <div><label class="gb icon-file-label" for="micon">Choose pack icon</label><input type="file" id="micon" accept="image/png" class="visually-hidden" value=""><small class="mu">Optional PNG image</small><button class="link" id="miconRemove" type="button" hidden="">Remove icon</button></div>
@@ -759,7 +771,7 @@ body.inapp .theme{display:none}
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="workspace-task" id="workspaceTask" hidden role="status" aria-live="polite"><div><span id="workspaceTaskLabel"></span><button type="button" id="workspaceTaskClose" hidden aria-label="Dismiss backup status">×</button></div><progress id="workspaceTaskProgress" max="1" value="0" aria-label="Workspace backup progress"></progress></div>
-  <div class="app-drop-zone" id="dropZone" hidden>Drop a file to import<span>Resource-pack ZIP · 64×64 skin PNG · workspace backup</span></div>
+  <div class="app-drop-zone" id="dropZone" hidden>Drop a file to import<span>Java ZIP / Bedrock .mcpack · skin PNG · workspace backup</span></div>
   <button type="button" class="update-notice" id="updateNotice" hidden>New version ready · Save and update</button>
   <div class="ed" id="ed" role="dialog" aria-label="Texture editor">
     <header class="edt">
@@ -773,6 +785,8 @@ body.inapp .theme{display:none}
         <button class="ibtn" id="edRedo" type="button" aria-label="Redo"><i data-i="redo"></i></button>
         </div>
         <button class="ibtn" id="edContext" type="button" aria-label="Texture actions" aria-haspopup="true" aria-expanded="false" aria-controls="textureMenu"><i data-i="dots"></i></button>
+        <button class="gb editor-toolbox-button" id="edToolbox" type="button" aria-label="Open Toolbox" title="Open Toolbox"><i data-i="item"></i><span>Toolbox</span></button>
+        <select class="editor-edition" id="edEdition" aria-label="Pack export edition"><option value="java">Java</option><option value="bedrock">Bedrock</option></select>
         <button class="gb editor-export" id="edExport" type="button" aria-label="Export Minecraft resource pack ZIP" title="Export resource pack ZIP"><i data-i="download"></i><span>Export</span></button>
         <button class="ibtn edm mobile-editor-action" id="edR" type="button" aria-label="Tools" aria-controls="edRight" aria-expanded="false"><i data-i="pen"></i><span>Tools</span></button>
       </div>
@@ -871,6 +885,7 @@ body.inapp .theme{display:none}
           </details>
           <div class="fr2" id="tintRow" hidden><span>In-game colors</span><button class="tg" id="tintToggle" type="button" role="switch" aria-checked="true" aria-label="Show natural Minecraft colors"></button></div>
         </div>
+        <div class="rc" id="editorLayers"><details class="editor-disclosure" id="layerOptions"><summary>Paint layers</summary><p class="mu">Paint on the selected layer. Layers blend into the exported texture.</p><div class="tool-layers" id="layerList" aria-label="Paint layers"></div><div class="layer-actions"><button class="gb" id="layerAdd" type="button">Add layer</button><button class="gb" id="layerDuplicate" type="button">Duplicate</button><button class="gb" id="layerUp" type="button">Move up</button><button class="gb" id="layerDown" type="button">Move down</button><button class="gb" id="layerRename" type="button">Rename</button><button class="gb" id="layerFlatten" type="button">Flatten</button></div></details></div>
         <div class="rc surface-tools" id="surfaceTools" hidden><h5>3D texture</h5>
           <button class="gb surface-open" id="surfaceMode" type="button" aria-pressed="false"><i data-i="cube"></i><span>Edit pixel depth</span></button>
           <div class="depth-controls" id="depthControls" hidden>
@@ -919,7 +934,7 @@ body.inapp .theme{display:none}
   </div>
 </div>
 
-<input type="file" id="packImport" accept=".zip,.png,application/zip,image/png" hidden>
+<input type="file" id="packImport" accept=".zip,.mcpack,.png,application/zip,image/png" hidden>
 <div class="pack-task" id="packTask" role="status" aria-live="polite" hidden>
   <div><span id="packTaskLabel"></span><button class="task-close" id="packTaskClose" type="button" aria-label="Dismiss pack status" hidden>×</button></div>
   <progress id="packTaskProgress" max="1" value="0" aria-label="Pack import or export progress"></progress>
@@ -1347,7 +1362,7 @@ body.inapp .theme{display:none}
     $('#mt').textContent=M.editId?'Pack details':'New project';$('#mcreate').textContent=M.editId?'Save details':'Create project';$('#mcreate').disabled=false;
     $('#mdescription').value=p.description||'';$('#mcreator').value=p.author==null?D.profile.name:p.author;$('#mpackversion').value=p.packVersion||'1.0.0';
     $('#mminecraft').innerHTML=(p.minecraftVersion==='imported'?'<option value="imported">Keep imported compatibility</option>':'')+ResourcePacks.versions.map(function(v){return '<option value="'+v.id+'">'+v.label+'</option>'}).join('');
-    $('#mminecraft').value=p.minecraftVersion||ResourcePacks.defaultVersion;$('#micon').value='';renderIcon();buildModal();
+    $('#mminecraft').value=p.minecraftVersion||ResourcePacks.defaultVersion;$('#medition').value=p.targetEdition||'java';$('#micon').value='';renderIcon();buildModal();
     $('#modal').classList.add('show');setTimeout(function(){if($('#modal').classList.contains('show')){$('#mn').focus();$('#mn').select()}},60);
   }
   function closeNew(){$('#modal').classList.remove('show');if(M.returnFocus&&document.contains(M.returnFocus))M.returnFocus.focus({preventScroll:true})}
@@ -1359,7 +1374,7 @@ body.inapp .theme{display:none}
       if(!p){p={id:'p'+now.toString(36)+((Math.random()*1e4)|0),type:context.type,size:context.size,created:now,block:context.type==='pack'?context.block:'',texture:context.type==='pack'?context.texture:''};D.projects.unshift(p);}
       Object.assign(p,{name:name,pal:context.pal,edited:now});
       if(p.type==='pack')Object.assign(p,{description:$('#mdescription').value,author:$('#mcreator').value.trim(),packVersion:$('#mpackversion').value.trim()||'1.0.0',
-        minecraftVersion:$('#mminecraft').value,icon:context.icon,hasIcon:!!context.icon||(context.hasIcon&&!context.iconRemoved),iconRemoved:context.iconRemoved});
+        minecraftVersion:$('#mminecraft').value,targetEdition:$('#medition').value,icon:context.icon,hasIcon:!!context.icon||(context.hasIcon&&!context.iconRemoved),iconRemoved:context.iconRemoved});
       bump();var saved=await save();closeNew();renderAll();
       if(context.editId){if(window.Ed)window.Ed.refreshDetails();if(saved)toast('Pack details saved locally.');}
       else openProj(p.id);
@@ -1520,6 +1535,12 @@ body.inapp .theme{display:none}
 <script src="editor-layout.js"></script>
 <script src="mobile-editor.js"></script>
 <script src="workspace.js"></script>
+<script src="toolbox-media.js"></script>
+<script src="toolbox.js"></script>
+<script src="toolbox-art.js"></script>
+<script src="toolbox-pack-tools.js"></script>
+<script src="toolbox-files.js"></script>
+<script src="toolbox-world-ui.js"></script>
 <script src="app-shell.js"></script>
 <script src="bench-updates.js"></script>
 <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>

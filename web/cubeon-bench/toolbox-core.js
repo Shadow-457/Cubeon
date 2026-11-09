@@ -13,7 +13,7 @@
   function slug(name) { return String(name).toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_|_$/g, '').slice(0, 60) || 'cubeon'; }
   function rootFiles(files) {
     var names = Object.keys(files).filter(function (path) { return !path.startsWith('__MACOSX/') && !path.endsWith('/'); });
-    var roots = names.filter(function (path) { return /(^|\/)(pack\.mcmeta|manifest\.json|level\.dat)$/.test(path); });
+    var roots = names.filter(function (path) { return !path.includes('.cubeon/') && /(^|\/)(pack\.mcmeta|manifest\.json|level\.dat)$/.test(path); });
     var root = roots.find(function (path) { return !path.includes('/'); });
     if (!root && roots.length === 1) root = roots[0];
     if (!root) return copyFiles(files);
@@ -71,6 +71,8 @@
     blockNames[color + '_concrete_powder'] = 'concrete_powder_' + old;
   });
   function bedrockPath(path) {
+    var preserved = /^assets\/cubeon_bedrock\/textures\/(.+)\.png$/.exec(path);
+    if (preserved) return 'textures/' + preserved[1] + '.png';
     var match = /^assets\/minecraft\/textures\/(block|item)\/([a-z0-9_]+)\.png$/.exec(path);
     if (match) {
       var names = match[1] === 'block' ? blockNames : itemNames, mapped = names[match[2]], candidate = 'textures/' + (match[1] === 'block' ? 'blocks' : 'items') + '/' + (mapped || match[2]);
@@ -82,42 +84,64 @@
     if (path === 'pack.png') return 'pack_icon.png';
     return null;
   }
-  function javaPath(path) {
+  function javaPath(path, editable) {
     var match = /^textures\/(blocks|items)\/([^/]+)\.png$/.exec(path);
     if (match) {
       var names = match[1] === 'blocks' ? blockNames : itemNames, name = Object.keys(names).find(function (key) { return names[key] === match[2]; }) || match[2];
       var id = (match[1] === 'blocks' ? 'block/' : 'item/') + name;
-      return window.MinecraftTextures.resolve(id) ? 'assets/minecraft/textures/' + id + '.png' : null;
+      if (window.MinecraftTextures.resolve(id)) return 'assets/minecraft/textures/' + id + '.png';
     }
     if (path === 'textures/entity/zombie/zombie.png') return 'assets/minecraft/textures/entity/zombie/zombie.png';
     if (path === 'textures/misc/enchanted_item_glint.png') return 'assets/minecraft/textures/misc/enchanted_glint_item.png';
     if (path === 'textures/entity/elytra.png') return 'assets/minecraft/textures/entity/elytra.png';
     if (path === 'pack_icon.png') return 'pack.png';
+    if (editable && /^textures\/[a-z0-9_./-]+\.png$/.test(path)) return 'assets/cubeon_bedrock/textures/' + path.slice(9);
     return null;
   }
   function convertPack(source, edition, options) {
     options = options || {};
-    var input = rootFiles(source), files = Object.create(null), report = {edition: edition, converted: [], retained: [], warnings: []};
+    if (!['java', 'bedrock'].includes(edition)) throw new Error('Choose Java or Bedrock as the export edition.');
+    var input = rootFiles(source), files = Object.create(null), report = {edition: edition, converted: [], editable: [], retained: [], restored: [], warnings: []};
     var originalEdition = input['manifest.json'] ? 'bedrock' : input['pack.mcmeta'] ? 'java' : null;
     if (!originalEdition) throw new Error('Choose a Java pack with pack.mcmeta or a Bedrock resource pack with manifest.json.');
     if (originalEdition === 'bedrock') {
       var manifest = parse(input['manifest.json'], 'manifest.json');
       if (!manifest.modules || !manifest.modules.some(function (module) { return module.type === 'resources'; })) throw new Error('This converter handles resource packs. Behavior-pack scripts and world databases need their own edition-specific tools.');
     }
-    var name = options.name || 'Cubeon pack', description = options.description || name;
+    var sourceMeta = parse(input[originalEdition === 'java' ? 'pack.mcmeta' : 'manifest.json']);
+    var name = options.name || (sourceMeta.header && sourceMeta.header.name) || 'Cubeon pack', description = options.description == null ? name : options.description;
     if (originalEdition === edition) {
       files = copyFiles(input);
-      if (edition === 'java') files['pack.mcmeta'] = json(javaMetadata(name, options.version, description));
+      if (edition === 'java') files['pack.mcmeta'] = json(Object.assign({}, sourceMeta, javaMetadata(name, options.version, description)));
       return {files: files, report: report};
     }
+    // Keep each source edition once. Returning to an edition first restores its
+    // retained baseline, then overlays the current edited textures.
+    var restorePrefix = '.cubeon/source/' + edition + '/', sourcePrefix = '.cubeon/source/' + originalEdition + '/';
+    Object.keys(input).filter(function (path) { return path.startsWith('.cubeon/'); }).forEach(function (path) {
+      files[path] = input[path];
+      if (path.startsWith(restorePrefix)) {
+        var restored = path.slice(restorePrefix.length);
+        if (!restored.startsWith('.cubeon/') && window.BenchArchive.safePath(restored)) { files[restored] = input[path]; report.restored.push(restored); }
+      }
+    });
+    var mappedTextures = new Set();
     Object.keys(input).forEach(function (path) {
+      if (path.startsWith('.cubeon/')) return;
+      files[sourcePrefix + path] = input[path];
       if (path === 'pack.mcmeta' || path === 'manifest.json') return;
       var mapped = edition === 'bedrock' ? bedrockPath(path) : javaPath(path);
-      if (mapped) { files[mapped] = input[path]; report.converted.push({from: path, to: mapped}); }
-      else { files['.cubeon/source/' + originalEdition + '/' + path] = input[path]; report.retained.push(path); }
+      if (mapped) { files[mapped] = input[path]; report.converted.push({from: path, to: mapped}); if (/\.png$/.test(mapped)) mappedTextures.add(mapped); }
+      else {
+        report.retained.push(path);
+        var proxy = edition === 'java' && javaPath(path, true);
+        if (proxy) { files[proxy] = input[path]; mappedTextures.add(proxy); report.editable.push({from: path, to: proxy}); }
+      }
     });
     if (edition === 'bedrock') {
-      var flipbooks = [];
+      var flipbooks = files['textures/flipbook_textures.json'] ? parse(files['textures/flipbook_textures.json'], 'flipbook_textures.json') : [];
+      if (!Array.isArray(flipbooks)) throw new Error('Bedrock flipbook_textures.json must be an array.');
+      flipbooks = flipbooks.filter(function (animation) { return !mappedTextures.has(animation.flipbook_texture + '.png'); });
       Object.keys(input).filter(function (path) { return path.endsWith('.png.mcmeta'); }).forEach(function (path) {
         var target = bedrockPath(path.slice(0, -7));
         if (!target) return;
@@ -132,19 +156,34 @@
             frames: animation.frames ? animation.frames.map(function (entry) { return typeof entry === 'object' ? entry.index : entry; }) : Array.from({length: size.h / frame}, function (_, i) { return i; }), blend_frames: !!animation.interpolate});
         } catch (error) { report.warnings.push(error.message); }
       });
-      if (flipbooks.length) files['textures/flipbook_textures.json'] = json(flipbooks);
-      files['manifest.json'] = json(bedrockManifest(name, description));
+      if (flipbooks.length) files['textures/flipbook_textures.json'] = json(flipbooks); else delete files['textures/flipbook_textures.json'];
+      var restoredManifest = files['manifest.json'] ? parse(files['manifest.json'], 'manifest.json') : bedrockManifest(name, description);
+      restoredManifest.header.name = name; restoredManifest.header.description = description;
+      files['manifest.json'] = json(restoredManifest);
     } else {
-      files['pack.mcmeta'] = json(javaMetadata(name, options.version, description));
+      var restoredMeta = files['pack.mcmeta'] ? parse(files['pack.mcmeta'], 'pack.mcmeta') : {};
+      files['pack.mcmeta'] = json(Object.assign({}, restoredMeta, javaMetadata(name, options.version, description)));
+      mappedTextures.forEach(function (path) {
+        if (!files[path + '.mcmeta']) return;
+        var meta = parse(files[path + '.mcmeta'], path + '.mcmeta'); delete meta.animation;
+        if (Object.keys(meta).length) files[path + '.mcmeta'] = json(meta); else delete files[path + '.mcmeta'];
+      });
       if (input['textures/flipbook_textures.json']) {
-        parse(input['textures/flipbook_textures.json'], 'flipbook_textures.json').forEach(function (animation) {
-          var target = javaPath(animation.flipbook_texture + '.png');
-          if (target && files[target]) files[target + '.mcmeta'] = json({animation: {frametime: animation.ticks_per_frame || 1, frames: animation.frames, interpolate: !!animation.blend_frames}});
+        var sourceAnimations = parse(input['textures/flipbook_textures.json'], 'flipbook_textures.json');
+        if (!Array.isArray(sourceAnimations)) throw new Error('Bedrock flipbook_textures.json must be an array.');
+        sourceAnimations.forEach(function (animation) {
+          var target = javaPath(animation.flipbook_texture + '.png', true);
+          if (target && files[target]) {
+            var extra = files[target + '.mcmeta'] ? parse(files[target + '.mcmeta']) : {};
+            extra.animation = {frametime: animation.ticks_per_frame || 1, frames: animation.frames, interpolate: !!animation.blend_frames};
+            files[target + '.mcmeta'] = json(extra);
+          }
         });
       }
     }
     if (report.retained.length) report.warnings.push(report.retained.length + ' edition-specific files are preserved under .cubeon/source. They do not run in the target edition.');
-    if (!report.converted.some(function (entry) { return entry.to.startsWith('textures/') || entry.to.startsWith('assets/'); })) throw new Error('This pack has no supported textures to convert. Use the diagnostic report to inspect its edition-specific resources.');
+    if (report.editable.length) report.warnings.push(report.editable.length + ' Bedrock images remain editable in Bench and export back to their original paths. They do not replace Java textures.');
+    if (!report.converted.some(function (entry) { return entry.to.startsWith('textures/') || entry.to.startsWith('assets/'); })) report.warnings.push('No standard texture replacements translate to this edition. Source resources are retained; inspect the report before using the pack.');
     files['.cubeon/conversion.json'] = json(report);
     return {files: files, report: report};
   }
@@ -324,11 +363,11 @@
     return result;
   }
   function crosshair(color, style, thickness, gap) {
-    var result = image(16, 16), c = rgb(color).concat(255), t = Math.round(clamp(thickness, 1, 4)), g = Math.round(clamp(gap, 0, 4));
-    for (var y = 0; y < 16; y++) for (var x = 0; x < 16; x++) {
-      var dx = Math.abs(x - 7.5), dy = Math.abs(y - 7.5), on = style === 'dot' ? dx < t && dy < t : style === 'ring' ? Math.abs(Math.sqrt(dx * dx + dy * dy) - 5) < t / 2 :
+    var result = image(15, 15), c = rgb(color).concat(255), t = Math.round(clamp(thickness, 1, 4)), g = Math.round(clamp(gap, 0, 4));
+    for (var y = 0; y < 15; y++) for (var x = 0; x < 15; x++) {
+      var dx = Math.abs(x - 7), dy = Math.abs(y - 7), on = style === 'dot' ? dx < t && dy < t : style === 'ring' ? Math.abs(Math.sqrt(dx * dx + dy * dy) - 5) < t / 2 :
         (dx < t / 2 && dy > g && dy < 7 || dy < t / 2 && dx > g && dx < 7);
-      if (on) result.data.set(c, (y * 16 + x) * 4);
+      if (on) result.data.set(c, (y * 15 + x) * 4);
     }
     return result;
   }

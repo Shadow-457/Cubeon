@@ -48,6 +48,11 @@
       TextureCodec.decode(edits[key], p);
     });
     if(p.surfaces)p.surfaces=window.TextureSurface.dictionary(p.surfaces);
+    if(p.layers){
+      p.layers=window.TextureLayers.dictionary(p.layers);
+      Object.keys(p.layers).forEach(function(key){var image=TextureCodec.decode(p.layers[key].items[0].pixels),edit=edits[key]&&TextureCodec.decode(edits[key],p);if(edit&&(edit.width!==image.width||edit.height!==image.height))throw new Error('The backup contains layers with mismatched texture dimensions.');});
+    }
+    if(p.targetEdition&&!['java','bedrock'].includes(p.targetEdition))throw new Error('The backup contains an invalid pack edition.');
     if(p.surfaceImported&&(!Array.isArray(p.surfaceImported)||!p.surfaceImported.every(window.TextureSurface.validId)))throw new Error('The backup contains invalid depth-map ownership.');
     if (p.textures && !Array.isArray(p.textures)) throw new Error('The backup contains an invalid texture catalog.');
     (p.textures || []).forEach(function (entry) {
@@ -136,7 +141,7 @@
   async function importSkin(file) {
     try {
       var image = await window.Ed.readPNG(file);
-      if (image.width !== 64 || image.height !== 64) throw new Error('Choose a Minecraft skin PNG with a 64×64 layout.');
+      image = window.BenchToolsCore.normalizeSkin(image);
       var now = Date.now(), p = {id: id(), name: file.name.replace(/\.png$/i, '').slice(0, 40) || 'Imported skin', type: 'skin', size: 16, pal: CB.D.set.pal, edits: {skin: TextureCodec.encode(image)}, created: now, edited: now};
       var full=document.createElement('canvas');full.width=full.height=64;full.getContext('2d').putImageData(image,0,0);
       var face=document.createElement('canvas');face.width=face.height=16;face.getContext('2d').imageSmoothingEnabled=false;face.getContext('2d').drawImage(full,8,8,8,8,0,0,16,16);p.thumb=face.toDataURL();

@@ -95,6 +95,11 @@
 .tool-layer input { width:45px; min-width:0; background:var(--btn); color:var(--ink); padding:4px; border:1px solid var(--line); border-radius:5px }
 .editor-toolbox-button { min-width:44px; white-space:nowrap }
 .editor-edition { max-width:96px; background:var(--btn); color:var(--ink); border:1px solid var(--line); padding:9px; border-radius:9px; font:700 12px var(--display) }
+.layer-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:10px }
+.layer-actions .gb { padding:8px; font-size:11px; min-height:34px; justify-content:center }
+#editorLayers .mu { font-size:11px; line-height:1.5 }
+.qk { flex-wrap:wrap }
+@media(max-width:600px) { .ed .edt .editor-toolbox-button { width:32px; height:36px; min-width:32px; padding:0; justify-content:center } .ed .edt .editor-edition { font-size:11px!important; padding:5px 2px; width:61px; height:36px } .layer-actions .gb,.tool-layer button { min-height:44px } }
 @media (max-width:1100px) { .tool-studio { grid-template-columns:minmax(0,1fr) minmax(270px,1fr) } .tool-stage { height:350px } }
 @media (max-width:900px) { .tool-stage-column { position:static } .tool-studio { grid-template-columns:minmax(0,1fr) } .tool-panel { padding:20px } .tool-stage { height:320px } .toolbox-heading { flex-wrap:wrap; gap:14px } .toolbox-label { font-size:11px } .toolbox-grid { grid-template-columns:repeat(2,minmax(0,1fr)) } .tool-card { grid-template-columns:36px 1fr; gap:12px; padding:17px } .tool-card-icon { width:36px; height:36px } .tool-card-arrow { display:none } .editor-toolbox-button span { display:none } .editor-edition { max-width:72px } }
 @media (max-width:520px) { .toolbox-grid { grid-template-columns:minmax(0,1fr) } .tool-card { grid-template-columns:40px minmax(0,1fr) 18px } .tool-card-arrow { display:block } .toolbox-filters { gap:3px } .toolbox-filters button { padding:9px; font-size:12px } .tool-stage { height:290px } .tool-compare { gap:8px } .tool-compare .tool-stage { height:260px } .tool-collection-row { align-items:flex-start; flex-direction:column } .toolbox-heading h3 { font-size:32px } }

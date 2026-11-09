@@ -1,7 +1,7 @@
 (function(){
   var CB=window.CB,MT=window.MinecraftTextures;if(!CB||!MT)return;
   var $=function(s,r){return (r||document).querySelector(s)},$$=function(s,r){return [].slice.call((r||document).querySelectorAll(s))};
-  var D=CB.D,ic=CB.ic,esc=CB.esc,ed=$('#ed'),codec=window.TextureCodec,TA=window.TextureAnimation,TD=window.TextureDepth;
+  var D=CB.D,ic=CB.ic,esc=CB.esc,ed=$('#ed'),codec=window.TextureCodec,TA=window.TextureAnimation,TD=window.TextureDepth,TL=window.TextureLayers;
   var SKIN=[Object.assign({},MT.resolve('entity/player/wide/steve'),{id:'skin',n:'Skin',cat:'Skin'})];
 
   /* ---------- state ---------- */
@@ -62,19 +62,21 @@
         undo:[],redo:[],cv:cv,ctx:ctx,zoom:0,fitMode:true,version:0,used:performance.now()};
       doc.viewTint=project.tintView&&Object.prototype.hasOwnProperty.call(project.tintView,id)?!!project.tintView[id]:D.set.naturalColors!==false;
       doc.surface=window.TextureSurface.settings(project.surfaces&&Object.prototype.hasOwnProperty.call(project.surfaces,id)?project.surfaces[id]:null);
-      doc.committed=codec.encode(data);doc.committedAnimation=JSON.stringify(override);doc.committedSurface=JSON.stringify(doc.surface);refreshEntry(doc);return docs[id]=doc;
+      TL.attach(doc,project.layers&&project.layers[id]);doc.composite=TL.compose(doc);ctx.putImageData(doc.composite,0,0);
+      doc.committed=codec.encode(doc.composite);doc.committedLayers=JSON.stringify(TL.serialize(doc));doc.committedAnimation=JSON.stringify(override);doc.committedSurface=JSON.stringify(doc.surface);refreshEntry(doc);return docs[id]=doc;
     })();
     try{return await pending[id]}finally{delete pending[id]}
   }
   function pruneDocs(){
     var ids=Object.keys(E.docs).sort(function(a,b){return E.docs[a].used-E.docs[b].used});
-    var total=ids.reduce(function(n,id){return n+E.docs[id].data.data.byteLength},0);
-    ids.forEach(function(id){if(total>67108864&&E.docs[id]!==E.doc){total-=E.docs[id].data.data.byteLength;delete E.docs[id]}});
+    function size(doc){return TL.bytes(doc)+doc.w*doc.h*4+historyBytes(doc.undo)+historyBytes(doc.redo);}
+    var total=ids.reduce(function(n,id){return n+size(E.docs[id])},0);
+    ids.forEach(function(id){if(total>67108864&&E.docs[id]!==E.doc){total-=size(E.docs[id]);delete E.docs[id]}});
   }
   function drawEnt(cv,e){
     if(!e)return;
     var doc=E.docs[e.id],edit=E.p.edits[e.id],source;
-    if(doc){doc.ctx.putImageData(doc.data,0,0);source=doc.cv}
+    if(doc){doc.ctx.putImageData(doc.composite||TL.compose(doc),0,0);source=doc.cv}
     else if(edit){
       var data=dec(edit,E.p);source=document.createElement('canvas');source.width=data.width;source.height=data.height;
       source.getContext('2d').putImageData(data,0,0);
@@ -197,11 +199,11 @@
   function pickAt(c){
     var d=E.doc,r=viewRect(d);if(c[0]<r.x||c[1]<r.y||c[0]>=r.x+r.w||c[1]>=r.y+r.h)return;
     if(E.depthEditing){E.depthValue=Math.round(TD.layer(d).data[(c[1]*d.w+c[0])*4]/255*100);$('#depthValue').value=E.depthValue;return;}
-    var a=d.data.data,i=(c[1]*d.w+c[0])*4;if(!a[i+3])return;
+    var a=TL.compose(d).data,i=(c[1]*d.w+c[0])*4;if(!a[i+3])return;
     setColor('#'+hex2(a[i])+hex2(a[i+1])+hex2(a[i+2]),true);
     setAlpha(Math.round(a[i+3]/255*100));
   }
-  function checkpoint(d){return {data:clone(d.data),animation:TA.copy(d.animationOverride),surface:d.surface,frame:d.frame,frameView:d.frameView,selection:d.selection&&Object.assign({},d.selection)}}
+  function checkpoint(d){var layers=TL.snapshot(d);return {data:layers?layers.items.find(function(layer){return layer.id===layers.active}).image:clone(d.data),layers:layers,animation:TA.copy(d.animationOverride),surface:d.surface,frame:d.frame,frameView:d.frameView,selection:d.selection&&Object.assign({},d.selection)}}
   function historyBytes(items){
     var heights=new Set(),selections=new Set();return items.reduce(function(sum,item){
       var height=item.surface&&item.surface.height;if(height&&!heights.has(height.pixels)){heights.add(height.pixels);sum+=height.pixels.length*2;}
@@ -209,11 +211,13 @@
         if(selection.mask&&!selections.has(selection.mask)){selections.add(selection.mask);sum+=selection.mask.byteLength;}
         if(selection.edges&&!selections.has(selection.edges)){selections.add(selection.edges);sum+=selection.edges.length*64;}
       }
-      return sum+item.data.data.byteLength;
+      return sum+(item.layers?item.layers.items.reduce(function(bytes,layer){return bytes+layer.image.data.byteLength},0):item.data.data.byteLength);
     },0);
   }
   function pushUndo(d){d.undo.push(checkpoint(d));while(d.undo.length>1&&(d.undo.length>60||historyBytes(d.undo)>25165824))d.undo.shift();d.redo.length=0;sync()}
-  function restoreCheckpoint(d,item){d.data=item.data;d.animationOverride=TA.copy(item.animation);d.surface=item.surface||null;d.depthLayer=null;d.frame=item.frame;d.frameView=item.frameView;d.selection=item.selection;redraw();setZoom(fitZoom(d),true);commit(d)}
+  function restoreCheckpoint(d,item){d.data=item.data;TL.restore(d,item.layers);d.animationOverride=TA.copy(item.animation);d.surface=item.surface||null;d.depthLayer=null;d.frame=item.frame;d.frameView=item.frameView;d.selection=item.selection;redraw();setZoom(fitZoom(d),true);commit(d)}
+  function changeLayers(operation){var d=E.doc;if(!d||E.cur==='preview')return;if(drag)end();var before=checkpoint(d);try{operation(d);d.undo.push(before);while(d.undo.length>1&&(d.undo.length>60||historyBytes(d.undo)>25165824))d.undo.shift();d.redo.length=0;d.depthLayer=null;redraw();commit(d)}catch(error){d.data=before.data;TL.restore(d,before.layers);redraw();sync();CB.toast(error.message)}}
+  TL.bind(function(){return E.cur==='preview'?null:E.doc},changeLayers,function(id){if(drag)end();var d=E.doc;if(!d||E.cur==='preview')return;TL.select(d,id);d.depthLayer=null;redraw();commit(d)});
   function changeSurface(value){
     var d=E.doc;if(!d||d.id==='skin')return false;
     var surface=window.TextureSurface.settings(value);
@@ -235,7 +239,7 @@
     refreshEntry(d);var r=viewRect(d),resized=ec.width!==r.w||ec.height!==r.h;
     if(resized){ec.width=r.w;ec.height=r.h}
     var heightView=E.depthEditing&&E.depthView==='height';
-    d.ctx.putImageData(d.data,0,0);ectx.clearRect(0,0,ec.width,ec.height);ectx.putImageData(heightView?TD.layer(d):d.data,-r.x,-r.y,r.x,r.y,r.w,r.h);d.version++;
+    d.composite=TL.compose(d);d.ctx.putImageData(d.composite,0,0);ectx.clearRect(0,0,ec.width,ec.height);ectx.putImageData(heightView?TD.layer(d):d.composite,-r.x,-r.y,r.x,r.y,r.w,r.h);d.version++;
     depthOverlay.hidden=!E.depthEditing||heightView;
     if(!depthOverlay.hidden){depthOverlay.width=r.w;depthOverlay.height=r.h;depthOverlay.getContext('2d').putImageData(TD.overlay(TD.layer(d)),-r.x,-r.y,r.x,r.y,r.w,r.h);}
     var color=MT.tintColor(d.e);tintCanvas.hidden=heightView||!color||!d.viewTint;
@@ -250,14 +254,14 @@
     if(kind==='reset'){
       var size=docSize(d.source),original=clone(await base(d.source,size.w,size.h));
       if(token!==activeToken||E.doc!==d)return;
-      pushUndo(d);d.selection=null;d.data=original;d.surface=null;d.depthLayer=null;d.animationOverride=undefined;d.frame=0;d.frameView=false;redraw();setZoom(fitZoom(d),true);commit(d);return;
+      pushUndo(d);TL.restore(d,null);d.selection=null;d.data=original;d.surface=null;d.depthLayer=null;d.animationOverride=undefined;d.frame=0;d.frameView=false;redraw();setZoom(fitZoom(d),true);commit(d);return;
     }
-    try{var result=TA.transformAnimation(d,kind),height=heightDocument(d),heightResult=height?TA.transformAnimation(height,kind):null;pushUndo(d);heightChange(d,heightResult);applyAnimationChange(d,result)}catch(error){CB.toast(error.message)}
+    try{var result=TA.transformAnimation(d,kind),height=heightDocument(d),heightResult=height?TA.transformAnimation(height,kind):null;if(result.data)TL.checkSize(d,result.data.width,result.data.height);pushUndo(d);TL.mapInactive(d,function(layer){return TA.transformAnimation(layer,kind)});heightChange(d,heightResult);applyAnimationChange(d,result)}catch(error){CB.toast(error.message)}
   }
   function applyAnimationChange(d,result){
     d.selection=null;
     var previous=viewRect(d);
-    if(result.data){d.data=result.data;d.depthLayer=null;}
+    if(result.data){d.data=result.data;TL.align(d,d.data.width,d.data.height);d.depthLayer=null;}
     if(Object.prototype.hasOwnProperty.call(result,'animation'))d.animationOverride=TA.copy(result.animation);
     if(result.frame!==undefined)d.frame=result.frame;
     if(result.frameView!==undefined)d.frameView=result.frameView;
@@ -268,13 +272,16 @@
     try{
       if(action==='toggle'&&!TA.supported(d.e))return;
       var result=TA.change(d,action,value);if(!result){animationControls.refresh();return}
+      if(result.data)TL.checkSize(d,result.data.width,result.data.height);
       var height=['toggle','add','remove','paste'].includes(action)?heightDocument(d):null,heightResult=null;
       if(height){
         var heightValue=value;
         if(action==='paste')heightValue={data:value.height||window.TextureSurface.generate(value.data,{version:1,depth:40,shine:15,smooth:0,invert:false,metal:false}).base,time:value.time};
         heightResult=TA.change(height,action,heightValue);
       }
-      pushUndo(d);heightChange(d,heightResult);applyAnimationChange(d,result);
+      pushUndo(d);
+      if(['toggle','add','remove','paste'].includes(action))TL.mapInactive(d,function(layer){var next=value;if(action==='paste')next={data:new ImageData(value.data.width,value.data.height),time:value.time};return TA.change(layer,action,next)});
+      heightChange(d,heightResult);applyAnimationChange(d,result);
     }
     catch(error){CB.toast(error.message);animationControls.refresh()}
   }
@@ -283,9 +290,9 @@
     if(drag)end();
     if(action==='copy'||action==='cut') {
       if(action==='cut'&&d.layout.steps.length<=1){CB.toast('Keep at least one animation frame.');return}
-      frameClipboard=TA.copyFrame(d);
+      frameClipboard=TA.copyFrame(Object.assign({},d,{data:TL.compose(d)}));
       if(d.surface){
-        var height=heightDocument(d),map=height?height.data:window.TextureSurface.generate(d.data,{version:1,depth:40,shine:15,smooth:0,invert:false,metal:false},d.e).base;
+        var height=heightDocument(d),map=height?height.data:window.TextureSurface.generate(d.composite||d.data,{version:1,depth:40,shine:15,smooth:0,invert:false,metal:false},d.e).base;
         frameClipboard.height=TA.crop(map,TA.frameRect(d.layout,d.frame));
       }
       CB.toast('Frame copied, including its duration. Paste to insert a new frame.');
@@ -309,14 +316,15 @@
     if(d.surface&&!window.TextureSurface.supported(d.data)){
       d.surface=null;CB.toast('Depth was removed from this larger texture. Undo restores the previous texture and depth.');
     }
-    var encoded=codec.encode(d.data),old=d.committed,animation=JSON.stringify(d.animationOverride),surface=JSON.stringify(d.surface);
-    var changed=!old||old.w!==encoded.w||old.h!==encoded.h||old.pixels!==encoded.pixels||d.committedAnimation!==animation||d.committedSurface!==surface;
-    d.committed=encoded;d.committedAnimation=animation;d.committedSurface=surface;
+    d.composite=TL.compose(d);var encoded=codec.encode(d.composite),old=d.committed,animation=JSON.stringify(d.animationOverride),surface=JSON.stringify(d.surface),layers=TL.serialize(d),layerState=JSON.stringify(layers);
+    var changed=!old||old.w!==encoded.w||old.h!==encoded.h||old.pixels!==encoded.pixels||d.committedAnimation!==animation||d.committedSurface!==surface||d.committedLayers!==layerState;
+    d.committed=encoded;d.committedAnimation=animation;d.committedSurface=surface;d.committedLayers=layerState;
     p.edits[d.id]=encoded;p.edited=now;p.open=E.open.slice();p.cur=E.cur;p.last=E.last;
     if(d.animationOverride!==undefined){p.animations=p.animations||{};p.animations[d.id]=TA.copy(d.animationOverride)}else if(p.animations)delete p.animations[d.id];
     if(d.surface){p.surfaces=p.surfaces||Object.create(null);p.surfaces[d.id]=d.surface}else if(p.surfaces)delete p.surfaces[d.id];
+    if(layers){p.layers=p.layers||Object.create(null);p.layers[d.id]=layers}else if(p.layers)delete p.layers[d.id];
     rememberAnimationView(d);
-    d.ctx.putImageData(d.data,0,0);
+    d.ctx.putImageData(d.composite,0,0);
     var t=document.createElement('canvas');t.width=t.height=16;var c=t.getContext('2d');c.imageSmoothingEnabled=false;
     if(p.type==='skin')c.drawImage(d.cv,8,8,8,8,0,0,16,16);
     else{var f=MT.frame(d.e,0,d.w,d.h),scale=Math.min(16/f.w,16/f.h);c.drawImage(d.cv,f.x,f.y,f.w,f.h,(16-f.w*scale)/2,(16-f.h*scale)/2,f.w*scale,f.h*scale)}
@@ -568,7 +576,7 @@
     var d=E.doc,root=$('#texturePalette');if(!d){root.innerHTML='';return}
     var r=viewRect(d),view=r.x+':'+r.y+':'+r.w+':'+r.h;
     if(d.paletteVersion!==d.version||d.paletteView!==view){
-      var counts=new Map(),data=d.data.data;
+      var counts=new Map(),data=(d.composite||TL.compose(d)).data;
       for(var y=r.y;y<r.y+r.h;y++)for(var x=r.x;x<r.x+r.w;x++){var i=(y*d.w+x)*4;if(data[i+3]){var key=data[i]+','+data[i+1]+','+data[i+2]+','+data[i+3];counts.set(key,(counts.get(key)||0)+1)}}
       d.palette=Array.from(counts.entries()).sort(function(a,b){return b[1]-a[1]}).map(function(item){return item[0].split(',').map(Number)});d.paletteVersion=d.version;d.paletteView=view;d.palettePage=0;
     }
@@ -579,6 +587,7 @@
   }
   function sync(){
     textureColors();
+    TL.render(E.cur==='preview'?null:E.doc);
     $('#brushCustom').value=E.size;
     $$('.tb',$('#edTools')).forEach(function(b){b.setAttribute('aria-pressed',b.dataset.t===E.tool)});
     if(lastTool!==E.tool){$('#morePaintTools').open=!!$('#morePaintTools [data-t="'+E.tool+'"]');lastTool=E.tool;}
@@ -617,6 +626,7 @@
   ed.addEventListener('click',function(e){
     var t=e.target,b;
     if(t.closest('#edBack')){close();return}
+    if(t.closest('#edToolbox')){close();CB.go('tools');window.Toolbox.hub();return}
     if(E.loading)return;
     if(b=t.closest('[data-texture-color]')){setColor(b.dataset.textureColor);setAlpha(Number(b.dataset.alpha)/255*100);return}
     if(t.closest('#texturePaletteMore')&&E.doc){E.doc.palettePage=((E.doc.palettePage||0)+1)%Math.ceil(E.doc.palette.length/PALETTE_PAGE);textureColors();return}
@@ -666,6 +676,7 @@
   $('#brushCustom').addEventListener('change',sync);
   $('#texturePicker').addEventListener('change',function(){if(this.files[0])importImage(this.files[0]);this.value='';});
   $('#edAlpha').addEventListener('input',function(){setAlpha(+this.value)});
+  $('#edEdition').addEventListener('change',function(){if(E.p&&E.p.type!=='skin'){E.p.targetEdition=this.value;CB.save();refreshDetails()}});
   $('#edHex').addEventListener('input',function(){var v=this.value.trim();if(v[0]!=='#')v='#'+v;if(/^#[0-9a-f]{6}$/i.test(v))setColor(v)});
   window.addEventListener('resize',function(){if(ed.classList.contains('show'))renderLeft()});
   function releaseSpaceHand(){if(spaceHand===null)return;endPan();E.hand=spaceHand;spaceHand=null;sync();ovl();}
@@ -776,7 +787,7 @@
         if(image.width!==r.w||image.height!==r.h)throw new Error('Keep the current dimensions to preserve this animation.');
         var next=clone(d.data);for(var y=0;y<r.h;y++)next.data.set(image.data.subarray(y*r.w*4,(y+1)*r.w*4),((r.y+y)*d.w+r.x)*4);image=next;
       }
-      pushUndo(d);d.data=image;d.depthLayer=null;d.selection=null;redraw();setZoom(fitZoom(d),true);ovl();
+      TL.checkSize(d,image.width,image.height);pushUndo(d);d.data=image;TL.align(d,image.width,image.height);d.depthLayer=null;d.selection=null;redraw();setZoom(fitZoom(d),true);ovl();
       var saved=await commit(d);
       if(saved)CB.toast(result.scope==='frame'?'Image applied to frame '+(d.frame+1)+'. Undo restores its pixels.':'Texture replaced. Image applied and saved locally. Undo restores the previous pixels.');
       else CB.toast('Image applied, but it could not be saved locally. Export a backup or retry saving.');
@@ -784,16 +795,18 @@
   }
   async function exportPNG(){
     if(!E.doc)return;if(drag)end();var d=E.doc;
-    try{var blob=await codec.png(clone(d.data));BenchArchive.download(blob,d.id.split('/').pop().replace(':','-')+'.png');CB.toast('Texture PNG downloaded.')}catch(error){CB.toast(error.message)}
+    try{var blob=await codec.png(TL.compose(d));BenchArchive.download(blob,d.id.split('/').pop().replace(':','-')+'.png');CB.toast('Texture PNG downloaded.')}catch(error){CB.toast(error.message)}
   }
   function refreshDetails(){
     if(!E.p)return;
     $('#edName').textContent=E.p.name;$('#edDetails').hidden=E.p.type==='skin';$('#edPackLabel').textContent=E.p.type==='skin'?'Skin':'Texture pack';
-    $('.local-note',ed).textContent=E.p.type==='skin'?'Autosaves on this device · export a PNG':'Autosaves on this device · export a ZIP to share';
-    $('#edExport').setAttribute('aria-label',E.p.type==='skin'?'Export skin PNG':'Export Minecraft resource pack ZIP');$('#edExport').title=E.p.type==='skin'?'Export skin PNG':'Export resource pack ZIP';renderPal();
+    var edition=E.p.targetEdition||'java';$('#edEdition').hidden=E.p.type==='skin';$('#edEdition').value=edition;
+    $('.local-note',ed).textContent=E.p.type==='skin'?'Autosaves on this device · export a PNG':'Autosaves on this device · export a '+(edition==='bedrock'?'.mcpack':'ZIP')+' to share';
+    var label=E.p.type==='skin'?'Export skin PNG':edition==='bedrock'?'Export Bedrock resource pack':'Export Minecraft resource pack ZIP';$('#edExport').setAttribute('aria-label',label);$('#edExport').title=label;renderPal();
   }
   async function open(p){
     await CB.ready;
+    if(window.Toolbox)window.Toolbox.suspend();
     endPan();E.hand=false;
     lastTool=null;$$('#edRight details').forEach(function(details){details.open=false});
     if(drag)end();

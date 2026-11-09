@@ -196,7 +196,7 @@
       var view=new window.SurfacePreview(this.stage,false);this.surfaceView=view;
       this.world.style.display='none';this.host.classList.add('has-depth');
       try{
-        var maps=window.TextureSurface.generate(doc.data,doc.surface,doc.e);
+        var maps=window.TextureSurface.generate(doc.composite||doc.data,doc.surface,doc.e);
         await view.set(window.SurfacePreview.displayImage(doc),maps,doc.surface,MT.frame(doc.e,0,doc.w,doc.h));
         if(token!==this.token){view.dispose();return;}
         this.title.textContent=doc.e.n+' · Surface depth';this.title.title=doc.e.src;

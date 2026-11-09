@@ -15,7 +15,7 @@
     options = options || {};
     var original = input, compression = input[0] === 31 && input[1] === 139 ? 'gzip' : input[0] === 120 ? 'zlib' : 'raw';
     var bytes = inflate(input, compression), header = null, little = !!options.little;
-    if (bytes.length >= 9 && bytes[0] !== 10 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === bytes.length - 8) {
+    if (bytes.length >= 9 && bytes[8] === 10 && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) === bytes.length - 8) {
       header = bytes.slice(0, 8); bytes = bytes.subarray(8); little = true;
     }
     if (bytes.length > MAX) throw new Error('NBT files are limited to 128 MB.');

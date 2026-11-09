@@ -42,7 +42,7 @@
   }
   function layer(doc){
     if(doc.depthLayer&&doc.depthLayer.width===doc.w&&doc.depthLayer.height===doc.h)return doc.depthLayer;
-    if(doc.surface)doc.depthLayer=window.TextureSurface.generate(doc.data,doc.surface,doc.e).base;
+    if(doc.surface)doc.depthLayer=window.TextureSurface.generate(doc.composite||doc.data,doc.surface,doc.e).base;
     else{
       doc.depthLayer=new ImageData(doc.w,doc.h);
       for(var i=0;i<doc.depthLayer.data.length;i+=4)doc.depthLayer.data.set([128,128,128,255],i);

@@ -2,6 +2,8 @@
   'use strict';
   var MT = window.MinecraftTextures, codec = window.TextureCodec;
   var versions = [
+    {id: '26.3', label: '26.3', format: 97, minor: 1},
+    {id: '26.2', label: '26.2', format: 88},
     {id: '26.1', label: '26.1 – 26.1.2', format: 84},
     {id: '1.21.11', label: '1.21.11', format: 75},
     {id: '1.21.9', label: '1.21.9 – 1.21.10', format: 69},
@@ -70,11 +72,17 @@
       if (normalized[path]) throw new Error('The ZIP contains duplicate files: ' + path);
       normalized[path] = archive[original];
     });
-    var roots = Object.keys(normalized).filter(function (path) { return path === 'pack.mcmeta' || path.endsWith('/pack.mcmeta'); });
-    var root = roots.includes('pack.mcmeta') ? 'pack.mcmeta' : roots.length === 1 ? roots[0] : null;
-    if (!root) throw new Error(roots.length ? 'This ZIP contains multiple packs. Import one resource pack at a time.' : 'This ZIP needs a pack.mcmeta file. Choose a Minecraft Java resource pack.');
-    var prefix = root.slice(0, -'pack.mcmeta'.length), files = Object.create(null);
+    var roots = Object.keys(normalized).filter(function (path) { return !path.includes('.cubeon/') && /(^|\/)(pack\.mcmeta|manifest\.json)$/.test(path); });
+    var root = roots.find(function (path) { return !path.includes('/'); }) || (roots.length === 1 ? roots[0] : null);
+    if (!root) throw new Error(roots.length ? 'This archive contains multiple packs. Import one resource pack at a time.' : 'Choose a Java ZIP with pack.mcmeta or a Bedrock .mcpack with manifest.json.');
+    var edition = root.endsWith('manifest.json') ? 'bedrock' : 'java', prefix = root.slice(0, root.lastIndexOf('/') + 1), files = Object.create(null), conversion = null;
     Object.keys(normalized).forEach(function (path) { if (path.startsWith(prefix)) files[path.slice(prefix.length)] = normalized[path]; });
+    if (edition === 'bedrock') {
+      var manifest = json(files['manifest.json'], 'manifest.json'), header = manifest.header || {};
+      var originalDetails = files['.cubeon/project.json'] ? json(files['.cubeon/project.json'], '.cubeon/project.json') : {};
+      conversion = window.BenchToolsCore.convertPack(files, 'java', {name: header.name || 'Imported Bedrock pack', description: header.description || header.name || '', version: originalDetails.minecraftVersion});
+      files = conversion.files;
+    }
     var metadata = json(files['pack.mcmeta'], 'pack.mcmeta'), pack = metadata && metadata.pack;
     if (!pack || typeof pack !== 'object' || pack.description == null || (!Number.isFinite(pack.pack_format) && pack.min_format == null)) {
       throw new Error('pack.mcmeta needs a pack description and Minecraft compatibility information.');
@@ -102,14 +110,14 @@
     var details = files['.cubeon/project.json'] ? json(files['.cubeon/project.json'], '.cubeon/project.json') : {};
     var icon = '';
     if (files['pack.png']) { pngSize(files['pack.png'], 'pack.png'); if (files['pack.png'].length <= 2097152) icon = dataURL(files['pack.png'], 'image/png'); }
-    return {files: files, textures: textures, metadata: metadata, description: plainText(pack.description), details: details, icon: icon};
+    return {files: files, textures: textures, metadata: metadata, description: plainText(pack.description), details: details, icon: icon, edition: edition, conversion: conversion && conversion.report};
   }
   function metadata(project) {
     var result = clone(project.packMeta || {}), pack = result.pack || {}, selected = versions.find(function (v) { return v.id === project.minecraftVersion; });
     if (project.minecraftVersion !== 'imported' || !result.pack) {
-      selected = selected || versions[0];
+      selected = selected || versions.find(function (v) { return v.id === '26.1'; });
       delete pack.pack_format; delete pack.supported_formats; delete pack.min_format; delete pack.max_format;
-      if (selected.format >= 65) { pack.min_format = [selected.format, 0]; pack.max_format = [selected.format, 0]; }
+      if (selected.format >= 65) { pack.min_format = [selected.format, 0]; pack.max_format = [selected.format, selected.minor || 0]; if (selected.minor) pack.pack_format = selected.format; }
       else pack.pack_format = selected.format;
     }
     if (!project.packMeta || project.description !== project.originalDescription) pack.description = project.description || project.name;
@@ -138,13 +146,13 @@
       return {catalog: MT.catalog(Array.from(merged.values())), release: function () { MT.release(imported); }};
     } catch (error) { MT.release(imported); throw error; }
   }
-  async function buildZip(project, report) {
+  async function buildZip(project, report, edition) {
     report = report || function () {};
     var p = clone(project), originals = p.assetId ? await window.LocalStore.getFiles(p.assetId) : {};
     var files = Object.assign(Object.create(null), originals), entries = new Map(MT.entries.map(function (e) { return [e.id, e]; }));
     (p.textures || []).forEach(function (e) { entries.set(e.id, e); });
     var surfaces=window.TextureSurface.dictionary(p.surfaces),surfaceMetadata=Object.create(null);
-    var edits = p.edits || {}, ids = Array.from(new Set(Object.keys(edits).concat(Object.keys(p.animations || {}),Object.keys(surfaces))));
+    var layers = p.layers ? window.TextureLayers.dictionary(p.layers) : {}, edits = p.edits || {}, ids = Array.from(new Set(Object.keys(edits).concat(Object.keys(p.animations || {}),Object.keys(surfaces),Object.keys(layers))));
     (p.surfaceImported||[]).forEach(function(id){
       var entry=entries.get(id);if(!entry||surfaces[id])return;
       var path=pathFor(entry);
@@ -159,8 +167,9 @@
       var id = ids[i], entry = entries.get(id) || MT.resolve(id);
       if (!entry) throw new Error('Cannot export an unknown texture: ' + id);
       var path = pathFor(entry), image=null;
-      if (edits[id]) {
-        image = codec.decode(edits[id], p);
+      if (edits[id] || layers[id]) {
+        image = edits[id] ? codec.decode(edits[id], p) : codec.decode(layers[id].items[0].pixels);
+        if (layers[id]) { var layered = {data: image, w: image.width, h: image.height}; window.TextureLayers.attach(layered, layers[id]); image = window.TextureLayers.compose(layered); }
         files[path] = new Uint8Array(await (await codec.png(image)).arrayBuffer());
       } else if ((p.size || 16) !== 16) {
         var source = await MT.load(entry), scale = p.size / 16, cv = document.createElement('canvas');
@@ -188,8 +197,13 @@
     files['pack.mcmeta'] = encode(metadata(p));
     if (p.icon) files['pack.png'] = fromDataURL(p.icon);
     else if (p.iconRemoved) delete files['pack.png'];
+    edition = edition || p.targetEdition || 'java';
     files['.cubeon/project.json'] = encode({schema: 1, name: p.name, author: p.author || '', packVersion: p.packVersion || '1.0.0',
-      minecraftVersion: p.minecraftVersion || '26.1', palette: p.pal, texture: p.texture || '', edited: p.edited,surfaces:surfaceMetadata});
+      minecraftVersion: p.minecraftVersion || '26.1', targetEdition: edition, palette: p.pal, texture: p.texture || '', edited: p.edited,surfaces:surfaceMetadata,layers:layers});
+    if (edition === 'bedrock') {
+      report(.78, 'Preparing Bedrock textures and retained resources…');
+      files = window.BenchToolsCore.convertPack(files, 'bedrock', {name: p.name, description: p.description || p.name, version: p.minecraftVersion}).files;
+    }
     report(.82, 'Building resource pack ZIP…');
     return new Blob([await zip(files)], {type: 'application/zip'});
   }
@@ -222,12 +236,17 @@
         ['_n.png','_s.png'].forEach(function(suffix){mapPaths.add(entry.path.replace(/\.png$/,suffix));});
       });
       pack.textures=pack.textures.filter(function(entry){return !mapPaths.has(entry.path);});
-      var p = {id: id, assetId: id, name: String(extra.name || file.name.replace(/\.zip$/i, '') || 'Imported pack').slice(0, 40),
+      var layers = extra.layers ? window.TextureLayers.dictionary(extra.layers) : {};
+      Object.keys(layers).forEach(function (id) {
+        var entry = pack.textures.find(function (e) { return e.id === id; }), image = codec.decode(layers[id].items[0].pixels);
+        if (!entry || entry.w !== image.width || entry.h !== image.height) throw new Error('The pack has paint layers without a matching texture.');
+      });
+      var p = {id: id, assetId: id, name: String(extra.name || file.name.replace(/\.(zip|mcpack)$/i, '') || 'Imported pack').slice(0, 40),
         type: 'pack', size: 16, pal: pal, description: pack.description, originalDescription: pack.description,
         author: String(extra.author || '').slice(0, 80), packVersion: String(extra.packVersion || '1.0.0').slice(0, 30),
-        minecraftVersion: 'imported', packMeta: pack.metadata, icon: pack.icon, hasIcon: !!pack.files['pack.png'], textures: pack.textures,
+        minecraftVersion: 'imported', targetEdition: pack.edition, packMeta: pack.metadata, icon: pack.icon, hasIcon: !!pack.files['pack.png'], textures: pack.textures,
         texture: pack.textures.some(function (e) { return e.id === extra.texture; }) ? extra.texture : (pack.textures[0] || {}).id || 'block/grass_block_top',
-        edits: {}, surfaces:surfaces,surfaceImported:Object.keys(surfaces),created: now, edited: now};
+        edits: {}, layers: layers, surfaces:surfaces,surfaceImported:Object.keys(surfaces),created: now, edited: now};
       task(.78, 'Saving imported files locally…');
       await window.LocalStore.putFiles(id, pack.files);
       window.CB.D.projects.unshift(p); window.CB.bump();
@@ -259,8 +278,9 @@
         download(await codec.png(image), filename(snapshot.name, '.png'));
         task(1, 'Skin PNG ready', 'done');
       } else {
-        download(await buildZip(snapshot, task), filename(snapshot.name, '.zip'));
-        task(1, 'Minecraft resource pack ZIP ready', 'done');
+        var edition = snapshot.targetEdition || 'java';
+        download(await buildZip(snapshot, task), filename(snapshot.name, edition === 'bedrock' ? '.mcpack' : '.zip'));
+        task(1, edition === 'bedrock' ? 'Bedrock resource pack ready · conversion report included' : 'Minecraft resource pack ZIP ready', 'done');
       }
       window.CB.toast('Downloaded “' + snapshot.name + '”.');
     } catch (error) { task(0, error.message, 'error'); window.CB.toast(error.message); }

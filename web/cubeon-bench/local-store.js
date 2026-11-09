@@ -54,7 +54,7 @@
   function bootstrap(state) {
     function info(p) {
       var info = Object.assign({}, p);
-      delete info.edits; delete info.surfaces; delete info.packMeta; delete info.textures; delete info.originalDescription;
+      delete info.edits; delete info.layers; delete info.surfaces; delete info.packMeta; delete info.textures; delete info.originalDescription;
       return info;
     }
     var small = Object.assign({}, state, {localDatabase: true, projects: state.projects.map(info), trash: (state.trash || []).map(info)});
