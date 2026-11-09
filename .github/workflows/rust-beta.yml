@@ -31,7 +31,7 @@ jobs:
             platform: windows-x86_64
     runs-on: ${{ matrix.os }}
     env:
-      CUBEON_RUST_VERSION: 26.3-beta.1
+      CUBEON_RUST_VERSION: 26.3-beta.2
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -86,7 +86,7 @@ jobs:
           import hashlib, json, os
           from pathlib import Path
           root = Path('artifacts')
-          merged = {'engine': 'rust', 'build': '26.3-beta.1', 'minecraft': '26.3', 'build_profile': 'release', 'platforms': {}}
+          merged = {'engine': 'rust', 'build': '26.3-beta.2', 'minecraft': '26.3', 'build_profile': 'release', 'platforms': {}}
           for manifest in sorted(root.glob('*/manifest.json')):
               data = json.loads(manifest.read_text())
               assert all(data[key] == merged[key] for key in ('engine', 'build', 'minecraft', 'build_profile'))

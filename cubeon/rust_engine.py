@@ -26,8 +26,8 @@ from . import atomicio, net, paths, storage
 
 VERSION = "26.3"
 INSTANCE_ID = "cubeon-rust-26.3"
-BUILD = "26.3-beta.1"
-RELEASE_BASE = "https://github.com/Shadow-457/Cubeon/releases/download/rust-26.3-beta.1"
+BUILD = "26.3-beta.2"
+RELEASE_BASE = f"https://github.com/Shadow-457/Cubeon/releases/download/rust-{BUILD}"
 _lock = threading.RLock()
 
 
@@ -280,13 +280,17 @@ def _extract(archive: Path, stage: Path):
             (stage / name).chmod(0o755)
 
 
-def _install_runtime(cancel, status_cb, progress_cb):
+def _install_runtime(cancel, status_cb, progress_cb, *, local_only=False):
     target = runtime_dir()
     tag = platform_tag()
     # Development builds use the exact same verified bundle as our releases.
     checkout = Path(__file__).resolve().parents[1]
     local = checkout / "build" / "rust-engine" / tag
     local_valid = _runtime_valid(local)
+    # Playing an installed build may refresh verified checkout artifacts, but
+    # must never turn a normal launch into a release download.
+    if local_only and not local_valid:
+        return target
     if _runtime_valid(target):
         # A source checkout may rebuild the same beta while it is developed.
         # Distributed installs still use their immutable release build.
@@ -527,7 +531,7 @@ def launch_command(username: str, width: int, height: int) -> list[str]:
     entries = installed_entries()
     if not entries or entries[0]["incomplete"]:
         raise RustEngineError("Install Rust 26.3 from Instances before playing.")
-    directory = runtime_dir()
+    directory = _install_runtime(None, lambda _: None, lambda _: None, local_only=True)
     if not _runtime_valid(directory):
         raise RustEngineError("Rust runtime needs repair. Install Rust 26.3 again.")
     _run([str(directory / _exe("cubeon-rust-prepare")), "--check", "--output", str(resources_dir())], timeout=30)

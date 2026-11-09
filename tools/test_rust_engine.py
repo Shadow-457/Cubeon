@@ -125,6 +125,35 @@ class RustEngineTests(unittest.TestCase):
                         rust._install_runtime(None, lambda _: None, lambda _: None)
         self.assertFalse(rust._runtime_valid(rust.runtime_dir()))
 
+    def test_launch_refreshes_verified_local_rebuild_without_touching_settings(self):
+        target = rust.runtime_dir()
+        bundle(target)
+        checkout = self.home / "checkout"
+        local = checkout / "build/rust-engine" / rust.platform_tag()
+        bundle(local)
+        executable = local / rust._exe("cubeon-rust")
+        executable.write_bytes(b"new native build")
+        manifest = local / "cubeon-runtime.json"
+        data = json.loads(manifest.read_text())
+        data["files"][executable.name] = hashlib.sha256(executable.read_bytes()).hexdigest()
+        manifest.write_text(json.dumps(data))
+        resources = rust.resources_dir()
+        resources.mkdir(parents=True)
+        (resources / "cubeon-prepare.json").write_text("{}")
+        (rust.root() / "instance.json").write_text(json.dumps(
+            {"engine": "rust", "minecraft": rust.VERSION, "build": rust.BUILD}))
+        options = Path(rust.game_dir(create=True)) / "options.txt"
+        options.write_text("renderDistance:18\nenableVsync:true\n")
+        with patch.object(rust, "__file__", str(checkout / "cubeon/rust_engine.py")), \
+                patch.object(rust, "_run", return_value=0), \
+                patch.object(rust.net, "get_json", side_effect=AssertionError("Launch must stay offline")):
+            command = rust.launch_command("Tester", 854, 480)
+            self.assertEqual(Path(command[0]).read_bytes(), b"new native build")
+            self.assertEqual(options.read_text(), "renderDistance:18\nenableVsync:true\n")
+            executable.write_bytes(b"damaged local build")
+            self.assertEqual(rust.launch_command("Tester", 854, 480), command)
+            self.assertEqual(Path(command[0]).read_bytes(), b"new native build")
+
     def test_archive_traversal_and_links_are_rejected(self):
         for name in ("../escape", "/tmp/escape", "C:\\escape"):
             archive = self.home / "bad.zip"

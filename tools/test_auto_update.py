@@ -86,9 +86,9 @@ class ReleaseTests(unittest.TestCase):
         for flag in ("draft", "prerelease"):
             data = metadata()
             data[flag] = True
-            self.assertIsNone(update.parse_release(data, "linux"))
+            self.assertIsNone(update.parse_release(data, "linux", "1.4.9"))
             del data[flag]
-            self.assertIsNone(update.parse_release(data, "linux"))
+            self.assertIsNone(update.parse_release(data, "linux", "1.4.9"))
 
     def test_invalid_versions_do_not_install(self):
         for value in (None, "", "1.4", "01.4.11", "1.4.11-beta", "1.4.11+build", "v1.4.11/evil", "1.4.1000000"):
@@ -100,9 +100,9 @@ class ReleaseTests(unittest.TestCase):
         data["assets"].append(metadata(kind="windows")["assets"][0])
         data["assets"].append({"name": "Cubeon-Linux-x86_64-Setup.AppImage"})
         for kind in ("windows", "linux"):
-            self.assertEqual(update.parse_release(data, kind).name, update.ASSETS[kind])
+            self.assertEqual(update.parse_release(data, kind, "1.4.9").name, update.ASSETS[kind])
         with self.assertRaises(update.UpdateError):
-            update.parse_release(data, "darwin")
+            update.parse_release(data, "darwin", "1.4.9")
 
     def test_ambiguous_incomplete_or_untrusted_assets_rejected(self):
         cases = [("digest", None), ("digest", "sha1:" + "0" * 64), ("digest", "sha256:" + "g" * 64),
@@ -113,11 +113,11 @@ class ReleaseTests(unittest.TestCase):
             data = metadata()
             data["assets"][0][key] = value
             with self.subTest(key=key, value=value), self.assertRaises(update.UpdateError):
-                update.parse_release(data, "linux")
+                update.parse_release(data, "linux", "1.4.9")
         data = metadata()
         data["assets"] *= 2
         with self.assertRaises(update.UpdateError):
-            update.parse_release(data, "linux")
+            update.parse_release(data, "linux", "1.4.9")
 
     def test_redirect_validation_and_tls(self):
         for url in ("http://github.com/Shadow-457/Cubeon/releases/download/v1.4.11/x", "https://github.com.evil/x",
@@ -158,7 +158,7 @@ class DownloadTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.cache = Path(self.tmp.name)
         self.payload = elf_fixture(b"verified new release")
-        self.release = update.parse_release(metadata(self.payload), "linux")
+        self.release = update.parse_release(metadata(self.payload), "linux", "1.4.9")
         self.target = update.Target("linux", self.cache / "installed.AppImage")
 
     def test_verified_bytes_are_published_and_reused_without_network(self):
@@ -182,7 +182,7 @@ class DownloadTests(unittest.TestCase):
 
     def test_valid_hash_does_not_make_html_an_installer(self):
         payload = b"<html>not an AppImage</html>" * 100
-        release = update.parse_release(metadata(payload), "linux")
+        release = update.parse_release(metadata(payload), "linux", "1.4.9")
         with mock.patch.object(update, "_get", return_value=Response(payload)), self.assertRaises(update.UpdateError):
             update.download_release(release, self.target, self.cache)
         self.assertEqual(list(self.cache.iterdir()), [])
@@ -276,7 +276,7 @@ class ControllerTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.target = update.Target("linux", self.root / "Cubeon.AppImage")
         self.target.path.write_bytes(b"old launcher")
-        self.release = update.parse_release(metadata(), "linux")
+        self.release = update.parse_release(metadata(), "linux", "1.4.9")
         self.prepare = mock.Mock(return_value=True)
         self.close = mock.Mock(return_value=True)
         self.resume = mock.Mock()
@@ -359,7 +359,7 @@ class LinuxHelperTests(unittest.TestCase):
         self.target.path.chmod(0o555)
         self.download = self.cache / "download.AppImage"
         self.download.write_bytes(self.new)
-        self.release = update.parse_release(metadata(self.new), "linux")
+        self.release = update.parse_release(metadata(self.new), "linux", "1.4.9")
         self.parent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
         self.addCleanup(self.end_parent)
         self.helpers = []
@@ -551,7 +551,7 @@ class WindowsHelperTests(unittest.TestCase):
                               'FileWrite $0 "installed silently"\nFileClose $0\nSectionEnd\n', encoding="utf-8-sig")
             subprocess.run([compiler, "/V2", str(script)], check=True, capture_output=True)
             download = root / "setup.exe"
-            release = update.parse_release(metadata(download.read_bytes(), kind="windows"), "windows")
+            release = update.parse_release(metadata(download.read_bytes(), kind="windows"), "windows", "1.4.9")
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Cubeon") as key:
                 winreg.SetValueEx(key, "InstallDir", 0, winreg.REG_SZ, str(installed))
             try:
