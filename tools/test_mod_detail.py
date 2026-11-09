@@ -11,6 +11,7 @@ What this protects:
   - the doctor never raises on a broken profile.
 """
 import json
+import inspect
 import os
 import sys
 import zipfile
@@ -857,7 +858,8 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
         check("failed searches stop loading and provide a retry action",
               not results_view.disabled
               and not any(isinstance(control, ft.ProgressRing) for control in _walk(results_view))
-              and any(isinstance(control, ft.Text) and control.value == "Retry" for control in _walk(results_view)))
+              and not inspect.getclosurevars(fns['_show_browse_loading']).nonlocals['browse_retry'].disabled
+              and inspect.getclosurevars(fns['_show_browse_loading']).nonlocals['browse_retry'].opacity == 1)
     QueuedThread.queue.clear()
     row = rowbuild({"project_id": "progress", "title": "Progress"})
     counts = []

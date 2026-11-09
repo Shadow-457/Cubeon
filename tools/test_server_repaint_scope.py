@@ -85,6 +85,12 @@ driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 # closure - so open all three, then take one snapshot of the tree (switching a
 # sub-view only toggles visibility, it does not unmount the others).
 driver.open_tab("server")
+_switch = function_from_controls(list(fz.every_control(page)), 'switch_tab')
+check('Servers opens Settings first', scope(_switch)['active_tab']['value'] == 'server_settings')
+_server_row = scope(_switch)['subnav_bar'].content.controls[1]
+check('Server navigation is Settings, Plugins, Console', [
+    next(text.value for text in fz.walk(button) if type(text).__name__ == 'Text')
+    for button in _server_row.controls] == ['Settings', 'Plugins', 'Console'])
 driver.open_tab("server_settings")
 driver.open_tab("server_plugins")
 controls = list(fz.every_control(page))

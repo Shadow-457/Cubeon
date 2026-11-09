@@ -1,6 +1,7 @@
 """Compact catalogue tiles with a lazy, width-aware native grid."""
 import flet as ft
-from cubeon import thread_safe_ui
+import asyncio
+from cubeon import thread_safe_ui, motion
 from cubeon.theme import RADIUS, attach_hover, BORDER, SURFACE
 
 
@@ -94,6 +95,43 @@ def content_header(subtitle, view_action, *actions):
     """One toolbar layout for every retained content destination."""
     return ft.Row([ft.Container(subtitle, expand=True), view_action, *actions],
                   spacing=12, height=46, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+
+def catalogue_views(page, browse, installed):
+    """Crossfade retained panes in one viewport; never replace their native trees."""
+    browse.visible = installed.visible = True
+    browse_host = ft.Container(browse, expand=True, opacity=1, animate_opacity=motion.BASE)
+    installed_host = ft.Container(installed, expand=True, opacity=0, animate_opacity=motion.BASE,
+                                  ignore_interactions=True, disabled=True)
+    viewport = ft.Stack([browse_host, installed_host], expand=True, fit=ft.StackFit.EXPAND)
+    transition = {'generation': 0}
+
+    def select(view, *, animate=True):
+        transition['generation'] += 1
+        generation = transition['generation']
+        selected = browse_host if view == 'browse' else installed_host
+        for host in (browse_host, installed_host):
+            host.content.visible = True
+            host.visible = True
+            host.animate_opacity = motion.BASE if animate else ft.Animation(0, motion.BASE.curve)
+            host.ignore_interactions = host is not selected
+            if host is selected or not animate:
+                host.disabled = host is not selected
+            host.opacity = 1 if host is selected else 0
+        thread_safe_ui.refresh(viewport)
+        if not animate:
+            return
+
+        async def finish():
+            await asyncio.sleep(motion.BASE_MS / 1000)
+            with thread_safe_ui.TREE_LOCK:
+                if generation == transition['generation']:
+                    for host in (browse_host, installed_host):
+                        host.disabled = host is not selected
+                    thread_safe_ui.refresh(viewport)
+        page.run_task(finish)
+
+    return viewport, browse_host, installed_host, select
 
 
 def update_view_action(row, view, count, on_change, *, data, color):

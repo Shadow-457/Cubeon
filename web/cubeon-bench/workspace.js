@@ -47,6 +47,8 @@
       if (!/^[a-z0-9_./:-]+$/.test(key) || key.split('/').includes('..') || ['__proto__', 'constructor', 'prototype'].includes(key)) throw new Error('The backup contains an invalid texture path.');
       TextureCodec.decode(edits[key], p);
     });
+    if(p.surfaces)p.surfaces=window.TextureSurface.dictionary(p.surfaces);
+    if(p.surfaceImported&&(!Array.isArray(p.surfaceImported)||!p.surfaceImported.every(window.TextureSurface.validId)))throw new Error('The backup contains invalid depth-map ownership.');
     if (p.textures && !Array.isArray(p.textures)) throw new Error('The backup contains an invalid texture catalog.');
     (p.textures || []).forEach(function (entry) {
       if (!entry || !/^[a-z0-9_./:-]+$/.test(entry.id) || !archive.safePath(entry.path) || !/^assets\/[a-z0-9_.-]+\/textures\/[a-z0-9_./-]+\.png$/.test(entry.path) || entry.src !== entry.path || typeof entry.n !== 'string' || typeof entry.folder !== 'string') throw new Error('The backup contains an invalid imported texture.');

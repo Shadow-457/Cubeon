@@ -16,6 +16,8 @@
   var picker=new window.ColorChooser({button:$('#edCol'),read:function(){return {hex:E.color,alpha:E.alpha}},
     onChange:function(h,a){setColor(h,false,true);setAlpha(a,true)}});
   var animationControls=new window.AnimationControls({read:function(){return E.cur==='preview'?null:E.doc},change:changeAnimation,select:selectAnimation,clipboard:frameAction});
+  var surfaceStudio=new window.SurfaceStudio({read:function(){return E.doc},rect:function(){var d=E.doc;return d.layout?TA.frameRect(d.layout,d.frame):{x:0,y:0,w:d.w,h:d.h}},
+    apply:changeSurface,closed:function(){if(E.cur==='preview')buildPreview()}});
   function ents(){return E.p.type==='skin'?SKIN:E.catalog.entries}
   function entry(id){return E.p.type==='skin'?(id==='skin'?SKIN[0]:null):E.catalog.resolve(id)}
   function docSize(e){
@@ -57,7 +59,8 @@
         frame:view&&Number.isInteger(view.frame)?view.frame:0,frameView:view?!!view.frames:!!(override!==undefined?override:e.animation),
         undo:[],redo:[],cv:cv,ctx:ctx,zoom:0,fitMode:true,version:0,used:performance.now()};
       doc.viewTint=project.tintView&&Object.prototype.hasOwnProperty.call(project.tintView,id)?!!project.tintView[id]:D.set.naturalColors!==false;
-      doc.committed=codec.encode(data);doc.committedAnimation=JSON.stringify(override);refreshEntry(doc);return docs[id]=doc;
+      doc.surface=window.TextureSurface.settings(project.surfaces&&Object.prototype.hasOwnProperty.call(project.surfaces,id)?project.surfaces[id]:null);
+      doc.committed=codec.encode(data);doc.committedAnimation=JSON.stringify(override);doc.committedSurface=JSON.stringify(doc.surface);refreshEntry(doc);return docs[id]=doc;
     })();
     try{return await pending[id]}finally{delete pending[id]}
   }
@@ -151,9 +154,24 @@
     setColor('#'+hex2(a[i])+hex2(a[i+1])+hex2(a[i+2]),true);
     setAlpha(Math.round(a[i+3]/255*100));
   }
-  function checkpoint(d){return {data:clone(d.data),animation:TA.copy(d.animationOverride),frame:d.frame,frameView:d.frameView,selection:d.selection&&Object.assign({},d.selection)}}
-  function pushUndo(d){d.undo.push(checkpoint(d));var bytes=d.undo.reduce(function(sum,item){return sum+item.data.data.byteLength},0);while(d.undo.length>1&&(d.undo.length>60||bytes>25165824))bytes-=d.undo.shift().data.data.byteLength;d.redo.length=0;sync()}
-  function restoreCheckpoint(d,item){d.data=item.data;d.animationOverride=TA.copy(item.animation);d.frame=item.frame;d.frameView=item.frameView;d.selection=item.selection;redraw();setZoom(fitZoom(d),true);commit(d)}
+  function checkpoint(d){return {data:clone(d.data),animation:TA.copy(d.animationOverride),surface:d.surface,frame:d.frame,frameView:d.frameView,selection:d.selection&&Object.assign({},d.selection)}}
+  function historyBytes(items){var heights=new Set();return items.reduce(function(sum,item){var height=item.surface&&item.surface.height;if(height&&!heights.has(height)){heights.add(height);sum+=height.pixels.length*2}return sum+item.data.data.byteLength},0)}
+  function pushUndo(d){d.undo.push(checkpoint(d));while(d.undo.length>1&&(d.undo.length>60||historyBytes(d.undo)>25165824))d.undo.shift();d.redo.length=0;sync()}
+  function restoreCheckpoint(d,item){d.data=item.data;d.animationOverride=TA.copy(item.animation);d.surface=item.surface||null;d.frame=item.frame;d.frameView=item.frameView;d.selection=item.selection;redraw();setZoom(fitZoom(d),true);commit(d)}
+  function changeSurface(value){
+    var d=E.doc;if(!d||d.id==='skin')return false;
+    var surface=window.TextureSurface.settings(value);
+    if(JSON.stringify(surface)!==JSON.stringify(d.surface)){pushUndo(d);d.surface=surface;d.version++;}
+    return commit(d);
+  }
+  function heightDocument(d){
+    if(!d.surface||!d.surface.height)return null;
+    return {data:window.TextureSurface.fit(codec.decode(d.surface.height),d.w,d.h),w:d.w,h:d.h,e:d.e,
+      frame:d.frame,frameView:d.frameView,animationOverride:TA.copy(d.animationOverride)};
+  }
+  function heightChange(d,result){
+    if(result&&result.data)d.surface=Object.assign({},d.surface,{height:codec.encode(result.data)});
+  }
   function redraw(){
     var d=E.doc;d.w=d.data.width;d.h=d.data.height;
     if(d.cv.width!==d.w||d.cv.height!==d.h){d.cv.width=d.w;d.cv.height=d.h}
@@ -172,9 +190,9 @@
     if(kind==='reset'){
       var size=docSize(d.source),original=clone(await base(d.source,size.w,size.h));
       if(token!==activeToken||E.doc!==d)return;
-      pushUndo(d);d.selection=null;d.data=original;d.animationOverride=undefined;d.frame=0;d.frameView=false;redraw();setZoom(fitZoom(d),true);commit(d);return;
+      pushUndo(d);d.selection=null;d.data=original;d.surface=null;d.animationOverride=undefined;d.frame=0;d.frameView=false;redraw();setZoom(fitZoom(d),true);commit(d);return;
     }
-    try{var result=TA.transformAnimation(d,kind);pushUndo(d);applyAnimationChange(d,result)}catch(error){CB.toast(error.message)}
+    try{var result=TA.transformAnimation(d,kind),height=heightDocument(d),heightResult=height?TA.transformAnimation(height,kind):null;pushUndo(d);heightChange(d,heightResult);applyAnimationChange(d,result)}catch(error){CB.toast(error.message)}
   }
   function applyAnimationChange(d,result){
     d.selection=null;
@@ -187,7 +205,17 @@
   }
   function changeAnimation(action,value){
     var d=E.doc;if(!d||E.p.type==='skin'||E.cur==='preview')return;if(drag)end();
-    try{if(action==='toggle'&&!TA.supported(d.e))return;var result=TA.change(d,action,value);if(!result){animationControls.refresh();return}pushUndo(d);applyAnimationChange(d,result)}
+    try{
+      if(action==='toggle'&&!TA.supported(d.e))return;
+      var result=TA.change(d,action,value);if(!result){animationControls.refresh();return}
+      var height=['toggle','add','remove','paste'].includes(action)?heightDocument(d):null,heightResult=null;
+      if(height){
+        var heightValue=value;
+        if(action==='paste')heightValue={data:value.height||window.TextureSurface.generate(value.data,{version:1,depth:40,shine:15,smooth:0,invert:false,metal:false}).base,time:value.time};
+        heightResult=TA.change(height,action,heightValue);
+      }
+      pushUndo(d);heightChange(d,heightResult);applyAnimationChange(d,result);
+    }
     catch(error){CB.toast(error.message);animationControls.refresh()}
   }
   function frameAction(action) {
@@ -196,6 +224,10 @@
     if(action==='copy'||action==='cut') {
       if(action==='cut'&&d.layout.steps.length<=1){CB.toast('Keep at least one animation frame.');return}
       frameClipboard=TA.copyFrame(d);
+      if(d.surface){
+        var height=heightDocument(d),map=height?height.data:window.TextureSurface.generate(d.data,{version:1,depth:40,shine:15,smooth:0,invert:false,metal:false},d.e).base;
+        frameClipboard.height=TA.crop(map,TA.frameRect(d.layout,d.frame));
+      }
       CB.toast('Frame copied, including its duration. Paste to insert a new frame.');
       if(action==='cut')changeAnimation('remove');
     } else if(action==='paste') {
@@ -214,11 +246,15 @@
   }
   function commit(d){
     var p=E.p,now=Date.now();
-    var encoded=codec.encode(d.data),old=d.committed,animation=JSON.stringify(d.animationOverride);
-    var changed=!old||old.w!==encoded.w||old.h!==encoded.h||old.pixels!==encoded.pixels||d.committedAnimation!==animation;
-    d.committed=encoded;d.committedAnimation=animation;
+    if(d.surface&&!window.TextureSurface.supported(d.data)){
+      d.surface=null;CB.toast('Depth was removed from this larger texture. Undo restores the previous texture and depth.');
+    }
+    var encoded=codec.encode(d.data),old=d.committed,animation=JSON.stringify(d.animationOverride),surface=JSON.stringify(d.surface);
+    var changed=!old||old.w!==encoded.w||old.h!==encoded.h||old.pixels!==encoded.pixels||d.committedAnimation!==animation||d.committedSurface!==surface;
+    d.committed=encoded;d.committedAnimation=animation;d.committedSurface=surface;
     p.edits[d.id]=encoded;p.edited=now;p.open=E.open.slice();p.cur=E.cur;p.last=E.last;
     if(d.animationOverride!==undefined){p.animations=p.animations||{};p.animations[d.id]=TA.copy(d.animationOverride)}else if(p.animations)delete p.animations[d.id];
+    if(d.surface){p.surfaces=p.surfaces||Object.create(null);p.surfaces[d.id]=d.surface}else if(p.surfaces)delete p.surfaces[d.id];
     rememberAnimationView(d);
     d.ctx.putImageData(d.data,0,0);
     var t=document.createElement('canvas');t.width=t.height=16;var c=t.getContext('2d');c.imageSmoothingEnabled=false;
@@ -228,7 +264,7 @@
     p.thumbTexture=d.id;
     if(changed)CB.recordTextureEdit(p,d.id);
     var saved=CB.save();sync();renderTabs();renderLeft();
-    if(E.cur==='preview')buildPreview();
+    if(E.cur==='preview'&&!surfaceStudio.opened)buildPreview();
     return saved;
   }
   function paintSwatch(){
@@ -474,6 +510,13 @@
     $('#rowUV').style.display=E.p.type==='skin'?'':'none';
     var d=E.doc;$('#edRight').classList.toggle('off',!d||E.cur==='preview');$('#edUndo').disabled=!d||!d.undo.length;$('#edRedo').disabled=!d||!d.redo.length;
     var visible=!!d&&E.cur!=='preview';$('#canvasBar').hidden=!visible;$('#canvasFooter').hidden=!visible;
+    var canSurface=!!d&&E.p.type!=='skin'&&window.TextureSurface.supported(d.data);
+    $('#canvasSurface').hidden=!visible||!canSurface;$('#surfaceTools').hidden=!canSurface;
+    $('#previewSurface').hidden=!canSurface||E.cur!=='preview';
+    var surfaceLabel=d&&d.surface?'Edit depth':'Add depth';
+    $('#canvasSurface span').textContent=surfaceLabel;$('#canvasSurface').setAttribute('aria-label',surfaceLabel);
+    $('#surfaceOpen span').textContent=surfaceLabel;
+    $('#surfaceSummary').textContent=d&&d.surface?'Depth '+Math.round(d.surface.depth)+'% · Shine '+Math.round(d.surface.shine)+'%':'Give this texture height and shine.';
     if(d){var r=viewRect(d);$('#canvasTextureName').textContent=d.e.n||d.id.split('/').pop();$('#canvasDocumentMeta').textContent=d.layout?(d.frameView?'Editing frame '+(d.frame+1)+' of '+d.layout.steps.length:'Full animation sheet'):'Pixel canvas';}
     var help=E.hand?['Hand','Zoom in, then drag to move around. Click Hand again to paint.']:TOOL_HELP[E.tool];
     $('#canvasToolName').textContent=help[0];$('#canvasToolHint').textContent=help[1];$('#toolGuide').textContent=help[1];
@@ -494,6 +537,7 @@
     if(t.closest('#texturePaletteMore')&&E.doc){E.doc.palettePage=((E.doc.palettePage||0)+1)%Math.ceil(E.doc.palette.length/PALETTE_PAGE);textureColors();return}
     if(t.closest('#tintToggle')&&E.doc){var d=E.doc;d.viewTint=!d.viewTint;E.p.tintView=E.p.tintView||{};E.p.tintView[d.id]=d.viewTint;CB.save();redraw();sync();renderLeft();renderTabs();ovl();return}
     if(t.closest('#textureImport,#canvasImport')){importImage();return}
+    if(t.closest('#canvasSurface,#surfaceOpen,#previewSurface')){if(drag)end();preview.stop();surfaceStudio.open();return}
     if(t.closest('#textureExport')){exportPNG();return}
     if(t.closest('#edDetails')){picker.close(false);CB.openDetails(E.p);return}
     if(t.closest('#edExport')){picker.close(false);window.ResourcePacks.exportProject(E.p);return}
@@ -658,7 +702,7 @@
     endPan();E.hand=false;
     lastTool=null;$$('#edRight details').forEach(function(details){details.open=false});
     if(drag)end();
-    var token=++activeToken;preview.stop();picker.close(false);ImageImporter.close();animationControls.stop();
+    var token=++activeToken;surfaceStudio.close(false);preview.stop();picker.close(false);ImageImporter.close();animationControls.stop();
     if(packSession){packSession.release();packSession=null;}
     E.loading=true;E.doc=null;E.catalog=MT;$('#edQ').disabled=true;
     E.p=p;p.edits=p.edits||{};E.docs={};E.pending={};BC={};E.faceModel=null;E.open=[];E.cur=null;E.last=null;E.q='';E.page=0;E.tool='pencil';E.size=1;E.mx=E.my=false;E.alpha=100;E.grid=D.set.grid!==false;hover=null;animationControls.refresh();
@@ -690,7 +734,7 @@
   }
   function close(){
     releaseSpaceHand();endPan();E.hand=false;
-    if(drag)end();activeToken++;preview.stop();picker.close(false);ImageImporter.close();animationControls.stop();
+    if(drag)end();activeToken++;surfaceStudio.close(false);preview.stop();picker.close(false);ImageImporter.close();animationControls.stop();
     if(E.p&&!E.loading)persist();
     ed.classList.remove('show','l-open','r-open','frames-open');document.body.style.overflow='';
     $('#app>.main').inert=false;$('#app>.sb').inert=false;

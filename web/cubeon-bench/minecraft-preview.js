@@ -44,8 +44,11 @@
   Preview.prototype.stop = function () {
     this.token++; cancelAnimationFrame(this.raf); this.raf = 0;
     this.pointer = null; this.host.classList.remove('grab');
+    if(this.surfaceView){this.surfaceView.dispose();this.surfaceView=null;}
+    this.host.classList.remove('has-depth');this.world.style.display='';
   };
   Preview.prototype.transform = function () {
+    if(this.surfaceView){this.surfaceView.rotate(this.rx,this.ry,this.zoom);return;}
     var fit = Math.max(.1, Math.min(1, (this.stage.clientWidth - 56) / this.width, (this.stage.clientHeight - 164) / this.height));
     this.world.style.transform = 'scale(' + (fit * this.zoom) + ') rotateX(' + this.rx + 'deg) rotateY(' + this.ry + 'deg)';
     document.getElementById('pvShadow').style.top = 'calc(50% + ' + (this.height * fit * this.zoom * .42) + 'px)';
@@ -188,6 +191,27 @@
     if (calm) this.auto = false;
     this.syncAuto();
     var player = skinProject || /^entity\/player\/(wide|slim)\//.test(doc.e.textureId || doc.e.id);
+    var surfaceUnavailable=false;
+    if(!player&&doc.surface&&window.TextureSurface.supported(doc.data)){
+      var view=new window.SurfacePreview(this.stage,false);this.surfaceView=view;
+      this.world.style.display='none';this.host.classList.add('has-depth');
+      try{
+        var maps=window.TextureSurface.generate(doc.data,doc.surface,doc.e);
+        await view.set(window.SurfacePreview.displayImage(doc),maps,doc.surface,MT.frame(doc.e,0,doc.w,doc.h));
+        if(token!==this.token){view.dispose();return;}
+        this.title.textContent=doc.e.n+' · Surface depth';this.title.title=doc.e.src;
+        this.transform();var began=performance.now(),last=began;
+        function surfaceTick(now){
+          if(token!==self.token||!self.host.classList.contains('on')){self.raf=0;return;}
+          if(self.auto&&!self.pointer)self.ry+=Math.min(50,now-last)*.027;last=now;
+          view.frame(MT.frame(doc.e,now-began,doc.w,doc.h));self.transform();self.raf=requestAnimationFrame(surfaceTick);
+        }
+        this.raf=requestAnimationFrame(surfaceTick);return;
+      }catch(error){
+        view.dispose();if(token!==this.token)return;
+        this.surfaceView=null;this.world.style.display='';this.host.classList.remove('has-depth');surfaceUnavailable=true;
+      }
+    }
     try {
       if (player) {
         var skinMat = await this.material({id: doc.id}, doc, true);
@@ -229,7 +253,7 @@
         if (doc.e.cat === 'item') this.itemEdges(m, w, h, depth);
         this.width = 230; this.height = 230;
       }
-      this.title.textContent = doc.e.n;
+      this.title.textContent = doc.e.n+(surfaceUnavailable?' · Depth maps saved; surface preview unavailable':'');
       this.title.title = doc.e.src;
       this.transform();
       var started = performance.now(), previous = started;

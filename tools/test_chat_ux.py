@@ -95,7 +95,7 @@ class ChatUXTests(unittest.TestCase):
 
     def test_empty_conversation_has_composer_and_send_tracks_connection(self):
         self.select('bob')
-        self.assertTrue(self.controls['empty_state'].visible)
+        self.assertTrue(scope(self.controls['_sync_empty_state'])['empty_state'].visible)
         self.assertTrue(self.controls['composer_row'].visible)
         send = scope(scope(self.composer.on_change)['_sync_composer'])['send_btn']
         self.assertTrue(send.disabled)

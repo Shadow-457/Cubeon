@@ -98,7 +98,7 @@ async def native(page):
         await asyncio.sleep(.05)
     assert preview._shown is not None, 'No initial character frame appeared.'
     print('FIRST_FRAME_SECONDS', round(time.monotonic() - began, 3), flush=True)
-    assert len(scene.controls) == 2, 'Opening baked unrequested orbit frames.'
+    assert len(scene.controls) == 3 and scene.controls[-1] is preview.skeleton and not preview.skeleton.visible, 'Preview skeleton did not retire after the first frame.'
     assert len(preview._model.faces) < 150, 'The turntable loaded the full Giant feather mesh.'
     for _ in range(3):
         target = (preview.yaw + 30) % 360

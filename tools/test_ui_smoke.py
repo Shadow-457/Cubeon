@@ -1244,7 +1244,15 @@ _client_settings = next((c for c in walk(page.controls[0])
                          if getattr(c, 'data', None) == 'cubeon-client-enabled'), None)
 _client_installed = next((c for c in walk(page.controls[0])
                           if getattr(c, 'data', None) == 'installed-cubeon-client-enabled'), None)
-check("Mods Installed exposes the client preference", _client_installed is not None)
+if _client_installed is None:
+    # Installed now mounts this as a grid card only for a mod-capable profile.
+    # The retained callback still owns the switch while Vanilla is selected.
+    _mods_card = next((c for c in walk(page.controls[0])
+                       if callable(getattr(c, 'refresh_client_preference', None))), None)
+    if _mods_card is not None:
+        _client_render = _inspect.getclosurevars(_mods_card.refresh_client_preference).nonlocals['_render_installed_snapshot']
+        _client_installed = _inspect.getclosurevars(_client_render).nonlocals['client_preference_switch']
+check("Mods Installed retains the client preference", _client_installed is not None)
 if _client_settings is not None and _client_installed is not None:
     _client_cfg = _inspect.getclosurevars(_client_settings.on_change).nonlocals['cfg']
     _client_original = _client_cfg.get('client_mod_enabled', True)
@@ -1386,10 +1394,11 @@ check("modpacks tab has Browse/Installed view tabs",
       "view_segment_row" in _mp_src and "on_view_change" in _mp_src,
       "the modpacks tab must toggle between browse and installed panes")
 _srv_src = open(os.path.join(_app_root, "ui", "server_tab.py"), encoding="utf-8").read()
-check("plugins view has Browse/Installed view tabs",
-      "plugins_view_segment_row" in _srv_src and "_on_plugins_view_change" in _srv_src
-      and "plugins_browse_pane" in _srv_src and "plugins_installed_pane" in _srv_src,
-      "the plugins view must toggle between market and installed panes")
+_plugins_src = open(os.path.join(_app_root, "ui", "plugins_catalogue.py"), encoding="utf-8").read()
+check("plugins uses the shared catalogue with one Installed action",
+      "build_plugins_catalogue(" in _srv_src and "plugins-installed-toggle" in _plugins_src
+      and "tile_grid()" in _plugins_src and "_on_plugins_view_change" in _plugins_src,
+      "the plugins view must use the Mods card grid and retained panes")
 # The toggle must not rebuild the whole tab: panes stay mounted, visibility flips.
 check("view toggle flips pane visibility only",
       "browse_pane.visible" in _mods_src and "installed_pane.visible" in _mods_src,

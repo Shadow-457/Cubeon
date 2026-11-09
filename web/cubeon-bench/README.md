@@ -32,7 +32,7 @@ Open **http://127.0.0.1:8000/cubeon-bench/**. Use the same address, port, and
 browser profile to access your saved projects. This server serves only the app.
 The main website also mounts it at `/cubeon-bench/`.
 
-The landing page is **http://127.0.0.1:8000/cubeon-bench/landing.html**. Scroll
+The landing page is **http://127.0.0.1:8000/cubeon-bench/landing**. Scroll
 through the Three.js painting → frames → 3D flower sequence, explore the actual
 editor previews, and use the header's light/dark theme toggle. Its assets,
 Three.js, and editor screenshots are bundled locally for offline use. The workspace
@@ -95,7 +95,23 @@ visibility is saved. Mobile frame selection closes the drawer so you can paint.
 blending, moving/removing frames, the full sheet view, and disabling animation.
 Saved frame/sheet view preferences are respected.
 
-Activity counts distinct project textures whose pixels or animation metadata
+Choose **Add depth** above a texture, or in **Tools → 3D texture**. Pick **Soft**,
+**Raised**, or **Metal**, adjust **Depth** and **Shine**, then choose **Apply depth**.
+The starting height map is generated from the texture, so no extra image is needed.
+The **Height map** tab lets you paint **Raise** and **Lower**, undo a stroke, or
+import your own PNG. **Edges** softens details; **Raise dark areas instead** flips
+the height. Cancel discards the draft, and normal Undo restores applied changes.
+The dialog fills the phone screen with touch controls and a scrollable settings area.
+
+Applied depth appears on a surface tile in **3D Preview**. **Export** automatically
+includes the height, normal, and material data needed by LabPBR shaders, with
+animation metadata where applicable. **Download maps** also provides standalone
+height and RGB normal PNGs. Minecraft requires a LabPBR-compatible shader pack;
+enable its parallax/POM setting for visible depth. Ordinary Minecraft still uses
+the unchanged painted texture. Depth supports textures up to one million pixels;
+skin projects keep their existing skin workflow.
+
+Activity counts distinct project textures whose pixels, depth, or animation metadata
 changed on each local calendar day. Repeated edits count once per texture that
 day; opening projects and changing display settings do not count.
 
@@ -209,6 +225,12 @@ catalog and offline/file-mode fallback:
 
 ```sh
 python3 tools/build_texture_catalog.py
+```
+
+The focused depth-map and pack-export check runs without a browser:
+
+```sh
+node tools/test_texture_surface.mjs
 ```
 
 Browser checks require Playwright/Chromium, or Firefox and Pillow:

@@ -36,6 +36,7 @@
 <script src="local-store.js"></script>
 <script src="texture-codec.js"></script>
 <script src="texture-animation.js"></script>
+<script src="texture-surface.js"></script>
 <script src="vendor/fflate.js"></script>
 <script src="archive.js"></script>
 <script src="ui-dialog.js"></script>
@@ -522,6 +523,7 @@ body.inapp .theme{display:none}
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="studio.css">
 <link rel="stylesheet" href="image-import.css">
+<link rel="stylesheet" href="surface-studio.css">
 <link rel="stylesheet" href="mobile-editor.css">
 </head>
 <body>
@@ -786,6 +788,7 @@ body.inapp .theme{display:none}
         <div class="canvas-bar" id="canvasBar" hidden>
           <div class="canvas-document"><b id="canvasTextureName"></b><small id="canvasDocumentMeta"></small></div>
           <button class="gb canvas-import" id="canvasImport" type="button" title="Import an image as this texture · Ctrl / ⌘ Shift I" aria-label="Import image as texture"><i data-i="upload"></i><span>Import image</span></button>
+          <button class="gb canvas-surface" id="canvasSurface" type="button" aria-label="Add texture depth" hidden><i data-i="cube"></i><span>Add depth</span></button>
           <button class="gb canvas-animate" id="canvasAnimate" type="button" hidden><i data-i="pack"></i>Create animation</button>
           <button class="gb animation-rail-toggle" id="edFramesToggle" type="button" aria-label="Animation frames" aria-controls="edFrames" aria-expanded="false" title="Animation frames" hidden><i data-i="pack"></i>Frames</button>
         </div>
@@ -798,7 +801,7 @@ body.inapp .theme{display:none}
             <button class="canvas-control" type="button" id="edFit" title="Fit the whole texture in view"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4H4v4M16 4h4v4M4 16v4h4M20 16v4h-4"/></svg>Fit</button>
           </div></div>
         </div>
-        <div class="pv" id="edPv"><div class="pv-shadow" id="pvShadow"></div><div class="pvs" id="pvS"><div class="pvw" id="pvW"></div></div><div id="pvT"></div><div class="pvh">Drag to rotate · scroll to zoom</div><div class="pvc"><button class="gb" type="button" id="pvAuto">Auto-rotate: on</button><button class="gb" type="button" id="pvReset">Reset view</button></div></div>
+        <div class="pv" id="edPv"><div class="pv-shadow" id="pvShadow"></div><div class="pvs" id="pvS"><div class="pvw" id="pvW"></div></div><div id="pvT"></div><div class="pvh">Drag to rotate · scroll to zoom</div><div class="pvc"><button class="gb" type="button" id="pvAuto">Auto-rotate: on</button><button class="gb" type="button" id="pvReset">Reset view</button><button class="gb" id="previewSurface" type="button" hidden>Edit depth</button></div></div>
       </section>
       <aside class="animation-rail" id="edFrames" aria-label="Animation frames" hidden>
         <div class="animation-rail-content animation-studio" id="edAnimation">
@@ -859,6 +862,7 @@ body.inapp .theme{display:none}
           </details>
           <div class="fr2" id="tintRow" hidden><span>In-game colors</span><button class="tg" id="tintToggle" type="button" role="switch" aria-checked="true" aria-label="Show natural Minecraft colors"></button></div>
         </div>
+        <div class="rc surface-tools" id="surfaceTools" hidden><h5>3D texture</h5><button class="gb surface-open" id="surfaceOpen" type="button"><i data-i="cube"></i><span>Add depth</span></button><small id="surfaceSummary">Give this texture height and shine.</small></div>
         <div class="rc options-card"><details class="editor-disclosure" id="brushOptions"><summary>Brush settings</summary>
           <div class="fr2"><label for="brushCustom">Custom size</label><input id="brushCustom" type="number" min="1" max="32" value="1" aria-label="Brush size in pixels"></div>
           <div class="fr2"><span>Size</span><div class="sgs" id="edSize"><button class="sg" type="button" data-v="1" aria-pressed="true">1</button><button class="sg" type="button" data-v="2" aria-pressed="false">2</button><button class="sg" type="button" data-v="3" aria-pressed="false">3</button></div></div>
@@ -891,6 +895,33 @@ body.inapp .theme{display:none}
 <div class="pack-task" id="packTask" role="status" aria-live="polite" hidden>
   <div><span id="packTaskLabel"></span><button class="task-close" id="packTaskClose" type="button" aria-label="Dismiss pack status" hidden>×</button></div>
   <progress id="packTaskProgress" max="1" value="0" aria-label="Pack import or export progress"></progress>
+</div>
+<div class="surface-studio" id="surfaceStudio" role="dialog" aria-modal="true" aria-labelledby="surfaceTitle" hidden>
+  <div class="surface-dialog">
+    <header class="surface-header"><div><h2 id="surfaceTitle">Add texture depth</h2><small id="surfaceTextureLabel"></small></div><button class="surface-close" type="button" data-surface-close aria-label="Cancel depth changes">×</button></header>
+    <div class="surface-body">
+      <section class="surface-preview-pane" aria-label="Texture depth preview">
+        <div class="surface-view-tabs" role="group" aria-label="Depth preview view"><button type="button" data-surface-view="3d" aria-pressed="true">3D preview</button><button type="button" data-surface-view="height" aria-pressed="false">Height map</button></div>
+        <div class="surface-preview-area"><div class="surface-scene" id="surfaceScene"></div><div class="surface-map-view" id="surfaceMapView" hidden>
+          <div class="surface-height-stage" id="surfaceHeightStage"><canvas id="surfaceHeightCanvas" tabindex="0" aria-label="Paint the height map"></canvas></div>
+          <div class="surface-brush-tools" role="group" aria-label="Height painting"><button type="button" data-surface-brush="raise" aria-pressed="true">Raise</button><button type="button" data-surface-brush="lower" aria-pressed="false">Lower</button><label>Brush<select id="surfaceBrushSize" aria-label="Height brush size"><option value="1">1 px</option><option value="2">2 px</option><option value="4">4 px</option><option value="8">8 px</option></select></label><button id="surfaceUndoPaint" type="button" disabled>Undo stroke</button></div>
+        </div></div>
+        <p class="surface-preview-hint">Drag the 3D preview to rotate. Paint the height map to raise or lower details.</p>
+      </section>
+      <section class="surface-controls" aria-label="Depth settings">
+        <p class="surface-intro">Start with a look, then adjust the depth. Your painted texture stays unchanged.</p>
+        <div class="surface-presets" role="group" aria-label="Surface looks"><button type="button" data-surface-preset="soft">Soft</button><button type="button" data-surface-preset="raised">Raised</button><button type="button" data-surface-preset="metal">Metal</button></div>
+        <label class="surface-range" for="surfaceDepth"><span>Depth<output id="surfaceDepthValue">40%</output></span><input id="surfaceDepth" type="range" min="0" max="100" value="40"></label>
+        <label class="surface-range" for="surfaceShine"><span>Shine<output id="surfaceShineValue">15%</output></span><input id="surfaceShine" type="range" min="0" max="100" value="15"></label>
+        <label class="surface-range" for="surfaceSmooth"><span>Edges<output id="surfaceSmoothValue">Crisp</output></span><input id="surfaceSmooth" type="range" min="0" max="2" value="0"></label>
+        <label class="surface-check"><input id="surfaceInvert" type="checkbox">Raise dark areas instead</label><label class="surface-check"><input id="surfaceMetal" type="checkbox">Metal surface</label>
+        <div class="surface-source"><b>Height map</b><small id="surfaceHeightSource">Generated from the texture</small><button id="surfaceImportHeight" type="button">Use my own height map…</button><button id="surfaceResetHeight" type="button" hidden>Reset to the texture</button><input id="surfaceHeightPicker" type="file" accept="image/png,.png" hidden></div>
+        <p class="surface-shader-note">Minecraft needs a shader pack with LabPBR support. Enable parallax / POM in the shader for visible depth. Without shaders, the original texture still works.</p>
+        <button class="surface-remove" id="surfaceRemove" type="button" hidden>Remove depth from this texture</button>
+      </section>
+    </div>
+    <footer class="surface-footer"><div class="surface-status" id="surfaceStatus" role="status" aria-live="polite"></div><div class="surface-footer-actions"><button id="surfaceDownload" type="button">Download maps</button><button id="surfaceApply" type="button">Apply depth</button></div></footer>
+  </div>
 </div>
 <script>
 (function(){
@@ -1456,6 +1487,7 @@ body.inapp .theme{display:none}
 <script src="color-chooser.js"></script>
 <script src="animation-controls.js"></script>
 <script src="image-import.js"></script>
+<script src="surface-studio.js"></script>
 <script src="editor.js"></script>
 <script src="editor-layout.js"></script>
 <script src="mobile-editor.js"></script>

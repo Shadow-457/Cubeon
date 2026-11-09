@@ -301,12 +301,13 @@ class ManagementUI(unittest.TestCase):
         toggle = next(c for c in fz.walk(self.root) if getattr(c, 'data', None) == 'mods-installed-toggle')
         toggle.on_click(None)
         view = env(self.fns['on_view_change'])
-        self.assertFalse(view['browse_pane'].visible)
-        self.assertTrue(view['installed_pane'].visible)
+        hosts = env(env(self.fns['_sync_view_hosts'])['select_view'])
+        self.assertTrue(hosts['browse_host'].ignore_interactions)
+        self.assertFalse(hosts['installed_host'].ignore_interactions)
         toggle = next(c for c in fz.walk(self.root) if getattr(c, 'data', None) == 'mods-installed-toggle')
         toggle.on_click(None)
-        self.assertTrue(view['browse_pane'].visible)
-        self.assertFalse(view['installed_pane'].visible)
+        self.assertFalse(hosts['browse_host'].ignore_interactions)
+        self.assertTrue(hosts['installed_host'].ignore_interactions)
 
     def test_resource_and_shader_switches_capture_instance_and_guard_stale_rows(self):
         for kind in ('resourcepack', 'shader'):
@@ -639,18 +640,21 @@ class ManagementUI(unittest.TestCase):
         callbacks = []
         self.page.run_task = lambda fn: callbacks.append(fn)
         self.fns['on_view_change']('installed')
-        hosts = env(self.fns['_sync_view_hosts'])
+        hosts = env(env(self.fns['_sync_view_hosts'])['select_view'])
         installed = hosts['installed_host']
         browse = hosts['browse_host']
         self.assertTrue(installed.visible)
-        self.assertFalse(browse.visible)
-        self.assertEqual(installed.opacity, 0)
+        self.assertTrue(browse.visible)
+        self.assertTrue(browse.ignore_interactions)
+        self.assertEqual(installed.opacity, 1)
         self.assertEqual(installed.animate_opacity.duration, 180)
         self.fns['on_view_change']('browse')
         asyncio.run(callbacks[0]())
-        self.assertEqual(browse.opacity, 0)
+        self.assertEqual(browse.opacity, 1)
+        self.assertFalse(browse.disabled)
         asyncio.run(callbacks[1]())
         self.assertEqual(browse.opacity, 1)
+        self.assertTrue(installed.disabled)
         self.assertIs(hosts['installed_host'], installed)
 
     def test_background_refresh_does_not_revert_a_pending_toggle(self):

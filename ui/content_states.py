@@ -5,6 +5,13 @@ from cubeon.theme import (RADIUS, SURFACE_HI, TEXT, TEXT_DIM, FONT_BODY,
                           SPACE_SM, SPACE_MD, SPACE_LG, SPACE_XXL)
 
 
+def skeleton_block(width=None, height=12, *, fill=None, expand=None, **kwargs):
+    """A quiet, retained placeholder; callers own the real loading lifecycle."""
+    return ft.Container(width=width, height=height, expand=expand,
+                        bgcolor=fill or SURFACE_HI, border_radius=RADIUS,
+                        ignore_interactions=True, data="content-skeleton", **kwargs)
+
+
 def loading_rows(label="Loading…", count=3, *, fill=None):
     fill = fill or SURFACE_HI
     rows = []

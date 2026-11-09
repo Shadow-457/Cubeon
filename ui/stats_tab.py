@@ -6,6 +6,8 @@ import flet as ft
 
 from cubeon import activity, milestones, thread_safe_ui
 from cubeon.theme import FONT_BODY
+from cubeon.background_refresh import BackgroundRefresh
+from ui.content_states import skeleton_block
 from ui.stats_chart import PlaytimeChart
 
 DAYS = 30
@@ -30,7 +32,7 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
                     TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO):
     selected = {"weekly": False}
     layout = {"width": 1000, "height": 600, "overview": 112, "server_count": 0}
-    cached = {"stats": {}}
+    cached = {"stats": {}, "ready": False}
     rim = ft.Colors.with_opacity(.65, BORDER)
 
     def text(value, size=12, muted=False, **kwargs):
@@ -40,15 +42,19 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         return ft.Container(content=content, bgcolor=SURFACE, border=ft.border.Border.all(1, rim),
                             border_radius=12, padding=16, **kwargs)
 
-    metric_values, metric_details, metrics = [], [], []
+    metric_values, metric_details, metrics, metric_skeletons = [], [], [], []
     for index, label in enumerate(("Total playtime", "Last 7 days", "Longest session", "Current streak")):
         value = text("—", size=25, weight=ft.FontWeight.W_700, max_lines=1,
                      overflow=ft.TextOverflow.ELLIPSIS, data=f"stats-metric:{index}")
         detail = text("", size=11, muted=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
         metric_values.append(value)
         metric_details.append(detail)
+        value.visible = detail.visible = False
+        value_slot = ft.Stack([value, skeleton_block(104, 26, fill=BORDER)], height=30)
+        detail_slot = ft.Stack([detail, skeleton_block(142, 8, fill=BORDER, top=4)], height=16)
+        metric_skeletons.extend([value_slot.controls[1], detail_slot.controls[1]])
         metrics.append(ft.Container(
-            content=ft.Column([text(label, size=11, muted=True), value, detail], spacing=5),
+            content=ft.Column([text(label, size=11, muted=True), value_slot, detail_slot], spacing=5),
             padding=ft.padding.Padding.symmetric(horizontal=18, vertical=16), col={"xs": 6, "md": 3},
             border=ft.border.Border(left=ft.border.BorderSide(1, rim)) if index else None))
     overview = ft.Container(content=ft.ResponsiveRow(metrics, spacing=0, run_spacing=0), bgcolor=SURFACE,
@@ -68,15 +74,30 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         selected_index=0, thumb_color=SURFACE_HI, bgcolor=BG, padding=2,
         controls=[ft.Container(text(label, size=11), padding=ft.padding.Padding.symmetric(horizontal=10, vertical=4))
                   for label in ("Day", "Week")], on_change=change_group, data="stats-chart-grouping")
+    chart_loading = ft.Container(
+        content=ft.Column([
+            skeleton_block(height=1, fill=BORDER),
+            ft.Row([skeleton_block(height=h, fill=BORDER, expand=True)
+                    for h in (38, 62, 48, 96, 75, 110, 84, 58, 74, 46)],
+                   spacing=10, expand=True, vertical_alignment=ft.CrossAxisAlignment.END),
+            skeleton_block(height=1, fill=BORDER),
+        ], spacing=20), padding=ft.Padding(30, 12, 8, 27),
+        left=0, right=0, top=0, bottom=0, data="stats-chart-loading")
+    chart_host = ft.Stack([chart.control, chart_loading], height=chart.height)
+    chart.control.visible = False
     timeline = panel(ft.Column([
         ft.ResponsiveRow([
             ft.Container(ft.Row([text("Hours played", weight=ft.FontWeight.W_600),
                                  text("Last 30 days", size=11, muted=True)], spacing=8), col={"xs": 12, "sm": 6}),
             ft.Container(ft.Row([grouping], alignment=ft.MainAxisAlignment.END), col={"xs": 12, "sm": 6}),
-        ], spacing=0, run_spacing=6), chart.control,
+        ], spacing=0, run_spacing=6), chart_host,
     ], spacing=8), data="stats-timeline")
-    servers = ft.Column([], spacing=14, data="stats-servers")
-    server_panel = panel(ft.Column([text("Where you play", weight=ft.FontWeight.W_600), servers], spacing=16),
+    servers = ft.Column([], spacing=14, visible=False, data="stats-servers")
+    server_loading = ft.Row([skeleton_block(height=12, fill=BORDER, expand=True),
+                             skeleton_block(60, 10, fill=BORDER)], spacing=16,
+                            data="stats-servers-loading")
+    server_host = ft.Column([servers, server_loading], spacing=0)
+    server_panel = panel(ft.Column([text("Where you play", weight=ft.FontWeight.W_600), server_host], spacing=16),
                          height=264, data="stats-server-panel")
 
     panels = ft.Row([timeline, server_panel], wrap=True, spacing=14, run_spacing=14,
@@ -98,6 +119,7 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         timeline.height = timeline_height
         server_panel.height = server_height if stacked else timeline_height
         chart.set_height(timeline_height - 32 - toolbar_height - 8)
+        chart_host.height = chart.height
         thread_safe_ui.refresh(body)
 
     def layout_changed(event):
@@ -116,43 +138,84 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
                 apply_layout()
     overview.on_size_change = overview_changed
 
-    def refresh_stats():
+    def read_stats():
+        # Disk reads and all summary preparation stay outside the control lock.
         stats = milestones.snapshot()
         records = activity.clean_sessions(stats.get("session_history"))
-        with thread_safe_ui.TREE_LOCK:
-            cached["stats"] = stats
-            recent = activity.period_summary(stats, "recent_week")
-            prior = activity.period_summary(stats, "previous_week")["seconds_played"]
-            current, best = activity.streaks(stats)
-            longest = max(activity.nonnegative(stats.get("longest_session_seconds")),
-                          max((row["seconds"] for row in records), default=0))
-            values = [activity.duration_label(stats.get("seconds_played")),
-                      activity.duration_label(recent["seconds_played"]),
-                      activity.duration_label(longest) if longest else "—", f"{current} day{'s' if current != 1 else ''}"]
-            stamp = activity.nonnegative(stats.get("first_seen_at"))
+        recent = activity.period_summary(stats, "recent_week")
+        prior = activity.period_summary(stats, "previous_week")["seconds_played"]
+        current, best = activity.streaks(stats)
+        longest = max(activity.nonnegative(stats.get("longest_session_seconds")),
+                      max((row["seconds"] for row in records), default=0))
+        values = [activity.duration_label(stats.get("seconds_played")),
+                  activity.duration_label(recent["seconds_played"]),
+                  activity.duration_label(longest) if longest else "—", f"{current} day{'s' if current != 1 else ''}"]
+        stamp = activity.nonnegative(stats.get("first_seen_at"))
+        try:
+            since = "Since " + datetime.fromtimestamp(stamp).strftime("%d %b") if stamp else "All recorded playtime"
+        except (ValueError, OverflowError, OSError):
+            since = "All recorded playtime"
+        change = (recent["seconds_played"] - prior) / prior * 100 if prior else None
+        comparison = (f"{abs(change):.0f}% {'more' if change >= 0 else 'less'} than the week before" if change else
+                      "Same as the week before" if recent["seconds_played"] == prior else "No playtime the week before")
+        details = [since, comparison, "Across recorded sessions", f"Best: {best} day{'s' if best != 1 else ''}"]
+        cutoff = date.today() - timedelta(days=DAYS-1)
+        counts = Counter()
+        for row in records:
             try:
-                since = "Since " + datetime.fromtimestamp(stamp).strftime("%d %b") if stamp else "All recorded playtime"
+                day = datetime.fromtimestamp(row["started"] + row["seconds"]).date()
             except (ValueError, OverflowError, OSError):
-                since = "All recorded playtime"
-            change = (recent["seconds_played"] - prior) / prior * 100 if prior else None
-            comparison = (f"{abs(change):.0f}% {'more' if change >= 0 else 'less'} than the week before" if change else
-                          "Same as the week before" if recent["seconds_played"] == prior else "No playtime the week before")
-            details = [since, comparison, "Across recorded sessions", f"Best: {best} day{'s' if best != 1 else ''}"]
-            for control, value, detail, caption in zip(metric_values, values, metric_details, details):
-                control.value, detail.value = value, caption
-            cutoff = date.today() - timedelta(days=DAYS-1)
-            counts = Counter(server for row in records if cutoff <= datetime.fromtimestamp(row["started"]+row["seconds"]).date() <= date.today()
-                             for server in row["servers"])
-            servers.controls[:] = [text("No servers in this range.", size=11, muted=True)] if not counts else [
-                ft.Row([ft.Container(content=text(server, size=11, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                     expand=True, tooltip=server),
-                        text(f"{count} session{'s' if count != 1 else ''}", size=10, muted=True)], spacing=8)
-                for server, count in counts.most_common(5)]
-            layout["server_count"] = len(counts)
-            apply_layout()
-            draw_chart()
-            thread_safe_ui.refresh(overview)
-            thread_safe_ui.refresh(servers)
+                continue
+            if cutoff <= day <= date.today():
+                counts.update(row["servers"])
+        return stats, values, details, counts
 
-    refresh_stats()
+    def finish_loading():
+        for skeleton in metric_skeletons:
+            skeleton.visible = False
+        for control in metric_values + metric_details:
+            control.visible = True
+        chart_loading.visible = server_loading.visible = False
+        chart.control.visible = servers.visible = True
+
+    def apply_stats(result):
+        stats, values, details, counts = result
+        cached.update(stats=stats, ready=True)
+        for control, value, detail, caption in zip(metric_values, values, metric_details, details):
+            control.value, detail.value = value, caption
+        servers.controls[:] = [text("No servers in this range.", size=11, muted=True)] if not counts else [
+            ft.Row([ft.Container(content=text(server, size=11, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                 expand=True, tooltip=server),
+                    text(f"{count} session{'s' if count != 1 else ''}", size=10, muted=True)], spacing=8)
+            for server, count in counts.most_common(5)]
+        layout["server_count"] = len(counts)
+        finish_loading()
+        apply_layout()
+        draw_chart()
+        thread_safe_ui.refresh(overview)
+        thread_safe_ui.refresh(server_host)
+
+    def failed_stats(error):
+        if cached["ready"]:
+            return  # A refresh failure keeps the last complete dashboard.
+        finish_loading()
+        metric_details[0].value = "Couldn't load stats. Reopen Stats to retry."
+        servers.controls[:] = [text("Activity unavailable.", size=11, muted=True)]
+        apply_layout()
+        thread_safe_ui.refresh(overview)
+        thread_safe_ui.refresh(server_host)
+
+    worker = BackgroundRefresh(read_stats, apply_stats, name="cubeon-stats-refresh", failed=failed_stats)
+
+    def refresh_stats(*, background=False):
+        if background:
+            worker.request()
+        else:
+            worker.invalidate()
+            result = read_stats()
+            with thread_safe_ui.TREE_LOCK:
+                apply_stats(result)
+
+    apply_layout()
+    refresh_stats(background=True)
     return root, refresh_stats

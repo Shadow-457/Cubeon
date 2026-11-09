@@ -66,6 +66,7 @@ import time
 import unicodedata
 
 import flet as ft
+from ui.content_states import skeleton_block
 from cubeon import i18n
 
 from cubeon.theme import (
@@ -396,6 +397,15 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     friends_label = section_label(i18n.t("Friends"))
     friends_count = ft.Text("", size=11, color=TEXT_FAINT)
     friends_col = ft.Column(spacing=4)
+    roster_loading = ft.Column([
+        ft.Container(ft.Row([
+            skeleton_block(36, 36, fill=BORDER),
+            ft.Column([skeleton_block(132, 12, fill=BORDER),
+                       skeleton_block(88, 8, fill=BORDER)], spacing=8, expand=True),
+        ], spacing=12), padding=ft.Padding(12, 10, 12, 10))
+        for _ in range(3)
+    ], spacing=4, data="chat-roster-loading")
+    friends_col.visible = False
 
     def _choose_filter(value):
         with thread_safe_ui.TREE_LOCK:
@@ -584,22 +594,47 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         alignment=ft.Alignment.CENTER, expand=True,
     )
 
+    history = {"generation": 0, "loading": False, "failed": False}
+    history_loading = ft.Container(
+        ft.Column([
+            ft.Row([
+                ft.Container(ft.Column([
+                    skeleton_block(height=12, fill=BORDER),
+                    ft.Row([skeleton_block(height=8, fill=BORDER, expand=3),
+                            ft.Container(expand=1)], spacing=0),
+                ], spacing=10), padding=16, bgcolor=CARD_FILL, border_radius=RADIUS,
+                    expand=3),
+                ft.Container(expand=2),
+            ][::direction], spacing=0)
+            for direction in (1, -1, 1, -1)
+        ], spacing=16, alignment=ft.MainAxisAlignment.END, expand=True),
+        expand=True, padding=ft.Padding(4, 8, 4, 8), visible=False,
+        ignore_interactions=True, data="chat-history-loading")
+    conversation_host = ft.Stack([transcript, empty_state, history_loading],
+                                 fit=ft.StackFit.EXPAND, expand=True,
+                                 data="chat-conversation")
+
     def _sync_empty_state():
         name = selected["name"]
         has_messages = bool(transcript.controls)
-        empty_state.visible = not name or not has_messages
+        loading = bool(name and history["loading"] and not has_messages)
+        history_loading.visible = loading
+        empty_state.visible = (not name or not has_messages) and not loading
         transcript.visible = bool(name and has_messages)
         empty_add.visible = not name
         if name:
             label, _uid = _peer_identity(name, _friend_by_name(name) or {})
             empty_title.value = f"Say hello to {label}"
             empty_sub.value = "Plan your next world, share a win, or just catch up."
+            if history["failed"] and not has_messages:
+                empty_title.value = "Couldn't load this conversation"
+                empty_sub.value = "Chat will retry when the connection is ready."
         else:
             has_friends = bool((_last_roster["v"] or {}).get("friends"))
             empty_title.value = "Your conversations" if has_friends else "Make room for good conversations"
             empty_sub.value = ("Choose a friend on the left to pick up where you left off."
                                if has_friends else "Add a friend with their Cubeon ID to start chatting.")
-        _refresh(empty_state, transcript)
+        _refresh(conversation_host)
 
     conn_banner_text = ft.Text("", size=12, color=WARNING, expand=True)
     reconnect_btn = ft.TextButton(
@@ -1095,6 +1130,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     def _render_roster(roster=None, force=False):
         if roster is not None:
+            if roster_loading.visible or not friends_col.visible:
+                roster_loading.visible = False
+                friends_col.visible = True
+                _refresh(roster_loading, friends_col)
             _last_roster["v"] = roster
             if not selected["name"]:
                 _sync_empty_state()
@@ -1479,45 +1518,32 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             _stick_bottom(force=True)
             _focus(composer)
             return
-        if prev and prev != name:
-            _drafts[prev] = composer.value
+        if prev:
             _set_open(prev, False)
-        state["chat_composing"] = False
-        selected["name"] = name
-        last_seq[name] = -1
-        _last_day[name] = None
-        _last_dir[name] = None
-        _stick["at_end"] = True   # opening a conversation starts at the bottom
-        transcript.auto_scroll = False
-        composer_status.visible = False
-        composer.value = _drafts.get(name) or ""
         with thread_safe_ui.TREE_LOCK:
+            if prev:
+                _drafts[prev] = composer.value
+            state["chat_composing"] = False
+            selected["name"] = name
+            history.update(generation=history["generation"] + 1, loading=True, failed=False)
+            last_seq[name] = -1
+            _last_day[name] = None
+            _last_dir[name] = None
+            _stick["at_end"] = True
+            transcript.auto_scroll = False
+            composer_status.visible = False
+            composer.value = _drafts.get(name) or ""
             transcript.controls.clear()
-        transcript.visible = True
-        empty_state.visible = False
-        _header_sig["v"] = None
-        _refresh_header()
-        header_avatar.visible = True
-        header_row.visible = True
-        remove_btn.visible = True
-        header_rule.visible = True
-        remove_btn.on_click = lambda e, n=name: _confirm_remove(n)
-        composer_row.visible = True
-        composer_footer.visible = True
-        jump_row.visible = False   # opening starts at the bottom
-        _roster_sig["v"] = None   # repaint the selection highlight
-        for ctrl in (transcript, empty_state, transcript_header,
-                     transcript_sub, header_avatar, remove_btn, header_rule,
-                     composer_row, composer_status,
-                     jump_row, composer, header_row, composer_footer):
-            thread_safe_ui.refresh(ctrl)
-        _sync_composer()
-        _sync_emoji_suggestions()
-        _mark_read(name)
-        _tick()
-        # A send worker/echo can finish while a different conversation is
-        # open. Keep its pending line and remount it when this peer is opened.
-        with thread_safe_ui.TREE_LOCK:
+            _header_sig["v"] = None
+            _refresh_header()
+            header_avatar.visible = header_row.visible = True
+            remove_btn.visible = header_rule.visible = True
+            remove_btn.on_click = lambda e, n=name: _confirm_remove(n)
+            composer_row.visible = composer_footer.visible = True
+            jump_row.visible = False
+            _roster_sig["v"] = None
+            # Restore pending messages before waking the history worker, so an
+            # echo can replace their existing slots without racing a remount.
             for pending in _pending.get(name) or []:
                 pending["wrap"] = _bubble_row(_make_bubble(
                     pending["text"], True, pending["ts"],
@@ -1525,8 +1551,14 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     status="Couldn't send" if pending["failed"] else "Sending…"), True, 2)
                 transcript.controls.insert(0, pending["wrap"])
             _trim_transcript()
-        thread_safe_ui.refresh(transcript)
-        _sync_empty_state()
+            _sync_empty_state()
+            _sync_composer()
+            _sync_emoji_suggestions()
+            _refresh(conversation_host, transcript_header, transcript_sub,
+                     header_avatar, remove_btn, header_rule, composer_row,
+                     composer_status, jump_row, composer, header_row, composer_footer)
+        _mark_read(name)
+        refresh()
         _stick_bottom(force=True)
         _focus(composer)
 
@@ -1739,10 +1771,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             # A socket callback can hold its lifecycle lock while delivering
             # a launcher notice. Never wait for service/socket locks while
             # holding TREE_LOCK, or neither thread can make progress.
-            if roster:
+            if roster is not None:
                 with thread_safe_ui.TREE_LOCK:
                     _apply_identity(roster)
                     _render_roster(roster)
+            else:
+                with thread_safe_ui.TREE_LOCK:
+                    if roster_loading.visible:
+                        roster_loading.visible = False
+                        friends_col.visible = True
+                        _set_status("Couldn't load friends. Chat will retry.", error=True)
+                        _refresh(roster_loading, friends_col)
             try:
                 ev = service.events_since(cursor["v"]) or {}
             except Exception:
@@ -1753,6 +1792,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         _set_status(e.get("text") or "", bool(e.get("error")))
                 cursor["v"] = ev.get("cursor", cursor["v"])
                 name = selected["name"]
+                generation = history["generation"]
             if name:
                 viewing = (state.get("active_tab", "chat") == "chat"
                            and state.get("window_focused", True)
@@ -1760,6 +1800,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 _set_open(name, viewing)
                 with thread_safe_ui.TREE_LOCK:
                     _sweep_pending()
+                history_failed = False
                 try:
                     kwargs = ({"viewing": viewing, "viewer": "launcher"}
                               if callable(getattr(service, "set_open_conversation", None))
@@ -1768,8 +1809,15 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         name, last_seq.get(name, -1), **kwargs) or {}
                 except Exception:
                     payload = {}
+                    history_failed = True
                 with thread_safe_ui.TREE_LOCK:
-                    _append_messages(payload.get("messages") or [], name)
+                    if name == selected["name"] and generation == history["generation"]:
+                        changed = history["loading"] or history["failed"] != history_failed
+                        history.update(loading=False, failed=history_failed)
+                        messages = payload.get("messages") or []
+                        _append_messages(messages, name)
+                        if changed and not messages:
+                            _sync_empty_state()
                 if viewing:
                     _mark_read(name)
         finally:
@@ -1839,7 +1887,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 filter_row,
                 ft.Row([friends_label, ft.Container(expand=True), friends_count], spacing=8),
                 ft.Column([
-                    requests_label, requests_col, friends_col,
+                    requests_label, requests_col, roster_loading, friends_col,
                 ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True),
                 status_text,
                 ft.Container(height=1, bgcolor=CARD_BORDER),
@@ -1898,9 +1946,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 header_row,
                 conn_banner,
                 header_rule,
-                transcript,
+                conversation_host,
                 jump_row,
-                empty_state,
                 composer_status,
                 emoji_suggestions,
                 composer_row,

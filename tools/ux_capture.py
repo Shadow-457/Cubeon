@@ -170,14 +170,16 @@ def _subtab(page, key, max_nodes=8):
         # Cached tabs stay mounted; a hidden Mods "Installed" button must
         # never win while the tour is inside Modpacks.
         ancestor = c
-        while ancestor is not None and getattr(ancestor, "visible", True):
+        while (ancestor is not None and getattr(ancestor, "visible", True)
+               and getattr(ancestor, 'opacity', 1) != 0
+               and not getattr(ancestor, 'ignore_interactions', False)):
             ancestor = getattr(ancestor, "parent", None)
         if ancestor is not None:
             continue
         data = getattr(c, 'data', None)
         if data == 'content-' + key:
             return _click(c)
-        if data == 'mods-installed-toggle' and key in ('installed', 'browse'):
+        if data in ('mods-installed-toggle', 'plugins-installed-toggle') and key in ('installed', 'browse'):
             destination = 'installed' if str(getattr(c, 'content', '')).startswith('Installed') else 'browse'
             return _click(c) if destination == key else True
         h = getattr(c, "on_click", None)

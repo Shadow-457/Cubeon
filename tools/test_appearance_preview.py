@@ -351,7 +351,7 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
         stage._set_yaw(index * 13)
         if jobs:
             jobs.pop(0)()
-    check("orbit cache stays bounded across yaw and pitch", len(stage._frames) <= 64 and len(stage.scene.controls) == 2)
+    check("orbit cache stays bounded across yaw and pitch", len(stage._frames) <= 64 and len(stage.scene.controls) == 3 and not stage.skeleton.visible)
 
 
 driver = app_driver.build_headless()

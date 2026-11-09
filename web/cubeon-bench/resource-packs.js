@@ -143,7 +143,14 @@
     var p = clone(project), originals = p.assetId ? await window.LocalStore.getFiles(p.assetId) : {};
     var files = Object.assign(Object.create(null), originals), entries = new Map(MT.entries.map(function (e) { return [e.id, e]; }));
     (p.textures || []).forEach(function (e) { entries.set(e.id, e); });
-    var edits = p.edits || {}, ids = Array.from(new Set(Object.keys(edits).concat(Object.keys(p.animations || {}))));
+    var surfaces=window.TextureSurface.dictionary(p.surfaces),surfaceMetadata=Object.create(null);
+    var edits = p.edits || {}, ids = Array.from(new Set(Object.keys(edits).concat(Object.keys(p.animations || {}),Object.keys(surfaces))));
+    (p.surfaceImported||[]).forEach(function(id){
+      var entry=entries.get(id);if(!entry||surfaces[id])return;
+      var path=pathFor(entry);
+      ['_n.png','_s.png'].forEach(function(suffix){var map=path.replace(/\.png$/,suffix);delete files[map];delete files[map+'.mcmeta'];});
+      delete files[window.TextureSurface.heightPath(entry)];
+    });
     if (!p.assetId && !ids.length) {
       var first = MT.resolve(p.texture || p.block || 'block/grass_block_top');
       if (first) ids.push(first.id);
@@ -151,7 +158,7 @@
     for (var i = 0; i < ids.length; i++) {
       var id = ids[i], entry = entries.get(id) || MT.resolve(id);
       if (!entry) throw new Error('Cannot export an unknown texture: ' + id);
-      var path = pathFor(entry), image;
+      var path = pathFor(entry), image=null;
       if (edits[id]) {
         image = codec.decode(edits[id], p);
         files[path] = new Uint8Array(await (await codec.png(image)).arrayBuffer());
@@ -161,13 +168,20 @@
         var ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(source, 0, 0, cv.width, cv.height);
         image = ctx.getImageData(0, 0, cv.width, cv.height);
         files[path] = new Uint8Array(await (await codec.png(image)).arrayBuffer());
-      } else files[path] = await MT.bytes(entry);
+      } else files[path] = originals[path] || await MT.bytes(entry);
       var override = window.TextureAnimation.hasOverride(p, id);
       var mcmeta = override ? window.TextureAnimation.effectiveEntry(entry, p.animations[id], image ? image.width : entry.w, image ? image.height : entry.h).mcmeta : textureMetadata(entry, image ? image.width : entry.w, image ? image.height : entry.h);
       if (override) {
         if (mcmeta && Object.keys(mcmeta).length) files[path + '.mcmeta'] = encode(mcmeta);
         else delete files[path + '.mcmeta'];
       } else if (mcmeta && (!files[path + '.mcmeta'] || image && (image.width !== entry.w || image.height !== entry.h))) files[path + '.mcmeta'] = encode(mcmeta);
+      if(surfaces[id]){
+        if(!image)image=await window.TextureSurface.readPNG(files[path]);
+        var effective=window.TextureAnimation.effectiveEntry(entry,override?p.animations[id]:undefined,image.width,image.height);
+        var surfaceFiles=await window.TextureSurface.exportMaps(image,surfaces[id],effective,path);
+        Object.assign(files,surfaceFiles.files);surfaceMetadata[id]=surfaceFiles.settings;
+        ['_n.png','_s.png'].forEach(function(suffix){var map=path.replace(/\.png$/,suffix);if(mcmeta&&mcmeta.animation)files[map+'.mcmeta']=encode(mcmeta);else delete files[map+'.mcmeta'];});
+      }
       report(.1 + .63 * (i + 1) / Math.max(1, ids.length), 'Preparing textures ' + (i + 1) + ' / ' + ids.length + '…');
       if (i % 12 === 0) await new Promise(function (ok) { setTimeout(ok, 0); });
     }
@@ -175,7 +189,7 @@
     if (p.icon) files['pack.png'] = fromDataURL(p.icon);
     else if (p.iconRemoved) delete files['pack.png'];
     files['.cubeon/project.json'] = encode({schema: 1, name: p.name, author: p.author || '', packVersion: p.packVersion || '1.0.0',
-      minecraftVersion: p.minecraftVersion || '26.1', palette: p.pal, texture: p.texture || '', edited: p.edited});
+      minecraftVersion: p.minecraftVersion || '26.1', palette: p.pal, texture: p.texture || '', edited: p.edited,surfaces:surfaceMetadata});
     report(.82, 'Building resource pack ZIP…');
     return new Blob([await zip(files)], {type: 'application/zip'});
   }
@@ -201,12 +215,19 @@
       if (window.LocalStore.mode() !== 'indexedDB') throw new Error('This browser cannot save imported packs here. Open the app through a local server to enable project storage.');
       var pack = await inspectZip(file, task), now = Date.now(), id = 'p' + now.toString(36) + Math.random().toString(36).slice(2, 8);
       var extra = pack.details || {}, pal = window.CB.PL[extra.palette] ? extra.palette : window.CB.D.set.pal;
+      var surfaces=await window.TextureSurface.importMaps(extra.surfaces,pack.files),mapPaths=new Set();
+      Object.keys(surfaces).forEach(function(id){
+        var entry=pack.textures.find(function(e){return e.id===id});if(!entry)throw new Error('The pack is missing a texture for its depth map.');
+        if(!window.TextureSurface.supported({width:entry.w,height:entry.h}))throw new Error('Pack depth maps support textures with up to one million pixels.');
+        ['_n.png','_s.png'].forEach(function(suffix){mapPaths.add(entry.path.replace(/\.png$/,suffix));});
+      });
+      pack.textures=pack.textures.filter(function(entry){return !mapPaths.has(entry.path);});
       var p = {id: id, assetId: id, name: String(extra.name || file.name.replace(/\.zip$/i, '') || 'Imported pack').slice(0, 40),
         type: 'pack', size: 16, pal: pal, description: pack.description, originalDescription: pack.description,
         author: String(extra.author || '').slice(0, 80), packVersion: String(extra.packVersion || '1.0.0').slice(0, 30),
         minecraftVersion: 'imported', packMeta: pack.metadata, icon: pack.icon, hasIcon: !!pack.files['pack.png'], textures: pack.textures,
         texture: pack.textures.some(function (e) { return e.id === extra.texture; }) ? extra.texture : (pack.textures[0] || {}).id || 'block/grass_block_top',
-        edits: {}, created: now, edited: now};
+        edits: {}, surfaces:surfaces,surfaceImported:Object.keys(surfaces),created: now, edited: now};
       task(.78, 'Saving imported files locally…');
       await window.LocalStore.putFiles(id, pack.files);
       window.CB.D.projects.unshift(p); window.CB.bump();

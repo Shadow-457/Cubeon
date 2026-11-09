@@ -31,6 +31,7 @@ from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
 from cubeon import cosmetics
 from ui.appearance_preview import AppearancePreview
 from ui.image_memory import preview_image
+from ui.content_states import skeleton_block
 
 # Our own launcher core module - contains logic for skin storage/rendering
 import launcher_core as core
@@ -218,8 +219,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             preview_img = preview_image(src="icon.svg", width=preview_w,
                                    height=preview_h, fit=ft.BoxFit.CONTAIN,
                                    visible=False)
-            placeholder = ft.Icon(ft.Icons.IMAGE_OUTLINED, color=TEXT_DIM,
-                                  size=22)
+            placeholder = skeleton_block(preview_w, preview_h, fill=BORDER)
             _PENDING_THUMBS.append((preview_img, placeholder,
                                     lazy_thumb[0], lazy_thumb[1]))
         else:
@@ -362,7 +362,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 _THUMB_MEMO[(kind, filename)] = b64
             return b64
         except Exception:
-            return None  # unreadable/missing sheet: the placeholder stays
+            return None  # worker replaces loading with an unavailable-art icon
 
     def _flush_pending_thumbs():
         """Render queued card thumbs off-thread, one worker for the batch."""
@@ -373,13 +373,18 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         def _worker():
             for img, ph, kind, fn in jobs:
                 b64 = _render_thumb(kind, fn)
-                if not b64:
-                    continue
                 with thread_safe_ui.TREE_LOCK:
-                    img.src = b64
-                    img.visible = True
-                    if ph is not None:
+                    if b64:
+                        img.src = b64
+                        img.visible = True
                         ph.visible = False
+                    else:
+                        # A missing sheet is an error state, never endless loading.
+                        ph.bgcolor = None
+                        ph.data = "content-artwork-unavailable"
+                        ph.content = ft.Icon(ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED,
+                                             color=TEXT_DIM, size=22)
+                        ph.alignment = ft.Alignment.CENTER
                 thread_safe_ui.refresh(img)
                 if ph is not None:
                     thread_safe_ui.refresh(ph)

@@ -1435,9 +1435,9 @@ async def main(page: ft.Page):
         top_nav_items.insert(2, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED,
                                  i18n.t("Chat")))
     server_group_items = [
-        ("server_console", ft.Icons.TERMINAL_ROUNDED, i18n.t("Console")),
-        ("server_plugins", ft.Icons.EXTENSION_ROUNDED, i18n.t("Plugins")),
         ("server_settings", ft.Icons.TUNE_ROUNDED, i18n.t("Settings")),
+        ("server_plugins", ft.Icons.EXTENSION_ROUNDED, i18n.t("Plugins")),
+        ("server_console", ft.Icons.TERMINAL_ROUNDED, i18n.t("Console")),
     ]
     SERVER_TOP_KEY = "server"
 
@@ -7905,9 +7905,9 @@ async def main(page: ft.Page):
         if key == "settings" and picker.is_open():
             picker.close()
         # The top-bar Servers icon is an entry point, not a tab of its own:
-        # it opens the Console (the chips then switch between the three).
+        # it opens Settings (the chips then switch between the three).
         if key == SERVER_TOP_KEY:
-            key = "server_console"
+            key = "server_settings"
         if key not in tabs:
             return
         with thread_safe_ui.TREE_LOCK:
@@ -7929,7 +7929,7 @@ async def main(page: ft.Page):
                 switch_controls.append(nav_blob)
             # The server chip row lives under the top bar and is visible only
             # while a server tab is active. The top-bar "Servers" icon itself
-            # is just an entry point - it opens the Console.
+            # is just an entry point - it opens Settings.
             show_subnav = key in SERVER_GROUP_KEYS
             if subnav_bar.visible != show_subnav:
                 subnav_bar.visible = show_subnav
@@ -7990,7 +7990,7 @@ async def main(page: ft.Page):
             elif key in SERVER_GROUP_KEYS:
                 refresh_server_tab(background=True)
             elif key == "stats":
-                _cb("stats", "refresh")()
+                _cb("stats", "refresh")(background=True)
             elif key == "chat":
                 _cb("chat", "refresh")()
             elif key == "play":

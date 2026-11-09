@@ -12,7 +12,6 @@ re-filtered for the new version+loader profile).
 """
 
 # Standard library imports
-import asyncio
 import re          # For turning mod names into comparable "slugs"
 import logging
 import threading   # For running network calls in the background without freezing the UI
@@ -39,7 +38,7 @@ import launcher_core as core
 
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 from cubeon import eta as cubeon_eta  # measured "time left" for downloads
-from cubeon import status_text, net, scrolling, storage, motion
+from cubeon import status_text, net, scrolling, storage
 from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
 from cubeon.content_checks import check_content
@@ -49,7 +48,7 @@ from cubeon import instances as instance_info  # the selected instance's real lo
 from ui.install_feedback import InstallRegistry, InstallFeedback, compact_status, progress_text, action_text
 from ui.project_readme import readme_markdown
 from ui.content_states import empty_state
-from ui.content_tiles import tile_grid, tile_capacity, layout_tiles, loading_tiles, style_tile, downloads_label, content_header, update_view_action
+from ui.content_tiles import tile_grid, layout_tiles, loading_tiles, style_tile, downloads_label, content_header, update_view_action, catalogue_views
 from cubeon.background_refresh import BackgroundRefresh
 from cubeon.icon_loader import IconLoader
 
@@ -3135,29 +3134,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         expand=True,
     )
 
-    browse_host = ft.Container(browse_pane, expand=True, animate_opacity=motion.BASE)
-    installed_host = ft.Container(installed_pane, expand=True, visible=False,
-                                  opacity=0, animate_opacity=motion.BASE)
-    view_transition = {'generation': 0}
+    view_port, browse_host, installed_host, select_view = catalogue_views(page, browse_pane, installed_pane)
 
     def _sync_view_hosts(animate=False):
-        view_transition['generation'] += 1
-        generation = view_transition['generation']
-        selected = browse_host if active_view['value'] == 'browse' else installed_host
-        for host in (browse_host, installed_host):
-            host.visible = host is selected
-            host.opacity = 0 if animate or host is not selected else 1
-            thread_safe_ui.refresh(host)
-        if not animate:
-            return
-        async def reveal():
-            # Yield one painted frame; no geometry tween or background ticker.
-            await asyncio.sleep(.025)
-            with thread_safe_ui.TREE_LOCK:
-                if generation == view_transition['generation'] and selected.visible:
-                    selected.opacity = 1
-                    thread_safe_ui.refresh(selected)
-        page.run_task(reveal)
+        select_view(active_view['value'], animate=animate)
 
     view_segment_row = ft.Row(spacing=8)
 
@@ -3281,8 +3261,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 ],
                 spacing=8,
             ),
-            browse_host,
-            installed_host,
+            view_port,
         ],
         spacing=0,
         expand=True,

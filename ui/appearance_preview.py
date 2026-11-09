@@ -17,6 +17,7 @@ from PIL import Image
 from cubeon.appearance import CharacterModel, RenderCancelled, render_faces
 from cubeon import thread_safe_ui
 from cubeon.theme import TEXT_DIM
+from ui.content_states import skeleton_block
 
 STAGE_W, STAGE_H = 320, 440
 STEPS = 360
@@ -80,7 +81,15 @@ class AppearancePreview:
             border_radius=42, bgcolor="#22000000",
             shadow=ft.BoxShadow(blur_radius=16, spread_radius=2, color="#55000000"),
         )
-        self.scene = ft.Stack([self.shadow, self.image], width=STAGE_W, height=STAGE_H,
+        # Match the standing character silhouette without remounting its image.
+        self._skeleton_parts = [(126, 54, 68, 68), (121, 130, 78, 132),
+                                (85, 130, 28, 132), (207, 130, 28, 132),
+                                (121, 270, 35, 132), (164, 270, 35, 132)]
+        self.skeleton = ft.Stack([
+            skeleton_block(w, h, left=x, top=y)
+            for x, y, w, h in self._skeleton_parts
+        ], width=STAGE_W, height=STAGE_H, data="appearance-loading")
+        self.scene = ft.Stack([self.shadow, self.image, self.skeleton], width=STAGE_W, height=STAGE_H,
                               clip_behavior=ft.ClipBehavior.NONE, data="appearance-model")
         self.note = ft.Text("Loading preview…", size=11, color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
         self.gesture = ft.GestureDetector(
@@ -167,9 +176,11 @@ class AppearancePreview:
             self._shown = key
             self._shown_revision = revision
             if first:
+                self.skeleton.visible = False
                 self.note.value = "Drag to rotate · arrows to turn · reset to center"
         thread_safe_ui.refresh(self.image)
         if first:
+            thread_safe_ui.refresh(self.skeleton)
             thread_safe_ui.refresh(self.note)
 
     def turn(self, degrees):
@@ -238,6 +249,9 @@ class AppearancePreview:
             self._available_width, self._display_scale = width, scale
             self.scene.width, self.scene.height = STAGE_W * scale, STAGE_H * scale
             self.image.width, self.image.height = self.scene.width, self.scene.height
+            self.skeleton.width, self.skeleton.height = self.scene.width, self.scene.height
+            for part, (x, y, w, h) in zip(self.skeleton.controls, self._skeleton_parts):
+                part.left, part.top, part.width, part.height = x * scale, y * scale, w * scale, h * scale
             self.viewport.height = self.scene.height
             self.shadow.left, self.shadow.top = (STAGE_W / 2 - 42) * scale, (STAGE_H - 30) * scale
             self.shadow.width, self.shadow.height = 84 * scale, 10 * scale
@@ -266,6 +280,12 @@ class AppearancePreview:
         if loaded:
             self._show(key)
         if start:
+            with thread_safe_ui.TREE_LOCK, self._lock:
+                if self._shown is None:
+                    self.skeleton.visible = True
+                    self.note.value = "Loading preview…"
+            thread_safe_ui.refresh(self.skeleton)
+            thread_safe_ui.refresh(self.note)
             self._start_worker()
 
     def _start_worker(self):
@@ -336,7 +356,9 @@ class AppearancePreview:
                 with thread_safe_ui.TREE_LOCK, self._lock:
                     if generation != self._generation:
                         continue
+                    self.skeleton.visible = False
                     self.note.value = "Couldn't load preview. Choose another skin or cape."
+                thread_safe_ui.refresh(self.skeleton)
                 thread_safe_ui.refresh(self.note)
             finally:
                 with self._lock:

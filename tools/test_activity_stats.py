@@ -117,6 +117,12 @@ milestones._state = fixture
 driver = app_driver.build_headless()
 switch = inspect.getclosurevars(driver.tabs()["stats"].on_click).nonlocals["switch_tab"]
 switch("stats")
+deadline = time.monotonic() + 3
+while time.monotonic() < deadline:
+    if any(control.data == "stats-chart-loading" and not control.visible
+           for control in every_control(driver.page)):
+        break
+    time.sleep(.01)
 controls = every_control(driver.page)
 charts = {control.data: control for control in controls if hasattr(control, "cubeon_series")}
 check("Stats contains one playtime timeline", list(charts) == ["activity-histogram"])

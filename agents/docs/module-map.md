@@ -65,6 +65,7 @@ assuming a helper is UI-free: the package also contains Flet support modules.
 | Chat | `ui/chat_tab.py` |
 | Cosmetics and account previews | `ui/skin_tab.py`, `ui/appearance_preview.py` |
 | Servers | `ui/server_tab.py` |
+| Server Plugins catalogue | `ui/plugins_catalogue.py`; shared cards and pane transitions in `ui/content_tiles.py` |
 | Activity statistics | `ui/stats_tab.py`, `ui/stats_chart.py` |
 | Settings | `ui/settings_tab.py` |
 | Screenshot gallery | `ui/screenshot_gallery.py` |
@@ -257,6 +258,7 @@ keep builders consistent with the shared `THEME` contract.
   `visible = (k == key)`; hiding only the previous pane let a raced/worker transition leave two tabs on
   screen (2026-10-25). Paint the swap before per-tab refreshes; build lazy tabs before mounting.
   The new pane fades over `motion.BASE` (180 ms) without remounting cached controls or images.
+- Servers opens Settings; its chip order is Settings → Plugins → Console.
 - The hero PLAY click has a 0.35 s `_PLAY_CLICK_COOLDOWN` gate so a rapid double-press cannot run the
   username/config/Java pipeline twice; CANCEL/QUIT bypass it. A click that returns `False` releases the
   gate immediately (only a click that started work keeps it).
@@ -288,8 +290,11 @@ keep builders consistent with the shared `THEME` contract.
   index returns no hits despite project releases listing it. Browse, download and detail
   compatibility share this rule; mods and instance/profile IDs keep their exact versions.
   Search/download cache keys include candidate tags so old empty exact-filter results cannot hide fixes.
-- Mods/Modpacks use static skeletons from `ui/content_states.py`, with no shimmer daemon.
-  Preserve existing rows/artwork while refreshing. Modpacks merges both providers regardless
+- Loading placeholders are static: `ui/content_states.py::skeleton_block` supplies
+  Cosmetics/Chat/Stats, while `ui/content_tiles.py` reserves real catalogue cells.
+  No artificial loading delay or shimmer worker; ready/error paths retire placeholders.
+  Mods/Modpacks preserve existing rows/artwork while refreshing.
+  Modpacks merges both providers regardless
   of completion order, retains healthy partial results, and offers Retry for failed empty
   results; stale generations cannot replace a newer search. Covered by
   `tools/test_content_search_recovery.py`.
@@ -298,7 +303,24 @@ keep builders consistent with the shared `THEME` contract.
   `TREE_LOCK`. Filters/counts/badges reuse snapshots; captured row/file-picker/
   download targets survive selection changes. Browse must cache its page before
   applying the installed snapshot, or that repaint can launch a duplicate fetch.
-  Installed rows expand in 25-item batches and detail versions add 25 at a time.
+  Installed snapshots and matching-token indexes retain at most 12 targets, fresh
+  for 15 seconds; launcher mutations invalidate/update them immediately, and
+  explicit force bypasses freshness. Details reuse fresh snapshots. Installed
+  rows fill the viewport then expand in batches; detail versions add 25 at a time.
+- Mods and Plugins share 96 px Browse/Installed grid cells and fixed search,
+  metadata, action and feedback slots. `content_tiles.catalogue_views` retains both
+  panes in one expanded Stack, crossfades opacity over 180 ms and gates inactive
+  pointers/focus. Delayed disable checks its generation; never replace native pane
+  trees or use a hide-then-reveal frame. Keep Animation(0) for immediate transitions
+  to retain native AnimatedOpacity widget identity.
+- `ui/plugins_catalogue.py` owns Plugins search, cards, snapshots and mutations;
+  `ui/server_tab.py` owns server availability/navigation wiring. Cache at most 12
+  server snapshots/match sets for 15 seconds and 12 searches of at most 100 hits;
+  browse pages contain 24 hits and installed batches 50. Coalesce in-flight searches,
+  reject stale keys and capture server identity for all actions. Protected integrations
+  remain locked, one install runs at a time, and successful installs stay successful
+  even if the follow-up inventory scan fails. Initial inventory errors retire skeletons;
+  later refresh errors retain cards. All paints are scoped and tree mutations locked.
 - Local mod import is an offline batch review (`local_mods.review_files`) before
   writes: validates archive/descriptors, loader/Minecraft version, server-only
   builds and protected identities. Exact hashes skip duplicates even after a
@@ -1311,6 +1333,10 @@ keep builders consistent with the shared `THEME` contract.
   would be the oldest end). Trim old controls from the tail, preserving echo slots.
   Returning to Chat wakes its existing poll worker; it keeps `last_seq` and bubble
   controls and never synchronously reloads history on the navigation callback.
+  Friend selection also wakes that worker. Initial roster and conversation-history
+  skeletons live outside transcript controls; history completion checks selection
+  generation, including empty/error responses. Restore pending echo slots before
+  waking history; unchanged polls do not repaint the conversation host.
   `:name:` emoji completion
   and suggestions preserve drafts; there is no manual emoji button. Composer focus
   returns after sending/completion, and `state["chat_composing"]` blocks launcher
@@ -1350,6 +1376,10 @@ keep builders consistent with the shared `THEME` contract.
   lock; UI updates use `TREE_LOCK` and scoped repaint. `test_activity_stats.py`,
   `test_milestones.py` and `capture_stats_dashboard.py` cover summaries, persistence,
   overview/server activity and native wide/compact rendering.
+  Stats builds and navigation request `refresh_stats(background=True)` through
+  BackgroundRefresh; snapshot/summary reads stay outside TREE_LOCK. Initial metric,
+  chart and server placeholders share retained final slots. Later refreshes keep
+  the complete dashboard; initial errors clear loading and permit a navigation retry.
 - Public UUIDs and display names are not private capability tokens. The loopback mod bridge is
   authenticated; never publish identity or token files.
 - Alex arms have 3px front/back faces and 4px sides. `_detect_slim_model` checks unused base
@@ -1372,6 +1402,11 @@ keep builders consistent with the shared `THEME` contract.
   Back filtering and pane returns. Apply uses scoped `thread_safe_ui.refresh`
   (one argument per call), updates equipped state and preserves card order;
   worn-first ordering applies only when the card tree is initially built.
+- Lazy thumbnail skeletons match the artwork rectangle and become an unavailable-art
+  icon on failure. AppearancePreview retains a static, resize-scaled silhouette until
+  its first frame/error; subsequent renders keep the last gapless image. Never add fake
+  loading to synchronous local libraries. `test_loading_skeletons.py` and
+  `capture_loading_skeletons.py` cover Cosmetics, Chat and Stats loading lifecycles.
 - `appearance.CharacterModel` keeps outer skin texels as raised caps with 0.5-unit walls around
   transparent gaps; merged strips suppress internal/corner walls. The cached turntable and reference
   renderer share `appearance.render_faces` with per-pixel opaque depth and a translucent pass.
@@ -2011,6 +2046,21 @@ requires retrying with normal system access, not changing unrelated app code.
   extensionless page routes; `file:` keeps `.html`. `mobile-editor.js`/`.css` move the
   existing search, panel buttons and Help at 900 px into a bottom dock and sliding panels,
   then restore their original desktop positions. Hidden mobile panels are inert.
+  `texture-surface.js` generates depth/normal/material maps; `surface-studio.js`/`.css`
+  provide a draft-only Add depth dialog. Apply saves immutable `project.surfaces[id]`
+  settings through editor undo/history; custom height follows frame and transform edits.
+  Texture colors stay unchanged. Depth is limited to 1,048,576 pixels, excludes skin
+  projects, and previews as a displaced surface tile using the bundled Three.js.
+  Resource-pack export writes LabPBR `_n.png` (XY, AO=255, height) and `_s.png`
+  (shine, dielectric F0=10 or iron=230, porosity=0, non-emissive alpha=255),
+  with matching animation metadata. These data PNGs use raw RGBA encoding: canvas
+  premultiplication would destroy normal/AO channels where height alpha is low.
+  `.cubeon/project.json` retains surface settings; custom `heightFile` points to the
+  raw map under `.cubeon/heightmaps/`, so reimport applies invert/smoothing once.
+  `surfaceImported` identifies Bench-owned maps for removal; unrelated original
+  shader files remain. LocalStorage bootstrap omits heavy `surfaces`; IndexedDB
+  and backups retain them. `node web/cubeon-bench/tools/test_texture_surface.mjs`
+  covers map channels, frame isolation and export/reimport ownership without a browser.
   All main-site pages use the shared `.nav-bench`/`.nav-beta` rules in
   `web/assets/site.css`, inside the desktop navigation and mobile menu.
 - `tools/translate_website.py` applies body and attribute edits together in descending original
