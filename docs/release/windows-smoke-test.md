@@ -12,9 +12,8 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
 
 ## 0. Get the file the way a member will
 
-1. On the Windows box open **https://www.ylet.online/download** - the site,
-   not a GitHub link. (The repo is private, so release pages are an auth wall
-   for anyone but us.)
+1. On the Windows box open **https://www.ylet.online/download** and verify
+   that the public GitHub release assets are accessible without signing in.
 2. Click **Download for Windows**. Expect `Cubeon-Windows-x64-Setup.exe` at the
    size the page shows. ☐
 3. Run it. Windows will show **"Windows protected your PC"** - that is expected
@@ -57,24 +56,19 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
 10. **Settings**: change something obvious, close Cubeon completely, reopen it,
     and confirm the setting stuck. ☐
 
-## 3. Automatic launcher updates
+## 3. Launcher upgrades
 
-11. Install an older version, then reopen it while a **newer release exists
-    in its selected update channel**. Expect the Skip / Update prompt. Skip
-    should download nothing. Settings → Account → **Check for updates** can
-    retry after an offline startup or a skip. ☐
-    - Restart after Skip: the same release must stay dismissed. Install the
-      latest version and check both channels: no update prompt should appear.
-12. Close Minecraft and stop installs or hosted servers, then click **Update**
-    once. Expect download progress and checksum verification, followed by an
-    automatic close, installation and reopen. No browser or second Restart
-    click should be needed. Verify the new version in Windows Apps & features
-    and confirm settings/worlds remain. Repeat in a custom installation folder
-    and with a Windows username containing non-ASCII characters. ☐
-    - Cancel must leave the current installation usable. If a game starts
-      during download, the verified update should wait for it to finish.
-    - On a failed install, reopen Cubeon and expect a failure message. Keep
-      `updates/download-*/install.log` under the launcher data folder.
+11. Open an installed older build online. Confirm a newer stable GitHub release
+    downloads and verifies before closing; the silent setup starts only after
+    Cubeon exits. Reopen Cubeon and verify the new version and retained settings/worlds.
+    Repeat offline and while Minecraft/server/content work is active: the app
+    stays usable and installation is deferred. ☐
+12. Run a manual newer Windows setup for the existing installation. Verify the
+    version in Windows Apps & features and confirm settings/worlds remain.
+    Repeat in a custom installation folder and with a Windows username
+    containing non-ASCII characters. ☐
+    - Cancelled or failed setup must leave the current installation usable.
+      Keep `Cubeon-Setup.log` beside the installed executable on failure.
 
 ## 4. Optional - the custom window frame (default ON)
 

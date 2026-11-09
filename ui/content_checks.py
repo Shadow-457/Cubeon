@@ -78,7 +78,7 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
             if busy["value"] or not lock.acquire(blocking=False):
                 return
             from cubeon import storage
-            if storage.blocked() or any_busy() or any(state.get(key) for key in ("running_version", "installing_version", "launching_version", "fixing_mods", "updating_launcher")):
+            if storage.blocked() or any_busy() or any(state.get(key) for key in ("running_version", "installing_version", "launching_version", "fixing_mods")):
                 lock.release()
                 update_status("Close the game and finish installs before changing mods.")
                 return

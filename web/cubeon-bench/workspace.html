@@ -522,6 +522,7 @@ body.inapp .theme{display:none}
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="studio.css">
 <link rel="stylesheet" href="image-import.css">
+<link rel="stylesheet" href="mobile-editor.css">
 </head>
 <body>
 <button class="theme" id="theme" type="button" aria-label="Toggle dark theme">
@@ -752,7 +753,7 @@ body.inapp .theme{display:none}
   <div class="ed" id="ed" role="dialog" aria-label="Texture editor">
     <header class="edt">
       <button class="ibtn" id="edBack" type="button" aria-label="Back to home"><i data-i="back"></i></button>
-      <button class="ibtn edm" id="edL" type="button" aria-label="Textures"><i data-i="grid"></i></button>
+      <button class="ibtn edm mobile-editor-action" id="edL" type="button" aria-label="Textures" aria-controls="edLeft" aria-expanded="false"><i data-i="grid"></i><span>Textures</span></button>
       <div class="edn"><b id="edName"></b><span class="mu" id="edSave" role="status" aria-live="polite">Saved locally</span><span class="mu" id="edPath"></span></div>
       <div class="edsr"><label class="srch"><i data-i="search"></i><input id="edQ" type="search" placeholder="Search all textures" autocomplete="off" aria-label="Search textures"></label><div class="edres" id="edRes"></div></div>
       <div class="tr">
@@ -762,7 +763,7 @@ body.inapp .theme{display:none}
         </div>
         <button class="ibtn" id="edContext" type="button" aria-label="Texture actions" aria-haspopup="true" aria-expanded="false" aria-controls="textureMenu"><i data-i="dots"></i></button>
         <button class="gb editor-export" id="edExport" type="button" aria-label="Export Minecraft resource pack ZIP" title="Export resource pack ZIP"><i data-i="download"></i><span>Export</span></button>
-        <button class="ibtn edm" id="edR" type="button" aria-label="Tools"><i data-i="pen"></i></button>
+        <button class="ibtn edm mobile-editor-action" id="edR" type="button" aria-label="Tools" aria-controls="edRight" aria-expanded="false"><i data-i="pen"></i><span>Tools</span></button>
       </div>
     </header>
         <div class="editor-action-menu" id="textureMenu" hidden><h5>Texture actions</h5><div class="texture-files"><button class="gb" type="button" id="textureImport">Import image</button><button class="gb" type="button" id="textureExport">Save PNG</button></div><input type="file" id="texturePicker" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden><div class="acts">
@@ -773,7 +774,9 @@ body.inapp .theme{display:none}
           <button class="gb" type="button" data-a="reset" style="grid-column:1/-1">Reset to original</button>
         </div></div>
     <div class="edmn">
+      <button class="editor-panel-backdrop" type="button" data-editor-dismiss aria-label="Close editor panel" tabindex="-1" hidden></button>
       <aside class="edl" id="edLeft">
+        <div class="mobile-panel-header"><b>Textures</b><button type="button" data-editor-dismiss aria-label="Close textures"><i data-i="close"></i></button></div>
         <div class="edlh"><label class="folder-label" for="edCat">Minecraft folders</label><span class="mu" id="edCount"></span><select class="folder-select" id="edCat" aria-label="Texture category"></select></div>
         <nav class="folder-nav" id="edFolders" aria-label="Texture folders"></nav>
         <div class="edg" id="edGrid"></div>
@@ -830,6 +833,7 @@ body.inapp .theme{display:none}
         </div>
       </aside>
       <aside class="edr" id="edRight">
+        <div class="mobile-panel-header"><b>Tools and colors</b><button type="button" data-editor-dismiss aria-label="Close tools and colors"><i data-i="close"></i></button></div>
         <div class="rc"><h5>Paint</h5><p class="tool-guide" id="toolGuide" hidden></p><div class="tbs" id="edTools">
           <div class="tool-primary" role="group" aria-label="Paint tools">
           <button class="tb" type="button" data-t="pencil" aria-pressed="true"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 1-4L16 5l3 3L8 19Z"></path></svg>Draw<kbd>B</kbd></button>
@@ -846,7 +850,7 @@ body.inapp .theme{display:none}
             <button class="tb" type="button" data-t="dark" aria-pressed="false"><svg class="i " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.500 4a8.500 8.500 0 1 0 10.500 10.500Z"></path></svg>Darken<kbd>D</kbd></button>
           </div></details>
         </div></div>
-        <div class="rc"><h5>Color</h5>
+        <div class="rc" id="editorColors"><h5>Color</h5>
           <div class="chosen-color"><button type="button" id="edCol" class="color-trigger" aria-label="Open custom color chooser" aria-haspopup="dialog" aria-expanded="false" aria-controls="colorChooser"><span></span><b>Choose color</b></button></div>
           <div class="lb2">Colors in this texture <span id="textureColorCount"></span></div><div class="texture-palette" id="texturePalette"></div><button type="button" class="link" id="texturePaletteMore" hidden>More colors</button>
           <details class="editor-disclosure" id="colorOptions"><summary>More colors and opacity</summary>
@@ -873,6 +877,13 @@ body.inapp .theme{display:none}
       </aside>
     </div>
     <footer class="edb" id="edTabs" role="tablist" aria-label="Open textures"></footer>
+    <nav class="mobile-editor-dock" aria-label="Editor tools">
+      <span id="mobileTexturesSlot" class="mobile-editor-slot"></span>
+      <span id="mobileToolsSlot" class="mobile-editor-slot"></span>
+      <button class="mobile-editor-action" id="mobileColor" type="button" aria-label="Colors" aria-controls="edRight" aria-expanded="false"><span class="mobile-color-swatch" id="mobileColorSwatch" aria-hidden="true"></span><span>Color</span></button>
+      <button class="mobile-editor-action" id="mobileFrames" type="button" aria-label="Animation frames" aria-controls="edFrames" aria-expanded="false"><i data-i="pack"></i><span>Animate</span></button>
+      <button class="mobile-editor-action" id="mobilePreview" type="button" aria-label="3D preview" aria-pressed="false"><i data-i="cube"></i><span>Preview</span></button>
+    </nav>
   </div>
 </div>
 
@@ -1447,6 +1458,7 @@ body.inapp .theme{display:none}
 <script src="image-import.js"></script>
 <script src="editor.js"></script>
 <script src="editor-layout.js"></script>
+<script src="mobile-editor.js"></script>
 <script src="workspace.js"></script>
 <script src="app-shell.js"></script>
 <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>

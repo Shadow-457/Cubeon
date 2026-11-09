@@ -392,10 +392,6 @@ def install_safe_stubs(verbose=False):
     import cubeon.backup as backup_mod
     backup_mod.is_due = lambda *a, **k: False
 
-    # Startup update check hits the GitHub releases API - no real request here.
-    import cubeon.updater as updater_mod
-    updater_mod.check_for_updates = lambda *a, **k: None
-    updater_mod.check_in_background = lambda *a, **k: None
 
     # No launching real processes / opening the browser.
     subprocess.Popen = lambda *a, **k: types.SimpleNamespace(

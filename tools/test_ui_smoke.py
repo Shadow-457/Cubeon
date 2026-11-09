@@ -1747,11 +1747,6 @@ try:
     check("the button points at the site the download page lives on",
           _rpc_mod.SITE_URL == "https://www.ylet.online"
           and _rpc_mod.SITE_BUTTONS[0]["url"] == _rpc_mod.SITE_URL)
-    _upd_src = open(os.path.join(_app_root, "cubeon", "updater.py"),
-                    encoding="utf-8").read()
-    check("which is the same host updater.DOWNLOAD_URL uses",
-          '"https://www.ylet.online/' in _upd_src,
-          "the RPC button and the download page must not drift to two domains")
 
     _names = {"username": "Initial"}
     _left, _right = ft.TextField(value="Alice"), ft.TextField(value="Initial")

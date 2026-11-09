@@ -1,0 +1,126 @@
+.mobile-editor-dock,.mobile-panel-header{display:none}
+.editor-panel-backdrop{position:absolute;inset:0;z-index:15;border:0;background:#10181055;cursor:pointer}
+@media(max-width:900px){
+  .ed{height:100dvh;max-height:100dvh;grid-template-rows:auto minmax(0,1fr) auto auto;overflow:hidden}
+  .ed .edt{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;padding:8px 12px;background:var(--btn)}
+  .ed .edt .edn{min-width:0;max-width:none}
+  .ed .edn b{max-width:none;font-size:13px;font-weight:600}
+  .ed .edn #edSave{font-size:10px}
+  .ed .edn #edPath{display:none}
+  .ed .edt .tr{margin:0;gap:4px}
+  .ed .edt .ibtn,.ed .editor-history .ibtn{width:44px;height:44px;min-height:44px}
+  .ed .editor-history{gap:0}
+  .ed #edExport{width:44px;height:44px;min-height:44px}
+  .ed .edmn{overflow:hidden;grid-template-columns:minmax(0,1fr)}
+  .ed .edl,.ed .edr,.ed .animation-rail{
+    position:absolute;inset:auto 0 0;z-index:20;width:100%;height:min(56dvh,78%);max-height:100%;
+    border:1px solid var(--line);border-bottom:0;border-radius:20px 20px 0 0;background:var(--btn);
+    box-shadow:0 -12px 40px #0002;transform:translateY(105%);visibility:hidden;
+    transition:transform 240ms var(--ease-out),visibility 240ms;overscroll-behavior:contain;
+  }
+  .ed.l-open .edl,.ed.r-open .edr,.ed.frames-open .animation-rail{transform:none;visibility:visible}
+  .ed .edl{height:min(70dvh,94%);overflow:auto}
+  .mobile-panel-header{display:flex;align-items:center;justify-content:space-between;flex:none;position:sticky;top:0;z-index:2;padding:8px 14px;background:var(--btn);border-bottom:1px solid var(--line);border-radius:20px 20px 0 0}
+  .mobile-panel-header b{font-size:14px;font-weight:600}
+  .mobile-panel-header button{display:grid;place-items:center;flex:none;width:44px;height:44px;padding:0;border:0;border-radius:10px;background:var(--side);color:var(--ink);cursor:pointer}
+  .mobile-panel-header svg{width:20px;height:20px}
+  .ed .edl .edsr{flex:none;width:auto;max-width:none;margin:12px 14px 4px;order:0}
+  .ed .edsr .srch input{height:44px;font-size:16px;padding-left:38px}
+  .ed .edsr .srch svg{left:12px;top:12px;width:20px;height:20px}
+  .ed .edres{top:calc(100% + 4px);max-height:28dvh;overflow:auto}
+  .ed .rs{min-height:48px;font-size:13px}
+  .ed .edlh{padding:6px 14px;flex-wrap:nowrap}
+  .ed .folder-label{display:none}
+  .ed #edCount{flex:none;order:2}
+  .ed .folder-select{font-size:16px;min-height:44px;flex:1;width:auto}
+  .ed .folder-nav{padding-bottom:8px}
+  .ed .folder-children{display:flex;max-height:44px;overflow-x:auto}
+  .ed .folder-button{flex:none;min-height:36px}
+  .ed .folder-crumbs{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap}
+  .ed .edg{grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:12px;padding:10px 14px;min-height:120px}
+  .ed .edpg{padding:6px 12px}
+  .ed .pgb{min-width:44px;height:44px}
+  .ed .edr{overflow:auto;scroll-padding-top:64px}
+  .ed .rc{padding:16px}
+  .ed .rc h5{font-size:12px;margin-bottom:12px}
+  .ed .tb{min-height:64px;font-size:12px}
+  .ed .editor-disclosure summary{min-height:44px;font-size:13px}
+  .ed .chosen-color .color-trigger{height:48px}
+  .ed .chosen-color .color-trigger b{font-size:14px}
+  .ed .texture-color,.ed .cw{width:36px;height:36px;margin:4px}
+  .ed .texture-palette,.ed .pal{gap:2px}
+  .ed .fr2{font-size:13px;min-height:44px;flex-wrap:wrap}
+  .ed .sg{min-height:40px;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+  .ed .canvas-bar{padding:8px 12px;min-height:60px;gap:6px;flex-wrap:wrap}
+  .ed .canvas-document{flex:1;min-width:80px}
+  .ed .canvas-document b{font-size:13px}
+  .ed .canvas-bar .gb{height:44px;min-height:44px;padding:0 10px;font-size:11px}
+  .ed .canvas-import{width:44px;padding:0!important}
+  .ed .canvas-import>span{display:none}
+  .ed .edarea{padding:16px;min-height:0}
+  .ed .canvas-footer{padding:8px 12px}
+  .ed .canvas-guidance{display:none}
+  .ed .canvas-controls{gap:6px;flex-wrap:nowrap}
+  .ed .canvas-footer .edhud{display:none!important}
+  .ed .canvas-navigation{margin-left:auto;gap:6px}
+  .ed .canvas-control{height:44px;min-width:44px;font-size:12px}
+  .ed #canvasHelp{position:static;width:44px;height:44px;min-width:44px;min-height:44px;font-size:13px}
+  .ed .canvas-zoom .canvas-control{height:44px;width:44px;min-width:44px}
+  .ed .canvas-zoom output{min-width:48px;font-size:12px}
+  .ed .canvas-footer .face-bar{min-width:0;overflow-x:auto}
+  .ed .canvas-footer .face-bar .sg{padding:0 10px;min-height:40px}
+  .ed .edb{padding:4px 10px;min-height:42px;background:var(--btn)}
+  .ed .texture-tabs{gap:4px}
+  .ed .tab{height:36px;font-size:11px;max-width:160px}
+  .ed .edb>.tab.pvt{display:none}
+  .mobile-editor-dock{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--btn)}
+  .mobile-editor-slot{display:contents}
+  .ed .mobile-editor-dock .mobile-editor-action{box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:100%;min-width:0;height:58px;min-height:58px;margin:0;padding:6px 2px;border:0;border-radius:12px;background:transparent;color:var(--muted);font:500 11px/1.2 var(--display);cursor:pointer;transform:none}
+  .mobile-editor-action svg{width:22px;height:22px;flex:none}
+  .ed .mobile-editor-action[aria-expanded=true],.ed .mobile-editor-action[aria-pressed=true]{background:var(--sel);color:var(--acc)}
+  .ed .mobile-editor-action:disabled{opacity:.4;cursor:default}
+  .mobile-color-swatch{display:block;width:23px;height:23px;border:2px solid var(--btn);border-radius:50%;outline:1px solid var(--line);background:var(--acc)}
+  .ed .animation-rail-content{width:100%;overflow:auto;padding:14px 16px}
+  .ed .animation-rail-header{position:sticky;top:-14px;z-index:2;background:var(--btn);padding:0 0 8px}
+  .ed .animation-rail-header>b{font-size:14px}
+  .ed .animation-rail-close{width:44px;height:44px;min-height:44px}
+  .ed .animation-body{flex:none}
+  .ed .animation-frames{flex:none;min-height:0;max-height:160px}
+  .ed .anim-row{min-height:56px;padding:8px}
+  .ed .anim-drag{width:44px;height:44px}
+  .ed .animation-frame-settings{flex:none;max-height:none;overflow:visible}
+  .ed #animPlay,.ed .animation-actions .gb{height:44px;min-height:44px;font-size:13px}
+  .ed .animation-simple-time{font-size:13px}
+  .ed .animation-simple-time .pack-input{height:44px;font-size:16px}
+  .ed .pvc{max-width:calc(100% - 24px);width:max-content}
+  .ed .pvc .gb{min-height:44px;font-size:12px}
+  .ed .pvh{font-size:11px}
+  .ed :is(input:not([type=range]),select),.color-chooser input.pack-input,.dialog-body input,.mb input{font-size:16px!important}
+  .color-chooser .gb,.color-chooser .task-close{min-width:44px;min-height:44px;height:44px}
+  .mobile-editor-action:focus-visible,.mobile-panel-header button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+}
+@media(max-width:600px){
+  .main{padding-bottom:calc(104px + env(safe-area-inset-bottom,0px))}
+  .top .srch input{height:44px;font-size:16px}
+  .top .srch svg{top:14px}
+  .top .ibtn{width:40px;height:40px}
+  .nvb{font-size:11px;min-width:44px}
+  .ed .edt{gap:6px;padding:6px 8px}
+  .ed .edt .tr{gap:2px}
+  .ed .canvas-controls{flex-wrap:wrap}
+  .ed .canvas-footer .face-bar{max-width:100%;order:2;width:100%}
+  .ed .canvas-footer .face-bar .sgs{display:flex;justify-content:center}
+  .ed .canvas-footer:has(.face-bar:not([style*="display:none"]):not([style*="display: none"])) .canvas-navigation{margin:0 auto}
+}
+@media(max-height:500px) and (max-width:900px){
+  .ed .edn #edSave{display:none}
+  .ed .canvas-document small{display:none}
+  .ed .canvas-bar{min-height:48px;padding:2px 8px}
+  .ed .canvas-footer{padding:2px 8px}
+  .ed .canvas-footer .face-bar{display:none!important}
+  .ed .edb{min-height:34px;padding:0 8px}
+  .ed .tab{height:32px}
+  .ed .mobile-editor-dock{padding-top:2px;padding-bottom:calc(2px + env(safe-area-inset-bottom,0px))}
+  .ed .mobile-editor-dock .mobile-editor-action{height:48px;min-height:48px;gap:2px}
+  .ed .edl,.ed .edr,.ed .animation-rail{height:88%}
+}

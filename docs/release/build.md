@@ -94,8 +94,8 @@ works offline; AppImages still need Flet's system libraries. The Debian package
 is a system package.
 
 The graphical installer reuses the launcher runtime and installs its own image;
-the application-menu wrapper selects launcher mode. Updates replace that image
-with the normal launcher AppImage and keep the menu entry working. The release
+the application-menu wrapper selects launcher mode. Manual upgrades rerun the
+installer for the same installation folder. The release
 workflow publishes both installers. The downloads Worker adds `/linuxinstaller`
 for the graphical asset; deploy it before linking that route publicly.
 
@@ -189,6 +189,17 @@ builds the platform assets from its tag, and verifies the assets before
 publishing. Betas are prereleases and must not replace the stable download.
 The test jobs run separately; successful publishing does not imply that
 every test passed.
+
+The automatic updater uses the unauthenticated public GitHub
+`repos/Shadow-457/Cubeon/releases/latest` endpoint. It requires a numeric newer
+version, `draft=false`, `prerelease=false`, an uploaded platform asset and its
+GitHub `sha256:` digest. It consumes `Cubeon-Windows-x64-Setup.exe` or the normal
+`Cubeon-x86_64.AppImage`; graphical Linux setup images are not update payloads.
+Never ship a token or silently fall back to an unverified download. A beta is
+not offered by this feed. Windows build CI executes the PowerShell/NSIS update
+handoff fixtures before building/uploading; Linux helper tests are included in
+`tools/test_auto_update.py`. The first-paint acknowledgement must remain in
+future AppImage versions so failed startups can be rolled back.
 
 The download Worker depends on these release asset names:
 

@@ -55,16 +55,17 @@ def install_in_progress(version_id: "str | None") -> bool:
 @contextmanager
 def _active_install(version_id: str):
     from . import storage
-    storage.assert_writable()
-    with _active_installs_lock:
-        if version_id in _active_installs:
-            raise RuntimeError(f"Minecraft {version_id} is already installing.")
-        _active_installs.add(version_id)
-    try:
-        yield
-    finally:
+    with storage.update_operation():
+        storage.assert_writable()
         with _active_installs_lock:
-            _active_installs.discard(version_id)
+            if version_id in _active_installs:
+                raise RuntimeError(f"Minecraft {version_id} is already installing.")
+            _active_installs.add(version_id)
+        try:
+            yield
+        finally:
+            with _active_installs_lock:
+                _active_installs.discard(version_id)
 
 
 def _plain_filename(name: str) -> bool:

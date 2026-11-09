@@ -20,8 +20,9 @@ and `/updates/beta`, with per-file routes under each channel. These expose
 version, size and GitHub's SHA-256 asset digest, never repository credentials or
 private notes. A file request must include the version offered by the metadata;
 if the cached release changed it returns 409. Both channel lookups share the
-existing download throttle and have separate five-minute caches. Deploy this
-Worker before shipping a launcher that uses the startup update prompt.
+existing download throttle and have separate five-minute caches. These routes
+remain for older released launchers. The current automatic updater uses the
+public GitHub Releases API directly and has no downloads-Worker dependency.
 
 The skins Worker provides the `/skins/<name>.json` CustomSkinAPI lookup
 and the write routes (`POST /api/heartbeat`,

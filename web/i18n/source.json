@@ -7169,7 +7169,7 @@
    "parts": []
   },
   {
-   "key": "When a new version is available, Cubeon offers Skip and Update. Choose Update to download and verify it, install it, and reopen Cubeon automatically.",
+   "key": "Launcher updates are manual. Download a stable release or beta preview from the <a href=\"download.html\">download page</a>.",
    "kind": "text",
    "pages": [
     "getting-started"
@@ -7177,7 +7177,7 @@
    "parts": []
   },
   {
-   "key": "Close Minecraft and stop active installs or hosted servers.",
+   "key": "Close Cubeon and Minecraft, and stop hosted servers.",
    "kind": "text",
    "pages": [
     "getting-started"
@@ -7185,7 +7185,7 @@
    "parts": []
   },
   {
-   "key": "Click Update in Cubeon. You can cancel while it downloads.",
+   "key": "Run the installer for your existing Cubeon installation.",
    "kind": "text",
    "pages": [
     "getting-started"
@@ -7193,7 +7193,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon reopens after installation. Debian/Ubuntu package updates may ask for system authorization.",
+   "key": "Open Cubeon after the installation finishes.",
    "kind": "text",
    "pages": [
     "getting-started"
@@ -7202,14 +7202,6 @@
   },
   {
    "key": "Your name, skins, worlds and installed content are not touched by an update: they live in your user folder, not in the app folder (<a href=\"files.html#where\">where things live</a>).",
-   "kind": "text",
-   "pages": [
-    "getting-started"
-   ],
-   "parts": []
-  },
-  {
-   "key": "<strong>Settings</strong> &gt; <strong>Updates</strong> also lets you pick the update channel. Stable gets releases; beta gets the test builds as well.",
    "kind": "text",
    "pages": [
     "getting-started"

@@ -8,13 +8,12 @@ It shells out to the platform's own notifier (or winotify on Windows) and
 gives up quietly if there isn't one.
 
 WHAT CAN NOTIFY
-    Eight kinds, each with its own Settings switch (KINDS, below). The user
+    Seven kinds, each with its own Settings switch (KINDS, below). The user
     asked for a toggle per type, and these are the types.
 
     install-finished: instance, mod, modpack, resourcepack, texturepack
     friend online:    friend  - and ONLY the friend you talk to most
     chat message:     message - an incoming DM you are not already reading
-    Cubeon update:    update
 
 DESIGN RULES (each one is a bug that would be reportable)
 
@@ -67,8 +66,6 @@ KINDS = [
      "Friend online", "Only your most-talked-to friend, not every friend"),
     ("message",      "notify_message",
      "Chat messages", "A friend sends you a message you haven't opened"),
-    ("update",       "notify_update",
-     "Cubeon updates", "A new Cubeon version is available"),
 ]
 
 # kind -> config key / label / subtitle, for callers and the Settings pane.
@@ -383,16 +380,3 @@ def chat_message(name: str, text: str, *, cfg: dict | None = None) -> bool:
     if len(body) > _MESSAGE_PREVIEW_CHARS:
         body = body[:_MESSAGE_PREVIEW_CHARS - 1].rstrip() + "…"
     return notify("message", name, body or "Sent you a message.", cfg=cfg)
-
-
-def update_available(new_version: str, *, cfg: dict | None = None) -> bool:
-    """A newer Cubeon exists. Called at most once per version (see the
-    caller's `state` marker), and again throttled here."""
-    try:
-        version = str(new_version or "").strip()
-    except Exception:
-        version = ""
-    if not version:
-        return False
-    return notify("update", "A new Cubeon is available",
-                  f"Version {version} is ready to download.", cfg=cfg)

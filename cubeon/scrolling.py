@@ -12,7 +12,7 @@ def animation():
     return ft.Animation(SCROLL_MS if motion.transforms() else 0, SCROLL_CURVE)
 
 
-def follow_end(page, control):
+def _scroll(page, control, offset):
     scroll_animation = animation()
 
     async def scroll():
@@ -23,7 +23,7 @@ def follow_end(page, control):
                 return
             ancestor = ancestor.parent
         try:
-            await control.scroll_to(offset=-1, duration=scroll_animation.duration,
+            await control.scroll_to(offset=offset, duration=scroll_animation.duration,
                                     curve=scroll_animation.curve)
         except RuntimeError as error:
             message = str(error)
@@ -41,3 +41,12 @@ def follow_end(page, control):
             raise
 
     return page.run_task(scroll)
+
+
+def follow_end(page, control):
+    return _scroll(page, control, -1)
+
+
+def to_top(page, control):
+    """Reset changed search/page results with one native animated command."""
+    return _scroll(page, control, 0)

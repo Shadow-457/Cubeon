@@ -526,7 +526,6 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
                        screenshot_gallery=None, refresh_screenshot_gallery=None,
                        account_pane=None, on_replay_onboarding=None,
-                       on_check_updates=None,
                        on_motion_change=None, detected_java_label=None):
     """Assemble Settings from the existing controls and callbacks.
 
@@ -922,38 +921,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # ======================================================================
     # LAUNCHER
     # ======================================================================
-    update_channel = ft.Dropdown(
-        value="beta" if str(cfg.get("update_channel") or "stable").lower() == "beta" else "stable",
-        options=[ft.dropdown.Option("stable", i18n.t("Stable")),
-                 ft.dropdown.Option("beta", i18n.t("Beta"))],
-        width=150, text_size=13, color=TEXT, bgcolor=SURFACE_HI,
-        border_color=BORDER, focused_border_color=ACCENT, border_radius=RADIUS,
-        data="update-channel",
-    )
-
-    def _change_update_channel(e=None):
-        ft.context.disable_auto_update()
-        with thread_safe_ui.TREE_LOCK:
-            previous = ("beta" if str(cfg.get("update_channel") or "stable").lower() == "beta"
-                        else "stable")
-            value = update_channel.value
-            if value not in {"stable", "beta"}:
-                update_channel.value = previous
-            elif _save_preference(cfg, "update_channel", value, set_status=set_status,
-                                  error="Couldn't save the update channel"):
-                set_status(i18n.t("Update channel: beta - prereleases will be offered too")
-                           if value == "beta" else i18n.t("Update channel: stable"))
-            else:
-                update_channel.value = previous
-            thread_safe_ui.refresh(update_channel)
-
-    update_channel.on_select = _change_update_channel
     launcher_pane = pane("Launcher", group([
-        row("Update channel", "Stable releases or beta previews", update_channel),
-        *([row("Launcher updates", "Check for a new version",
-               ft.TextButton(i18n.t("Check for updates"), data="check-launcher-updates",
-                             on_click=lambda e: on_check_updates()))]
-          if on_check_updates else []),
         *([row("Replay onboarding", "Open the welcome tour",
                ft.TextButton(i18n.t("Open tour"), data="replay-onboarding",
                              on_click=lambda e: on_replay_onboarding()))]

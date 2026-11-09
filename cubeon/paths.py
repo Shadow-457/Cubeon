@@ -24,17 +24,14 @@ PROJECT_URL = "https://github.com/Shadow-457/Cubeon"
 def app_version() -> str:
     """The running launcher's version, e.g. "1.0.2".
 
-    Read from `updater.APP_VERSION` because that module is the release-bump
-    point - `packaging/build_windows_installer.py` greps the literal
-    `APP_VERSION = "..."` straight out of its SOURCE, so the assignment has to
-    stay there verbatim. That also means this must import updater LAZILY:
-    `paths` is the lowest layer in the tree and must not depend on a module
-    that does network work.
+    `updater.py` now contains only release version metadata. Packaging and
+    release tools stamp its literal APP_VERSION assignment, so this stays the
+    single source of truth for installers and request identification.
     """
     try:
         from .updater import APP_VERSION
         return APP_VERSION
-    except Exception:  # a broken/absent updater must not break every request
+    except Exception:  # missing version metadata must not break every request
         log.warning("app_version() unavailable", exc_info=True)
         return "0.0.0"
 

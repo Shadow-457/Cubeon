@@ -443,8 +443,11 @@ def apply_page_theme(page):
         chip_theme=ft.ChipTheme(shape=shape),
         # A quiet, on-brand scrollbar instead of the stock translucent white.
         scrollbar_theme=ft.ScrollbarTheme(
-            thumb_color=ft.Colors.with_opacity(0.35, BORDER_HI),
-            thickness=8, radius=RADIUS,
+            thumb_color={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.6, BORDER_HI),
+                         ft.ControlState.HOVERED: TEXT_DIM, ft.ControlState.DRAGGED: ACCENT},
+            thickness={ft.ControlState.DEFAULT: 7, ft.ControlState.HOVERED: 10,
+                       ft.ControlState.DRAGGED: 10},
+            radius=RADIUS, interactive=True,
         ),
     )
     page.theme_mode = ft.ThemeMode.DARK
@@ -523,79 +526,24 @@ def text_tab(label, selected=False, on_click=None):
     return keyboard_target(control, label)
 
 
-def _toggle_pop(switch, base_scale):
-    """The little spring a toggle does when it flips.
-
-    The switch briefly grows to 1.15x its rest size, then settles back. The
-    grow is immediate (so it reads as a reaction to the click); the settle is
-    on a background timer because there is no second event to hook - the
-    switch's own animate_scale handles the smoothness of BOTH legs, this just
-    supplies the keyframes. The timer thread only flips a float and calls
-    update(), so it is fire-and-forget: if the tab was rebuilt in those 120ms
-    the update raises harmlessly and is swallowed.
-    """
-    switch.scale = base_scale * 1.15
-    try:
-        switch.update()
-    except Exception:
-        pass  # not mounted yet - the scale keyframes still get scheduled
-
-    def _settle():
-        switch.scale = base_scale
-        try:
-            switch.update()
-        except Exception:
-            pass  # page gone or control unmounted - the animation is over anyway
-
-    import threading
-    threading.Timer(0.12, _settle).start()
-
-
 def animated_switch(value=False, on_change=None, scale=1.0, **kwargs):
-    """A Switch that springs when toggled.
+    """Use the switch's native thumb/track transition without Python frames.
 
-    Drop-in replacement for ft.Switch used everywhere the launcher shows an
-    on/off toggle (mods enable/disable, plugin enable/disable, backup
-    settings, server properties). Same constructor surface - any ft.Switch
-    kwarg passes straight through - plus:
-
-      scale       the switch's rest scale (mods_tab draws its toggles at 0.85;
-                  the pop is relative to this, so small toggles stay small)
-      on_change   the real handler; it still runs, AFTER the pop starts
-
-    If no on_change is given (toggles whose value is only read back later,
-    like the server-properties cards) the pop still runs - the wrapper is
-    installed either way.
+    Geometry stays fixed while toggling, including rapid clicks and reduced
+    motion. No timer races a later interaction or repaints a detached control.
     """
-    sw = ft.Switch(
-        value=value,
-        scale=scale,
-        animate_scale=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
-        **kwargs,
-    )
-
-    def _on_change(e=None):
-        _toggle_pop(sw, scale)
-        if on_change is not None:
-            return on_change(e)
-
-    sw.on_change = _on_change
-    return sw
+    kwargs.setdefault("mouse_cursor", ft.MouseCursor.CLICK)
+    kwargs.setdefault("inactive_track_color", SURFACE_HI)
+    kwargs.setdefault("inactive_thumb_color", TEXT_DIM)
+    # Keep an event binding even for forms that read the value only on Save:
+    # Flet must still send the changed value back to the Python model.
+    return ft.Switch(value=value, scale=scale,
+                     on_change=on_change if on_change is not None else (lambda event: None), **kwargs)
 
 
 def toggle_wrap(handler, switch, base_scale=1.0):
-    """Wraps an EXISTING switch's handler so it pops on toggle.
-
-    For switches whose on_change is only known after the widget is built
-    (e.g. the Settings-tab backup switches, whose handlers reference other
-    widgets defined later). Assign the wrapped function afterwards:
-
-        switch.on_change = toggle_wrap(my_handler, switch)
-    """
-    def _wrapped(e=None):
-        _toggle_pop(switch, base_scale)
-        return handler(e)
-    return _wrapped
+    """Keep the existing binding API; native switches already animate changes."""
+    return handler
 
 
 # --- the one back-reference -------------------------------------------------

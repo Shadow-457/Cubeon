@@ -12,6 +12,7 @@ re-filtered for the new version+loader profile).
 """
 
 # Standard library imports
+import asyncio
 import re          # For turning mod names into comparable "slugs"
 import logging
 import threading   # For running network calls in the background without freezing the UI
@@ -38,17 +39,17 @@ import launcher_core as core
 
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 from cubeon import eta as cubeon_eta  # measured "time left" for downloads
-from cubeon import status_text, net
+from cubeon import status_text, net, scrolling, storage, motion
 from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
 from cubeon.content_checks import check_content
 from cubeon.fuzzy_search import search_items
 from ui.content_checks import show_content_issues
 from cubeon import instances as instance_info  # the selected instance's real loader
-from ui.install_feedback import InstallRegistry, compact_status, progress_text, action_text
+from ui.install_feedback import InstallRegistry, InstallFeedback, compact_status, progress_text, action_text
 from ui.project_readme import readme_markdown
-from ui.content_states import loading_rows, empty_state
-from ui.content_tiles import tile_grid, tile_capacity, layout_tiles, style_tile, downloads_label, content_header, update_view_action
+from ui.content_states import empty_state
+from ui.content_tiles import tile_grid, tile_capacity, layout_tiles, loading_tiles, style_tile, downloads_label, content_header, update_view_action
 from cubeon.background_refresh import BackgroundRefresh
 from cubeon.icon_loader import IconLoader
 
@@ -129,10 +130,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     # List of installed mods (will be populated by refresh_mods_list)
     mods_list_view = tile_grid()
-    installed_count_text = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
+    installed_count_text = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO,
+                                   max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
     installed_show_all = {"value": False}
-    installed_limit = {"value": 25}
+    installed_limit = {"value": 50}
     installed_snapshots = {}
+    installed_snapshot_at = {}
+    installed_match_sets = {}
+    INSTALLED_CACHE_SECONDS = 15
     artwork = IconLoader()
     local_install_busy = {'value': False}
     picker_target = {'value': None}
@@ -154,11 +159,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # failures used to raise out of the click handler, which Flet swallows -
     # the switch/delete just looked dead. Surface the reason instead.
     installed_status = ft.Text("", size=11.5, color=TEXT_DIM,
-                               font_family=FONT_MONO, visible=False)
+                               font_family=FONT_MONO, visible=False,
+                               max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
 
     def _set_installed_status(t):
         with thread_safe_ui.TREE_LOCK:
             installed_status.value = t
+            installed_status.tooltip = t
             installed_status.visible = True
             thread_safe_ui.refresh(installed_status)
 
@@ -267,6 +274,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     filters_open = {"value": False}
 
     def on_filters_toggle(e=None):
+        ft.context.disable_auto_update()
         filters_open["value"] = not filters_open["value"]
         category_chips_container.visible = filters_open["value"]
         filters_button.style = ft.ButtonStyle(color=TEXT_DIM)
@@ -290,10 +298,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         try:
             with thread_safe_ui.TREE_LOCK:
                 _render_installed_snapshot(_cached_installed())
+                scrolling.to_top(page, mods_list_view)
         except Exception:
             pass
 
     def _schedule_mods_filter(e=None):
+        ft.context.disable_auto_update()
         pending = _filter_debounce["timer"]
         if pending is not None:
             pending.cancel()
@@ -314,9 +324,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         color=TEXT,
         hint_style=ft.TextStyle(color=TEXT_DIM),
         text_style=ft.TextStyle(size=13),
-        bgcolor=SURFACE_HI,
+        bgcolor=CARD_FILL,
         border_radius=RADIUS,
-        height=40,
+        height=46,
         content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
         on_change=_schedule_mods_filter,  # Debounced - see above
@@ -339,8 +349,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         "modmenu"), which re-showed the Download button on already-installed
         mods.
         """
+        target = _installed_target('mod')
+        items = installed_snapshots.get(target, [])
+        cached = installed_match_sets.get(target)
+        if cached is not None and cached[0] is items:
+            return cached[1]
         names = set()
-        for m in _cached_installed('mod'):
+        for m in items:
             inst_slug = (m.get("slug") or "").lower()
             if inst_slug:
                 names.add(inst_slug)
@@ -366,6 +381,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 # with a different mod's name.
                 for sfx in ("fabric", "forge", "neoforge", "quilt"):
                     names.add(stem + sfx)
+        _cache_matches(target, items, names)
         return names
 
     def content_installed_tokens() -> set:
@@ -374,13 +390,24 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         Filename tokens also recognize content installed without a sidecar.
         Disabled entries remain installed and can be re-enabled in Installed.
         """
+        target = _installed_target()
+        items = installed_snapshots.get(target, [])
+        cached = installed_match_sets.get(target)
+        if cached is not None and cached[0] is items:
+            return cached[1]
         tokens = set()
-        for it in _cached_installed():
+        for it in items:
             tokens.add(re.sub(r"[^a-z0-9]+", "", it["display_name"].lower()))
             for identity in (it.get('slug'), it.get('title')):
                 if identity:
                     tokens.add(re.sub(r"[^a-z0-9]+", "", identity.lower()))
+        _cache_matches(target, items, tokens)
         return tokens
+
+    def _cache_matches(target, items, matches):
+        installed_match_sets[target] = (items, matches)
+        while len(installed_match_sets) > 12:
+            installed_match_sets.pop(next(iter(installed_match_sets)))
 
     def shader_requirement_installed() -> bool:
         """True once Iris or OptiFine is present in the current profile - the
@@ -500,10 +527,18 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     def _apply_installed_snapshot(snapshot):
         target, items, mods = snapshot
         installed_snapshots[target] = items
+        installed_snapshot_at[target] = time.monotonic()
+        installed_match_sets.pop(target, None)
         if mods is not None:
-            installed_snapshots[('mod', *target[1:])] = mods
+            mod_target = ('mod', *target[1:])
+            installed_snapshots[mod_target] = mods
+            installed_snapshot_at[mod_target] = installed_snapshot_at[target]
+            installed_match_sets.pop(mod_target, None)
         while len(installed_snapshots) > 12:
-            installed_snapshots.pop(next(iter(installed_snapshots)))
+            retired = next(iter(installed_snapshots))
+            installed_snapshots.pop(retired)
+            installed_snapshot_at.pop(retired, None)
+            installed_match_sets.pop(retired, None)
         if target == _installed_target():
             _render_installed_snapshot(items)
             _render_browse_page()
@@ -518,13 +553,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     installed_refresh = BackgroundRefresh(_read_installed_snapshot, _apply_installed_snapshot,
                                          name='mods-refresh', failed=_installed_failed)
 
-    def refresh_mods_list(*, background=False):
+    def refresh_mods_list(*, background=False, force=False):
         target = _installed_target()
         if background:
             # Cached rows can paint immediately; filesystem/archive reads stay
             # on the worker even when this callback holds the UI tree lock.
             with thread_safe_ui.TREE_LOCK:
                 _render_installed_snapshot(_cached_installed(), loading=target not in installed_snapshots)
+                if (not force and target in installed_snapshots and
+                        time.monotonic() - installed_snapshot_at.get(target, 0) < INSTALLED_CACHE_SECONDS):
+                    return
             try:
                 installed_refresh.request(target)
             except Exception as error:
@@ -607,7 +645,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         # If nothing installed, show a placeholder worded for the active type.
         if loading:
-            rows.append(loading_rows(fill=BORDER))
+            rows.extend(loading_tiles(mods_list_view))
         elif not all_mods:
             if _is_mod():
                 empty_icon = ft.Icons.EXTENSION_OFF_ROUNDED
@@ -626,15 +664,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             )
         else:
             # Build a row for each mod
-            capacity = tile_capacity(mods_list_view)
-            limit = max(capacity, installed_limit['value']) if query or installed_show_all['value'] else capacity
+            # A real scrollable library, independent of window capacity. The
+            # native viewport builds nearby rows lazily; More appends in place.
+            limit = max(50, installed_limit['value'])
             visible_mods = mods[:limit]
             for m in visible_mods:
                 rows.append(build_installed_row(m))
             if len(mods) > len(visible_mods):
                 hidden = len(mods) - len(visible_mods)
                 def more(e):
-                    installed_limit['value'] = len(visible_mods) + 25
+                    installed_limit['value'] = len(visible_mods) + 50
                     installed_show_all['value'] = True
                     _render_installed_snapshot(_cached_installed())
                 rows.append(
@@ -649,12 +688,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         on_click=more,
                     ), None, SURFACE_HI)
                 )
-            if installed_show_all['value'] and not query:
-                rows.append(quiet_chip('Show fewer', on_click=lambda e: (
-                    installed_show_all.update(value=False), installed_limit.update(value=25),
-                    _render_installed_snapshot(_cached_installed()))))
         mods_list_view.controls[:] = rows
-        layout_tiles(mods_list_view, bool(mods) and not loading)
+        if client_preference_row.visible and not loading and not query:
+            if not all_mods:
+                rows[:] = []
+            rows.append(client_preference_row)
+            mods_list_view.controls[:] = rows
+        layout_tiles(mods_list_view, bool(mods) or loading or
+                     (client_preference_row.visible and not query))
         _fetch_missing_icons()
         # Rebuilt the list: repaint just the list region + count, not the
         # full tree (this fires per keystroke of the installed filter).
@@ -668,9 +709,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         _build_view_segment()
 
     repair_status = ft.Text("", size=11.5, color=TEXT_DIM,
-                            font_family=FONT_MONO, visible=False)
+                            font_family=FONT_MONO, visible=False,
+                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
     repair_details = ft.Text("", size=12, color=TEXT_DIM, visible=False,
-                             data="mods-check-details", selectable=True)
+                             data="mods-check-details", selectable=True,
+                             max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
     repair_lock = threading.Lock()
     AUTO_CHECK_SECONDS = 15 * 60
     auto_check_state = {"last": {}}
@@ -681,6 +724,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             repair_status.visible = bool(text)
             repair_status.tooltip = detail
             repair_details.value = detail or ""
+            repair_details.tooltip = detail
             repair_details.visible = bool(detail)
             thread_safe_ui.refresh(repair_status)
             thread_safe_ui.refresh(repair_details)
@@ -809,21 +853,35 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     row_actions = set()
 
-    def _run_row_action(target, row, action, success):
+    def _run_row_action(target, row, action, success, *, pending="Applying change…", enabled_before=None):
+        ft.context.disable_auto_update()
         # Folder removal and post-action archive scans must not stall Flet.
         key = (target, id(row))
         with thread_safe_ui.TREE_LOCK:
             if key in row_actions:
                 return
+            feedback = InstallFeedback()
+            if not feedback.start(text=pending):
+                return
+            row._action_feedback = feedback
             row_actions.add(key)
-            row.disabled = True
+            # Keep the artwork/text stable while only the actions are parked.
+            actions = row.content.controls[2:]
+            for control in actions:
+                control.disabled = True
+            status = row.content.controls[1].controls[1]
+            previous_status = status.value
+            status.value = pending
             thread_safe_ui.refresh(row)
 
         def worker():
+            action_error = None
             try:
-                action()
+                with storage.update_operation():
+                    action()
                 message = success
             except Exception as error:
+                action_error = error
                 message = str(error)
             try:
                 snapshot = _read_installed_snapshot(target)
@@ -832,7 +890,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 message += f" Couldn't refresh the list: {error}"
             with thread_safe_ui.TREE_LOCK:
                 row_actions.discard(key)
-                row.disabled = False
+                for control in actions:
+                    control.disabled = False
+                status.value = previous_status
+                if action_error is not None and enabled_before is not None:
+                    row.content.controls[2].value = enabled_before
+                feedback.finish(error=action_error)
                 if target == _installed_target():
                     if snapshot is not None:
                         installed_refresh.invalidate()
@@ -845,7 +908,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         except Exception as error:
             with thread_safe_ui.TREE_LOCK:
                 row_actions.discard(key)
-                row.disabled = False
+                for control in actions:
+                    control.disabled = False
+                status.value = previous_status
+                if enabled_before is not None:
+                    row.content.controls[2].value = enabled_before
+                feedback.finish(error=error)
                 _set_installed_status(f"Couldn't start this action: {error}")
                 thread_safe_ui.refresh(row)
 
@@ -864,14 +932,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         cached = installed_rows.get(key)
         if cached:
             metadata, row = cached
+            pending = (row_target, id(row)) in row_actions
             if _is_mod() and bool(metadata.get("protected")) == bool(m.get("protected")):
                 metadata.clear()
                 metadata.update(m)
                 labels = row.content.controls[1].controls
                 labels[0].value = m["display_name"]
                 labels[0].color = TEXT if m["enabled"] else TEXT_DIM
-                labels[1].value = _mod_status(m)
-                if not m.get("protected") or _is_client_mod(m):
+                if not pending:
+                    labels[1].value = _mod_status(m)
+                if not pending and (not m.get("protected") or _is_client_mod(m)):
                     row.content.controls[2].value = m["enabled"]
                 row.on_click = (
                     (lambda event, metadata=metadata: open_mod_detail(metadata))
@@ -886,8 +956,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 metadata.update(m)
                 labels = row.content.controls[1].controls
                 labels[0].color = TEXT if m.get('enabled', True) else TEXT_DIM
-                labels[1].value = f"{m['size_kb']:,.0f} KB · {'Enabled' if m.get('enabled', True) else 'Disabled'}"
-                row.content.controls[2].value = m.get('enabled', True)
+                if not pending:
+                    labels[1].value = f"{m['size_kb']:,.0f} KB · {'Enabled' if m.get('enabled', True) else 'Disabled'}"
+                    row.content.controls[2].value = m.get('enabled', True)
                 row.content.controls[2].tooltip = ('Disable for this instance on next launch' if m.get('enabled', True)
                                                    else 'Enable for this instance on next launch')
                 return row
@@ -900,7 +971,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     core.toggle_content(row_target[0], m['filename'], row_target[1], row_target[2],
                                         version_id=row_target[3])
                 _run_row_action(row_target, row, action,
-                                f"{'Disabled' if m.get('enabled', True) else 'Enabled'} '{m['display_name']}'.")
+                                f"{'Disabled' if m.get('enabled', True) else 'Enabled'} '{m['display_name']}'.",
+                                pending="Disabling…" if m.get('enabled', True) else "Enabling…",
+                                enabled_before=m.get('enabled', True))
 
             def on_delete_content(e):
                 if row_target != _installed_target():
@@ -909,7 +982,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 def action():
                     core.delete_content(row_target[0], m["filename"], row_target[1],
                                         version_id=row_target[3], loader=row_target[2])
-                _run_row_action(row_target, row, action, f"Removed '{m['display_name']}'.")
+                _run_row_action(row_target, row, action, f"Removed '{m['display_name']}'.", pending="Removing…")
 
             row_icon = _make_installed_icon(m)
             row = style_tile(
@@ -959,7 +1032,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 core.toggle_mod(row_target[1], row_target[2], m["filename"],
                                 version_id=row_target[3])
             _run_row_action(row_target, row, action,
-                            f"{'Disabled' if m['enabled'] else 'Enabled'} '{m['display_name']}'.")
+                            f"{'Disabled' if m['enabled'] else 'Enabled'} '{m['display_name']}'.",
+                            pending="Disabling…" if m['enabled'] else "Enabling…", enabled_before=m['enabled'])
 
         def on_delete(e):
             if row_target != _installed_target():
@@ -969,7 +1043,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             def action():
                 core.delete_mod(row_target[1], row_target[2], m["filename"],
                                 version_id=row_target[3])
-            _run_row_action(row_target, row, action, f"Removed '{m['display_name']}'.")
+            _run_row_action(row_target, row, action, f"Removed '{m['display_name']}'.", pending="Removing…")
 
         row = style_tile(
             ft.Container(
@@ -1284,6 +1358,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def _schedule_live_search(e=None):
         """Debounced on_change: cancel any pending search, start a new one."""
+        ft.context.disable_auto_update()
         pending = _search_debounce["timer"]
         if pending is not None:
             pending.cancel()
@@ -1305,6 +1380,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     browse_results_view = tile_grid()
     browse_status_text = ft.Text("", size=12, color=TEXT_DIM)
+    browse_status_text.max_lines = 1
+    browse_status_text.overflow = ft.TextOverflow.ELLIPSIS
     # Each page fills the available grid. Modrinth permits up to 100 hits
     # per request. Pages are fetched ON DEMAND (see _load_browse_page):
     # opening the tab loads page 1 only, and each pager click fetches just the
@@ -1322,7 +1399,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         "token": None,          # (generation, key) these pages belong to
         "paged": True,          # later pages fetch on demand
     }
-    browse_pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
+    browse_pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO,
+                                text_align=ft.TextAlign.CENTER, max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS)
     browse_pager_prev = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_LEFT_ROUNDED, size=18, color=TEXT),
         padding=8, border_radius=RADIUS, ink=False,
@@ -1331,9 +1410,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         content=ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT),
         padding=8, border_radius=RADIUS, ink=False,
     )
+    browse_retry = ft.TextButton('Retry', width=64, height=32, opacity=0,
+                                disabled=True, on_click=lambda e: _retry_search(e))
     browse_pager_row = ft.Row(
-        [browse_pager_prev, browse_pager_label, browse_pager_next],
-        alignment=ft.MainAxisAlignment.CENTER, spacing=4, visible=False,
+        [ft.Container(width=64), browse_pager_prev,
+         ft.Container(browse_pager_label, width=140, alignment=ft.Alignment.CENTER),
+         browse_pager_next, browse_retry],
+        alignment=ft.MainAxisAlignment.CENTER, spacing=4, height=40,
     )
     browse_title_text = ft.Text("Popular", size=12,
                                  color=TEXT_DIM, font_family=FONT_MONO)
@@ -1490,7 +1573,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 return
             active_content['type'] = new_type
             query, category, installed_query, view, limit, filters = type_preferences.get(
-                new_type, ('', '', '', 'browse', 25, False))
+                new_type, ('', '', '', 'browse', 50, False))
             mod_search_field.value = query
             active_category['value'] = category
             installed_filter_field.value = installed_query
@@ -1501,6 +1584,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             active_view['value'] = view
             browse_pane.visible = view == 'browse'
             installed_pane.visible = view == 'installed'
+            _sync_view_hosts()
             build_category_chips()
             _apply_type_labels()
             _build_view_segment()
@@ -1650,7 +1734,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     browse_status_text.value = "Search unavailable"
                     client_entry = _client_browse_entry()
                     browse_results_view.disabled = False
-                    if client_entry:
+                    retained = any(isinstance(row, ft.Container) and row.data not in
+                                   ('content-loading', 'content-empty', 'cubeon-client-browse')
+                                   and callable(row.on_click) for row in browse_results_view.controls)
+                    if retained:
+                        # Keep a readable, scrollable last page after a failed refresh.
+                        for row in browse_results_view.controls:
+                            row.ignore_interactions = False
+                    elif client_entry:
                         # Bundled client recovery remains available offline, in
                         # the same compact grid as successful provider results.
                         browse_results_view.controls[:] = [
@@ -1666,9 +1757,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                         icon=ft.Icons.WIFI_OFF_ROUNDED),
                             quiet_chip('Retry', on_click=_retry_search),
                         ]
-                    layout_tiles(browse_results_view, bool(client_entry))
+                    if not retained:
+                        layout_tiles(browse_results_view, bool(client_entry))
+                    browse_pager_label.value = 'Couldn\'t load results'
+                    browse_retry.opacity = 1
+                    browse_retry.disabled = False
                 thread_safe_ui.refresh(browse_status_text)
                 thread_safe_ui.refresh(browse_results_view)
+                thread_safe_ui.refresh(browse_pager_row)
                 return
             with thread_safe_ui.TREE_LOCK:
                 browse_inflight.discard(request)
@@ -1754,28 +1850,35 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             render_browse_results(empty_msg="Nothing found for that search.")
 
     def _show_browse_loading():
-        """The placeholder shown while a page that isn't cached yet is being
-        fetched - it keeps the pager out of the way so a stale page number
-        can't be clicked while the real one is in flight."""
+        """Keep the grid, scroll position and pager geometry while fetching."""
         if (not browse_results_view.controls or isinstance(browse_results_view.controls[0], (ft.Text, ft.Row))
                 or getattr(browse_results_view.controls[0], "data", None) == "content-empty"):
+            browse_results_view.controls[:] = loading_tiles(browse_results_view)
             client_entry = _client_browse_entry()
             if client_entry:
-                browse_results_view.controls[:] = [
-                    ft.Container(ft.Text('Loading…', size=12, color=TEXT_DIM),
-                                 alignment=ft.Alignment.CENTER, data='content-loading'),
-                    build_browse_row(client_entry, any(_is_client_mod(m) for m in _cached_installed('mod'))),
-                ]
-            else:
-                browse_results_view.controls[:] = [loading_rows(fill=BORDER)]
-            layout_tiles(browse_results_view, bool(client_entry))
-        browse_results_view.disabled = getattr(browse_results_view.controls[0], 'data', None) != 'content-loading'
-        browse_pager_row.visible = False
+                client_row = build_browse_row(
+                    client_entry, any(_is_client_mod(m) for m in _cached_installed('mod')))
+                if len(browse_results_view.controls) > 1:
+                    browse_results_view.controls[1] = client_row
+                else:
+                    browse_results_view.controls.append(client_row)
+            layout_tiles(browse_results_view)
+        for row in browse_results_view.controls:
+            if isinstance(row, ft.Container):
+                row.ignore_interactions = row.data != 'cubeon-client-browse'
+        # Ignore stale tile actions while leaving the native scroll viewport live.
+        browse_results_view.disabled = False
+        browse_pager_prev.disabled = browse_pager_next.disabled = True
+        browse_pager_label.value = 'Loading…'
+        browse_retry.opacity = 0
+        browse_retry.disabled = True
         # Scoped: a full page.update() here re-synced every mounted tab right
         # after switch_tab had already painted the shell - that double diff is
         # part of the "click Mods and everything lags at once" report.
         thread_safe_ui.refresh(browse_results_view)
         thread_safe_ui.refresh(browse_pager_row)
+
+    _painted_browse = {'key': None}
 
     def _render_browse_page():
         """Renders the current page from the cache, fetching it if this is the
@@ -1852,6 +1955,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 rows.append(build_browse_row(mod, is_installed))
 
         browse_results_view.controls[:] = rows
+        for row in rows:
+            row.ignore_interactions = False
         layout_tiles(browse_results_view, bool(displayed_results))
         browse_results_view.disabled = False
 
@@ -1861,10 +1966,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             if any(item.get('search_broadened') for item in results)
             else f'Related matches for "{matched_query}"' if matched_query and matched_query != _browse_query()
             else f"{len(displayed_results)} result(s)" if displayed_results else "")
+        browse_status_text.tooltip = browse_status_text.value
         browse_pager_label.value = f"Page {page_num + 1} of {total_pages}"
-        browse_pager_row.visible = total_pages > 1
+        browse_pager_row.visible = True
         browse_pager_prev.disabled = page_num <= 0
         browse_pager_next.disabled = page_num >= total_pages - 1
+        browse_retry.opacity = 0
+        browse_retry.disabled = True
         # Results often land moments after the tab switch, while the user is
         # already moving. Repaint only the browse region instead of diffing
         # the whole page in that moment.
@@ -1874,6 +1982,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         thread_safe_ui.refresh(browse_pager_row)
         thread_safe_ui.refresh(browse_pager_prev)
         thread_safe_ui.refresh(browse_pager_next)
+        painted_key = (token, page_num)
+        if painted_key != _painted_browse['key']:
+            _painted_browse['key'] = painted_key
+            scrolling.to_top(page, browse_results_view)
 
     # --- Mod detail menu ----------------------------------------------------
     # Clicking a mod (browse or installed) opens this: cover art, the full
@@ -1934,7 +2046,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         feedback = install_registry.project(
             (content_type, detail_mc, detail_loader, detail_version), ref, mod.get("slug"))
         title = mod.get("title") or mod.get("display_name") or "Mod"
-        icon_url = mod.get("icon_url")
+        icon_url = mod.get("icon_url") or installed_icon_urls.get(mod.get('slug'))
         blurb = (mod.get("description") or "").strip()
 
         detail_navigation["generation"] += 1
@@ -1945,20 +2057,20 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             scroll=ft.ScrollMode.AUTO,
             data="mod-detail-body",
         )
-        hero_action = ft.Container(content=ft.Text("Loading…", color=TEXT_DIM, size=12))
+        hero_action = ft.Container(content=ft.Text("Loading…", color=TEXT_DIM, size=12), width=180)
         hero_title = ft.Text(title, size=22, color=ACCENT, font_family=FONT_DISPLAY,
-                             weight=ft.FontWeight.W_700, max_lines=2)
+                             weight=ft.FontWeight.W_700, max_lines=1,
+                             overflow=ft.TextOverflow.ELLIPSIS, tooltip=title)
         hero_description = ft.Text(blurb, size=12.5, color=TEXT_DIM, max_lines=2)
         hero_meta = ft.Text(f"{(detail_loader or 'vanilla').title()} · {detail_mc or 'Choose an instance'}",
                             size=11.5, color=TEXT_DIM)
+        hero_icon = _art_image(icon_url, 58, 58)
+        hero_icon.data = icon_url
         hero = ft.Container(content=ft.Row([
-            _art_image(icon_url, 58, 58) if icon_url else ft.Container(
-                width=58, height=58, bgcolor=CARD_FILL, border_radius=RADIUS,
-                content=ft.Icon(ft.Icons.EXTENSION_OUTLINED, color=TEXT_FAINT, size=26),
-                alignment=ft.Alignment.CENTER),
+            hero_icon,
             ft.Column([hero_title, hero_meta, hero_description], spacing=5, expand=True),
             hero_action], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=16, bgcolor=SURFACE_HI, border_radius=RADIUS)
+            padding=16, height=120, bgcolor=SURFACE_HI, border_radius=RADIUS)
         detail_tabs = ft.Row(spacing=8, data="mod-detail-tabs")
         with thread_safe_ui.TREE_LOCK:
             catalogue_host.visible = False
@@ -2324,7 +2436,22 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             if not current():
                 return
             gallery = [g for g in (details.get("gallery") or []) if g.get("url")]
+            resolved_icon = details.get('icon_url') or icon_url
+            if resolved_icon and hero_icon.data != resolved_icon:
+                # Metadata often supplies the icon missing from an installed JAR row.
+                # Keep the same Image and fixed footprint while its bytes load.
+                hero_icon.data = resolved_icon
+                cached_source = _icons.peek_src(resolved_icon)
+                if _icons.valid_source(cached_source):
+                    hero_icon.src = cached_source
+                else:
+                    def ready(source):
+                        if current() and hero_icon.data == resolved_icon and _icons.valid_source(source):
+                            hero_icon.src = source
+                            thread_safe_ui.refresh(hero_icon)
+                    artwork.request(resolved_icon, ready)
             hero_title.value = details.get("title") or title
+            hero_title.tooltip = hero_title.value
             hero_description.value = details.get("description") or blurb
             author = details.get("author") or mod.get("author")
             hero_meta.value = " · ".join(filter(None, [f"by {author}" if author else "",
@@ -2465,8 +2592,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     release_state["error"] = str(error)
             details = {**mod, **details}
             try:
-                _target, items, _mods = _read_installed_snapshot(
-                    (content_type, detail_mc, detail_loader, detail_version))
+                target = (content_type, detail_mc, detail_loader, detail_version)
+                with thread_safe_ui.TREE_LOCK:
+                    items = (installed_snapshots.get(target) if
+                             time.monotonic() - installed_snapshot_at.get(target, 0) < INSTALLED_CACHE_SECONDS
+                             else None)
+                if items is None:
+                    snapshot = _read_installed_snapshot(target)
+                    _target, items, _mods = snapshot
+                    with thread_safe_ui.TREE_LOCK:
+                        _apply_installed_snapshot(snapshot)
                 with thread_safe_ui.TREE_LOCK:
                     installed_now.clear()
                     installed_now.update((m['filename'].removesuffix('.disabled'), m)
@@ -2544,6 +2679,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             i18n.t("Installed") if is_installed else "Unavailable" if compatibility_note else "Install",
             size=12.5, weight=ft.FontWeight.W_700,
             color=ON_ACCENT if available else TEXT_DIM,
+            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True,
         )
         download_btn = ft.Container(
             content=ft.Row(
@@ -2552,12 +2688,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             color=ON_ACCENT if available else TEXT_DIM, size=15),
                     download_btn_text,
                 ],
-                spacing=8, tight=True,
+                spacing=6,
             ),
             bgcolor=ACCENT if available else None,
-            width=104 if builtin else 84, height=30, alignment=ft.Alignment.CENTER,
+            width=104, height=30, alignment=ft.Alignment.CENTER,
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
+            padding=ft.padding.Padding.symmetric(horizontal=8),
             ink=False,
             disabled=is_installed or bool(compatibility_note) or not _can_install(row_content_type),
             tooltip=compatibility_note or ("Choose a compatible mod loader on the Play tab first." if not _can_install(row_content_type) else None),
@@ -2722,13 +2858,6 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             download_btn.on_click = on_download
 
         description = (mod.get("description") or "").strip()
-        installed_badge = ft.Container(
-            ft.Row([ft.Icon(ft.Icons.CHECK_ROUNDED, size=11, color=ACCENT),
-                    ft.Text(i18n.t('Installed'), size=9, color=ACCENT)], spacing=3, tight=True),
-            bgcolor=ACCENT_TINT, border_radius=4,
-            padding=ft.padding.Padding.symmetric(horizontal=5, vertical=2), visible=is_installed,
-        )
-
         # Cache this row's art for the next render (no-op if already cached).
 
         # Match the compact catalogue tile used for every content kind.
@@ -2745,7 +2874,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                 ft.Row([ft.Text(mod["title"], size=13.5, color=TEXT,
                                                 weight=ft.FontWeight.W_700, max_lines=1,
                                                 overflow=ft.TextOverflow.ELLIPSIS, expand=True, expand_loose=True),
-                                        installed_badge], spacing=6),
+                                        ], spacing=6),
                                 ft.Text(mod.get('author') or mod.get('author_name') or 'Community project',
                                         size=11.5, color=TEXT_DIM, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 ft.Text("Bundled with Cubeon", size=10.5, color=TEXT_FAINT) if builtin else
@@ -2776,8 +2905,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 if job.result == "success":
                     row_state["installed"] = True
             installed = row_state["installed"]
-            installed_badge.visible = installed and not job.busy
-            download_btn.visible = builtin or not installed or job.busy
+            download_btn.visible = True
             icon = download_btn.content.controls[0]
             icon.icon = ft.Icons.CLOSE_ROUNDED if job.busy and job.cancellable else ft.Icons.CHECK_ROUNDED if installed and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
             download_btn_text.value = action_text(job) if job.busy else (
@@ -2953,8 +3081,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         [
             ft.Row([mod_search_field, filters_button], spacing=8),
             category_chips_container,
-            ft.Row([browse_title_text, ft.Container(expand=True), browse_status_text],
-                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Row([ft.Container(browse_title_text, expand=True),
+                    ft.Container(browse_status_text, expand=True, alignment=ft.Alignment.CENTER_RIGHT)],
+                   height=36, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             browse_results_view,
             browse_pager_row,
         ],
@@ -2971,33 +3100,64 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         tooltip='Enable or disable Cubeon Client for all instances on the next launch',
     )
     client_preference_switch.data = 'installed-cubeon-client-enabled'
-    client_preference_row = ft.Row([
-        ft.Column([ft.Text('Cubeon Client', color=TEXT, size=13.5, weight=ft.FontWeight.W_600),
-                   ft.Text('Applies to all instances on the next launch.', color=TEXT_DIM, size=11.5)],
+    client_preference_row = style_tile(ft.Container(ft.Row([
+        ft.Container(ft.Image(src='icon_64.png', width=44, height=44, fit=ft.BoxFit.CONTAIN)),
+        ft.Column([ft.Text('Cubeon Client', color=TEXT, size=13.5, weight=ft.FontWeight.W_600,
+                          max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                   ft.Text('Next launch · All instances', color=TEXT_DIM, size=11.5,
+                           max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)],
                   spacing=4, expand=True),
         client_preference_switch,
-    ], visible=False, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    ], vertical_alignment=ft.CrossAxisAlignment.CENTER), visible=False),
+        SURFACE, BORDER, ROW_HOVER)
 
     installed_pane = ft.Column(
         [
-            # One header row: title on the left, then the repair action, the
-            # automatic-check status line and the count grouped on the right.
+            ft.Row([ft.Container(installed_filter_field, expand=True)], height=46),
+            # Match Browse's search / metadata / grid / fixed-footer rhythm.
             # The row uses an expanding spacer, so it must not set wrap=True
             # (Flutter's wrapped layout cannot host flex children).
             ft.Row(
-                [section_label(i18n.t("Installed")), ft.Container(expand=True),
-                 check_repair_btn, repair_status, installed_count_text],
-                spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            repair_details,
-            installed_status,
-            client_preference_row,
-            installed_filter_field,
+                [ft.Container(section_label(i18n.t("Installed")), expand=True),
+                 check_repair_btn, ft.Container(installed_count_text, expand=True,
+                                                alignment=ft.Alignment.CENTER_RIGHT)],
+                height=36, spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             mods_list_view,
+            ft.Container(ft.Column([
+                ft.Row([ft.Container(installed_status, expand=True),
+                        ft.Container(repair_status, expand=True, alignment=ft.Alignment.CENTER_RIGHT)],
+                       height=18),
+                ft.Container(repair_details, height=18),
+            ], spacing=4), height=40, data='mods-feedback'),
         ],
         spacing=12,
         visible=False,
         expand=True,
     )
+
+    browse_host = ft.Container(browse_pane, expand=True, animate_opacity=motion.BASE)
+    installed_host = ft.Container(installed_pane, expand=True, visible=False,
+                                  opacity=0, animate_opacity=motion.BASE)
+    view_transition = {'generation': 0}
+
+    def _sync_view_hosts(animate=False):
+        view_transition['generation'] += 1
+        generation = view_transition['generation']
+        selected = browse_host if active_view['value'] == 'browse' else installed_host
+        for host in (browse_host, installed_host):
+            host.visible = host is selected
+            host.opacity = 0 if animate or host is not selected else 1
+            thread_safe_ui.refresh(host)
+        if not animate:
+            return
+        async def reveal():
+            # Yield one painted frame; no geometry tween or background ticker.
+            await asyncio.sleep(.025)
+            with thread_safe_ui.TREE_LOCK:
+                if generation == view_transition['generation'] and selected.visible:
+                    selected.opacity = 1
+                    thread_safe_ui.refresh(selected)
+        page.run_task(reveal)
 
     view_segment_row = ft.Row(spacing=8)
 
@@ -3006,21 +3166,24 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                            on_view_change, data='mods-installed-toggle', color=TEXT_DIM)
 
     def on_view_change(new_view):
-        if active_view["value"] == new_view:
-            return
-        active_view["value"] = new_view
-        browse_pane.visible = (new_view == "browse")
-        installed_pane.visible = (new_view == "installed")
-        browse_scope_text.visible = (new_view == "browse")
-        compatible_only.visible = _is_mod()
-        thread_safe_ui.refresh(browse_scope_text)
-        thread_safe_ui.refresh(compatible_only)
-        _build_view_segment()
-        if new_view == "installed":
-            refresh_mods_list(background=True)
-            auto_check()
-        thread_safe_ui.refresh(browse_pane)
-        thread_safe_ui.refresh(installed_pane)
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if active_view["value"] == new_view:
+                return
+            active_view["value"] = new_view
+            browse_pane.visible = (new_view == "browse")
+            installed_pane.visible = (new_view == "installed")
+            _sync_view_hosts(animate=True)
+            browse_scope_text.visible = (new_view == "browse")
+            compatible_only.visible = _is_mod()
+            thread_safe_ui.refresh(browse_scope_text)
+            thread_safe_ui.refresh(compatible_only)
+            _build_view_segment()
+            if new_view == "installed":
+                refresh_mods_list(background=True)
+                auto_check()
+            thread_safe_ui.refresh(browse_pane)
+            thread_safe_ui.refresh(installed_pane)
 
     def refresh_browse_for_new_profile():
         """
@@ -3053,7 +3216,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     header_title = ft.Text(i18n.t("Mods"), size=26, weight=ft.FontWeight.W_700, color=TEXT,
                             font_family=FONT_DISPLAY)
     header_subtitle = ft.Text("Download mods, or manage what's already installed.",
-                              size=13, color=TEXT_DIM)
+                              size=13, color=TEXT_DIM, max_lines=1,
+                              overflow=ft.TextOverflow.ELLIPSIS)
     _apply_type_labels()  # sync the refs now that they exist
     selected_content = {'value': 'mod'}
 
@@ -3117,8 +3281,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 ],
                 spacing=8,
             ),
-            browse_pane,
-            installed_pane,
+            browse_host,
+            installed_host,
         ],
         spacing=0,
         expand=True,
@@ -3136,8 +3300,6 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         with thread_safe_ui.TREE_LOCK:
             _render_installed_snapshot(_cached_installed(), loading=_installed_target() not in installed_snapshots)
     mods_tab.refresh_client_preference = refresh_client_preference
-
-    mods_list_view.on_capacity_change = lambda capacity: _render_installed_snapshot(_cached_installed())
 
     def open_hook():
         if selected_content['value'] == 'modpack':

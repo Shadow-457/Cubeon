@@ -109,6 +109,7 @@ from .content import CONTENT_TYPES, profile_dir as content_profile_dir
 from . import local_cache
 from . import global_mod_cache
 from . import net
+from . import storage
 
 MODRINTH_API = "https://api.modrinth.com/v2"
 
@@ -1562,6 +1563,7 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
         _unmark_pack_install(mc_version, loader)
 
 
+@storage.update_operation()
 def install_modpack_from_file(path: str, *, progress_cb=None, status_cb=None, max_cb=None) -> dict:
     """Install a pack the user already has on disk - either a Modrinth
     `.mrpack` or a CurseForge pack `.zip`. Returns the pack meta (incl. the
@@ -1634,6 +1636,7 @@ def _archive_progress_status(prefix: str, status_cb):
     return report
 
 
+@storage.update_operation()
 def install_modpack_from_url(url: str, *, progress_cb=None, status_cb=None, max_cb=None,
                              icon_url: str | None = None,
                              source_id: str | None = None) -> dict:
@@ -1877,6 +1880,7 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
         return index
 
 
+@storage.update_operation()
 def install_modpack_from_cf(project_id: str, file_id, *,
                             progress_cb=None, status_cb=None, max_cb=None,
                             icon_url: str | None = None,

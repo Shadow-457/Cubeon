@@ -63,6 +63,10 @@ opacity** contains HEX, opacity, studio colors, and recent colors. Mirroring
 and custom brush sizes are under **Brush settings**.
 The canvas opens fitted to its available space. Its footer puts **Fit**, zoom,
 and Help within reach. **Canvas settings** contains grid and Hand panning.
+On phones and tablets, the bottom toolbar opens **Textures**, **Tools**,
+**Color**, **Animate**, and **Preview**. Panels slide up above the toolbar;
+texture search lives in the Textures panel. Choose a paint tool or animation
+frame to return to the canvas. Close a panel with its × or tap outside it.
 Manual zoom stays put;
 Fit follows window/sidebar changes. Tool guidance explains what to do next.
 **Colors in this texture** offers reusable source colors with exact alpha.

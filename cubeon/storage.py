@@ -26,6 +26,9 @@ _restart_required = False
 _session_file = None
 _migration_mutex = threading.Lock()
 _receipt_mutex = threading.RLock()
+_update_mutex = threading.RLock()
+_launcher_update = False
+_update_jobs = 0
 CONTENT_DIRS = ("mods", "resourcepacks", "shaderpacks")
 _CONTENT_SCOPE = "instance-content-v1"
 _SWITCH_SLOTS = (*CONTENT_DIRS, ".cubeon/mods", "instance.json")
@@ -127,12 +130,52 @@ def runtime_dir(legacy_root=None) -> str:
 
 
 def assert_writable():
+    if _launcher_update:
+        raise RuntimeError("Cubeon is closing to install an update. Wait for it to finish.")
     if _restart_required or (_blocked and threading.get_ident() != _owner):
         raise RuntimeError("Minecraft files are being organized. Restart Cubeon when migration finishes.")
 
 
 def blocked() -> bool:
-    return _blocked or _restart_required
+    return _blocked or _restart_required or _launcher_update
+
+
+@contextmanager
+def update_operation():
+    """Count work that must finish before a launcher update may close Python.
+
+    This gate is independent of migration's existing ownership rules. Claiming
+    it and claiming the update use one lock, so a queued server/backup worker
+    either registers first or is refused before it starts changing files.
+    """
+    global _update_jobs
+    with _update_mutex:
+        if _launcher_update:
+            raise RuntimeError("Cubeon is closing to install an update. Wait for it to finish.")
+        _update_jobs += 1
+    try:
+        yield
+    finally:
+        with _update_mutex:
+            _update_jobs -= 1
+
+
+def claim_launcher_update() -> bool:
+    global _launcher_update
+    with _update_mutex:
+        if _update_jobs or blocked() or not _migration_mutex.acquire(blocking=False):
+            return False
+        try:
+            _launcher_update = True
+            return True
+        finally:
+            _migration_mutex.release()
+
+
+def release_launcher_update():
+    global _launcher_update
+    with _update_mutex:
+        _launcher_update = False
 
 
 def restart_required() -> bool:
@@ -550,6 +593,24 @@ def register_session():
         write_json(str(_session_file), {"pid": os.getpid(), "identity": _process_identity(os.getpid())})
     path = _session_file
     atexit.register(lambda: path.unlink(missing_ok=True))
+
+
+def application_busy(state: dict) -> bool:
+    """Gate storage changes while game, install, session or server work is active."""
+    if blocked():
+        return True
+    if any(state.get(key) for key in ("running_version", "installing_version",
+                                     "launching_version", "ending_session")):
+        return True
+    try:
+        from . import watchdog, server
+        if watchdog.stale_session() is not None:
+            return True
+        servers_root = Path(server.SERVERS_DIR)
+        return servers_root.is_dir() and any(server.is_server_running(folder.name)
+                                            for folder in servers_root.iterdir() if folder.is_dir())
+    except Exception:
+        return True
 
 
 def _check_idle():

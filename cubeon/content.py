@@ -66,6 +66,7 @@ from .paths import (APP_NAME, CUBEON_HOME, GLOBAL_CONTENT_DIR, RESOURCEPACKS_DIR
 from . import global_mod_cache
 from . import local_cache
 from . import net
+from . import storage
 from . import packformat
 # Reuse the exact same Modrinth browse-sort / relevance-banding logic the Mods
 # tab uses, so "browse" and search behave identically across content types
@@ -675,6 +676,7 @@ def _require_install_target(content_type, mc_version, loader):
         raise ValueError("Vanilla can't run shader packs. Choose a compatible mod loader and install Iris or Oculus first.")
 
 
+@storage.update_operation()
 def install_local_content(content_type: str, src_path: str,
                           mc_version: str | None = None,
                           version_id: str | None = None,
@@ -991,6 +993,7 @@ def get_content_download(content_type: str, project_id_or_slug: str,
     return selected
 
 
+@storage.update_operation()
 def download_content(content_type: str, download_url: str, filename: str,
                      progress_cb=None, hashes: dict | None = None, *,
                      mc_version: str | None = None,

@@ -106,6 +106,21 @@ Var FailurePath
 Var FailureCode
 Var FailureAdvice
 Var SetupLog
+Var SetupMutex
+
+; Serialize manual setup, automatic setup and uninstall within this user's
+; desktop session. The OS releases the handle on every exit/crash path.
+!macro AcquireSetupMutex
+  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\Cubeon.Setup") p.r0 ?e'
+  Pop $1
+  ${If} $0 == 0
+  ${OrIf} $1 == 183
+    MessageBox MB_OK|MB_ICONINFORMATION "Another Cubeon setup or uninstall is already running. Wait for it to finish and retry." /SD IDOK
+    SetErrorLevel 1
+    Quit
+  ${EndIf}
+  StrCpy $SetupMutex $0
+!macroend
 
 ; Directory swaps can race the exiting desktop client or a scanner. Capture
 ; the native error immediately and retry only transient sharing/access errors.
@@ -183,6 +198,7 @@ Function CompareVer
 FunctionEnd
 
 Function .onInit
+  !insertmacro AcquireSetupMutex
   ${IfNot} ${RunningX64}
     MessageBox MB_OK|MB_ICONEXCLAMATION "Cubeon needs 64-bit Windows 10 or newer." /SD IDOK
     SetErrorLevel 1
@@ -398,6 +414,10 @@ rollback_failed:
   Quit
 install_done:
 SectionEnd
+
+Function un.onInit
+  !insertmacro AcquireSetupMutex
+FunctionEnd
 
 Section "Uninstall"
   ReadRegStr $0 HKCU "${SETTINGS_KEY}" "InstallDir"

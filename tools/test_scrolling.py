@@ -54,6 +54,8 @@ check("following uses one native scroll command, not Python animation frames", l
 check("normal following has a short ease-out animation",
       commands[0] == ("scroll_to", {"offset": -1, "delta": None, "scroll_key": None,
                                  "duration": 180, "curve": ft.AnimationCurve.EASE_OUT_CUBIC}))
+scrolling.to_top(page, viewport)
+check("changed result pages reset with one native animation", commands[-1][1]['offset'] == 0 and commands[-1][1]['duration'] == 180)
 motion.set_level("reduced")
 scrolling.follow_end(page, viewport)
 check("reduced motion takes effect on the very next scroll", commands[-1][1]["duration"] == 0)
@@ -91,6 +93,8 @@ viewport._parent = weakref.ref(ancestor)
 before = len(commands)
 scrolling.follow_end(page, viewport)
 check("hidden cached tabs do not request native scroll", len(commands) == before)
+scrolling.to_top(page, viewport)
+check("hidden result panes do not reset their scroll", len(commands) == before)
 ancestor.visible = True
 scrolling.follow_end(page, viewport)
 check("visible mounted ancestors allow native scroll", len(commands) == before + 1)

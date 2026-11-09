@@ -7,7 +7,7 @@ function visit(surface, url, values = {}, blocked = false) {
   const changes = [], storage = {...values}, current = new URL(url);
   vm.runInNewContext(entry, {
     document: {currentScript: {dataset: {benchSurface: surface}}, baseURI: new URL('./', url).href},
-    location: {pathname: current.pathname, hash: current.hash, replace: target => changes.push(target)},
+    location: {protocol: current.protocol, pathname: current.pathname, hash: current.hash, replace: target => changes.push(target)},
     localStorage: {
       getItem(key) { if (blocked) throw new Error('Storage blocked'); return storage[key] ?? null; },
       setItem(key, value) { if (blocked) throw new Error('Storage blocked'); storage[key] = value; },
@@ -21,15 +21,15 @@ const base = 'https://www.ylet.online/cubeon-bench/';
 assert.deepEqual(visit('landing', base).changes, []);
 const opened = visit('workspace', base + 'workspace');
 assert.equal(opened.storage['cb-bench-entered'], '1');
-assert.deepEqual(visit('landing', base, opened.storage).changes, [base + 'workspace.html']);
+assert.deepEqual(visit('landing', base, opened.storage).changes, [base + 'workspace']);
 const legacy = {'cb-data': JSON.stringify({projects: [{id: 'unchanged'}]})};
-assert.deepEqual(visit('landing', base, legacy).changes, [base + 'workspace.html']);
+assert.deepEqual(visit('landing', base, legacy).changes, [base + 'workspace']);
 assert.equal(visit('workspace', base + 'workspace', legacy).storage['cb-data'], legacy['cb-data']);
 assert.deepEqual(visit('landing', base + 'landing', opened.storage).changes, []);
 assert.deepEqual(visit('landing', base + '#questions', opened.storage).changes, []);
 assert.deepEqual(visit('landing', base, {}, true).changes, []);
 assert.deepEqual(visit('workspace', base + 'workspace', {}, true).changes, []);
-assert.deepEqual(visit('landing', base, {...opened.storage, 'cb-data': 'corrupt'}).changes, [base + 'workspace.html']);
+assert.deepEqual(visit('landing', base, {...opened.storage, 'cb-data': 'corrupt'}).changes, [base + 'workspace']);
 assert.deepEqual(visit('landing', 'file:///tmp/bench/index.html', opened.storage).changes, ['file:///tmp/bench/workspace.html']);
 
 const listeners = {}, worker = {URL, self: {location: {href: base + 'sw.js', hostname: 'www.ylet.online'},

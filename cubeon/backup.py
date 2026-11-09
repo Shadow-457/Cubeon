@@ -129,6 +129,16 @@ def _iter_files(root: str, arc_root: "str | None" = None):
 
 def create_backup(include_saves: bool | None = None, dest_dir: str | None = None,
                    progress_cb=None) -> BackupResult:
+    """Create a backup while deferring launcher shutdown; never raise."""
+    from . import storage
+    try:
+        with storage.update_operation():
+            return _create_backup(include_saves, dest_dir, progress_cb)
+    except Exception as error:
+        return BackupResult(False, str(error))
+
+
+def _create_backup(include_saves, dest_dir, progress_cb):
     """Creates a timestamped zip of everything in _BACKUP_SOURCES (plus
     saves/ if include_saves is truthy). Returns a BackupResult - never
     raises.
@@ -275,6 +285,16 @@ def list_backups(dest_dir: str | None = None) -> list[BackupInfo]:
 
 
 def restore_backup(zip_path: str, progress_cb=None) -> BackupResult:
+    """Restore while deferring launcher shutdown; never raise."""
+    from . import storage
+    try:
+        with storage.update_operation():
+            return _restore_backup(zip_path, progress_cb)
+    except Exception as error:
+        return BackupResult(False, str(error))
+
+
+def _restore_backup(zip_path, progress_cb):
     """Extracts a backup zip back over CUBEON_HOME / MINECRAFT_DIR. Existing
     files with the same relative path are overwritten; nothing outside the
     original backup's own paths is touched or deleted, so anything created

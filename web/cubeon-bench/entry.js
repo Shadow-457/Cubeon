@@ -11,7 +11,7 @@
     try { previous = JSON.parse(localStorage.getItem('cb-data') || 'null'); } catch (_) {}
     if (localStorage.getItem('cb-bench-entered') === '1' ||
         previous && (Array.isArray(previous.projects) || previous.onboarded)) {
-      location.replace(new URL('workspace.html', document.baseURI).href);
+      location.replace(new URL(location.protocol === 'file:' ? 'workspace.html' : 'workspace', document.baseURI).href);
     }
   } catch (_) {}
 })();

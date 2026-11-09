@@ -232,7 +232,7 @@ class ResultsUITests(unittest.TestCase):
         self.assertEqual(len(completed), 1)
 
     def test_busy_game_or_installer_blocks_changes(self):
-        for key in ('running_version', 'installing_version', 'launching_version', 'fixing_mods', 'updating_launcher'):
+        for key in ('running_version', 'installing_version', 'launching_version', 'fixing_mods'):
             self.state.clear()
             dialog = self.open()
             self.state[key] = 'instance-B'

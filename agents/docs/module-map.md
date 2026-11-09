@@ -46,7 +46,8 @@ substitute for current code.
 | Window and crash handling | `window_close.py`, `winwindow.py`, `winchrome.py`, `incident.py`, `crash.py`, `logging_setup.py` |
 | Input and presentation | `shortcuts.py`, `seasonal.py`, `color_templates.py`, `status_text.py` |
 | Launcher language | `i18n.py`, `lang/` |
-| Release and optional features | `updater.py`, `features.py`, `osnotify.py`, `ui_sounds.py`, `voice.py` |
+| Release version metadata | `updater.py` (APP_VERSION only; no launcher update code) |
+| Optional features | `features.py`, `osnotify.py`, `ui_sounds.py`, `voice.py` |
 
 Except for explicit paths, names in this table are relative to `cubeon/`. Check source ownership before
 assuming a helper is UI-free: the package also contains Flet support modules.
@@ -1804,31 +1805,16 @@ keep builders consistent with the shared `THEME` contract.
   baseline failure, not evidence of Java, GPU or instance-storage corruption.
   Build isolation uses absolute `CUBEON_BUILD_DIST` / `CUBEON_BUILD_WORK`, including
   the spec/cache; PyInstaller data inputs must remain absolute with that spec path.
-- Startup launcher updates use one automatic public Worker metadata check per process; Settings →
-  System → Check for updates can retry offline checks or check the selected channel immediately. A newer release opens
-  `ui/update_prompt.py` with Skip / Update. `update_skipped_version` persists Skip;
-  startup suppresses that release and older ones, while a manual check can reoffer it.
-  `update_notice_seen` independently limits OS toasts. Freshness is rechecked at
-  display time against the current `APP_VERSION`, never a captured default argument;
-  same/older/ambiguous versions never prompt. `update_channel` defaults stable;
-  beta includes prereleases and changes apply to the next check.
-  No installer bytes download before Update. `cubeon/update_install.py` verifies size/SHA-256 and
-  handles registered Windows installs and x86_64 AppImages in writable directories, including mode
-  0555 files; AppRun preserves the original path as `CUBEON_APPIMAGE_PATH`. Update never opens a browser;
-  unverifiable downloads report an inline error. Unsupported builds have an explicit Download manually
-  action. Restart requires idle game/install/server state.
-  One Update click downloads, verifies, closes, installs and reopens; if a game/server starts while
-  downloading, the verified update stays ready until idle. Debian/Ubuntu `/opt/cubeon/Cubeon` builds
-  require exact `dpkg-query` package ownership and use PolicyKit + apt for authorized package updates.
-  Other package managers, macOS and source checkouts remain manual. Helper outcomes live in
-  `updates/install-result.txt` (UTF-8, including PowerShell BOM) and failures are reported on next start.
-  Helpers start in the session exit path (including the window-gone watchdog), wait for process exit,
-  and recheck bytes; never run a replacement or re-exec from inside a live Flet session. AppImages
-  keep a `.cubeon-previous` copy (also replaced atomically if read-only) and reset PyInstaller's
-  environment before reopening the updated executable. Native Windows installation still needs a Windows smoke check.
-- Update target probes, hashing, preparation and cleanup run outside `TREE_LOCK`; cancellation
-  must not delete a payload still being hashed. One worker rechecks busy state before handoff.
-  Target-drive and download free-space checks precede writes; preparation failures remain retryable.
+- The launcher auto-updater is removed. Startup performs no release checks;
+  Settings has no update channel/check control or Cubeon update notification
+  switch. `cubeon/updater.py` retains only the literal APP_VERSION for release
+  stamping, installer resources and HTTP identity. Launcher upgrades are manual
+  through the download page and existing platform installers. No replacement
+  update system has been implemented.
+- `storage.application_busy(state)` owns the storage-migration UI gate for
+  active games, installs, session teardown and hosted servers. It treats failed
+  ownership probes as busy and runs outside TREE_LOCK; the backend migration
+  keeps its independent idle validation. It has no updater dependency.
 - Windows distribution is installer-only: `packaging/build_windows.py` produces the internal onedir payload
   (`Cubeon.exe` + `_internal`), NSIS stages and swaps it with rollback, and the workflow publishes
   only `Cubeon-Windows-x64-Setup.exe`. Do not restore ZIP/single-file/public portable builders.
@@ -1999,7 +1985,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Windows/startup | `test_winproc.py`, `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_source_runtime.py`, `test_startup_recovery.py`, `test_incident.py`, `test_wedge_watchdog.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py`, `test_forge189_client.py --targets --download-csl` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
-| Launcher updates / installers | `test_launcher_updates.py`, `test_launcher_installers.py` (`--wine` optional), `test_linux_graphical_installer.py`, `test_update_notice.py`, `node worker/test-downloads.mjs` |
+| Launcher installers | `test_launcher_installers.py` (`--wine` optional), `test_linux_graphical_installer.py`, `node worker/test-downloads.mjs` |
 | Repository cleanliness | `test_repository_hygiene.py` |
 
 ## Releases and hosted services
@@ -2021,6 +2007,10 @@ requires retrying with normal system access, not changing unrelated app code.
   passes analytics requests through, and bumps version when shipped assets change. Existing
   installed sessions receive updates only via their normal save-and-reload flow.
   Editor harnesses use `workspace.html`; the Bench server supports clean route aliases.
+  Hosted Bench links, returning visits, installed start URLs and HTML precache keys use
+  extensionless page routes; `file:` keeps `.html`. `mobile-editor.js`/`.css` move the
+  existing search, panel buttons and Help at 900 px into a bottom dock and sliding panels,
+  then restore their original desktop positions. Hidden mobile panels are inert.
   All main-site pages use the shared `.nav-bench`/`.nav-beta` rules in
   `web/assets/site.css`, inside the desktop navigation and mobile menu.
 - `tools/translate_website.py` applies body and attribute edits together in descending original
@@ -2135,8 +2125,9 @@ requires retrying with normal system access, not changing unrelated app code.
   that every test or desktop smoke check passed.
 - Worker configuration is not proof of current deployment health. Preserve client/Worker protocol parity,
   authentication, write budgets, and rate limits.
-- The downloads Worker must be deployed before releasing the startup updater. `/updates/stable` and
-  `/updates/beta` expose version/asset size/GitHub SHA-256 digest only; per-file requests pin `version`
+- The downloads Worker retains legacy update routes for already released launchers; the current
+  launcher does not call them. `/updates/stable` and `/updates/beta` expose version/asset size/GitHub
+  SHA-256 digest only; per-file requests pin `version`
   and return 409 when it changed. Missing digests require manual downloads. Only two cached channel
   lookups are supported (no arbitrary tag/asset API proxy); both use the existing per-IP throttle.
 - Investigate release regressions against the tag's actual commit, not current HEAD or website labels.

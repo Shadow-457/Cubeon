@@ -17,7 +17,7 @@ import threading
 
 import flet as ft
 from ui.image_memory import preview_image
-from cubeon import i18n
+from cubeon import i18n, storage
 from cubeon import scrolling
 from cubeon.theme import (  # design system (radius, toggles, faint text tier, underline tabs, accent fg)
     RADIUS, animated_switch, TEXT_FAINT, text_tab, ON_ACCENT,
@@ -1208,6 +1208,15 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         restart_button.opacity = 0.45 if restart_button.disabled else 1.0
 
     def _start_worker(version_id, on_started=None):
+        try:
+            with storage.update_operation():
+                _start_worker_body(version_id, on_started)
+        except RuntimeError as error:
+            append_console(f"[server start deferred: {error}]")
+            if on_started:
+                on_started()
+
+    def _start_worker_body(version_id, on_started=None):
         """Actually launches the process and wires up its console/exit
         callbacks. Shared by Start and Restart so they behave identically.
         Starting IS sharing now: the Minekube Connect plugin and config are

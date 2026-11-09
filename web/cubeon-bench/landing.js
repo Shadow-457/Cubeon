@@ -1,5 +1,8 @@
 (function () {
   'use strict';
+  if (location.protocol === 'file:') document.querySelectorAll('a[href="workspace"], a[href="landing"]').forEach(function (link) {
+    link.setAttribute('href', link.getAttribute('href') + '.html');
+  });
   document.querySelectorAll('a[href^="#"], use[href^="#"]').forEach(function (element) {
     element.setAttribute('href', location.href.split('#')[0] + element.getAttribute('href'));
   });

@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+import weakref
 from unittest.mock import patch
 
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[1])]
@@ -31,8 +32,9 @@ class ManagementUI(unittest.TestCase):
         self.cfg = {}
         self.core.list_mods = lambda *a, **k: []
         self.core.list_content = lambda *a, **k: [dict(m) for m in self.items]
-        self.patches = [patch('threading.Thread', QueuedThread), patch('cubeon.theme._toggle_pop'), patch.object(icons, 'prefetch'),
-                        patch.object(thread_safe_ui, 'refresh')]
+        self.patches = [patch('threading.Thread', QueuedThread), patch.object(icons, 'prefetch'),
+                        patch.object(thread_safe_ui, 'refresh'),
+                        patch('ui.install_feedback._active_feedback', weakref.WeakSet())]
         for p in self.patches: p.start(); self.addCleanup(p.stop)
         QueuedThread.jobs.clear()
         root, self.refresh, load, browse = build_mods_tab(
@@ -314,10 +316,15 @@ class ManagementUI(unittest.TestCase):
             calls = []
             self.core.toggle_content = lambda *a, **kw: calls.append((a, kw))
             switch.on_change(None)
-            self.assertTrue(row.disabled)
+            self.assertFalse(row.disabled)
+            self.assertTrue(all(control.disabled for control in row.content.controls[2:]))
+            self.assertEqual(row.content.controls[1].controls[1].value, 'Disabling…')
+            from ui.install_feedback import any_busy
+            self.assertTrue(any_busy())
             self.assertEqual(calls, [])
             self.dropdown.value = 'instance-B'
             QueuedThread.jobs.pop()()
+            self.assertFalse(any_busy())
             self.assertEqual(calls[0][0], (kind, 'test.zip', '1.21.11', 'fabric'))
             self.assertEqual(calls[0][1]['version_id'], 'instance-A')
             switch.on_change(None)
@@ -509,11 +516,176 @@ class ManagementUI(unittest.TestCase):
         self.items[:] = [{'filename': f'{i}.zip', 'display_name': str(i), 'size_kb': 1, 'enabled': True} for i in range(300)]
         self.refresh()
         view = self.scope['mods_list_view']
-        self.assertEqual(len(view.controls), 13)
+        first_rows = tuple(view.controls[:50])
+        self.assertEqual(len(view.controls), 51)
+        self.assertEqual(view.runs_count, 3)
+        self.assertTrue(view.build_controls_on_demand)
         view.controls[-1].on_click(None)
-        self.assertEqual(len(view.controls), 39)
-        view.controls[-2].on_click(None)
-        self.assertEqual(len(view.controls), 64)
+        self.assertEqual(len(view.controls), 101)
+        self.assertEqual(tuple(view.controls[:50]), first_rows)
+        view.controls[-1].on_click(None)
+        self.assertEqual(len(view.controls), 151)
+        view.on_size_change(SimpleNamespace(width=700, height=300))
+        self.assertEqual(len(view.controls), 151)
+
+    def test_installed_and_browse_share_card_and_viewport_geometry(self):
+        from ui.content_tiles import layout_tiles
+        row = self.row()
+        installed = self.scope['mods_list_view']
+        browse = env(self.fns['_render_browse_page'])['browse_results_view']
+        self.assertEqual(row.height, 96)
+        for width in (320, 800, 1280, 1600):
+            installed._tile_width = browse._tile_width = width
+            layout_tiles(installed)
+            layout_tiles(browse)
+            self.assertEqual(installed.runs_count, browse.runs_count)
+            self.assertEqual(installed.child_aspect_ratio, browse.child_aspect_ratio)
+        panes = env(self.fns['on_view_change'])
+        self.assertIs(panes['installed_pane'].controls[0].controls[0].content,
+                      self.scope['installed_filter_field'])
+        self.assertEqual(panes['installed_pane'].controls[1].height,
+                         panes['browse_pane'].controls[2].height)
+        footer = panes['installed_pane'].controls[-1]
+        children = tuple(panes['installed_pane'].controls)
+        self.fns['_set_installed_status']('Long action feedback ' * 40)
+        self.fns['_set_repair_status']('Checking compatibility', '\n'.join(['Long issue'] * 10))
+        self.assertEqual(tuple(panes['installed_pane'].controls), children)
+        self.assertEqual(footer.height, 40)
+        self.assertEqual(env(self.fns['_set_installed_status'])['installed_status'].max_lines, 1)
+
+    def test_loading_cells_keep_final_grid_geometry_and_pager_space(self):
+        from ui.content_tiles import tile_capacity
+        scope = env(self.fns['_show_browse_loading'])
+        browse = scope['browse_results_view']
+        self.fns['_show_browse_loading']()
+        self.assertEqual(len(browse.controls), tile_capacity(browse))
+        self.assertTrue(browse._tile_mode)
+        self.assertTrue(scope['browse_pager_row'].visible)
+        self.assertTrue(scope['browse_pager_prev'].disabled)
+        self.assertTrue(scope['browse_pager_next'].disabled)
+        self.assertFalse(browse.disabled)
+        geometry = (browse.runs_count, browse.child_aspect_ratio)
+        self.refresh(background=True)
+        installed = self.scope['mods_list_view']
+        self.assertTrue(all(c.data == 'content-loading' for c in installed.controls))
+        self.assertEqual((installed.runs_count, installed.child_aspect_ratio), geometry)
+
+    def test_installed_snapshot_and_match_index_cache_expire_and_invalidate(self):
+        self.active['type'] = 'resourcepack'
+        self.items[:] = [dict(filename='demo.zip', display_name='Demo', size_kb=1, enabled=True)]
+        with patch.object(self.core, 'list_content', wraps=self.core.list_content) as read:
+            self.refresh()
+            matches = self.fns['content_installed_tokens']()
+            for _ in range(20):
+                self.refresh(background=True)
+                self.assertIs(self.fns['content_installed_tokens'](), matches)
+            self.assertEqual(read.call_count, 1)
+            self.assertEqual(QueuedThread.jobs, [])
+            self.refresh(background=True, force=True)
+            QueuedThread.jobs.pop()()
+            self.assertEqual(read.call_count, 2)
+            self.assertIsNot(self.fns['content_installed_tokens'](), matches)
+            timestamps = env(self.refresh)['installed_snapshot_at']
+            timestamps[self.fns['_installed_target']()] -= 16
+            self.refresh(background=True)
+            QueuedThread.jobs.pop()()
+            self.assertEqual(read.call_count, 3)
+            self.items[0]['display_name'] = 'Changed'
+            self.refresh()
+            self.assertIn('changed', self.fns['content_installed_tokens']())
+            self.assertNotIn('demo', self.fns['content_installed_tokens']())
+            self.dropdown.value = 'instance-B'
+            self.refresh(background=True)
+            QueuedThread.jobs.pop()()
+            self.assertEqual(read.call_count, 5)
+        for i in range(20):
+            self.dropdown.value = f'instance-{i}'
+            self.refresh()
+            self.fns['content_installed_tokens']()
+        self.assertLessEqual(len(env(self.fns['_cached_installed'])['installed_snapshots']), 12)
+        self.assertLessEqual(len(env(self.fns['_cache_matches'])['installed_match_sets']), 12)
+
+    def test_detail_patches_late_icon_without_remount_or_another_installed_scan(self):
+        from PIL import Image
+        stream = io.BytesIO()
+        Image.new('RGB', (16, 16), 'green').save(stream, 'PNG')
+        source = base64.b64encode(stream.getvalue()).decode('ascii')
+        self.refresh()
+        self.core.get_mod_details = lambda ref: dict(title=ref, icon_url='https://example.invalid/icon.png')
+        self.core.get_mod_versions = lambda *a, **kw: [dict(filename='demo.jar', url='offline', compatible=True)]
+        artwork = env(self.fns['_art_image'])['artwork']
+        requested = []
+        with patch.object(artwork, 'request', side_effect=lambda url, cb: requested.append((url, cb))), \
+                patch.object(self.core, 'list_mods') as reads:
+            self.fns['open_mod_detail'](dict(project_id='demo'))
+            host = self.root.controls[1]
+            hero = host.controls[1]
+            icon = hero.content.controls[0]
+            self.assertEqual(icon.src, 'icon_64.png')
+            QueuedThread.jobs.pop()()
+            self.assertIs(hero.content.controls[0], icon)
+            reads.assert_not_called()
+            self.assertEqual(requested[0][0], 'https://example.invalid/icon.png')
+            requested[0][1](source)
+            self.assertEqual(icon.src, source)
+            self.assertEqual((icon.width, icon.height, hero.height), (58, 58, 120))
+            self.root.close_detail()
+            icon.src = 'icon_64.png'
+            requested[0][1](source)
+            self.assertEqual(icon.src, 'icon_64.png')
+
+    def test_view_fade_keeps_hosts_and_ignores_superseded_reveals(self):
+        import asyncio
+        callbacks = []
+        self.page.run_task = lambda fn: callbacks.append(fn)
+        self.fns['on_view_change']('installed')
+        hosts = env(self.fns['_sync_view_hosts'])
+        installed = hosts['installed_host']
+        browse = hosts['browse_host']
+        self.assertTrue(installed.visible)
+        self.assertFalse(browse.visible)
+        self.assertEqual(installed.opacity, 0)
+        self.assertEqual(installed.animate_opacity.duration, 180)
+        self.fns['on_view_change']('browse')
+        asyncio.run(callbacks[0]())
+        self.assertEqual(browse.opacity, 0)
+        asyncio.run(callbacks[1]())
+        self.assertEqual(browse.opacity, 1)
+        self.assertIs(hosts['installed_host'], installed)
+
+    def test_background_refresh_does_not_revert_a_pending_toggle(self):
+        row = self.row()
+        switch = row.content.controls[2]
+        switch.value = False
+        switch.on_change(None)
+        self.refresh()
+        self.assertIs(self.scope['mods_list_view'].controls[0], row)
+        self.assertFalse(switch.value)
+        self.assertTrue(switch.disabled)
+        self.assertEqual(row.content.controls[1].controls[1].value, 'Disabling…')
+        QueuedThread.jobs.pop()()
+        self.assertFalse(switch.disabled)
+
+    def test_failed_refresh_retains_scrollable_cards_and_offers_retry(self):
+        self.core.get_recommended_mods = lambda **kw: [
+            {'project_id': 'demo', 'slug': 'demo', 'title': 'Demo', 'downloads': 10}]
+        self.fns['load_recommended_mods']()
+        QueuedThread.jobs.pop()()
+        scope = env(self.fns['_render_browse_page'])
+        view = scope['browse_results_view']
+        before = tuple(view.controls)
+        geometry = (view.runs_count, view.child_aspect_ratio)
+        self.core.get_recommended_mods = lambda **kw: (_ for _ in ()).throw(OSError('offline'))
+        self.fns['_retry_search']()
+        self.assertEqual(tuple(view.controls), before)
+        self.assertFalse(view.disabled)
+        QueuedThread.jobs.pop()()
+        self.assertEqual(tuple(view.controls), before)
+        self.assertEqual((view.runs_count, view.child_aspect_ratio), geometry)
+        self.assertTrue(all(not c.ignore_interactions for c in view.controls))
+        retry = env(self.fns['_show_browse_loading'])['browse_retry']
+        self.assertFalse(retry.disabled)
+        self.assertEqual(retry.opacity, 1)
 
     def test_resizing_only_changes_layout_and_preserves_request_offsets(self):
         scope = env(self.fns['_render_browse_page'])

@@ -239,10 +239,12 @@
     E.color=h.toLowerCase();$('#edHex').value=E.color.toUpperCase();paintSwatch();
     $$('.cw',ed).forEach(function(b){b.setAttribute('aria-pressed',b.dataset.c.toLowerCase()===E.color)});
     if(picker&&!fromChooser)picker.set(E.color,E.alpha);
+    if(window.MobileEditor)window.MobileEditor.sync();
   }
   function setAlpha(a,fromChooser){
     E.alpha=Math.max(0,Math.min(100,Number(a)));$('#edAlpha').value=E.alpha;$('#edAlphaValue').value=Math.round(E.alpha)+'%';paintSwatch();
     if(picker&&!fromChooser)picker.set(E.color,E.alpha);
+    if(window.MobileEditor)window.MobileEditor.sync();
   }
   function pushRecent(){
     var r=D.set.recent||(D.set.recent=[]),c=E.color;
@@ -482,6 +484,7 @@
     $('#edUndo').style.opacity=$('#edUndo').disabled?.4:1;$('#edRedo').style.opacity=$('#edRedo').disabled?.4:1;
     $('#edAlpha').value=E.alpha;
     animationControls.refresh();
+    if(window.MobileEditor)window.MobileEditor.sync();
   }
   ed.addEventListener('click',function(e){
     var t=e.target,b;
@@ -495,9 +498,10 @@
     if(t.closest('#edDetails')){picker.close(false);CB.openDetails(E.p);return}
     if(t.closest('#edExport')){picker.close(false);window.ResourcePacks.exportProject(E.p);return}
     if(b=t.closest('#edL')){ed.classList.toggle('l-open');ed.classList.remove('r-open','frames-open');animationControls.layoutRail();return}
-    if(b=t.closest('#edR')){ed.classList.toggle('r-open');ed.classList.remove('l-open','frames-open');animationControls.layoutRail();return}
+    if(b=t.closest('#edR')){var colors=ed.dataset.toolSection==='color';ed.dataset.toolSection='tools';ed.classList.toggle('r-open',colors||!ed.classList.contains('r-open'));ed.classList.remove('l-open','frames-open');animationControls.layoutRail();return}
+    if(t.closest('#mobilePreview')){ed.classList.remove('l-open','r-open','frames-open');animationControls.layoutRail();activate(E.cur==='preview'?E.last||E.open[0]:'preview');return}
     if(t.closest('#edC')&&!t.closest('#canvasBar')&&(ed.classList.contains('l-open')||ed.classList.contains('r-open')||ed.classList.contains('frames-open'))){ed.classList.remove('l-open','r-open','frames-open');animationControls.layoutRail()}
-    if(b=t.closest('#edTools .tb')){E.hand=false;E.tool=b.dataset.t;sync();ovl();return}
+    if(b=t.closest('#edTools .tb')){E.hand=false;E.tool=b.dataset.t;if(innerWidth<=900)ed.classList.remove('r-open');sync();ovl();return}
     if(t.closest('#canvasPan')){E.hand=!E.hand;sync();ovl();return}
     if(t.closest('#canvasGrid')){E.grid=!E.grid;setZoom(E.zoom);sync();return}
     if(t.closest('#canvasZoomIn')){setZoom(E.zoom*1.25,false);return}

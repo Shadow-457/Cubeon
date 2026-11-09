@@ -37,13 +37,13 @@ _sandbox_home.isolate()
 
 from cubeon import osnotify  # noqa: E402
 
-print("\n1. the eight notification kinds")
+print("\n1. the seven notification kinds")
 
-check("8 kinds", len(osnotify.KINDS) == 8, str(len(osnotify.KINDS)))
+check("7 kinds", len(osnotify.KINDS) == 7, str(len(osnotify.KINDS)))
 check("the install kinds are all there",
       {k for k, *_ in osnotify.KINDS} ==
       {"instance", "mod", "modpack", "resourcepack", "texturepack",
-       "friend", "message", "update"})
+       "friend", "message"})
 _keys = [key for _k, key, _l, _s in osnotify.KINDS]
 check("config keys are unique", len(set(_keys)) == len(_keys), str(_keys))
 check("every kind has a label and a subtitle",
@@ -198,25 +198,6 @@ finally:
     osnotify.shutil.which = _saved_which
     osnotify._recent.clear()
 
-print("\n7. the update ping")
-
-_saved_send = osnotify._send
-_sent3 = []
-osnotify._send = lambda title, body: _sent3.append((title, body)) or True
-osnotify.shutil.which = lambda _name: "/usr/bin/notify-send"
-try:
-    osnotify._recent.clear()
-    check("a new version notifies",
-          osnotify.update_available("1.2.3", cfg={}) is True)
-    check("...and names the version", "1.2.3" in _sent3[-1][1], str(_sent3))
-    osnotify._recent.clear()
-    check("an empty version does not",
-          osnotify.update_available("", cfg={}) is False)
-finally:
-    osnotify._send = _saved_send
-    osnotify.shutil.which = _saved_which
-    osnotify._recent.clear()
-
 print("\n8. the platform payloads are well-formed")
 
 # Exercise the REAL path: _send_powershell escapes, then builds the XML. A
@@ -271,7 +252,6 @@ _hostile = [
      lambda: osnotify.friend_came_online(object(), {"x": 1}, cfg={})),
     ("a non-dict counts",
      lambda: osnotify.friend_came_online("a", 7, cfg={})),
-    ("junk as a version", lambda: osnotify.update_available(None, cfg={})),
     ("an unknown kind", lambda: osnotify.notify("wat", "A", "B", cfg={})),
 ]
 for _label, _call in _hostile:
@@ -312,16 +292,13 @@ check("a missing notifier is a quiet no-op, not an error",
 print("\n10. the Settings toggles are wired to these kinds")
 
 _settings = open(os.path.join(_ROOT, "ui", "settings_tab.py"), encoding="utf-8").read()
-_main = open(os.path.join(_ROOT, "main.py"), encoding="utf-8").read()
 check("Settings has a Notifications section",
-      'block(i18n.t("Notifications")' in _settings and "notification_rows" in _settings,
+      'notifications_pane = pane("Notifications", group(notification_rows))' in _settings,
       "the user asked for a toggle per type")
 check("the toggle rows come from osnotify.KINDS, not a copied list",
       "osnotify.KINDS" in _settings)
 check("the switches save instantly",
       "save_config" in _settings and "notification_rows" in _settings)
-check("main.py pings for a new Cubeon version",
-      "update_available(" in _main)
 _mods = open(os.path.join(_ROOT, "ui", "mods_tab.py"), encoding="utf-8").read()
 _packs = open(os.path.join(_ROOT, "ui", "modpacks_tab.py"), encoding="utf-8").read()
 check("a finished mod install notifies",

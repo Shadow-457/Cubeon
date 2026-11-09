@@ -168,7 +168,9 @@ with patch("ui.mods_tab.threading.Thread", QueuedThread), patch.object(icons, "p
     render()
     check("cached browse pages keep their mounted rows", tuple(browse_list.controls) == visible_rows)
     functions["_show_browse_loading"]()
-    check("loading keeps the previous list height and icons", tuple(browse_list.controls) == visible_rows and browse_list.disabled)
+    check("loading keeps the previous list height, icons and native scrolling",
+          tuple(browse_list.controls) == visible_rows and not browse_list.disabled
+          and all(r.ignore_interactions for r in visible_rows if r.data != 'cubeon-client-browse'))
     render()
     check("completed page loads re-enable the same controls", tuple(browse_list.controls) == visible_rows and not browse_list.disabled)
     initial, added, removed = ObjectPatch.from_diff(None, browse_list, BaseControl)

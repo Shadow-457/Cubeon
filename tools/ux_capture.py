@@ -174,6 +174,12 @@ def _subtab(page, key, max_nodes=8):
             ancestor = getattr(ancestor, "parent", None)
         if ancestor is not None:
             continue
+        data = getattr(c, 'data', None)
+        if data == 'content-' + key:
+            return _click(c)
+        if data == 'mods-installed-toggle' and key in ('installed', 'browse'):
+            destination = 'installed' if str(getattr(c, 'content', '')).startswith('Installed') else 'browse'
+            return _click(c) if destination == key else True
         h = getattr(c, "on_click", None)
         d = getattr(h, "__defaults__", None)
         if callable(h) and isinstance(d, tuple) and d and d[0] == key \

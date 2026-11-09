@@ -1,6 +1,5 @@
-"""Tests for cubeon/net.py (retry, resume, concurrency gate) and
-cubeon/updater.py (version comparison, feed parsing). Fully hermetic:
-requests.get is faked, no network."""
+"""Tests for cubeon/net.py (retry, resume, concurrency and request identity).
+Fully hermetic: requests.get is faked, no network."""
 import hashlib
 import os
 import sys
@@ -99,49 +98,6 @@ def with_monkeypatched_get(fn):
 def tmpdir():
     import tempfile
     return tempfile.mkdtemp(prefix="cubeon-net-test-")
-
-
-# ---------------------------------------------------------------- updater ---
-check(updater.is_newer("v1.1.0", "1.0.0"), "v-prefixed tag parses")
-check(updater.is_newer("1.0.1", "1.0.0"), "plain tag parses")
-check(not updater.is_newer("1.0.0", "1.0.0"), "same version is not newer")
-check(not updater.is_newer("0.9.9", "1.0.0"), "older tag is not newer")
-check(not updater.is_newer("weird-tag", "1.0.0"),
-      "unparseable tag compares as not-newer (never nag on ambiguity)")
-
-
-@with_monkeypatched_get
-def _updater_feed():
-    net.requests.get = lambda *a, **k: FakeResp(
-        [], json_body={"tag_name": "v9.9.9", "html_url": "https://x/release",
-                       "body": "notes here"})
-    info = updater.check_for_updates(feed_url="https://feed")
-    check(info == {"version": "9.9.9", "url": updater.DOWNLOAD_URL,
-                   "notes": "notes here", "channel": "stable", "assets": {}},
-          "newer release is reported")
-    check(info["url"] == "https://www.ylet.online/download",
-          "and the offer points at the site's download page")
-    check("github.com" not in info["url"] and info["url"] != "https://x/release",
-          "NOT at the release's html_url - this repo is private and the "
-          "release page is an auth wall for everyone without access")
-    check(updater.check_for_updates(feed_url="https://feed",
-                                    download_url="https://staging/d").get("url")
-          == "https://staging/d", "download page is overridable (staging)")
-
-    os.environ["CUBEON_DOWNLOAD_URL"] = "https://env/d"
-    try:
-        check(updater.check_for_updates(feed_url="https://feed").get("url")
-              == "https://env/d", "CUBEON_DOWNLOAD_URL overrides it too")
-    finally:
-        del os.environ["CUBEON_DOWNLOAD_URL"]
-
-    net.requests.get = lambda *a, **k: FakeResp(
-        [], json_body={"tag_name": "v1.0.0"})
-    check(updater.check_for_updates(feed_url="https://feed") is None,
-          "up-to-date feed yields None")
-
-
-_updater_feed()
 
 
 # -------------------------------------------------------------------- net ---

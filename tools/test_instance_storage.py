@@ -83,6 +83,28 @@ class StorageTests(unittest.TestCase):
     def restart(self):
         storage._restart_required = False
 
+    def test_migration_busy_checks_game_installs_and_server_ownership(self):
+        from cubeon import watchdog, server
+        with patch.object(server, "SERVERS_DIR", self.temp.name), \
+                patch.object(watchdog, "stale_session", return_value=None), \
+                patch.object(server, "is_server_running", return_value=False) as running:
+            self.assertFalse(storage.application_busy({}))
+            for key in ("running_version", "installing_version", "launching_version", "ending_session"):
+                with self.subTest(key=key):
+                    self.assertTrue(storage.application_busy({key: "1.21"}))
+            (Path(self.temp.name) / "hosted-server").mkdir()
+            running.return_value = True
+            self.assertTrue(storage.application_busy({}))
+        with patch.object(watchdog, "stale_session", return_value={"pid": 123}):
+            self.assertTrue(storage.application_busy({}))
+
+    def test_migration_busy_blocks_when_storage_locked_or_probe_fails(self):
+        from cubeon import watchdog
+        with patch.object(storage, "blocked", return_value=True):
+            self.assertTrue(storage.application_busy({}))
+        with patch.object(watchdog, "stale_session", side_effect=OSError("Cannot inspect game")):
+            self.assertTrue(storage.application_busy({}))
+
     def test_new_instance_skips_occupied_base_and_suffix_without_changing_files(self):
         from cubeon import storage_layout
         import uuid

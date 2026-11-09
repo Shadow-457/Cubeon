@@ -52,6 +52,9 @@ from cubeon.startup_profile import mark as _startup_mark
 # can register it from any entry point (script OR test harness import).
 _session_end = {"handler": None}
 _client_closing = threading.Event()
+# A committed updater helper owns installation/relaunch after this process
+# exits. It must outrank seasonal and GPU recovery's interpreter replacements.
+_update_exit = threading.Event()
 
 # Process-scoped Discord presence. See main() where it's created - the
 # window can be closed and relaunched (Settings > Restart, GPU-crash
@@ -102,25 +105,6 @@ _session_runtime = {"friends_service": None, "friends_client": None,
 # once ft.run has returned - doing it from inside main() would orphan the flet
 # client as a ghost window, because `_kill_flet_client()` never gets to run.
 _relaunch = {"request": None}
-
-# An update is prepared only by Install & restart. The helper starts after
-# session teardown and waits for this process to exit before touching files.
-_pending_app_update = {"job": None}
-_app_update_lock = threading.Lock()
-
-
-def _handoff_app_update() -> bool:
-    with _app_update_lock:
-        job = _pending_app_update.get("job")
-        if job is None:
-            return False
-        _pending_app_update["job"] = None
-    try:
-        from cubeon.update_install import launch_install
-        launch_install(job)
-    except Exception:
-        logging.getLogger(__name__).exception("Could not start the update installer")
-    return True  # an update close must never re-exec the old launcher
 
 # Post-session SIGINT/SIGTERM presses, counted so the FIRST one can be graceful
 # (finish the bounded teardown, then exit through the normal hard-exit) and the
@@ -628,8 +612,8 @@ def _window_gone_finish(reason: str) -> None:
     # but never reopens"). When a relaunch is armed that cannot happen - the
     # restart IS the reason the window is going away.
     _rl = _relaunch.get("request")
-    _relaunching = _rl is not None and _rl.is_set()
-    if not _relaunching and _pending_app_update.get("job") is None:
+    _relaunching = _rl is not None and _rl.is_set() and not _update_exit.is_set()
+    if not _relaunching and not _update_exit.is_set():
         try:
             if _live_flet_clients(resolve_assets_dir()):
                 return  # client still up: a minimize or a reconnect, not a close
@@ -653,8 +637,7 @@ def _window_gone_finish(reason: str) -> None:
     # exactly as it does in _session_loop: the user asked for a re-exec, and
     # leaving the process instead would make the Restart button look broken.
     _relaunched = False
-    _updating = _handoff_app_update()
-    if _relaunching and not _updating:
+    if _relaunching:
         print("cubeon: restart requested - relaunching to apply seasonal "
               "settings")
         try:
@@ -766,6 +749,7 @@ async def main(page: ft.Page):
     from cubeon.window_close import WindowCloser
     _window_closer = WindowCloser(page, lambda closing:
                                  _client_closing.set() if closing else _client_closing.clear())
+    _auto_updates = None
 
     # Dev-only live UI inspector (CUBEON_INSPECT=1 or cfg["dev_inspector"]):
     # a DevTools-style dialog for browsing the mounted control tree and
@@ -3746,7 +3730,7 @@ async def main(page: ft.Page):
         it is Cancel, while a game is live it is Quit Game, otherwise it
         starts the normal play/download flow. Defined before play_button (it
         is its on_click); every name it touches resolves at click time."""
-        if state.get("updating_launcher") or state.get("ending_session"):
+        if state.get("ending_session"):
             return
         if state.get("installing_version"):
             on_cancel_install()
@@ -4654,7 +4638,7 @@ async def main(page: ft.Page):
         # The progress card and cancel button describe one attempt. Claim
         # their slot atomically for every install/Play request.
         with thread_safe_ui.TREE_LOCK, _launch_state_lock:
-            if state.get("updating_launcher"):
+            if instance_storage.blocked():
                 return False
             if _deleting_versions:
                 _show_snack("An instance is being deleted. Wait for it to finish before playing.")
@@ -4756,8 +4740,6 @@ async def main(page: ft.Page):
         It validates the username, saves config, and then starts the installation/launch process
         in a background thread so the UI stays responsive.
         """
-        if state.get("updating_launcher"):
-            return False
         # Validate username
         username = username_field.value.strip()
         ok, err = core.validate_username(username)
@@ -5912,6 +5894,8 @@ async def main(page: ft.Page):
         def confirm(e=None):
             _close_dialog(dlg)
             with thread_safe_ui.TREE_LOCK, _launch_state_lock:
+                if instance_storage.blocked():
+                    return
                 if _deleting_versions:
                     set_status("An instance is already being deleted")
                     return
@@ -7483,6 +7467,9 @@ async def main(page: ft.Page):
     # as the account scrim (left/top/right/bottom=0 in page.overlay, opacity
     # animated): without it the window blinks out on `window.close()` and the
     # user sees no acknowledgement at all between the old and the new process.
+    _restart_heading = ft.Text("Restarting Cubeon…", size=14, color=TEXT,
+                               font_family=FONT_DISPLAY)
+    _restart_detail = ft.Text(i18n.t("Applying your settings."), size=11.5, color=TEXT_DIM)
     restart_overlay = ft.Container(
         bgcolor=ft.Colors.with_opacity(0.72, "#000000"),
         left=0, top=0, right=0, bottom=0,
@@ -7496,10 +7483,8 @@ async def main(page: ft.Page):
                 ft.ProgressRing(width=26, height=26, stroke_width=3,
                                 color=ACCENT),
                 ft.Container(height=4),
-                ft.Text("Restarting Cubeon…", size=14, color=TEXT,
-                        font_family=FONT_DISPLAY),
-                ft.Text(i18n.t("Applying your settings."), size=11.5,
-                        color=TEXT_DIM),
+                _restart_heading,
+                _restart_detail,
             ],
             spacing=8, tight=True,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -7537,6 +7522,8 @@ async def main(page: ft.Page):
         clean it up - leaving a ghost window. So this sets the request, shows
         the "Restarting…" cover, and asks the window to close, nothing more.
         """
+        if _update_exit.is_set() or state.get("launcher_update_closing"):
+            return
         try:
             core.save_config(cfg)
         except Exception:
@@ -7777,7 +7764,6 @@ async def main(page: ft.Page):
     settings_tab = build_settings_tab(
         page, cfg,
         on_replay_onboarding=lambda: _show_onboarding(replay=True),
-        on_check_updates=lambda: _check_app_update(),
         account_pane=account_pane,
         section_label=section_label, pixel_divider=pixel_divider,
         set_status=set_status,
@@ -8251,6 +8237,8 @@ async def main(page: ft.Page):
         except Exception:
             page.update()
         _startup_mark("finished UI revealed")
+        from cubeon.auto_update import acknowledge_startup
+        acknowledge_startup()
 
     # The overlay handle lives outside the `if` so the post-reveal fade below
     # can stay a plain `if _onboard_overlay is not None`.
@@ -8359,13 +8347,12 @@ async def main(page: ft.Page):
         nonlocal _storage_prompt
         if _storage_prompt is not None and _storage_prompt.phase in ("migrating", "restart"):
             return
-        from cubeon.update_install import application_busy
         from ui.install_feedback import any_busy as content_busy
         def lock_ui(locked):
             _app_root.disabled = locked
             thread_safe_ui.refresh(_app_root)
         _storage_prompt = StorageMigration(
-            page, busy=lambda: application_busy(state) or content_busy(),
+            page, busy=lambda: instance_storage.application_busy(state) or content_busy(),
             restart=_on_restart_click,
             exit_launcher=lambda e: _window_closer.request(),
             set_locked=lock_ui,
@@ -8592,118 +8579,107 @@ async def main(page: ft.Page):
     except Exception:
         pass  # watchdog is a nicety; never block startup on it
 
-    # -----------------------------------------------------------------
-    # UPDATE CHECK: one metadata-only startup request. Skip lasts for this
-    # process; the old config marker limits OS toasts, never the new prompt.
-    # -----------------------------------------------------------------
-    _update_active = threading.Event()
-    _update_active.set()
-    _update_prompt = {"value": None}
-    _update_check_running = threading.Event()
-    _update_check_lock = threading.Lock()
+    # Startup updates run after the UI is usable, never on Flet's event loop.
+    # OS ownership probes and hashes precede the short, atomic UI idle claim.
+    from cubeon.auto_update import AutoUpdater
 
-    def _update_busy():
-        from cubeon.update_install import application_busy
-        return application_busy(state)
+    def _resume_after_update():
+        instance_storage.release_launcher_update()
+        with thread_safe_ui.TREE_LOCK:
+            state["launcher_update_closing"] = False
+            _app_root.disabled = False
+            restart_overlay.visible = False
+            restart_overlay.opacity = 0
+            _restart_heading.value = "Restarting Cubeon…"
+            _restart_detail.value = i18n.t("Applying your settings.")
+            thread_safe_ui.refresh(_app_root)
+            thread_safe_ui.refresh(restart_overlay)
 
-    def _install_app_update(job, failed):
-        with _launch_state_lock:
-            if _update_busy():
-                raise RuntimeError("Close Minecraft and stop active installs or servers first.")
-            state["updating_launcher"] = True
-            with _app_update_lock:
-                _pending_app_update["job"] = job
+    def _prepare_update():
+        # This includes persisted game ownership and hosted server locks and
+        # intentionally runs outside TREE_LOCK (it can query the OS).
+        if _client_closing.is_set() or instance_storage.application_busy(state):
+            return False
+        from ui.install_feedback import any_busy
+        from cubeon import versions, modpacks
+        with thread_safe_ui.TREE_LOCK, _launch_state_lock:
+            relaunch = _relaunch.get("request")
+            if (_client_closing.is_set() or _auto_updates.cancel_event.is_set()
+                    or (relaunch is not None and relaunch.is_set()) or _app_root.disabled
+                    or _deleting_versions or any_busy() or versions.active_installs()
+                    or modpacks.active_pack_installs()
+                    or any(state.get(key) for key in ("running_version", "installing_version",
+                                                      "launching_version", "ending_session", "fixing_mods"))
+                    or (_storage_prompt is not None and _storage_prompt.phase in ("migrating", "restart"))):
+                return False
+            if not instance_storage.claim_launcher_update():
+                return False
+            state["launcher_update_closing"] = True
+            _app_root.disabled = True
+            _restart_heading.value = "Preparing Cubeon update…"
+            _restart_detail.value = "The download is verified. Preparing a safe installation."
+            restart_overlay.visible = True
+            restart_overlay.opacity = 1
+            thread_safe_ui.refresh(_app_root)
+            thread_safe_ui.refresh(page._overlay)
+        return True
 
-        async def _close_for_update():
-            if await _window_closer.close():
-                return
-            with _app_update_lock:
-                _pending_app_update["job"] = None
-            state["updating_launcher"] = False
-            failed("Couldn't close Cubeon. Try Restart again.")
+    def _close_for_update(handoff, release):
+        if _auto_updates.cancel_event.is_set():
+            return False
 
+        async def close_update():
+            if not await _window_closer.close():
+                try:
+                    handoff.cancel()
+                finally:
+                    _update_exit.clear()
+                    timer = _window_gone.get("timer")
+                    if timer is not None:
+                        timer.cancel()
+                    _window_gone["timer"] = None
+                    _window_gone["dismissed_at"] = None
+                    _resume_after_update()
+                _show_snack("Cubeon could not close for the update. It will try on the next startup.", duration=6000)
+
+        # The helper is ready and holds the target lock. Commit outside the
+        # UI lock; a rejected close cancels this token before restoring input.
+        _update_exit.set()
         try:
-            page.run_task(_close_for_update)
+            handoff.commit()
+            with thread_safe_ui.TREE_LOCK:
+                _restart_heading.value = f"Updating Cubeon to {release.version}…"
+                _restart_detail.value = ("Cubeon will reopen after the update." if sys.platform.startswith("linux")
+                                         else "Cubeon is closing so Windows can install the update.")
+                thread_safe_ui.refresh(restart_overlay)
+            _arm_window_gone_exit("verified launcher update", delay=8.0)
+            page.run_task(close_update)
+            return True
         except Exception:
-            with _app_update_lock:
-                _pending_app_update["job"] = None
-            state["updating_launcher"] = False
+            handoff.cancel()
+            _update_exit.clear()
+            timer = _window_gone.get("timer")
+            if timer is not None:
+                timer.cancel()
+            _window_gone["timer"] = None
+            _window_gone["dismissed_at"] = None
             raise
 
-    def _announce_update(info: dict, *, manual=False):
-        try:
-            if not _update_active.is_set():
-                return
-            selected_channel = "beta" if cfg.get("update_channel") == "beta" else "stable"
-            if info.get("channel", "stable") != selected_channel:
-                return  # Settings changes apply on the next start
-            version = str((info or {}).get("version") or "").strip()
-            if not updater.should_prompt(cfg, version, manual=manual):
-                return
-            if updater.should_announce(cfg, version):
-                try:
-                    core.save_config(cfg)
-                except Exception:
-                    pass
-                try:
-                    from cubeon import osnotify
-                    osnotify.update_available(version, cfg=cfg)
-                except Exception:
-                    pass
-            from ui.update_prompt import UpdatePrompt
-            from cubeon.update_install import installation_target
-            target = installation_target()
-            def remember_skip(skipped_version):
-                updater.remember_skip(cfg, skipped_version)
-                core.save_config(cfg)
-            with thread_safe_ui.TREE_LOCK:
-                current = _update_prompt.get("value")
-                if current and current.phase in {"offered", "downloading", "preparing", "ready", "closing"}:
-                    return
-                if _update_active.is_set() and updater.should_prompt(cfg, version, manual=manual):
-                    _update_prompt["value"] = UpdatePrompt(
-                        page, info, busy=_update_busy, install=_install_app_update,
-                        target=target, on_skip=remember_skip).open()
-        except Exception:
-            logging.getLogger(__name__).debug("update prompt failed", exc_info=True)
+    def _update_notice(phase, release):
+        if _auto_updates.cancel_event.is_set():
+            return
+        messages = {
+            "downloading": f"Downloading Cubeon {release.version} update…" if release else "",
+            "deferred": "Cubeon update verified. It will install on a startup when no game or downloads are active.",
+            "previous-failure": "The last Cubeon update failed. Your recovery files are kept; automatic retry is paused for 24 hours.",
+            "failed": "Cubeon could not complete the update. Your current installation is kept; see cubeon.log.",
+        }
+        if phase in messages:
+            _show_snack(messages[phase], duration=6000)
 
-    def _check_app_update(manual=True):
-        with _update_check_lock:
-            if not _update_active.is_set() or _update_check_running.is_set():
-                return
-            current = _update_prompt.get("value")
-            if current and current.phase in {"offered", "downloading", "preparing", "ready", "closing"}:
-                return
-            _update_check_running.set()
-        if manual:
-            set_status("Checking for launcher updates…")
-
-        def complete(info):
-            _update_check_running.clear()
-            if manual and _update_active.is_set():
-                set_status("A launcher update is available." if info else
-                           f"Cubeon {updater.APP_VERSION} is up to date.")
-
-        def failed(error):
-            _update_check_running.clear()
-            if manual and _update_active.is_set():
-                set_status("Couldn't check for updates. Check your connection and try again.")
-
-        updater.check_in_background(lambda info: _announce_update(info, manual=manual), token=cfg.get("update_token"),
-                                   channel=cfg.get("update_channel", "stable"),
-                                   on_complete=complete, on_error=failed)
-
-    try:
-        from cubeon import updater
-        from cubeon.update_install import take_install_failure
-        last_update_error = take_install_failure()
-        if last_update_error:
-            set_status("Update failed: " + last_update_error)
-        if not _session_runtime.get("update_check_started"):
-            _session_runtime["update_check_started"] = True
-            _check_app_update(manual=False)
-    except Exception:
-        logging.getLogger(__name__).warning("background worker error", exc_info=True)
+    _auto_updates = AutoUpdater(prepare=_prepare_update, request_exit=_close_for_update,
+                               resume=_resume_after_update, notice=_update_notice)
+    _auto_updates.start()
 
     # -----------------------------------------------------------------
     # SEASONAL GREETING
@@ -8963,13 +8939,12 @@ async def main(page: ft.Page):
     # _window_gone_finish if ft.run() never comes back, and otherwise the
     # session loop does it (which is what keeps "Restart to apply" working).
     def _on_page_gone(_e):
+        if _auto_updates is not None:
+            _auto_updates.stop()
         _remember_instance_selection(version_dropdown.value)
         if friends_service is not None:
             friends_service.set_notice_handler(None)
         cubeon_toast.uninstall(page)
-        _update_active.clear()
-        if _update_prompt["value"] is not None:
-            _update_prompt["value"].cancel.set()
         _window_closer.mark_closed()
         try:
             _save_geometry_now()
@@ -8989,12 +8964,11 @@ async def main(page: ft.Page):
     # process is on its way out, so everything process-scoped is stopped
     # here - there is no windowless "background" state to stay alive for.
     def _do_session_end_cleanup():
+        if _auto_updates is not None:
+            _auto_updates.stop()
         if friends_service is not None:
             friends_service.set_notice_handler(None)
         cubeon_toast.uninstall(page)
-        _update_active.clear()
-        if _update_prompt["value"] is not None:
-            _update_prompt["value"].cancel.set()
         _save_geometry_now()
         _rpc.clear()
         _rpc.close()
@@ -9846,10 +9820,8 @@ if __name__ == "__main__":
                 # straight to the fresh launcher - no GL-fallback retry, no
                 # parking; if re-exec itself fails there is no good in-process
                 # recovery left (ft.run is once-per-process), so exit.
-                if _handoff_app_update():
-                    return
                 _rl = _relaunch.get("request")
-                if _rl is not None and _rl.is_set():
+                if _rl is not None and _rl.is_set() and not _update_exit.is_set():
                     print("cubeon: restart requested - relaunching to apply "
                           "seasonal settings")
                     try:
@@ -9906,6 +9878,9 @@ if __name__ == "__main__":
                 _incident.record_session_end(
                     _session_end_kind, _last_client_exit["code"], ui_painted,
                     _client_tail.lines())
+
+                if _update_exit.is_set():
+                    return  # the detached helper owns the next process
 
                 if _session_end_kind == "clean_close":
                     # Real user close: clear any crash-fallback flag so the

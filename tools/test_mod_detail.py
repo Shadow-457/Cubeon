@@ -460,6 +460,10 @@ class _FakePage:
     def update(self, *a):
         self.update_calls += 1
 
+    def run_task(self, handler, *args, **kwargs):
+        import asyncio
+        return asyncio.run(handler(*args, **kwargs))
+
     def show_dialog(self, c):
         c.open = True
         self._dialogs.controls.append(c)

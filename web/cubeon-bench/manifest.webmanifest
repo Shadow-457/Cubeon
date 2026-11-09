@@ -3,7 +3,7 @@
   "name": "Cubeon Bench",
   "short_name": "Cubeon Bench",
   "description": "Make Minecraft textures, skins, and resource packs. Create offline and keep your projects on your device.",
-  "start_url": "/cubeon-bench/workspace.html",
+  "start_url": "/cubeon-bench/workspace",
   "scope": "/cubeon-bench/",
   "display": "standalone",
   "background_color": "#F6F8F1",

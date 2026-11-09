@@ -48,6 +48,7 @@ from .launch import find_java
 from .mods import modrinth_search_index, rank_search_hits
 from . import local_cache
 from . import net
+from . import storage
 
 MODRINTH_API = "https://api.modrinth.com/v2"
 
@@ -660,6 +661,7 @@ def find_local_paper_jar(search_dirs: list[str] | None = None) -> str | None:
     return max(candidates)[1]
 
 
+@storage.update_operation()
 def install_server(version_id: str, server_type: str = SERVER_TYPE_PAPER,
                     status_cb=None, progress_cb=None, max_cb=None,
                     local_jar_path: str | None = None) -> None:
@@ -977,6 +979,7 @@ def _force_kill(process: subprocess.Popen) -> None:
         process.kill()
 
 
+@storage.update_operation()
 def start_server(version_id: str, ram_mb: int, java_path: str | None = None,
                   on_output=None, on_exit=None) -> subprocess.Popen:
     """Starts (or reuses) the server process for a version. Output lines are
@@ -1294,6 +1297,7 @@ def delete_plugin(version_id: str, filename: str) -> None:
         os.remove(meta_path)
 
 
+@storage.update_operation()
 def install_local_plugin(version_id: str, src_path: str) -> str:
     """Copies a local .jar straight into the plugins folder - for a plugin
     the user already has on disk, same as mods.py's install_local_mod."""
@@ -1358,6 +1362,7 @@ def get_low_ping_plugins() -> list[dict]:
     return local_cache.cached_call("low_ping_plugins", cache_key, _fetch, max_age=86400)
 
 
+@storage.update_operation()
 def ensure_smooth_mode_plugins(version_id: str, progress_cb=None) -> dict:
     """Cubeon's OWN low-ping stack, not just recommendations: when Smooth
     mode is switched on this installs every curated performance plugin the
@@ -1509,6 +1514,7 @@ def get_plugin_download(project_id_or_slug: str, mc_version: str | None = None) 
     return local_cache.cached_call("plugin_download", cache_key, _fetch, max_age=86400)
 
 
+@storage.update_operation()
 def download_plugin(version_id: str, download_url: str, filename: str,
                      slug: str | None = None, progress_cb=None) -> str:
     """Fetch a plugin jar with the same retry/resume/atomic-replace guarantees

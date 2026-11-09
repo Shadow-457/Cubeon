@@ -100,7 +100,7 @@ def run(browser, url, artifacts):
     page.reload(wait_until='domcontentloaded')
     page.wait_for_function('document.querySelector("#heroScene").dataset.renderer==="three"')
     assert page.locator('h1').inner_text().startswith('Edit textures.')
-    page.locator('a[href="workspace.html"]').first.click()
+    page.locator('a[href="workspace"]').first.click()
     page.wait_for_function('window.CB && window.Ed')
     assert page.locator('#guest').is_visible()
     context.set_offline(False)

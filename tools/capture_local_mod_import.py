@@ -163,10 +163,6 @@ async def run(page):
             assert (Path(directory) / 'helper.jar').is_file()
             await capture('imported')
             prompt._close()
-            from ui.update_prompt import UpdatePrompt
-            before = len(page._dialogs.controls)
-            assert UpdatePrompt(page, {'version': updater.APP_VERSION}, busy=lambda: False, install=lambda *a: None).open() is None
-            assert len(page._dialogs.controls) == before
             ux._click(ux.discover_nav(page)['settings'])
             await asyncio.sleep(.5)
             settings = next(c for c in ux.every_control(page) if callable(getattr(c, 'select_section', None)))
