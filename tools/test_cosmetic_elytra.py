@@ -114,6 +114,10 @@ def audit_targets():
         assert re.search(r'java.util.List[^\n]*\b' + field + ';', renderer), f'{version}: layer list accessor missing'
         registration = (ROOT / f'mod/src/main/java-overlay-{era}/com/cubeon/client/cosmetics/CosmeticsClient.java').read_text()
         assert target + '.class' in registration and 'cosmetics.enableElytraReplacement()' in registration
+        if 'live-skin-legacy' in bracket['overlays']:
+            player = subprocess.check_output(['javap', '-p', '-classpath', str(game),
+                'net.minecraft.client.network.AbstractClientPlayerEntity'], text=True, timeout=30)
+            assert ' getElytraTexture();' in player, f'{version}: legacy live-cape Elytra getter missing'
         print(f'{version}: concrete wing hook and registration layer list passed.', flush=True)
 
 

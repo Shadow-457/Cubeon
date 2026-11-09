@@ -1343,6 +1343,12 @@ keep builders consistent with the shared `THEME` contract.
   and bracket-selected `LiveCapeTexture` update the local cape through the same
   skin mixin, including legacy cape-visibility getters; peers/elytra remain intact.
   No Cape hides locally, as in launcher Cosmetics; friends retain the shared cape.
+  Local cape getters also honor `SkinNative.capeVisible()` before bridge state arrives or after it clears;
+  server model-part flags cannot re-enable it. Wardrobe refresh/Apply must preserve this saved option.
+  Raw live cape PNGs lack Elytra UV artwork: `LiveCape.elytra` preserves explicit Elytra textures and
+  otherwise supplies vanilla artwork during a live cape override (old entity path through 1.21.1,
+  equipment/wings path since 1.21.2). `test_live_cape_native.py` verifies actual texture selection and
+  hiding with CSL in isolated cached 1.21.11/26.3 worlds; shared runtime lives in `instances/.runtime`.
   GIF cape imports retain composited frames, timing, transparency and loop counts:
   the existing `.png` is the CSL still fallback, with `.frames.png` (vertical
   atlas), `.frames.json` and `.gif` sidecars. Inputs are bounded to 8 MB, 500 frames,

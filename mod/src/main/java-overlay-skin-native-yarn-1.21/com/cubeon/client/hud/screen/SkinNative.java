@@ -13,6 +13,7 @@ public final class SkinNative extends Screen implements SkinMenu.Layers {
     private static final PlayerModelPart[] PARTS={PlayerModelPart.HAT,PlayerModelPart.JACKET,
             PlayerModelPart.RIGHT_SLEEVE,PlayerModelPart.LEFT_SLEEVE,
             PlayerModelPart.RIGHT_PANTS_LEG,PlayerModelPart.LEFT_PANTS_LEG};
+    public static boolean capeVisible() { return MinecraftClient.getInstance().options.isPlayerModelPartEnabled(PlayerModelPart.CAPE); }
     public int mask() {
         int value=0;
         for(int i=0;i<PARTS.length;i++) if(client.options.isPlayerModelPartEnabled(PARTS[i])) value|=1<<i;

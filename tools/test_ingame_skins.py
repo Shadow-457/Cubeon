@@ -112,6 +112,19 @@ public final class SkinTest {
    check(LiveCape.get().hidden(),"No Cape hides immediately after Confirm");
    capes.select("");capes.apply();await(()->!capes.state().busy());
    check(!LiveCape.get().hidden(),"Cubeon Cape restores default");
+   var still=LiveCape.get();
+   check(LiveCape.texture(still,true,"server","live").equals("live"),"Visible local cape overrides server cape");
+   check(LiveCape.texture(still,false,"server","live")==null,"Disabled local option wins over server cape flags");
+   check(LiveCape.texture(null,false,"server",null)==null,"Disabled option also hides cached server cape before bridge loads");
+   check(LiveCape.texture(null,true,"server",null).equals("server"),"No local selection preserves original cape");
+   check(LiveCape.texture(still,true,"server",null).equals("server"),"Failed live upload retains previous cape");
+   check(LiveCape.elytra(still,null,"vanilla").equals("vanilla"),"Raw cape artwork cannot become invisible elytra");
+   check(LiveCape.elytra(still,"custom","vanilla").equals("custom"),"Explicit elytra artwork is preserved");
+   check(LiveCape.elytra(null,null,"vanilla")==null,"No cape override leaves vanilla texture selection alone");
+   CapeAnimation.apply(still.png(),true,null,"__none__");
+   check(LiveCape.texture(CapeAnimation.get(),true,"server","live")==null,"No Cape hides even when native option is enabled");
+   check(LiveCape.elytra(CapeAnimation.get(),null,"vanilla").equals("vanilla"),"No Cape still keeps equipped elytra visible");
+   CapeAnimation.apply(still.png(),false,null,"restored");
   }
   try(var menu=new SkinMenu()) {
    var field=SkinMenu.class.getDeclaredField("library");field.setAccessible(true);
@@ -138,6 +151,16 @@ public final class SkinTest {
    check(menu.activate(SkinMenu.CAPES),"cape tab opens");
    var capeField=SkinMenu.class.getDeclaredField("capeLibrary");capeField.setAccessible(true);
    var capeLibrary=(SkinLibrary)capeField.get(menu);await(()->!capeLibrary.state().busy());
+   var layerField=SkinMenu.class.getDeclaredField("layers");layerField.setAccessible(true);
+   var layerOptions=(SkinMenu.Layers)layerField.get(menu);
+   layerOptions.set(layerOptions.mask()&~64);
+   var oldCape=LiveCape.get();
+   CapeAnimation.apply(oldCape.png(),false,null,"new-poll-revision");
+   menu.render(new Canvas(640,360),640,360,0,0);
+   check((layerOptions.mask()&64)==0,"Cape refresh cannot re-enable disabled visibility");
+   menu.activate(SkinMenu.SKINS);menu.activate(SkinMenu.CAPES);
+   menu.render(new Canvas(640,360),640,360,0,0);
+   check((layerOptions.mask()&64)==0,"Reopening wardrobe preserves cape visibility");
    for(int[] size:new int[][]{{320,240},{640,360},{960,540}}) {
     menu.render(new Canvas(size[0],size[1]),size[0],size[1],0,0);
     menu.activate(SkinMenu.GRID);menu.render(new Canvas(size[0],size[1]),size[0],size[1],0,0);menu.activate(SkinMenu.GRID);
@@ -518,7 +541,7 @@ class SkinTests(unittest.TestCase):
                 harness.write_text(HARNESS)
                 source = ROOT / "mod/src/main/java/com/cubeon/client"
                 files = [source / p for p in ("Bridge.java", "Json.java", "ui/ClientUi.java", "ui/ClientTheme.java", "ui/MenuUi.java", "ui/HudIcon.java",
-                    "ui/HudMenu.java", "ui/SkinMenu.java", "hud/HudFeatures.java", "skins/SkinLibrary.java",
+                    "ui/HudMenu.java", "ui/ThemeMenu.java", "ui/SkinMenu.java", "hud/HudFeatures.java", "skins/SkinLibrary.java",
                     "skins/SkinPreview.java", "skins/CosmeticPreview.java", "cosmetics/CosmeticCatalog.java",
                     "cosmetics/CosmeticGeometry.java", "skins/LiveSkin.java", "skins/LiveCape.java", "skins/CapeFrames.java", "skins/CapeAnimation.java")]
                 subprocess.run([javac, "--release", "17", "-d", tmp, *map(str, files), str(harness)], check=True)

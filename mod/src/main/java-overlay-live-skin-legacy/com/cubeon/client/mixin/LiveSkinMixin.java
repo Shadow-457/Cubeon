@@ -1,5 +1,6 @@
 package com.cubeon.client.mixin;
 import com.cubeon.client.skins.LiveSkin;
+import net.minecraft.client.render.entity.PlayerModelPart;
 import com.cubeon.client.skins.LiveCape;
 import com.cubeon.client.skins.LiveCapeTexture;
 import com.cubeon.client.skins.LiveSkinTexture;
@@ -25,10 +26,17 @@ public abstract class LiveSkinMixin {
         var skin=LiveSkin.get();
         if(cubeon$local()&&skin!=null&&LiveSkinTexture.texture()!=null) callback.setReturnValue(skin.slim()?"slim":"default");
     }
+    @Inject(method="getElytraTexture",at=@At("RETURN"),cancellable=true,require=1)
+    private void cubeon$elytra(CallbackInfoReturnable<Identifier> callback) {
+        if(cubeon$local() && LiveCape.get()!=null) callback.setReturnValue(LiveCape.elytra(LiveCape.get(),
+                callback.getReturnValue(),new Identifier("minecraft","textures/entity/elytra.png")));
+    }
     @Inject(method="getCapeTexture",at=@At("RETURN"),cancellable=true,require=1)
     private void cubeon$cape(CallbackInfoReturnable<Identifier> callback) {
         var cape=LiveCape.get();
         if(!cubeon$local()) return;
+        boolean visible=MinecraftClient.getInstance().options.isPlayerModelPartEnabled(PlayerModelPart.CAPE);
+        if(!visible) { callback.setReturnValue(null); return; }
         if(cape==null) { LiveCapeTexture.texture(); return; }
         var texture=LiveCapeTexture.texture();
         if(cape.hidden()) { callback.setReturnValue(null); return; } if(texture!=null) callback.setReturnValue(texture);
@@ -37,6 +45,7 @@ public abstract class LiveSkinMixin {
     private void cubeon$capeVisible(CallbackInfoReturnable<Boolean> callback) {
         var cape=LiveCape.get();
         if(!cubeon$local()) return;
+        if(!MinecraftClient.getInstance().options.isPlayerModelPartEnabled(PlayerModelPart.CAPE)) { callback.setReturnValue(false); return; }
         if(cape==null) { LiveCapeTexture.texture(); return; }
         var texture=LiveCapeTexture.texture();
         if(cape.hidden()) callback.setReturnValue(false);

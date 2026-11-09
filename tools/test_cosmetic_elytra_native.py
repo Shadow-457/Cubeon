@@ -15,8 +15,8 @@ from minecraft_launcher_lib.command import get_minecraft_command
 
 ROOT = Path(__file__).resolve().parents[1]
 JAVA = Path.home() / 'jdks/jdk-25.0.4.1+1/bin'
-GAME = Path.home() / '.cubeon_minecraft'
-PROFILE = Path.home() / '.cubeon_launcher/mod_profiles/26.3-fabric'
+GAME = Path.home() / '.cubeon_minecraft/instances/.runtime'
+PROFILE = Path.home() / '.cubeon_minecraft/instances/26.3-Fabric/mods'
 OUT = ROOT / 'archive/ui-captures/elytra-wings-native'
 
 PROBE = r'''
@@ -121,7 +121,7 @@ def main():
         api = PROFILE / 'fabric-api-0.163.0+26.3.jar'
         shutil.copyfile(client, mods / client.name)
         shutil.copyfile(api, mods / api.name)
-        world = GAME / 'instances/fabric-loader-0.20.1-26.3/saves/New World'
+        world = Path.home() / '.cubeon_minecraft/instances/26.3-Fabric/saves/New World'
         shutil.copytree(world, work / 'saves/Elytra probe', ignore=shutil.ignore_patterns('session.lock'))
         source = work / 'ElytraProbe.java'
         source.write_text(PROBE)

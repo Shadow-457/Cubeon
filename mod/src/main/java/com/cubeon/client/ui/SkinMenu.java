@@ -30,7 +30,6 @@ public final class SkinMenu implements AutoCloseable {
     private boolean focused,dragging,grid,capes,capeOpened;
     private int category=SKINS;
     private boolean previewWings=true;
-    private long seenCapeRevision=LiveCape.get()==null?0:LiveCape.get().revision();
     private int selection=-1,yaw=-20,firstRow;
     private HudMenu.Rect modelRect;
     private double lastX=Double.NaN,lastY=Double.NaN,dragX;
@@ -139,11 +138,6 @@ public final class SkinMenu implements AutoCloseable {
         Arrays.fill(controls,null);
         var library=activeLibrary();
         boolean cosmetic=library.cosmetics(),skins=category==SKINS;
-        var liveCape=LiveCape.get();
-        if(liveCape!=null&&seenCapeRevision!=liveCape.revision()) {
-            seenCapeRevision=liveCape.revision();
-            if(!liveCape.hidden()) layers.set(layers.mask()|64);
-        }
         var state=library.state(); var chosen=state.selectedSkin();
         int pad=8,button=w<480?20:22,gap=3,sideW=Math.max(72,Math.min(208,w*22/100));
         int center=w/2,toolbarX=w-pad-(button+gap)*4+gap;
