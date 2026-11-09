@@ -135,8 +135,6 @@ jobs:
 
       - name: Run startup-critical tests
         shell: pwsh
-        env:
-          CUBEON_GAME_DIR: ${{ runner.temp }}\cubeon-game-ci-win
         run: |
           $failed = 0
           $tests = @(
@@ -145,6 +143,9 @@ jobs:
             "tools/test_mod_prelaunch_dependencies.py"
           )
           foreach ($t in $tests) {
+            # Startup initializes instance storage; a later suite must not
+            # inherit its registry or mod fixtures.
+            $env:CUBEON_GAME_DIR = Join-Path $env:RUNNER_TEMP ("cubeon-game-ci-win-" + [guid]::NewGuid().ToString("N"))
             Write-Host "::group::$t"
             python $t
             if ($LASTEXITCODE -ne 0) {

@@ -25,6 +25,8 @@ if __name__ == '__main__' and '--cubeon-runtime-check' in sys.argv:
 if __name__ == '__main__':
     from source_runtime import ensure_source_runtime
     ensure_source_runtime(__file__)
+    from cubeon.desktop_runtime import configure as _configure_desktop_runtime
+    _configure_desktop_runtime()
 if __name__ == '__main__' and '--cubeon-installer' in sys.argv:
     from cubeon.installer_ui import run_installer
     run_installer()

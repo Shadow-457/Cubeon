@@ -2205,7 +2205,7 @@ requires retrying with normal system access, not changing unrelated app code.
 - A push to `main` starts the release workflow. Publishing, committing, deploying, and rewriting history
   require the user's explicit request.
 - `tools/release_version.py` owns stamping/channel policy. Zero-patch versions and explicit
-  `STABLE_PROMOTIONS` (v1.3.27, v1.3.28, v1.3.38 and v1.3.45) are stable; other patches default to beta. Promotion preserves
+  `STABLE_PROMOTIONS` (v1.3.27, v1.3.28, v1.3.38, v1.3.45 and v1.4.20) are stable; other patches default to beta. Promotion preserves
   published binaries/tag; use `[skip ci]` for metadata/site commits to avoid minting a new beta.
   Rebuild with the current workflow, not an old pre-promotion commit. Preserve concurrent release
   metadata and do not force-push over another change.
@@ -2214,6 +2214,11 @@ requires retrying with normal system access, not changing unrelated app code.
   since using the stamped APP_VERSION invalidates their older release metadata.
   Stable website stamps include English, Arabic, Russian and Ukrainian fallback
   homepage/download labels, preserving translated prefixes and archive URLs.
+  Windows startup CI gives each suite a fresh CUBEON_GAME_DIR: startup initializes
+  instance storage, and reusing its registry contaminates later dependency fixtures.
+  `cubeon/desktop_runtime.py` selects the shipped compatible Linux Flet archive
+  before launcher/installer startup. Flet otherwise requests a newer host-distro
+  archive absent from the Jammy bundle and attempts a first-run network download.
 - macOS is untested: homepage/download controls are native disabled grey buttons
   in all four locales. CI retains the disabled macOS recipe; publish waits for
   Windows/Linux only and does not require `Cubeon-macOS.zip`. Downloads Worker

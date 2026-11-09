@@ -124,6 +124,12 @@ check("Windows packaging verifies the actual installer transactions",
       "test_launcher_installers.py --native-windows" in job_block("build-windows-exe"))
 check("Windows packaging has no dependency on the removed automatic updater",
       "test_auto_update.py" not in job_block("build-windows-exe"))
+windows_tests = extract_run("Run startup-critical tests")
+windows_loop = windows_tests.split("foreach ($t in $tests) {", 1)[-1]
+check("Windows startup suites cannot share an instance storage registry",
+      "$env:CUBEON_GAME_DIR = Join-Path" in windows_loop
+      and "[guid]::NewGuid()" in windows_loop
+      and windows_loop.index("$env:CUBEON_GAME_DIR") < windows_loop.index("python $t"))
 check("publish un-drafts (that is the whole point of the draft)",
       "--draft=false" in pub)
 check("the workflow pins GH_REPO at the top level (the publish job has no "
