@@ -230,7 +230,7 @@ from ui.server_tab import build_server_tab  # Imports the server_tab builder fun
 from ui.stats_tab import build_stats_tab  # Stats tab: playtime overview and server activity
 from ui.activity_widgets import build_badges
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
-from ui.import_section import build_import_section  # Settings -> Import: scan a folder, import what it finds
+from ui.import_section import build_import_section  # Settings -> Import: copy a local FastClient instance
 from ui.seasonal_ui import (  # Seasonal badge/companion (runtime half of cubeon/seasonal.py)
     SeasonalAnimator, build_badge as build_season_badge,
     icon_for as season_icon,
@@ -7828,45 +7828,21 @@ async def main(page: ft.Page):
     season_overlay_switch.on_change = _on_season_overlay_toggle
     _season_controls_sync(season_info)
 
-    # The Import section's target: whatever version + loader the player has
-    # chosen on the Play tab, so a scanned mod/pack lands in the exact
-    # instance they are about to launch (mods and packs are per-profile).
-    def _import_target():
-        vid = version_dropdown.value or cfg.get("last_version")
-        mc = core.extract_mc_version(vid) if vid else None
-        loader = state.get("mod_loader") or "fabric"
-        return mc, loader, vid
+    def _fastclient_import_finished(result):
+        installed = core.get_installed_versions()
+        with thread_safe_ui.TREE_LOCK:
+            refresh_version_list(_installed_versions=installed)
+            _pick_version(result["version_id"])
 
-    # Every installed instance for the Import-to picker. Loader is derived
-    # from the version id (the only place it's recorded for non-active
-    # instances); mc_version from the id as well, so the picker can grey out
-    # a Fabric jar offered to a Forge instance or a mod that needs 1.20.1.
-    def _import_instances():
-        out = []
-        try:
-            installed = core.get_installed_versions()
-        except Exception:
-            installed = []
-        for v in installed or []:
-            vid = v.get("id") or v.get("version_id")
-            if not vid:
-                continue
-            try:
-                mc = core.extract_mc_version(vid)
-            except Exception:
-                mc = None
-            out.append({
-                "version_id": vid,
-                "mc_version": mc,
-                "loader": None,  # importer.loader_of fills it from the id
-                "label": v.get("display_name") or vid,
-            })
-        return out
+    def _fastclient_import_busy():
+        if state.get("running_version") or state.get("installing_version") or state.get("launching_version"):
+            return "Finish the current game or install before importing."
+        return None
 
     import_pane = build_import_section(
         page, cfg, section_label=section_label,
-        get_active_target=_import_target,
-        get_instances=_import_instances, show_snack=_show_snack,
+        on_instance_imported=_fastclient_import_finished,
+        instance_import_busy=_fastclient_import_busy,
         **THEME,
     )
 

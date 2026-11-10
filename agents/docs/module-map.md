@@ -31,6 +31,7 @@ substitute for current code.
 | Instances and storage migration | `instances.py`, `storage.py`, `storage_layout.py`, `versions.py`, `content.py`; `ui/storage_migration.py` |
 | Mods and packs | `mods.py`, `modpacks.py`, `global_mod_cache.py`, `content.py` |
 | Reviewed local mod imports | `local_mods.py`, `ui/local_mod_import.py` |
+| FastClient instance imports | `instance_import.py`, `ui/instance_import.py`; inline Settings → Import in `ui/import_section.py` |
 | Content compatibility | `packformat.py`, `doctor.py`, `mod_dependencies.py`, `mod_resolver.py`, `content.py` |
 | Fast content checks / local search | `content_checks.py`, `fuzzy_search.py`; action popup in `ui/content_checks.py` |
 | Download infrastructure | `net.py`, `global_mod_cache.py`, `local_cache.py` |
@@ -732,6 +733,20 @@ keep builders consistent with the shared `THEME` contract.
   `instances` (root/instances/.runtime). New installs use `instances`; the
   explicit organization step moves existing assets/libraries/versions there.
   Unrelated Java folders stay intact. Use this resolver for runtime/mll calls.
+- FastClient imports read `profiles.json` (`profiles[]`: `id`, `version`, `modLoader`,
+  `loaderVersion`) and `settings.json.gameDirectory`; game files are under
+  `<gameDirectory>/profiles/<id>`. `instance_import.py` reviews regular game content,
+  verifies copies and creates a new registered instance using only FastClient's
+  installed runtime. Only its three top-level assets/libraries/versions links are
+  followed; game-content links remain rejected. There are no installer/network calls
+  or download fallback. Missing local runtime files stop the import. Skip accounts,
+  launcher caches and the Fabric mod ID `fastclient-hud`; never copy Java/RAM settings.
+  Private runtime version IDs keep existing Cubeon versions intact; verified shared
+  asset/library copies can survive cancellation. Rollback owns only the new instance
+  and its private runtime versions. Normalize FastClient's null optional JSON fields,
+  point inherited client JAR references at the private base, and copy natives to the
+  actual launch ID. Settings → Import owns retained inline controls; no importer
+  dialog/version-picker action or individual-file import section.
 - The [content migration](../../docs/development/instance-storage-redesign.md)
   changes **only mods/resourcepacks/shaderpacks** and their launcher metadata.
   It must not scan/copy/reassign worlds, configs, options, server lists or runtime
@@ -2044,6 +2059,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Play backend/path safety | `test_version_path_safety.py`, `test_launch_claim.py`, `test_launch_log_tail.py`, `test_instance_install_flow.py` |
 | Mods and artwork | `test_mod_ui_stability.py`, `test_modpack_performance.py`, `test_loader_content_rules.py` |
 | Local mod import | `test_local_mod_import.py`, `test_mods_management_ui.py`, `test_importer.py`; native fixture `capture_local_mod_import.py` |
+| FastClient instance import | `test_fastclient_import.py`; native Settings/selection fixture `capture_fastclient_import.py` |
 | Navigation backend reads | `test_navigation_background.py`, `test_server_repaint_scope.py`, `test_tab_repaint_scope.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
 | Rust beta | `test_rust_engine.py`, `test_rust_profile_native.py`, `test_native_client.py --compiled` (compiled renderer), `test_rust_engine_native.py --companion` (built bundle/prepared resources/GPU); `capture_rust_beta.py` (native Flet) |

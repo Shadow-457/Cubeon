@@ -176,7 +176,7 @@
    "parts": []
   },
   {
-   "key": "<span>Bench</span><span class=\"nav-beta\">Beta</span>",
+   "key": "<span>Bench</span><span class=\"nav-status\">Coming soon</span>",
    "kind": "text",
    "pages": [
     "index",
@@ -331,7 +331,7 @@
    "parts": []
   },
   {
-   "key": "v1.4.0 stable &middot; Installer &middot; Free",
+   "key": "v1.4.20 stable &middot; Installer &middot; Free",
    "kind": "text",
    "pages": [
     "index"
@@ -347,7 +347,7 @@
    "parts": []
   },
   {
-   "key": "v1.4.0 stable &middot; AppImage &middot; Free",
+   "key": "v1.4.20 stable &middot; AppImage &middot; Free",
    "kind": "text",
    "pages": [
     "index"
@@ -1839,7 +1839,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon Bench texture editor (Beta)",
+   "key": "Cubeon Bench cosmetics resource pack editor (Coming soon)",
    "kind": "attr",
    "pages": [
     "index",
@@ -3290,7 +3290,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon Bench stores {0} locally after you open its workspace, so later visits can skip the introduction. Bench projects and preferences remain in this browser. Bench's pages use the same cookieless Vercel page counts as the main website; the first-visit preference and project contents are not analytics events.",
+   "key": "Cubeon Bench is coming soon. Projects and preferences saved with its previous editor may remain in this browser. Its coming-soon page uses the same cookieless Vercel page counts as the main website.",
    "kind": "text",
    "pages": [
     "cookies"
@@ -6065,7 +6065,7 @@
    "parts": []
   },
   {
-   "key": "Version 1.4.0 &middot; Installer &middot; 120 MB",
+   "key": "Version 1.4.20 &middot; Installer &middot; 120 MB",
    "kind": "text",
    "pages": [
     "download"
@@ -6097,7 +6097,7 @@
    "parts": []
   },
   {
-   "key": "Version 1.4.0 &middot; Installer",
+   "key": "Version 1.4.20 &middot; Installer",
    "kind": "text",
    "pages": [
     "download"
@@ -10022,7 +10022,7 @@
    "parts": []
   },
   {
-   "key": "Cubeon Bench's landing page and workspace use these same anonymous page counts on this domain. Your Bench projects, imported files, profile name, edits and workspace backups are not sent to analytics. The browser remembers that you opened Bench so future visits can open the workspace directly; that preference stays on your device.",
+   "key": "Cubeon Bench's coming-soon page uses these same anonymous page counts on this domain. Cubeon Bench is planned as a resource pack editor for Cubeon cosmetics. Previously saved editor projects remain on your device and are not sent to analytics.",
    "kind": "text",
    "pages": [
     "privacy"

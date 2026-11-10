@@ -85,6 +85,36 @@
       "source": "/windowsdownload",
       "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/windowsdownload",
       "permanent": false
+    },
+    {
+      "source": "/cubeon-bench/workspace",
+      "destination": "/cubeon-bench",
+      "permanent": false
+    },
+    {
+      "source": "/cubeon-bench/workspace.html",
+      "destination": "/cubeon-bench",
+      "permanent": false
+    },
+    {
+      "source": "/cubeon-bench/landing",
+      "destination": "/cubeon-bench",
+      "permanent": false
+    },
+    {
+      "source": "/cubeon-bench/landing.html",
+      "destination": "/cubeon-bench",
+      "permanent": false
+    },
+    {
+      "source": "/cubeon-bench/index",
+      "destination": "/cubeon-bench",
+      "permanent": false
+    },
+    {
+      "source": "/cubeon-bench/index.html",
+      "destination": "/cubeon-bench",
+      "permanent": false
     }
   ]
 }

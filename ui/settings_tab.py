@@ -23,6 +23,7 @@ SECTIONS = [
     ("seasonal", ft.Icons.WB_SUNNY_ROUNDED, "Theme"),
     ("notifications", ft.Icons.NOTIFICATIONS_OUTLINED, "Notifications"),
     ("storage", ft.Icons.FOLDER_OUTLINED, "Files"),
+    ("import", ft.Icons.DOWNLOAD_ROUNDED, "Import"),
     ("system", ft.Icons.SYSTEM_UPDATE_ROUNDED, "Launcher"),
     ("images", ft.Icons.PHOTO_LIBRARY_OUTLINED, "Screenshots"),
 ]
@@ -954,7 +955,9 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     minecraft_files_pane.visible = True
     storage_pane = pane("Files and backups", minecraft_files_pane,
-                        block("Backups", group(backup_rows)), import_pane)
+                        block("Backups", group(backup_rows)))
+    imports_pane = pane("Import", import_pane)
+    import_pane.controls[0].visible = False  # The section already supplies its heading.
 
     # ======================================================================
     # LAUNCHER
@@ -980,11 +983,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     panes = {'versions': versions_pane,
              'memory': performance_pane, 'appearance': appearance_pane,
              'seasonal': seasonal_pane, 'notifications': notifications_pane,
-             'storage': storage_pane, 'system': launcher_pane,
+             'storage': storage_pane, 'import': imports_pane, 'system': launcher_pane,
              'images': screenshots_pane}
     if account_section is not None:
         panes['account'] = account_section
-    aliases = {'display': 'appearance', 'backups': 'storage', 'import': 'storage',
+    aliases = {'display': 'appearance', 'backups': 'storage',
                'game': 'versions', 'performance': 'memory', 'theme': 'seasonal',
                'files': 'storage', 'launcher': 'system', 'screenshots': 'images'}
     for key, p in panes.items():

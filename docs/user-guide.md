@@ -101,6 +101,20 @@ loader you are playing, for example “Playing Minecraft 1.21.11 (Fabric)”.
 An offline profile does not authenticate you to servers that require a
 Microsoft/Mojang account.
 
+## Importing a FastClient instance
+
+Open **Settings → Import**, select **Find profiles**, and choose an installed
+FastClient profile. For a custom installation, choose its settings folder
+containing `profiles.json`. Review the profile, enter a Cubeon instance name,
+then select **Import as new instance**.
+
+Import copies your mods, configs, worlds, packs, options, servers and screenshots
+into a separate instance. It uses FastClient's local game, loader, libraries and
+assets without downloads. Missing or changed local files stop the import; the
+original profile stays intact. FastClient's HUD is skipped, and accounts and
+launcher Java/memory settings are left behind. You can cancel the copy from
+the same Settings page.
+
 ## Mods, packs, and cosmetics
 
 - **Mods:** select a compatible modded instance first. A Fabric mod does not

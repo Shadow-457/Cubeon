@@ -79,12 +79,16 @@ class ContentInstallTests(unittest.TestCase):
         return functions(refresh, load, reload)
 
     def detail_buttons(self):
-        root = getattr(self, 'mods_root', None)
-        if root is not None and root.controls[1].visible:
-            versions = next(c for c in fz.walk(root) if getattr(c, 'data', None) == 'mod-detail-tab-versions')
-            versions.on_click(None)
-            detail = root.controls[1]
-        else:
+        detail = None
+        for attribute, kind in (('mods_root', 'mod'), ('modpacks_root', 'modpack')):
+            root = getattr(self, attribute, None)
+            if root is not None and root.controls[1].visible:
+                versions = next(c for c in fz.walk(root)
+                                if getattr(c, 'data', None) == kind + '-detail-tab-versions')
+                versions.on_click(None)
+                detail = root.controls[1]
+                break
+        if detail is None:
             detail = self.page._dialogs.controls[-1]
         return [c for c in fz.walk(detail)
                 if hasattr(c, "_cubeon_install_paint")]
@@ -154,7 +158,7 @@ class ContentInstallTests(unittest.TestCase):
             self.assertEqual(button.tooltip, "Pack format widened for this Minecraft version.")
 
     def test_modpack_lookup_does_not_release_install_button(self):
-        _, refresh, load = build_modpacks_tab(self.page, {}, self.state,
+        self.modpacks_root, refresh, load = build_modpacks_tab(self.page, {}, self.state,
             section_label=section_label, go_to_pack=lambda m: None, **THEME)
         fns = functions(refresh, load)
         row = fns["build_pack_row"]({"project_id": "pack", "provider": "modrinth", "title": "Pack"})

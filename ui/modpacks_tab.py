@@ -41,7 +41,7 @@ from cubeon import modpacks as modpacks_backend
 from cubeon import thread_safe_ui  # control-level refresh() for per-file progress floods
 from cubeon.background_refresh import BackgroundRefresh
 from cubeon.icon_loader import IconLoader
-from ui.detail_dialog import open_project_detail
+from ui.modpack_detail import ModpackDetailPage
 from ui.install_feedback import InstallRegistry, compact_status
 from ui.content_states import loading_rows, empty_state
 from ui.content_tiles import tile_grid, tile_capacity, layout_tiles, style_tile, downloads_label, content_header, update_view_action
@@ -78,6 +78,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     active_feedback = {"job": None}
     installed_rows = {}
     pack_art = IconLoader()
+    detail_page = ModpackDetailPage(page, {
+        "RADIUS": RADIUS, "ACCENT": ACCENT, "ON_ACCENT": ON_ACCENT,
+        "CARD_FILL": CARD_FILL, "CARD_BORDER": CARD_BORDER,
+        "TEXT": TEXT, "TEXT_DIM": TEXT_DIM, "TEXT_FAINT": TEXT_FAINT,
+        "SURFACE_HI": SURFACE_HI, "FONT_DISPLAY": FONT_DISPLAY, "FONT_MONO": FONT_MONO,
+    }, pack_art)
 
     def _remember_row(cache, key, entry):
         cache[key] = entry
@@ -1080,19 +1086,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         if not is_installed:
             install_btn.on_click = on_install
 
-        # Row click opens the shared project detail dialog (bugs-and-flaws
-        # follow-up: packs had no preview popup at all). CurseForge-only hits
-        # have no Modrinth ref - the dialog then shows the row's own blurb and
-        # the install CTA instead of an empty pane.
-        _pack_theme = {"RADIUS": RADIUS, "ACCENT": ACCENT, "ACCENT_TINT": None,
-                       "CARD_FILL": CARD_FILL, "CARD_BORDER": CARD_BORDER,
-                       "TEXT": TEXT, "TEXT_DIM": TEXT_DIM,
-                       "TEXT_FAINT": TEXT_FAINT, "ON_ACCENT": ON_ACCENT,
-                       "SURFACE": SURFACE, "BG": BG, "DANGER": DANGER,
-                       "FONT_DISPLAY": FONT_DISPLAY, "FONT_MONO": FONT_MONO}
-
         def _install_chosen_version(v, _pack=pack):
-            """User picked a specific published version in the detail dialog.
+            """User picked a specific published version in the detail page.
             run_install's raw-URL path is host-allowlisted inside
             install_modpack_from_url, and packs install their own MC version,
             so no Play-tab compatibility check applies here."""
@@ -1102,22 +1097,13 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                             source_id=(f"modrinth:{_pack['project_id']}"
                                        if _pack.get("project_id") else None), feedback=feedback)
 
-        def _open_pack_detail(e=None, _pack=pack, _installed=is_installed,
-                              _theme=_pack_theme, _install=on_install):
-            open_project_detail(
-                page, ref=_pack.get("project_id") or "",
-                theme=_theme,
-                title=_pack.get("title") or "Modpack",
-                icon_url=_pack.get("icon_url"),
-                blurb=_pack.get("description") or "",
-                install_label="Install",
+        def _open_pack_detail(e=None, _pack=pack, _install=on_install):
+            detail_page.open(
+                _pack,
                 on_install=None if is_installed else _install,
-                install_disabled=is_installed,
-                install_feedback=feedback,
-                install_hint=("Installs its own Minecraft version and loader -"
-                              " it doesn't have to match the Play tab."),
                 on_install_version=(None if is_installed else
                                     _install_chosen_version),
+                feedback=feedback, installed=is_installed,
             )
 
         description, meta_line = _pack_presentation(pack)
@@ -1534,7 +1520,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     # --- Assemble ------------------------------------------------------------
 
-    modpacks_tab = ft.Column(
+    catalogue_host = ft.Column(
         [
             content_header(
                     ft.Text("Packs install as separate instances.", size=13, color=TEXT_DIM),
@@ -1569,7 +1555,18 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         ],
         spacing=0,
         expand=True,
+        data="modpacks-catalogue",
     )
+    modpacks_tab = ft.Column([catalogue_host, detail_page.control], spacing=0, expand=True)
+    modpacks_tab.close_detail = detail_page.close
+    modpacks_tab.on_detail_change = None
+
+    def detail_visibility_changed(visible):
+        catalogue_host.visible = not visible
+        thread_safe_ui.refresh(catalogue_host)
+        if modpacks_tab.on_detail_change:
+            modpacks_tab.on_detail_change(visible)
+    detail_page.on_visibility_change = detail_visibility_changed
 
     installed_view.on_capacity_change = lambda capacity: _render_installed_rows(installed_cache['packs'] or [])
     return modpacks_tab, refresh_installed_packs, load_popular

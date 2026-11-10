@@ -175,10 +175,6 @@ class SEOTests(unittest.TestCase):
         # the same stable PNG URL, and the conventional ICO fallback exists.
         for key, page in self.pages.items():
             with self.subTest(page=key):
-                if key == 'cubeon-bench':
-                    self.assertEqual(page.favicons[0]['href'], 'icons/bench-32.png')
-                    self.assertEqual(page.favicons[0]['sizes'], '32x32')
-                    continue
                 self.assertEqual(len(page.favicons), 1)
                 icon, = page.favicons
                 self.assertEqual(icon['href'], '/assets/favicon.png')
@@ -217,32 +213,30 @@ class SEOTests(unittest.TestCase):
         image = (WEB / 'assets/og.png').read_bytes()
         self.assertEqual(struct.unpack('>II', image[16:24]), (1200, 630))
 
-    def test_bench_metadata_sharing_and_workspace_privacy(self):
+    def test_bench_is_coming_soon_for_cosmetics_with_safe_legacy_routes(self):
         bench = WEB / 'cubeon-bench'
-        self.assertEqual((bench / 'index.html').read_bytes(), (bench / 'landing.html').read_bytes())
-        for filename, canonical in (('index', ORIGIN + '/cubeon-bench'),
-                                    ('landing', ORIGIN + '/cubeon-bench'),
-                                    ('workspace', ORIGIN + '/cubeon-bench/workspace')):
-            source = (bench / (filename + '.html')).read_text()
-            page = Page(source)
-            self.assertEqual(page.canonicals, [canonical])
-            self.assertEqual(page.meta['og:url'], [canonical])
-            self.assertEqual(page.meta['og:image'], [ORIGIN + '/cubeon-bench/og.png'])
-            self.assertEqual(page.meta['og:image:width'], ['1200'])
-            self.assertEqual(page.meta['og:image:height'], ['630'])
-            self.assertEqual(page.meta['twitter:card'], ['summary_large_image'])
-            self.assertEqual(source.count('src="/_vercel/insights/script.js"'), 1)
-            self.assertIn('window.vaq', source)
-        image = (bench / 'og.png').read_bytes()
-        self.assertEqual(struct.unpack('>II', image[16:24]), (1200, 630))
-        workspace = Page((bench / 'workspace.html').read_text())
-        self.assertIn('noindex', ','.join(workspace.meta['robots']))
-        graph = json.loads(self.pages['cubeon-bench'].schemas[0])['@graph']
-        product = next(node for node in graph if node['@type'] == 'WebApplication')
-        self.assertTrue(product['isAccessibleForFree'])
-        self.assertEqual(product['offers']['price'], '0')
-        self.assertNotIn('aggregateRating', product)
-        self.assertIn('/', self.pages['cubeon-bench'].links)
+        source = (bench / 'index.html').read_text()
+        page = self.pages['cubeon-bench']
+        self.assertIn('Coming Soon', page.title)
+        self.assertIn('resource pack editor exclusively for Cubeon cosmetics', page.meta['description'][0])
+        self.assertEqual(page.canonicals, [ORIGIN + '/cubeon-bench'])
+        self.assertEqual(page.meta['og:url'], page.canonicals)
+        self.assertEqual(page.meta['og:image'], [ORIGIN + '/assets/og.png'])
+        self.assertEqual(page.meta['og:image:width'], ['1200'])
+        self.assertEqual(page.meta['og:image:height'], ['630'])
+        self.assertEqual(page.meta['twitter:card'], ['summary_large_image'])
+        self.assertEqual(source.count('src="/_vercel/insights/script.js"'), 1)
+        self.assertIn('window.vaq', source)
+        self.assertEqual(json.loads(page.schemas[0])['@type'], 'WebPage')
+        self.assertIn('/', page.links)
+        self.assertIn('/cosmetics', page.links)
+        self.assertEqual({path.name for path in bench.iterdir()}, {'index.html', 'sw.js'})
+        for config_path in (ROOT / 'vercel.json', WEB / 'vercel.json'):
+            redirects = {entry['source']: entry for entry in json.loads(config_path.read_text())['redirects']}
+            for old in ('workspace', 'workspace.html', 'landing', 'landing.html', 'index', 'index.html'):
+                redirect = redirects['/cubeon-bench/' + old]
+                self.assertEqual(redirect['destination'], '/cubeon-bench')
+                self.assertFalse(redirect['permanent'])
         from submit_website_indexnow import local_page
         self.assertEqual(local_page(ORIGIN + '/cubeon-bench'), bench / 'index.html')
 

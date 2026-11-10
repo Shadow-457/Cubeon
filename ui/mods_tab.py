@@ -2019,6 +2019,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def close_mod_detail(event=None):
         if not detail_host.visible:
+            pack_tab = getattr(modpacks_content, "content", None) or modpacks_content
+            close_pack_detail = getattr(pack_tab, "close_detail", None)
+            if close_pack_detail:
+                return close_pack_detail(event)
             return False
         with thread_safe_ui.TREE_LOCK:
             detail_navigation["generation"] += 1
@@ -3275,6 +3279,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     mods_tab = ft.Column([catalogue_host, detail_host], spacing=0, expand=True)
     mods_tab.select_content_type = on_content_type_change
     mods_tab.close_detail = close_mod_detail
+    pack_tab = getattr(modpacks_content, "content", None) or modpacks_content
+    if getattr(pack_tab, "close_detail", None):
+        def pack_detail_changed(visible):
+            content_selector.visible = not visible
+            thread_safe_ui.refresh(content_selector)
+        pack_tab.on_detail_change = pack_detail_changed
     def refresh_client_preference():
         with thread_safe_ui.TREE_LOCK:
             _render_installed_snapshot(_cached_installed(), loading=_installed_target() not in installed_snapshots)
