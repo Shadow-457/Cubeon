@@ -24,6 +24,14 @@
   },
   "homepage": "https://github.com/Shadow-457/Cubeon#readme",
   "dependencies": {
+    "@xmcl/core": "^2.16.3",
+    "@xmcl/installer": "^6.3.7",
+    "@xmcl/user": "^4.4.2",
     "electron": "^45.3.0"
+  },
+  "overrides": {
+    "@xmcl/unzip": {
+      "@xmcl/yauzl": "^2.10.0"
+    }
   }
 }

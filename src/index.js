@@ -1,0 +1,1 @@
+// this is the index file it would contain all the bindings for all the operations done by the launcher such as installing instances managing mods rp shaders and it would be called by the electron ipc lateron
