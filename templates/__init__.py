@@ -8,14 +8,12 @@ cubeon.theme before any UI module binds them, which is wired up by the small
 hook at the bottom of cubeon/__init__.py so you can simply run:
 
     python main.py --color1     # green    - true black + green (default identity)
-    python main.py --color2     # obsidian - graphite monochrome, off-white accent
-    python main.py --color3     # lapis    - deep navy + lapis blue
-    python main.py --color4     # redstone - red-tinted dark + redstone accent
-    python main.py --color5     # carbon   - 90% black, green rationed to essentials
-    python main.py --color6     # amethyst - violet-dark + amethyst accent
-    python main.py --color7     # diamond  - cool slate + diamond-cyan accent
+    python main.py --color8     # autumn   - warm black + ember orange
+    python main.py --color9     # spring   - plum black + blossom pink
+    python main.py --color10    # winter   - cold black + ice blue
+    python main.py --color11    # summer   - sun-warmed black + gold
 
-Names work too: --color=green, --color obsidian, etc.
+Names work too: --color=green, --color autumn, etc.
 
 A palette must provide the full base token set (BG, SURFACE, SURFACE_HI,
 SURFACE_MAX, BORDER, BORDER_HI, TEXT, TEXT_DIM, TEXT_FAINT, ACCENT, ACCENT_HI,

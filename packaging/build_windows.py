@@ -49,10 +49,7 @@ SEP = ";" if os.name == "nt" else ":"  # PyInstaller path separator
 # --paths ROOT. Adding a palette = add it in cubeon/color_templates.py AND here.
 TEMPLATE_HIDDEN_IMPORTS = (
     "templates",
-    "templates.color_green", "templates.color_obsidian",
-    "templates.color_lapis", "templates.color_redstone",
-    "templates.color_carbon", "templates.color_amethyst",
-    "templates.color_diamond", "templates.color_autumn",
+    "templates.color_green", "templates.color_autumn",
     "templates.color_spring", "templates.color_winter",
     "templates.color_summer",
 )
@@ -105,7 +102,7 @@ def _build_payload(assets):
         f"--add-data={assets}{SEP}assets",
         f"--add-data=mod/brackets.json{SEP}mod",
         # NO --add-data for templates/: palettes ship as bytecode via
-        # --collect-submodules templates only - raw .py data would put
+        # explicit hidden imports - raw .py data would put
         # readable source in the shipped exe.
         "--collect-submodules", "cubeon.lang",
         "--collect-data", "flet",

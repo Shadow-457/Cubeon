@@ -5,9 +5,8 @@ at startup, before any UI module binds the design tokens.
 This is the entire mechanism - there is no other colour plumbing:
 
     python main.py --color1        # green    (true black + green, the default)
-    python main.py --color2        # obsidian (graphite monochrome)
-    python main.py --color3        # lapis    (navy + lapis blue)
     python main.py --color8        # autumn   (the seasonal palette, Sep-Nov)
+    python main.py --color9        # spring   (the seasonal palette, Mar-May)
     python main.py --color=list    # every palette, with its accent
 
 Seasons (autumn/spring/winter/summer, aliases 8-11) are ordinary templates that
@@ -36,16 +35,10 @@ from cubeon import theme as _theme
 
 
 # Registry: template key -> module path, plus the numeric CLI aliases
-# (--color1/2/3). Adding a template = drop templates/color_<key>.py and
+# (--color1/8/9/10/11). Adding a template = drop templates/color_<key>.py and
 # register it here. That's it.
 TEMPLATE_MODULES = {
     "green": "templates.color_green",
-    "obsidian": "templates.color_obsidian",
-    "lapis": "templates.color_lapis",
-    "redstone": "templates.color_redstone",
-    "carbon": "templates.color_carbon",
-    "amethyst": "templates.color_amethyst",
-    "diamond": "templates.color_diamond",
     # Seasonal palettes (8-11). These are picked automatically by
     # cubeon/seasonal.py from the user's timezone + the date, but they are
     # ordinary templates: --color autumn works, and so does pinning one for a
@@ -56,13 +49,11 @@ TEMPLATE_MODULES = {
     "summer": "templates.color_summer",
 }
 ALIASES = {
-    "1": "green", "2": "obsidian", "3": "lapis", "4": "redstone",
-    "5": "carbon", "6": "amethyst", "7": "diamond",
+    "1": "green",
     "8": "autumn", "9": "spring", "10": "winter", "11": "summer",
 }
 ALIAS_OF = {
-    "green": "1", "obsidian": "2", "lapis": "3", "redstone": "4",
-    "carbon": "5", "amethyst": "6", "diamond": "7",
+    "green": "1",
     "autumn": "8", "spring": "9", "winter": "10", "summer": "11",
 }
 
@@ -79,7 +70,7 @@ REQUIRED_KEYS = (
 
 
 def resolve(name: str) -> str:
-    """Maps a CLI argument ("1", "green", "OBSIDIAN", ...) to a template key."""
+    """Maps a CLI argument ("1", "green", "AUTUMN", ...) to a template key."""
     key = str(name).strip().lower()
     key = ALIASES.get(key, key)
     if key == "list":

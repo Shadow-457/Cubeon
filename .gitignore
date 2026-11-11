@@ -29,6 +29,8 @@ instructions.txt
 .antigravity
 # Local agent references and completion notes are retained on disk.
 /agents/
+# Keep existing CI/build scripts tracked; new local tooling stays out of Git.
+/tools/
 # Minekube Connect is downloaded and cached on demand, outside source releases.
 /assets/jars/connect-spigot.jar
 
