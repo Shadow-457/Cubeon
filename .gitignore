@@ -65,3 +65,5 @@ cubeon/_cf_key.py
 
 # --- Discord bot (local management layer & credentials) ---
 discord-bot/
+
+node_modules/

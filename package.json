@@ -1,0 +1,29 @@
+{
+  "name": "cubeon",
+  "version": "1.0.0",
+  "description": "free minercaft launcher",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shadow-457/Cubeon.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Shadow-457/Cubeon/issues"
+  },
+  "homepage": "https://github.com/Shadow-457/Cubeon#readme",
+  "dependencies": {
+    "electron": "^45.3.0"
+  }
+}
