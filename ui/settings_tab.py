@@ -13,19 +13,16 @@ from cubeon import thread_safe_ui, scrolling
 from cubeon.theme import (
     RADIUS, RADIUS_LG, ROW_HOVER, ACCENT_TINT, TEXT_FAINT, keyboard_target,
 )
+from ui.about_settings import build_about_section
 
 # Labels stay short; keys also serve existing links from the launcher.
 SECTIONS = [
     ("account", ft.Icons.PERSON_ROUNDED, "Account"),
     ("versions", ft.Icons.SPORTS_ESPORTS_ROUNDED, "Game"),
-    ("memory", ft.Icons.MEMORY_ROUNDED, "Performance"),
     ("appearance", ft.Icons.PALETTE_ROUNDED, "Appearance"),
-    ("seasonal", ft.Icons.WB_SUNNY_ROUNDED, "Theme"),
     ("notifications", ft.Icons.NOTIFICATIONS_OUTLINED, "Notifications"),
-    ("storage", ft.Icons.FOLDER_OUTLINED, "Files"),
     ("import", ft.Icons.DOWNLOAD_ROUNDED, "Import"),
-    ("system", ft.Icons.SYSTEM_UPDATE_ROUNDED, "Launcher"),
-    ("images", ft.Icons.PHOTO_LIBRARY_OUTLINED, "Screenshots"),
+    ("about", ft.Icons.INFO_OUTLINE_ROUNDED, "About"),
 ]
 
 # Selection changes the fill and text without moving the controls.
@@ -533,7 +530,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        season_pet_switch, season_overlay_switch,
                        BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                        TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
-                       screenshot_gallery=None, refresh_screenshot_gallery=None,
+                       on_open_screenshots=None,
                        account_pane=None, on_replay_onboarding=None,
                        on_motion_change=None, detected_java_label=None):
     """Assemble Settings from the existing controls and callbacks.
@@ -541,8 +538,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     `save_width_height_java` is main.py's save_settings() minus the button
     click - called on field blur so width/height/java persist instantly.
 
-    `account_pane` (optional) is the prebuilt Account section; when it is
-    None the Account entry is simply left out of the rail.
+    `account_pane` (optional) is the prebuilt profile card. Account also owns
+    backups and the launcher actions, so its entry exists without that card.
 
     `custom_chrome_cb` is the one that can legitimately be None: the custom
     window frame is Windows/Linux-only, so main.py passes None elsewhere and
@@ -553,8 +550,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # Labels are translated at build time; the KEYS are not - deep links (the
     # seasonal badge uses "seasonal") key off them. A language change lands on
     # the next start, like the rest of the chrome.
-    sections = [(key, icon, i18n.t(label)) for key, icon, label in SECTIONS
-                if key != "account" or account_pane is not None]
+    sections = [(key, icon, i18n.t(label)) for key, icon, label in SECTIONS]
     active_section = {"value": sections[0][0]}
 
     if detected_java_label is None:
@@ -680,14 +676,13 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # ======================================================================
     # ACCOUNT
     # ======================================================================
-    account_section = None
-    if account_pane is not None:
-        account_section = pane(i18n.t("Account"), account_pane)
+    account_section = pane("Account", *([account_pane] if account_pane is not None else []))
 
     # ======================================================================
     # GAME
     # ======================================================================
     compact(tidy_btn)
+    minecraft_files_pane.visible = True
     for field in (width_field, height_field):
         field.width = None
         field.expand = True
@@ -710,12 +705,13 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             row("Tidy up files",
                 "Clear temporary files and merge stray assets",
                 tidy_btn),
+            _body(minecraft_files_pane),
         ]), data="settings-maintenance"),
     )
     import_pane.visible = True
 
     # ======================================================================
-    # PERFORMANCE
+    # PERFORMANCE (inside Game)
     # ======================================================================
     memory_status = ft.Text("", size=11.5, color=TEXT_DIM,
                             data="memory-limit-status")
@@ -732,8 +728,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         ], spacing=6, expand=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)]
     ram_warning.max_lines = 2
     ram_warning.overflow = ft.TextOverflow.ELLIPSIS
-    performance_pane = pane(
-        i18n.t("Performance"),
+    versions_pane.controls.extend([
         block(i18n.t("Memory"), group([
             _body(ft.Column(
                 [
@@ -775,7 +770,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 spacing=8,
             )),
         ]), data="settings-java-advanced"),
-    )
+    ])
 
     # ======================================================================
     # APPEARANCE
@@ -801,17 +796,13 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "Off reduces movement",
         motion_switch))
 
-    appearance_pane = pane("Appearance", group(launcher_rows))
-
-    # ======================================================================
-    # SEASONAL
-    # ======================================================================
+    # Theme and launcher appearance share one retained section.
     seasonal_status_text.expand = True
     seasonal_restart_note.expand = True
     season_dropdown.width = None
-    seasonal_pane = pane(
-        i18n.t("Theme"),
-        block(i18n.t("Look"), group([
+    appearance_pane = pane(
+        "Appearance", group(launcher_rows),
+        block("Theme", group([
             row("Seasonal look",
                 "Use colours for the current season",
                 seasonal_switch),
@@ -917,7 +908,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     notifications_pane = pane("Notifications", group(notification_rows))
 
     # ======================================================================
-    # FILES AND BACKUPS
+    # BACKUPS (inside Account)
     # ======================================================================
 
     frequency_dropdown.expand = True
@@ -953,43 +944,34 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         ), pad_v=12),
     ]
 
-    minecraft_files_pane.visible = True
-    storage_pane = pane("Files and backups", minecraft_files_pane,
-                        block("Backups", group(backup_rows)))
+    account_section.controls.append(block("Backups", group(backup_rows)))
     imports_pane = pane("Import", import_pane)
     import_pane.controls[0].visible = False  # The section already supplies its heading.
 
     # ======================================================================
     # LAUNCHER
     # ======================================================================
-    launcher_pane = pane("Launcher", group([
+    account_section.controls.extend([block("Launcher", group([
         *([row("Replay onboarding", "Open the welcome tour",
                ft.TextButton(i18n.t("Open tour"), data="replay-onboarding",
                              on_click=lambda e: on_replay_onboarding()))]
           if on_replay_onboarding else []),
-    ]), ft.Row([keyboard_target(cubeon_web_link, "Cubeon Web"), minekube_badge], spacing=16,
-               vertical_alignment=ft.CrossAxisAlignment.CENTER))
+    ])), ft.Row([keyboard_target(cubeon_web_link, "Cubeon Web"), minekube_badge], spacing=16,
+               vertical_alignment=ft.CrossAxisAlignment.CENTER)])
 
-    # ======================================================================
-    # SCREENSHOTS
-    # ======================================================================
-    if screenshot_gallery is None:
-        from ui.screenshot_gallery import build_screenshot_gallery_tab
-        screenshot_gallery, refresh_screenshot_gallery = build_screenshot_gallery_tab(page)
+    about_pane = pane("About", build_about_section(
+        SURFACE_HI=SURFACE_HI, BORDER=BORDER, ACCENT=ACCENT,
+        TEXT=TEXT, TEXT_DIM=TEXT_DIM, FONT_DISPLAY=FONT_DISPLAY, FONT_MONO=FONT_MONO,
+    ))
 
-    images_pane = ft.Container(content=screenshot_gallery, expand=True)
-    screenshots_pane = pane('Screenshots', images_pane)
-    screenshots_pane.scroll = None  # The gallery owns its bounded thumbnail scroller.
-    panes = {'versions': versions_pane,
-             'memory': performance_pane, 'appearance': appearance_pane,
-             'seasonal': seasonal_pane, 'notifications': notifications_pane,
-             'storage': storage_pane, 'import': imports_pane, 'system': launcher_pane,
-             'images': screenshots_pane}
-    if account_section is not None:
-        panes['account'] = account_section
-    aliases = {'display': 'appearance', 'backups': 'storage',
-               'game': 'versions', 'performance': 'memory', 'theme': 'seasonal',
-               'files': 'storage', 'launcher': 'system', 'screenshots': 'images'}
+    panes = {'account': account_section, 'versions': versions_pane,
+             'appearance': appearance_pane,
+             'notifications': notifications_pane, 'import': imports_pane, 'about': about_pane}
+    aliases = {'display': 'appearance', 'theme': 'appearance', 'seasonal': 'appearance',
+               'backups': 'account', 'storage': 'account',
+               'launcher': 'account', 'system': 'account',
+               'game': 'versions', 'performance': 'versions', 'memory': 'versions',
+               'files': 'versions'}
     for key, p in panes.items():
         p.visible = (key == active_section["value"])
         p.data = 'settings-pane-' + key
@@ -1001,6 +983,10 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     def _select_section(key):
         ft.context.disable_auto_update()
+        if key in {'images', 'screenshots'}:
+            if callable(on_open_screenshots):
+                on_open_screenshots()
+            return
         with thread_safe_ui.TREE_LOCK:
             key = aliases.get(key, key)
             if key not in panes:
@@ -1013,9 +999,6 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 thread_safe_ui.refresh(compact_rail if layout["compact"] else rail)
                 thread_safe_ui.refresh(pane_host)
             reveal_selection()
-        if key == 'images':
-            if callable(refresh_screenshot_gallery):
-                refresh_screenshot_gallery()
 
     def _rebuild_rail():
         # Retain the controls and their keyboard targets across selections.

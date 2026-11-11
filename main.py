@@ -1407,10 +1407,8 @@ async def main(page: ft.Page):
     # -----------------------------------------------------------------
 
     # -----------------------------------------------------------------
-    # TOP NAVIGATION - the icon bar across the top (Play, Mods, Modpack,
-    # Cosmetics, Servers), with Account and Settings docked on the right.
-    # Replaces the old left sidebar: the content surface now spans the
-    # whole window under one bar, matching the Cubeon layout mockup.
+    # LEFT NAVIGATION - fixed icon rail with a sliding accent indicator.
+    # Account stays in the brand strip; Settings is pinned below the rail.
     # -----------------------------------------------------------------
 
     # A small colored dot that changes color to show status (ready, busy, error)
@@ -1452,11 +1450,8 @@ async def main(page: ft.Page):
     state["active_tab"] = active_tab["value"]
     nav_buttons = {}  # Will hold references to each navigation button container
 
-    # The tab-switch choreography (2026-10-16): ONE curve and duration for the
-    # underline growth, the icon lift and the tint fade, so the switch reads as
-    # a single gesture rather than three separate jumps. See
-    # build_top_nav_button (the resting values) and _style_nav_button (the
-    # active ones).
+    # The marker slide and icon/tint changes share one native animation.
+    # Pane content appears in the same repaint, without a blank fade frame.
     NAV_ANIM = ft.Animation(180, ft.AnimationCurve.EASE_OUT_CUBIC)
     tab_switcher = ft.Stack(expand=True, fit=ft.StackFit.EXPAND)
     content_area = ft.Container(content=tab_switcher, expand=True)
@@ -1471,11 +1466,10 @@ async def main(page: ft.Page):
         objects, so a private attribute survives page.update() just fine.
         """
         if getattr(btn, "cubeon_top_icon", False):
-            # Rail tile: icon over a label. The sliding nav_blob is the
-            # highlight; the tile only carries a faint wash and brighter
-            # text (2026-10-26: the underline bar and the BETA chip are gone).
+            # The retained accent bar marks the destination; icons and labels
+            # brighten while the tile stays clear.
             btn.data = is_active
-            btn.bgcolor = ACCENT_TINT if is_active else "transparent"
+            btn.bgcolor = "transparent"
             icon_ctrl = btn.content.controls[0]
             label_ctrl = btn.content.controls[1]
             icon_ctrl.animate_scale = NAV_ANIM if motion.transforms() else None
@@ -1533,7 +1527,7 @@ async def main(page: ft.Page):
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 tight=True,
             ),
-            bgcolor=ACCENT_TINT if is_active else "transparent",
+            bgcolor="transparent",
             border_radius=RADIUS_LG,
             width=NAV_BTN_W, height=NAV_BTN_H,
             alignment=ft.Alignment.CENTER,
@@ -1551,20 +1545,18 @@ async def main(page: ft.Page):
         return theme.keyboard_target(btn, label)
 
     # ------------------------------------------------------------------
-    # Geometry is fixed by construction: every sidebar row is a fixed
-    # 190x40 box with 4px gaps, so the sliding highlight is positioned by
-    # arithmetic alone (no live measuring, no layout-timing race).
-    # Compact rail tiles: one icon over a small uppercase label. Sized from
-    # the (fixed) sidebar width in _build_sidebar.
+    # Fixed tile pitch keeps the accent bar aligned without layout probes.
     NAV_BTN_W, NAV_BTN_H, NAV_GAP = 76, 58, 4
+    NAV_INDICATOR_W, NAV_INDICATOR_H = 3, 40
     NAV_COL_HEIGHT = (len(top_nav_items) * (NAV_BTN_H + NAV_GAP)) - NAV_GAP
     nav_blob = ft.Container(
-        width=NAV_BTN_W,
-        height=NAV_BTN_H,
-        left=0,
-        top=0,
-        bgcolor=ACCENT_TINT,
-        border_radius=RADIUS_LG,
+        width=NAV_INDICATOR_W,
+        height=NAV_INDICATOR_H,
+        left=2,
+        top=(NAV_BTN_H - NAV_INDICATOR_H) / 2,
+        bgcolor=ACCENT,
+        border_radius=NAV_INDICATOR_W / 2,
+        ignore_interactions=True,
         offset=ft.Offset(0, 0),
         animate_offset=NAV_ANIM,
         animate_opacity=NAV_ANIM,
@@ -1582,11 +1574,7 @@ async def main(page: ft.Page):
             return None
 
     def _move_nav_blob(old_key, new_key):
-        """Move the fixed-size highlight with one client-side transform.
-
-        Vertical now that the nav is a sidebar column: the blob slides down a
-        fixed (height + gap) pitch, so no measuring and no reflow.
-        """
+        """Slide the retained accent bar on the fixed tile pitch."""
         old_idx, new_idx = _nav_index(old_key), _nav_index(new_key)
         if new_idx is None:
             nav_blob.opacity = 0
@@ -1595,8 +1583,9 @@ async def main(page: ft.Page):
             return False
         nav_blob.opacity = 1
         nav_blob.animate_offset = NAV_ANIM if motion.transforms() else None
+        # Flet offsets are fractions of the indicator's own size.
         nav_blob.offset = ft.Offset(
-            0, new_idx * (NAV_BTN_H + NAV_GAP) / NAV_BTN_H)
+            0, new_idx * (NAV_BTN_H + NAV_GAP) / NAV_INDICATOR_H)
         return True
 
     def build_nav_button(key, icon, label, *, icon_size=18, indent=0):
@@ -1917,9 +1906,7 @@ async def main(page: ft.Page):
             spacing=NAV_GAP,
             tight=True,
         )
-        # Blob first so it paints behind the tiles; both are fixed size, so
-        # the Stack never resizes while the highlight moves.
-        nav_blob.width = inner
+        # The marker paints through the clear tiles without changing layout.
         nav_stack = ft.Stack(
             [nav_blob, nav_column],
             width=inner,
@@ -2006,7 +1993,15 @@ async def main(page: ft.Page):
             ),
             None, ROW_HOVER,
         )
+        screenshots_button = ft.IconButton(
+            icon=ft.Icons.PHOTO_LIBRARY_OUTLINED, icon_size=18,
+            icon_color=TEXT_DIM, width=32, height=32,
+            tooltip=i18n.t("Screenshots"), data="screenshots-button",
+            on_click=lambda e, k="screenshots": switch_tab(k),
+            style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
+        )
         children = [brand, ft.Container(expand=True),
+                    screenshots_button, ft.Container(width=4),
                     theme.keyboard_target(account_chip, i18n.t("Account"))]
         if chrome_row is not None:
             children += [ft.Container(width=8), chrome_row]
@@ -2083,6 +2078,23 @@ async def main(page: ft.Page):
 
     screenshot_gallery_tab, refresh_screenshot_gallery = \
         build_screenshot_gallery_tab(page)
+    screenshots_return_tab = {"value": "play"}
+    screenshots_tab = ft.Column(
+        [
+            ft.Row([
+                ft.TextButton(
+                    i18n.t("Back"), icon=ft.Icons.ARROW_BACK_ROUNDED,
+                    data="screenshots-back",
+                    on_click=lambda e: switch_tab(screenshots_return_tab["value"]),
+                ),
+                ft.Text(i18n.t("Screenshots"), size=22, color=TEXT,
+                        font_family=FONT_DISPLAY, expand=True, max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS),
+            ], spacing=12),
+            screenshot_gallery_tab,
+        ], spacing=16, expand=True, data="screenshots-page",
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+    )
 
     def refresh_avatars():
         """Called after upload/remove/username-change so the account dialog's
@@ -7900,8 +7912,7 @@ async def main(page: ft.Page):
         java_path_field=java_path_field, custom_jvm_field=custom_jvm_field,
         detected_java=None, detected_java_label=detected_java_label,
         import_pane=import_pane,
-        screenshot_gallery=screenshot_gallery_tab,
-        refresh_screenshot_gallery=refresh_screenshot_gallery,
+        on_open_screenshots=lambda: switch_tab("screenshots"),
         backup_enabled_switch=backup_enabled_switch,
         frequency_dropdown=frequency_dropdown,
         include_saves_switch=include_saves_switch,
@@ -7939,6 +7950,7 @@ async def main(page: ft.Page):
         "server_plugins": server_plugins_tab,
         "server_settings": server_settings_tab,
         "settings": settings_tab,
+        "screenshots": screenshots_tab,
         "stats": stats_tab_host,
         "chat": chat_tab_host,
     }
@@ -7990,8 +8002,6 @@ async def main(page: ft.Page):
             set_button_mode("running")
 
     def switch_tab(key):
-        if instance_storage.blocked():
-            return
         """
         Switches the active tab. Updates the navigation buttons' appearance
         and replaces the content area with the chosen tab.
@@ -8012,6 +8022,9 @@ async def main(page: ft.Page):
           to leave an old pane visible forever, so the next switch painted the
           new tab on top of it (the Play + Modpacks screenshot).
         """
+        ft.context.disable_auto_update()
+        if instance_storage.blocked():
+            return
         # Older links and the controller still open the Modpacks selector
         # inside the one content destination; never mount its host twice.
         if key == 'modpacks':
@@ -8036,6 +8049,8 @@ async def main(page: ft.Page):
             previous_tab = active_tab["value"]
             if key == previous_tab:
                 return
+            if key == "screenshots":
+                screenshots_return_tab["value"] = previous_tab
             active_tab["value"] = key
             state["active_tab"] = key   # see the note where active_tab is made
             switch_controls = []
@@ -8065,7 +8080,7 @@ async def main(page: ft.Page):
             if view is None:
                 view = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
                     horizontal=32, vertical=24), expand=True,
-                    opacity=0.0, animate_opacity=motion.BASE)
+                    opacity=1.0)
                 _tab_views[key] = view
                 tab_switcher.controls.append(view)
                 switch_controls.append(tab_switcher)
@@ -8073,8 +8088,7 @@ async def main(page: ft.Page):
             # repair for any pane a previous interrupted switch left visible.
             for k, pane in _tab_views.items():
                 want = k == key
-                if want:
-                    pane.opacity = 0.0
+                pane.opacity = 1.0
                 if pane.visible != want:
                     pane.visible = want
                     switch_controls.append(pane)
@@ -8083,9 +8097,10 @@ async def main(page: ft.Page):
             # the switch behind that work is what made rapid navigation look
             # frozen, and a refresh that raised could strand the visibility
             # change entirely.
+            # One batch also starts the native marker slide. Resetting the
+            # pane to opacity 0 and sending a second fade patch forced a blank
+            # frame and another diff of all its controls on every switch.
             page.update(*switch_controls)
-            view.opacity = 1.0
-            thread_safe_ui.refresh(view)
 
         # Hidden Play views drop their particle registration. An empty shared
         # ticker blocks on its Condition; navigation never joins a UI worker.
@@ -8115,6 +8130,8 @@ async def main(page: ft.Page):
                 _cb("stats", "refresh")(background=True)
             elif key == "chat":
                 _cb("chat", "refresh")()
+            elif key == "screenshots":
+                refresh_screenshot_gallery()
             elif key == "play":
                 refresh_server_status_panel()
                 _reconcile_running_button()
@@ -8130,8 +8147,7 @@ async def main(page: ft.Page):
             traceback.print_exc()
 
     # Initialize content area with the Play tab
-    _tab_views["play"] = ft.Container(play_tab, padding=0, expand=True,
-                                     animate_opacity=motion.BASE)
+    _tab_views["play"] = ft.Container(play_tab, padding=0, expand=True)
     tab_switcher.controls.append(_tab_views["play"])
 
     # -----------------------------------------------------------------
@@ -8226,7 +8242,7 @@ async def main(page: ft.Page):
     if _glass_on and os.path.isfile(_bg_path):
         _bg_kwargs["image"] = ft.DecorationImage(
             src=_bg_path, fit=ft.BoxFit.COVER, opacity=1.0,
-            filter_quality=ft.FilterQuality.MEDIUM,
+            filter_quality=ft.FilterQuality.HIGH,
         )
     # The window's content: the compact left sidebar beside the rest of the
     # shell. With the custom frame (Windows) two things change here:
@@ -9247,6 +9263,8 @@ async def main(page: ft.Page):
                     picker.close()
                 elif _account_panel_is_open():
                     _close_account_panel()
+                elif active_tab["value"] == "screenshots":
+                    switch_tab(screenshots_return_tab["value"])
                 elif (getattr(mods_tab.content, "close_detail", None)
                       and mods_tab.content.close_detail()):
                     pass

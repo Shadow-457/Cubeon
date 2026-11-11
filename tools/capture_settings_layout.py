@@ -46,27 +46,27 @@ async def main(page):
     for width in (1200,800,480,360):
         page.window.width=width;page.update()
         await asyncio.sleep(.5)
-        for section in ('account','versions','memory','appearance','seasonal','storage','notifications','system'):
+        for section in ('account','versions','appearance','notifications','import','about'):
             settings.select_section(section)
             if section=='account':
                 field=next(c for c in walk(settings) if isinstance(c,ft.TextField) and c.label=='Username')
                 field.error="Couldn't save the username. Try again."
                 thread_safe_ui.refresh(field)
-            if section in ('memory','storage'):
-                tile=next(c for c in walk(settings) if c.data==('settings-java-advanced' if section=='memory' else 'settings-backup-schedule'))
+            if section in ('versions','account'):
+                tile=next(c for c in walk(settings) if c.data==('settings-java-advanced' if section=='versions' else 'settings-backup-schedule'))
                 tile.expanded=True
                 thread_safe_ui.refresh(tile)
             await capture(f'{section}-{width}')
     page.window.width,page.window.height=480,400
-    settings.select_section('storage')
-    page.update()
-    await capture('storage-short')
-    pane=next(c for c in walk(settings) if c.data=='settings-pane-storage')
-    scrolling.follow_end(page,pane)
-    await capture('storage-short-end')
     settings.select_section('account')
-    settings.select_section('storage')
-    await capture('storage-short-retained')
+    page.update()
+    await capture('account-short')
+    pane=next(c for c in walk(settings) if c.data=='settings-pane-account')
+    scrolling.follow_end(page,pane)
+    await capture('account-short-end')
+    settings.select_section('versions')
+    settings.select_section('account')
+    await capture('account-short-retained')
     completed.append(True)
     print('NATIVE_SETTINGS_PASS: retained sections, disclosures, wide/tablet/compact layout.',flush=True)
 if __name__=='__main__':

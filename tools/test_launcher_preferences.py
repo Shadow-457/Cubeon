@@ -86,7 +86,8 @@ class FlagsTests(unittest.TestCase):
                  patch.object(launch, '_sanitize_client_json'), \
                  patch.object(launch, '_restore_emptied_arguments'), \
                  patch.object(launch, 'stable_uuid', return_value='test'), \
-                 patch.object(launch, 'find_java_for_version', return_value=None), \
+                 patch.object(launch, 'find_java_for_version', return_value='/fixture/java'), \
+                 patch.object(launch, 'java_major_version', return_value=8), \
                  patch.object(launch, '_available_cpus', return_value=cores), \
                  patch.object(launch, 'get_system_ram_mb', return_value=system_ram), \
                  patch.object(launch.mll.command, 'get_minecraft_command', side_effect=command):
@@ -137,7 +138,8 @@ class FlagsTests(unittest.TestCase):
                  patch.object(launch, '_sanitize_client_json'), \
                  patch.object(launch, '_restore_emptied_arguments'), \
                  patch.object(launch, 'stable_uuid', return_value='test'), \
-                 patch.object(launch, 'find_java_for_version', return_value=None), \
+                 patch.object(launch, 'find_java_for_version', return_value='/fixture/java'), \
+                 patch.object(launch, 'java_major_version', return_value=8), \
                  patch.object(launch.mll.command, 'get_minecraft_command', side_effect=lambda _v,_p,opts:
                     ['java', *opts['jvmArguments'], '-XX:+UseParallelGC', '-Djava.library.path=natives',
                      '-cp', 'game.jar', 'game.Main', '--gameDir', opts['gameDirectory']]) as generated:

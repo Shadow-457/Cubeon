@@ -1504,20 +1504,20 @@ check("stats scans are read-only (no create-on-read helpers)",
 _screenshot_tab_path = os.path.join(_app_root, "ui", "screenshot_gallery.py")
 _screenshot_tab_src = (open(_screenshot_tab_path, encoding="utf-8").read()
                        if os.path.exists(_screenshot_tab_path) else "")
-check("screenshot gallery is in Settings, not Cosmetics",
+check("screenshot gallery opens from the compact profile-strip button",
       "def build_screenshot_gallery_tab" in _screenshot_tab_src
-      and "screenshots_pane = pane('Screenshots', images_pane)" in open(
-          os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
-      and "screenshot_gallery=screenshot_gallery_tab" in _main_src
-      and "refresh_screenshot_gallery=refresh_screenshot_gallery" in _main_src
-      and "if key == 'images':" in open(
+      and 'data="screenshots-button"' in _main_src
+      and '"screenshots": screenshots_tab' in _main_src
+      and 'on_open_screenshots=lambda: switch_tab("screenshots")' in _main_src
+      and "('images'," not in open(
           os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
       and "screenshot_gallery" not in open(
           os.path.join(_app_root, "ui", "skin_tab.py"), encoding="utf-8").read()
       and '("gallery", ft.Icons.PHOTO_LIBRARY_OUTLINED, "Gallery")' not in _main_src
       and '"gallery": screenshot_gallery_tab' not in _main_src
-      and "screenshot_gallery_button" not in _main_src,
-      "Screenshots belong in Settings without taking a top-nav entry")
+      and "screenshots" not in _main_src[_main_src.index("top_nav_items = ["):
+                                           _main_src.index("server_group_items = [")],
+      "Screenshots need one retained page, accessed beside the profile")
 check("screenshot gallery offers copy-image action",
       "screenshot-copy" in _screenshot_tab_src
       and "set_files" in _screenshot_tab_src

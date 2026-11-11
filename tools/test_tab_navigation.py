@@ -33,7 +33,7 @@ def check(label, condition, detail=""):
 
 
 driver = app_driver.build_headless()
-from cubeon import motion
+from cubeon import motion, thread_safe_ui
 
 switch = inspect.getclosurevars(driver.tabs()["mods"].on_click).nonlocals["switch_tab"]
 variables = inspect.getclosurevars(switch).nonlocals
@@ -43,7 +43,26 @@ nav_buttons = variables["nav_buttons"]
 blob = variables["nav_blob"]
 active_tab = variables["active_tab"]
 updates = []
-driver.page.update = lambda *controls: updates.append(controls)
+frames = []
+pane_repaints = []
+
+
+def record_update(*controls):
+    updates.append(controls)
+    frames.append([(key, view.opacity) for key, view in views.items() if view.visible])
+
+
+driver.page.update = record_update
+original_refresh = thread_safe_ui.refresh
+
+
+def record_refresh(control):
+    if control is host or any(control is view for view in views.values()):
+        pane_repaints.append(control)
+    original_refresh(control)
+
+
+thread_safe_ui.refresh = record_refresh
 encode = configure_encode_object_for_msgpack(BaseControl)
 
 
@@ -69,9 +88,13 @@ play_controls = tuple(id(control) for control in walk(play_view))
 # The Mods tab legitimately refreshes its list on entry; measure the shell
 # repaint on the way back to Play, where only the pane swap should happen.
 updates.clear()
+frames.clear()
+pane_repaints.clear()
 switch("play")
 patch, added, removed, encoded = flush_host()
 check("navigation uses one scoped repaint", len(updates) == 1 and bool(updates[0]))
+check("content is visible in the first frame, without another pane diff",
+      frames == [[("play", 1.0)]] and not pane_repaints)
 check("both changed top-bar buttons repaint",
       {id(control) for control in updates[0] if control in nav_buttons.values()}
       == {id(nav_buttons["play"]), id(nav_buttons["mods"])})
@@ -108,27 +131,41 @@ check("same-tab/invalid clicks leave state unchanged", active_tab["value"] == "m
 check("same-tab/invalid clicks keep the cached wrappers",
       views["play"] is play_view and views["mods"] is settings_view)
 
-print("\n2a. Settings is a centered popup, not a tab")
-before = active_tab["value"]
+print("\n2a. Settings is a retained tab")
 switch("settings")
-popup_scope = inspect.getclosurevars(variables["_open_account_panel"]).nonlocals
-popup = popup_scope["account_panel"]
-card = popup_scope["account_card"]
-check("Settings opens the popup and keeps the current tab mounted",
-      popup.visible and active_tab["value"] == before
-      and "settings" not in views, str(list(views)))
-check("the popup is centered and rounded",
-      popup.alignment == ft.Alignment.CENTER
-      and card.border_radius.top_left > 0)
-check("the popup scales to the window instead of a fixed small box",
-      card.width >= 880 and card.height >= 600,
-      f"{card.width}x{card.height}")
-close_btn = next(c for c in walk(card)
-                 if (getattr(c, "tooltip", "") or "") == "Close")
-close_btn.on_click(None)
-check("closing the popup fades it out", popup.opacity == 0)
+settings_pane = views["settings"]
+settings_tree = tuple(id(control) for control in walk(settings_pane))
+check("Settings is the only visible launcher pane",
+      active_tab["value"] == "settings"
+      and [key for key, pane in views.items() if pane.visible] == ["settings"])
+switch("mods")
+check("leaving Settings hides its retained pane", not settings_pane.visible)
+switch("settings")
+check("returning to Settings preserves the pane and its fields",
+      views["settings"] is settings_pane
+      and tuple(id(control) for control in walk(settings_pane)) == settings_tree)
 
-print("\n2b. a stray visible pane can never survive a switch")
+print("\n2b. the compact profile-strip button opens retained Screenshots")
+before = active_tab["value"]
+picture_button = next(control for control in walk(driver.page)
+                      if getattr(control, "data", None) == "screenshots-button")
+picture_button.on_click(None)
+check("Screenshots uses a small native picture button",
+      isinstance(picture_button, ft.IconButton)
+      and picture_button.width == 32 and picture_button.height == 32
+      and picture_button.tooltip == "Screenshots")
+check("Screenshots opens its own visible page",
+      [key for key, pane in views.items() if pane.visible] == ["screenshots"])
+gallery_pane = views["screenshots"]
+back = next(control for control in walk(gallery_pane)
+            if getattr(control, "data", None) == "screenshots-back")
+back.on_click(None)
+check("Screenshots Back returns to the destination that opened it",
+      active_tab["value"] == before and not gallery_pane.visible)
+picture_button.on_click(None)
+check("reopening Screenshots retains its page", views["screenshots"] is gallery_pane)
+
+print("\n2c. a stray visible pane can never survive a switch")
 # The 2026-10-25 "Play and Modpacks both visible" report: one interrupted
 # transition left an old pane visible, and every later switch only hid the
 # immediate previous pane - so the stale one stayed on screen forever.
@@ -170,10 +207,13 @@ for key in ("play", "mods", "modpacks", "play", "mods"):
 top_keys = [key for key, button in nav_buttons.items() if getattr(button, "cubeon_top_icon", False)]
 _move_vars = inspect.getclosurevars(variables["_move_nav_blob"]).nonlocals
 nav_h, nav_gap = _move_vars["NAV_BTN_H"], _move_vars["NAV_GAP"]
-expected_offset = top_keys.index("mods") * (nav_h + nav_gap) / nav_h
+expected_offset = top_keys.index("mods") * (nav_h + nav_gap) / blob.height
 check("rapid navigation lands on the latest icon", blob.offset.y == expected_offset)
-check("highlight never stretches/reflows",
-      blob.height == nav_h and blob.top == 0 and blob.width == nav_buttons["mods"].width)
+check("the selection is a slim, centered accent bar",
+      blob.width == 3 and blob.height == 40 and blob.top == (nav_h - blob.height) / 2
+      and blob.ignore_interactions)
+check("active rail tiles stay clear behind the slider",
+      nav_buttons["mods"].bgcolor == "transparent")
 check("highlight uses the same native animation as the icons",
       blob.animate_offset is nav_buttons["mods"].content.controls[0].animate_scale)
 check("highlight has no timer-delayed settle",
@@ -193,14 +233,14 @@ switch("mods")
 mods_text = [getattr(control, "value", "") for control in walk(views["mods"])]
 check("lazy Mods tab actually builds", "Resource Packs" in mods_text and "Shaders" in mods_text)
 switch("server")
-check("Servers entry stores the canonical Console tab", active_tab["value"] == "server_console")
+check("Servers entry stores the canonical Settings tab", active_tab["value"] == "server_settings")
 server_offset = blob.offset.y
 switch("server_plugins")
 check("server chip switches the visible pane",
       [name for name, view in views.items() if view.visible] == ["server_plugins"])
 check("server chips keep the same sidebar highlight", blob.offset.y == server_offset)
 switch("server")
-check("Servers entry returns to the cached Console pane", views["server_console"].visible)
+check("Servers entry returns to the cached Settings pane", views["server_settings"].visible)
 check("server chip row stays visible", variables["subnav_bar"].visible)
 switch("play")
 check("leaving Servers hides the chip row", not variables["subnav_bar"].visible)
@@ -212,9 +252,7 @@ for key in ("profile", "stats", "chat", "server_settings"):
                or views[key].content.content is not None))
 check("Servers has no Browse navigation entry", "server_browse" not in driver.tabs())
 
-# Chat is a first-class sidebar entry. The BETA chip that used to sit before
-# the active indicator was removed on 2026-10-26; the indicator must still be
-# the last child because _style_nav_button reads controls[-1].
+# Chat keeps an icon and label; the retained marker supplies selection.
 _chat_btn = nav_buttons.get("chat")
 if _chat_btn is not None:
     _chat_texts = [getattr(control, "value", "")
@@ -224,7 +262,7 @@ if _chat_btn is not None:
     check("the sidebar BETA chip stays gone",
           "BETA" not in _chat_texts, str(_chat_texts))
     switch("chat")
-    check("the active indicator is the rail tile itself",
+    check("Chat retains its active rail tile",
           getattr(_chat_btn, "cubeon_top_icon", False) and _chat_btn.data is True,
           str([type(c).__name__ for c in _chat_btn.content.controls]))
     check("Chat still styles as active",

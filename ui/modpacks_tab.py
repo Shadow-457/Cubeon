@@ -78,7 +78,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     active_feedback = {"job": None}
     installed_rows = {}
     pack_art = IconLoader()
-    detail_page = ModpackDetailPage(page, {
+    pack_details = ModpackDetailPage(page, {
         "RADIUS": RADIUS, "ACCENT": ACCENT, "ON_ACCENT": ON_ACCENT,
         "CARD_FILL": CARD_FILL, "CARD_BORDER": CARD_BORDER,
         "TEXT": TEXT, "TEXT_DIM": TEXT_DIM, "TEXT_FAINT": TEXT_FAINT,
@@ -1098,7 +1098,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                                        if _pack.get("project_id") else None), feedback=feedback)
 
         def _open_pack_detail(e=None, _pack=pack, _install=on_install):
-            detail_page.open(
+            pack_details.open(
                 _pack,
                 on_install=None if is_installed else _install,
                 on_install_version=(None if is_installed else
@@ -1557,8 +1557,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         expand=True,
         data="modpacks-catalogue",
     )
-    modpacks_tab = ft.Column([catalogue_host, detail_page.control], spacing=0, expand=True)
-    modpacks_tab.close_detail = detail_page.close
+    modpacks_tab = ft.Column([catalogue_host, pack_details.control], spacing=0, expand=True)
+    modpacks_tab.close_detail = pack_details.close
     modpacks_tab.on_detail_change = None
 
     def detail_visibility_changed(visible):
@@ -1566,7 +1566,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         thread_safe_ui.refresh(catalogue_host)
         if modpacks_tab.on_detail_change:
             modpacks_tab.on_detail_change(visible)
-    detail_page.on_visibility_change = detail_visibility_changed
+    pack_details.on_visibility_change = detail_visibility_changed
 
     installed_view.on_capacity_change = lambda capacity: _render_installed_rows(installed_cache['packs'] or [])
     return modpacks_tab, refresh_installed_packs, load_popular

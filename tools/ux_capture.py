@@ -74,7 +74,7 @@ CAPTURE_HEIGHT = int(os.environ.get("CUBEON_UX_HEIGHT", "900"))
 # "Settings" label).
 TAB_ORDER = ["play", "mods", "modpacks", "chat", "profile",
              "server_console", "server_plugins", "server_settings",
-             "stats", "settings"]
+             "stats", "settings", "screenshots"]
 KNOWN_KEYS = set(TAB_ORDER) | {"account"}
 
 # Segment keys inside the Mods tab (content type) - see ui/mods_tab.py

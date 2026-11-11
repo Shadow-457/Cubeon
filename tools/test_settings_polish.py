@@ -59,11 +59,42 @@ class SettingsPolish(unittest.TestCase):
             self.repaint.reset_mock()
             self.root.select_section('theme')
             active=scope(self.root.select_section)['panes']
-            self.assertEqual([key for key,pane in active.items() if pane.visible],['seasonal'])
+            self.assertEqual([key for key,pane in active.items() if pane.visible],['appearance'])
             self.assertEqual([id(c) for c in walk(self.root) if isinstance(c,ft.TextField)],
                              [id(c) for c in self.controls if isinstance(c,ft.TextField)])
             navigation=layout['compact_rail'] if compact else layout['rail']
             self.assertTrue(any(call.args[0] is navigation for call in self.repaint.call_args_list))
+
+    def test_merged_sections_keep_actions_and_existing_links(self):
+        panes=scope(self.root.select_section)['panes']
+        self.assertEqual(set(panes),{'account','versions','appearance','notifications','import','about'})
+        def texts(key):
+            return {str(c.value).casefold() for c in walk(panes[key]) if isinstance(c,ft.Text)}
+        self.assertTrue({'backups','launcher','automatic backups'} <= texts('account'))
+        self.assertTrue({'maximum ram','advanced java settings','minecraft files'} <= texts('versions'))
+        self.assertTrue({'animations','theme','seasonal look'} <= texts('appearance'))
+        original=tuple(id(c) for c in walk(self.root))
+        for alias,target in {'launcher':'account','system':'account','backups':'account',
+                             'storage':'account','theme':'appearance','seasonal':'appearance',
+                             'performance':'versions','memory':'versions','files':'versions'}.items():
+            self.root.select_section(alias)
+            self.assertEqual([key for key,pane in panes.items() if pane.visible],[target])
+        self.assertEqual(tuple(id(c) for c in walk(self.root)),original)
+
+    def test_about_shows_installed_build_and_project_links(self):
+        from cubeon.updater import APP_VERSION
+        self.assertEqual(self.control(data='about-version').value,APP_VERSION)
+        self.assertTrue(self.control(data='about-platform').value)
+        self.root.select_section('about')
+        panes=scope(self.root.select_section)['panes']
+        self.assertEqual([key for key,pane in panes.items() if pane.visible],['about'])
+        for key,url in {'website':'https://www.ylet.online/',
+                        'source':'https://github.com/Shadow-457/Cubeon',
+                        'releases':'https://github.com/Shadow-457/Cubeon/releases',
+                        'license':'https://github.com/Shadow-457/Cubeon/blob/main/LICENSE'}.items():
+            control=self.control(data='about-link-'+key)
+            self.assertEqual(control.tooltip,url)
+            self.assertIsNotNone(control.cubeon_keyboard_button)
 
     def test_account_username_error_is_visible_and_failed_publish_can_retry(self):
         field=next(c for c in self.controls if isinstance(c,ft.TextField) and c.label=='Username')

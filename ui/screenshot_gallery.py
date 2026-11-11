@@ -11,6 +11,7 @@ from cubeon import i18n
 from cubeon import dialogs
 from cubeon import screenshot_gallery as store
 from cubeon import thread_safe_ui
+from cubeon.background_refresh import BackgroundRefresh
 from cubeon.theme import (
     ACCENT, ACCENT_TINT, CARD_BORDER, CARD_FILL, DANGER,
     FONT_DISPLAY, FONT_MONO, INFO, RADIUS, ROW_HOVER, SURFACE, SURFACE_HI, SURFACE_MAX,
@@ -29,7 +30,7 @@ _DECODE_POOL = threading.Semaphore(3)
 def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
     """Build the full-canvas screenshots tab and return its refresh callback."""
     state = {"items": [], "selected": None, "generation": 0,
-             "thumb_generation": 0}
+             "thumb_generation": 0, "scanned": False}
     thumb_refs = {}
 
     selected_image = preview_image(
@@ -49,7 +50,8 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
                             font_family=FONT_DISPLAY, max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS)
     selected_meta = ft.Text("", size=11, color=TEXT_DIM)
-    status = ft.Text("", size=11, color=TEXT_DIM)
+    status = ft.Text("", size=11, color=TEXT_DIM, expand=True,
+                     max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
     capture_count = ft.Text("0 captures", size=11, color=TEXT_DIM,
                             font_family=FONT_MONO)
     thumb_column = ft.ListView(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
@@ -105,22 +107,28 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
             with _DECODE_POOL:
                 encoded = store.image_base64(filename)
         except Exception as ex:
+            with thread_safe_ui.TREE_LOCK:
+                if generation != state["generation"]:
+                    return
+                status.value = f"Couldn't preview screenshot: {ex}"
+                thread_safe_ui.refresh(status)
+            return
+        with thread_safe_ui.TREE_LOCK:
             if generation != state["generation"]:
                 return
-            status.value = f"Couldn't preview screenshot: {ex}"
+            selected_image.src = encoded
+            selected_image.visible = True
+            selected_empty.visible = False
+            status.value = "Preview ready."
+            thread_safe_ui.refresh(selected_image)
+            thread_safe_ui.refresh(selected_empty)
             thread_safe_ui.refresh(status)
-            return
-        if generation != state["generation"]:
-            return
-        selected_image.src = encoded
-        selected_image.visible = True
-        selected_empty.visible = False
-        status.value = "Preview ready."
-        thread_safe_ui.refresh(selected_image)
-        thread_safe_ui.refresh(selected_empty)
-        thread_safe_ui.refresh(status)
 
     def _select(item):
+        with thread_safe_ui.TREE_LOCK:
+            _select_locked(item)
+
+    def _select_locked(item):
         filename = item["filename"]
         state["selected"] = filename
         state["generation"] += 1
@@ -153,13 +161,14 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
                 encoded = store.image_base64(filename, max_size=(180, 112))
         except Exception:
             return
-        if generation != state["thumb_generation"]:
-            return
-        image.src = encoded
-        image.visible = True
-        loading.visible = False
-        thread_safe_ui.refresh(image)
-        thread_safe_ui.refresh(loading)
+        with thread_safe_ui.TREE_LOCK:
+            if generation != state["thumb_generation"]:
+                return
+            image.src = encoded
+            image.visible = True
+            loading.visible = False
+            thread_safe_ui.refresh(image)
+            thread_safe_ui.refresh(loading)
 
     def _render_list(items):
         state["items"] = items
@@ -234,17 +243,37 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
                              daemon=True,
                              name="cubeon-screenshot-thumb").start()
 
-    def _refresh(e=None):
-        status.value = "Scanning screenshots…"
-        thread_safe_ui.refresh(status)
-        items = store.list_screenshots()
-        _render_list(items)
+    def _apply_scan(items):
+        # Returning to the gallery keeps its selection and decoded artwork
+        # when the inventory is unchanged.
+        if not state["scanned"] or items != state["items"]:
+            _render_list(items)
+            state["scanned"] = True
         capture_count.value = (f"{len(items)} capture"
                                + ("s" if len(items) != 1 else ""))
         status.value = (f"{len(state['items'])} screenshot"
                         + ("s" if len(state["items"]) != 1 else "")
                         + " found")
+        thread_safe_ui.refresh(capture_count)
         thread_safe_ui.refresh(status)
+
+    def _scan_failed(error):
+        status.value = f"Couldn't scan screenshots: {error}"
+        thread_safe_ui.refresh(status)
+
+    scans = BackgroundRefresh(lambda: store.list_screenshots(), _apply_scan,
+                              name="cubeon-screenshot-scan", failed=_scan_failed)
+
+    def _refresh(e=None):
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            status.value = "Scanning screenshots…"
+            thread_safe_ui.refresh(status)
+        try:
+            scans.request()
+        except Exception as error:
+            with thread_safe_ui.TREE_LOCK:
+                _scan_failed(error)
 
     def _delete_selected(e=None):
         filename = state.get("selected")
@@ -328,7 +357,8 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
                 ),
                 ft.Column([
                     ft.Text("Minecraft screenshots", size=21, color=TEXT,
-                            font_family=FONT_DISPLAY),
+                            font_family=FONT_DISPLAY, max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text("Your in-game captures, ready to browse.", size=11,
                             color=TEXT_DIM),
                 ], spacing=4, expand=True),
@@ -400,7 +430,6 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
                                     padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
                                     ink=False, on_click=_delete_selected,
                                 ),
-                                ft.Container(expand=True),
                                 status,
                             ], spacing=8),
                         ], spacing=4),
@@ -418,4 +447,39 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
         [gallery_header, ft.Container(height=12), gallery_body],
         spacing=0, expand=True,
     )
+    wide_body = gallery_body.content
+    wide_body.vertical_alignment = ft.CrossAxisAlignment.STRETCH
+    thumbnails, preview = wide_body.controls
+    compact_body = ft.Column(spacing=12, expand=True,
+                             horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    title_row = gallery_header.controls[0].content
+    header_title = title_row.controls[1].controls[0]
+    capture_badge = title_row.controls[2]
+    layout = {"compact": False}
+
+    def layout_changed(event):
+        ft.context.disable_auto_update()
+        compact = float(event.width or 1000) < 680
+        with thread_safe_ui.TREE_LOCK:
+            if compact == layout["compact"]:
+                return
+            layout["compact"] = compact
+            # Reuse the same preview and thumbnails. Small windows put the
+            # image above a horizontal strip, leaving room for its actions.
+            wide_body.controls.clear()
+            compact_body.controls.clear()
+            if compact:
+                compact_body.controls.extend([preview, thumbnails])
+            else:
+                wide_body.controls.extend([thumbnails, preview])
+            thumbnails.width = None if compact else 215
+            thumbnails.height = 200 if compact else None
+            thumb_column.horizontal = compact
+            capture_badge.visible = not compact
+            header_title.size = 16 if compact else 21
+            gallery_body.content = compact_body if compact else wide_body
+            thread_safe_ui.refresh(gallery_tab)
+
+    gallery_tab.on_size_change = layout_changed
+    gallery_tab.size_change_interval = 100
     return gallery_tab, _refresh

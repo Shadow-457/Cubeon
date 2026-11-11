@@ -1,6 +1,7 @@
 """Deterministic checks for the Minecraft screenshot gallery backend."""
 
 import os
+import inspect
 import sys
 import tempfile
 import threading
@@ -166,6 +167,7 @@ class FolderTests(unittest.TestCase):
         entered = threading.Event()
         release = threading.Event()
         finished = threading.Event()
+        scanned = threading.Event()
         ui_thread = threading.get_ident()
 
         def slow_failure(filename):
@@ -176,6 +178,8 @@ class FolderTests(unittest.TestCase):
             raise OSError("File manager rejected folder")
 
         def repaint(control):
+            if getattr(control, "value", "") == "1 screenshot found":
+                scanned.set()
             if control is button and not button.disabled:
                 finished.set()
 
@@ -186,6 +190,7 @@ class FolderTests(unittest.TestCase):
              patch.object(ui.thread_safe_ui, "refresh", side_effect=repaint), \
              patch.object(ui.store, "open_screenshots_folder", side_effect=slow_failure) as opener:
             refresh()
+            self.assertTrue(scanned.wait(3))
             button.on_click(None)
             try:
                 self.assertTrue(entered.wait(3))
@@ -200,6 +205,66 @@ class FolderTests(unittest.TestCase):
                                 "Couldn't open folder: File manager rejected folder"
                                 for c in controls))
         self.assertEqual(page.update_calls, 0)
+
+
+class RefreshTests(unittest.TestCase):
+    def test_slow_scan_is_off_the_ui_thread_and_only_latest_request_paints(self):
+        from _fuzz_common import FakePage
+        from ui import screenshot_gallery as ui
+
+        root, refresh = ui.build_screenshot_gallery_tab(FakePage())
+        scans = inspect.getclosurevars(refresh).nonlocals["scans"]
+        original_apply = scans.apply
+        entered, release, done = (threading.Event() for _ in range(3))
+        reader_threads, applied = [], []
+        ui_thread = threading.get_ident()
+
+        def read():
+            reader_threads.append(threading.get_ident())
+            if len(reader_threads) == 1:
+                entered.set()
+                if not release.wait(3):
+                    raise RuntimeError("test release timed out")
+                return [{"stale": True}]
+            return []
+
+        def apply(items):
+            applied.append(items)
+            original_apply(items)
+            done.set()
+
+        with patch.object(ui.store, "list_screenshots", side_effect=read), \
+             patch.object(ui.thread_safe_ui, "refresh"), \
+             patch.object(scans, "apply", side_effect=apply):
+            refresh()
+            try:
+                self.assertTrue(entered.wait(3))
+                self.assertNotEqual(reader_threads[0], ui_thread)
+                refresh()
+            finally:
+                release.set()
+            self.assertTrue(done.wait(3))
+            self.assertEqual(applied, [[]])
+
+    def test_unchanged_inventory_retains_thumbnails_and_selection(self):
+        from _fuzz_common import FakePage
+        from ui import screenshot_gallery as ui
+
+        root, refresh = ui.build_screenshot_gallery_tab(FakePage())
+        scans = inspect.getclosurevars(refresh).nonlocals["scans"]
+        values = inspect.getclosurevars(scans.apply).nonlocals
+        render = inspect.getclosurevars(values["_render_list"]).nonlocals
+        state, column = values["state"], render["thumb_column"]
+        items = [{"filename": "one.png", "name": "one", "date": "today",
+                  "width": 3, "height": 3, "bytes": 1}]
+        with patch.object(ui.threading.Thread, "start"), \
+             patch.object(ui.thread_safe_ui, "refresh"), ui.thread_safe_ui.TREE_LOCK:
+            scans.apply(items)
+            controls, generation = tuple(column.controls), state["generation"]
+            scans.apply(list(items))
+            self.assertEqual(tuple(column.controls), controls)
+            self.assertEqual(state["selected"], "one.png")
+            self.assertEqual(state["generation"], generation)
 
 
 if __name__ == "__main__":

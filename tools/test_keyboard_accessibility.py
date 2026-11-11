@@ -78,11 +78,24 @@ finally:
 settings = closed_over(switch_tab, 'tabs')['settings']
 select = closed_over(settings.select_section, '_select_section') if '_select_section' in settings.select_section.__code__.co_freevars else settings.select_section
 panes = closed_over(select, 'panes')
-assert {'notifications', 'storage', 'seasonal', 'images', 'system'} <= set(panes)
+assert set(panes) == {'account', 'versions', 'appearance', 'notifications', 'import', 'about'}
 assert 'doctor' not in panes, 'Removed Fix problems section returned to Settings'
 for section in panes:
     settings.select_section(section)
     assert [name for name, pane in panes.items() if pane.visible] == [section]
+for old, current in {'launcher': 'account', 'system': 'account', 'backups': 'account',
+                     'storage': 'account', 'theme': 'appearance', 'seasonal': 'appearance',
+                     'performance': 'versions', 'memory': 'versions', 'files': 'versions'}.items():
+    settings.select_section(old)
+    assert [name for name, pane in panes.items() if pane.visible] == [current]
+picture = next(control for control in fz.walk(page)
+               if getattr(control, 'data', None) == 'screenshots-button')
+picture.on_click(None)
+assert active['value'] == 'screenshots' and views['screenshots'].visible
+send('Escape')
+assert active['value'] == 'settings', 'Escape must return from Screenshots'
+settings.select_section('images')
+assert active['value'] == 'screenshots', 'Old screenshot links must reach the new page'
 switch_tab('chat')
 assert not views['settings'].visible, 'Settings stayed on top of Chat'
 state = closed_over(switch_tab, 'state')
@@ -90,4 +103,4 @@ state['chat_composing'] = True
 send('!', shift=True)
 assert active['value'] == 'chat', 'Typing ! in Chat activated the Shift+1 navigation shortcut'
 state['chat_composing'] = False
-print('PASS: keyboard targets and modal gates; Settings tab and separate sections')
+print('PASS: keyboard targets, modal gates, merged Settings and Screenshots return')

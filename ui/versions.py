@@ -60,6 +60,9 @@ class VersionBanner:
     def _frame(source, *, fade_layer=False):
         return ft.Image(
             src=source, fit=ft.BoxFit.COVER, gapless_playback=True,
+            # Sample the original artwork at high quality as the viewport
+            # changes; keep its full decode and retained image identity.
+            filter_quality=ft.FilterQuality.HIGH,
             left=0, top=0, right=0, bottom=0,
             key="play-banner-fade" if fade_layer else "play-banner-base",
             opacity=0 if fade_layer else 1,
