@@ -7562,7 +7562,7 @@ async def main(page: ft.Page):
     # in one place. CUBEON_WEB_URL can be overridden for a fork or a staging
     # deploy without touching this file.
     CUBEON_WEB_URL = (os.environ.get("CUBEON_WEB_URL")
-                      or "https://cubeon.vercel.app")
+                      or "https://www.ylet.online/")
 
     def _open_cubeon_web(e=None):
         """Opens the site, with the same browser-open fallback as every other
