@@ -320,7 +320,7 @@ Chat
 - `refresh()` (the on-open hook) reconciles immediately instead of waiting a tick.
 - The Cubeon name is automatic: `friends.ensure_identity()` mints a deterministic
   `Player_<sha256(secret)[:8]>` handle; there is no claim prompt. See
-  module-map.md for the identity model.
+  [the launcher identity reference](launcher.md#configpy) for the identity model.
 - The rename field calls `FriendsService.rename_unique(base)`, which appends a
   4-digit number derived from the same secret ("Dragon" -> "Dragon4821") and
   retries if that exact handle is already taken. Prefilled with the current stem

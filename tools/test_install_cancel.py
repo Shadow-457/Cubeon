@@ -42,6 +42,30 @@ def check(label, ok, extra=""):
     print(f"  {'ok  ' if ok else 'FAIL'} {label}{(' - ' + extra) if extra and not ok else ''}")
 
 
+class _CancelProbe:
+    """Signal from another thread once the stream is already writing bytes."""
+
+    def __init__(self):
+        self.event = threading.Event()
+        self.signalled_at = None
+        self._thread = None
+
+    def arm(self):
+        if self._thread is None:
+            self._thread = threading.Thread(target=self._signal, daemon=True)
+            self._thread.start()
+
+    def _signal(self):
+        self.signalled_at = time.monotonic()
+        self.event.set()
+
+    def elapsed(self, finished_at):
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+        return (finished_at - self.signalled_at
+                if self.signalled_at is not None else None)
+
+
 # A fake transport: response-shaped objects whose bodies arrive slowly, in
 # chunks, streamed by the patched downloader exactly like a real socket - so
 # what aborts the install is the downloader's own per-chunk cancel check. (It
@@ -53,16 +77,25 @@ class _SlowBody:
     status_code = 200
     headers = {}
 
-    def __init__(self, chunks=100, delay=0.05):
+    def __init__(self, chunks=100, delay=0.05, cancel_probe=None):
         self._left = chunks
         self._delay = delay
+        self._cancel_probe = cancel_probe
+        self.reads = 0
+        self.eof = False
         self.raw = types.SimpleNamespace(decode_content=False, read=self._read)
         self.closed = False
 
     def _read(self, n):
         if self._left <= 0:
+            self.eof = True
             return b""
         self._left -= 1
+        self.reads += 1
+        # Two chunks are already on disk; cancel while the next read is in
+        # flight. Only the production downloader checks the resulting flag.
+        if self.reads == 3 and self._cancel_probe is not None:
+            self._cancel_probe.arm()
         time.sleep(self._delay)  # 5s if a cancel never lands
         return b"x" * n
 
@@ -73,14 +106,15 @@ class _SlowBody:
 class _FakeTransport:
     """Stands in for versions._install_session() - no socket, no DNS."""
 
-    def __init__(self, chunks=100):
+    def __init__(self, chunks=100, cancel_probe=None):
         self.requests = 0
         self.responses = []
         self._chunks = chunks
+        self._cancel_probe = cancel_probe
 
     def get(self, url, stream=True, timeout=None, headers=None):
         self.requests += 1
-        body = _SlowBody(chunks=self._chunks)
+        body = _SlowBody(chunks=self._chunks, cancel_probe=self._cancel_probe)
         self.responses.append(body)
         return body
 
@@ -103,7 +137,8 @@ _fake_install_mod = types.SimpleNamespace(download_file=_fake_download_file)
 
 def _fake_install(version, mcdir, callback=None):
     _fake_install_mod.download_file(
-        "http://x", os.path.join(mcdir, _fake_target["name"]), callback or {})
+        "http://x", os.path.join(mcdir, "versions", version,
+                                  _fake_target["name"]), callback or {})
 
 
 _fake_install_mod.install_minecraft_version = _fake_install
@@ -118,25 +153,32 @@ _real_manifest = V._manifest
 V._manifest = lambda: {"versions": []}
 
 try:
-    transport = _FakeTransport()
+    probe = _CancelProbe()
+    transport = _FakeTransport(cancel_probe=probe)
     V._install_session = lambda: transport
-    ev = threading.Event()
-    threading.Timer(0.6, ev.set).start()
-    t0 = time.time()
     raised = None
     try:
+        # Java verification has its own cancellation coverage. This probe
+        # begins at the download rather than a real local Java subprocess.
         V.install_version("1.20.1", lambda v: None, lambda s: None,
-                          lambda m: None, cancel_event=ev)
+                          lambda m: None, cancel_event=probe.event,
+                          explicit_java=True)
     except RuntimeError as ex:
         raised = ex
-    dt = time.time() - t0
-    check("cancel aborts mid-file within ~1s of the flag",
-          raised is not None and dt < 1.6, f"dt={dt:.2f}s raised={raised!r}")
+    dt = probe.elapsed(time.monotonic())
+    check("cancel aborts mid-file within 1s of the actual flag",
+          raised is not None and "cancelled" in str(raised)
+          and dt is not None and 0 <= dt < 1,
+          f"cancel-to-abort={dt!r}s raised={raised!r}")
+    check("cancel reaches an active response without waiting for EOF",
+          transport.requests == 1 and len(transport.responses) == 1
+          and 3 <= transport.responses[0].reads < 100
+          and transport.responses[0].closed and not transport.responses[0].eof)
     check("mll's download_file is restored after the install",
           _fake_install_mod.download_file is _fake_download_file)
+    jar_path = os.path.join(V.version_folder("1.20.1"), "a.jar")
     check("a cancelled install leaves no half-written jar in the version",
-          not os.path.isfile(os.path.join(V.MINECRAFT_DIR, "versions",
-                                          "1.20.1", "a.jar")))
+          not os.path.isfile(jar_path) and not os.path.isfile(jar_path + ".part"))
 
     # The same downloader must be in place WITHOUT a cancel_event: the
     # timeouts, retries and resume are what make downloads work on a flaky
@@ -147,7 +189,7 @@ try:
     raised_missing = None
     try:
         V.install_version("1.20.1", lambda v: None, lambda s: None,
-                          lambda m: None)
+                          lambda m: None, explicit_java=True)
     except RuntimeError as ex:
         raised_missing = ex
     check("the resilient downloader runs without a cancel_event too",
@@ -170,9 +212,12 @@ def _slow_download(dest_path, url, **kw):
     chunks, progress reported as it goes - so what aborts it is the seed's own
     per-chunk cancel check, not the fake simply returning."""
     with open(dest_path + ".part", "wb") as fh:
-        for _ in range(100):
+        for chunk in range(100):
+            if chunk == 2:
+                seed_probe.arm()
             time.sleep(0.05)  # 5s if a cancel never lands
             fh.write(b"x")
+            seed_chunks.append(fh.tell())
             cb = kw.get("progress_cb")
             if cb:
                 cb(fh.tell(), 100)
@@ -186,21 +231,23 @@ V._manifest = lambda: {"versions": [{"id": "1.20.1", "url": "http://x/v.json",
                                      "sha1": "0" * 40}]}
 net_mod.download_to = _slow_download
 try:
-    ev2 = threading.Event()
-    threading.Timer(0.6, ev2.set).start()
-    t0 = time.time()
+    seed_probe = _CancelProbe()
+    seed_chunks = []
     raised2 = None
     try:
         V.install_version("1.20.1", lambda v: None, lambda s: None,
-                          lambda m: None, cancel_event=ev2)
+                          lambda m: None, cancel_event=seed_probe.event,
+                          explicit_java=True)
     except RuntimeError as ex:
         raised2 = ex
-    dt2 = time.time() - t0
-    check("cancel during the json seed aborts within ~1s",
-          raised2 is not None and dt2 < 1.6,
-          f"dt={dt2:.2f}s raised={raised2!r}")
-    _json_path = os.path.join(V.MINECRAFT_DIR, "versions", "1.20.1",
-                              "1.20.1.json")
+    dt2 = seed_probe.elapsed(time.monotonic())
+    check("cancel during the json seed aborts within 1s of the actual flag",
+          raised2 is not None and "cancelled" in str(raised2)
+          and dt2 is not None and 0 <= dt2 < 1,
+          f"cancel-to-abort={dt2!r}s raised={raised2!r}")
+    check("seed cancellation happens after bytes arrive and before EOF",
+          3 <= len(seed_chunks) < 100)
+    _json_path = os.path.join(V.version_folder("1.20.1"), "1.20.1.json")
     check("the abandoned seed leaves no .part behind",
           not os.path.isfile(_json_path + ".part"))
     check("the abandoned seed leaves no half-written version json",

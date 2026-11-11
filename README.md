@@ -18,11 +18,11 @@
 </p>
 
 <p align="center">
-  <img src="web/assets/cubeon-play.png" width="1100" alt="Cubeon's Play screen, using the screenshot published on the website.">
+  <img src="web/assets/cubeon-play.webp" width="1100" alt="Cubeon's Play screen, using the screenshot published on the website.">
 </p>
 
 **Cubeon Launcher** (also called **Cubeon Minecraft Launcher**) is a free,
-Apache 2.0 open-source desktop launcher for **Minecraft Java Edition**.
+GPL-3.0 open-source desktop launcher for **Minecraft Java Edition**.
 The official website is **https://www.ylet.online/** and this is its official
 source repository. Cubeon manages game installations, modded instances,
 cosmetics, and local servers. It is built with Python and Flet for Linux and Windows. macOS downloads are
@@ -38,7 +38,7 @@ unavailable while the platform remains untested.
 - Manage local Minecraft servers.
 
 <p align="center">
-  <img src="web/assets/cubeon-cosmetics.png" width="1100" alt="Cubeon shoulder companion and back cosmetics rendered on a Minecraft player.">
+  <img src="web/assets/cubeon-cosmetics.webp" width="1100" alt="Cubeon shoulder companion and back cosmetics rendered on a Minecraft player.">
 </p>
 
 Skins, shoulder companions, and back items, together in game.
@@ -107,8 +107,8 @@ See the [security policy](SECURITY.md) for the reporting channel and required de
 
 ## License
 
-Cubeon is licensed under [Apache 2.0](LICENSE). See [NOTICE](NOTICE) for
-attribution. Third-party components retain their own licenses.
+Cubeon is licensed under the [GNU General Public License v3.0](LICENSE).
+Third-party components retain their own licenses.
 
 Cubeon is not affiliated with Mojang or Microsoft. Minecraft is a trademark
 of Mojang Studios.

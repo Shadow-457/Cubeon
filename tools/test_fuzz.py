@@ -41,6 +41,8 @@ import sys
 import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import _sandbox_home
+_sandbox_home.isolate()
 
 import _fuzz_common as fz
 from _fuzz_common import (
@@ -176,34 +178,68 @@ print("\n2b. directed scenarios: drive the guarded flows with valid input")
 
 
 def goto(pg, tab_label):
-    """Fire the sidebar nav button for a tab so its content mounts."""
+    """Use current navigation, including Modpacks inside the Mods destination."""
+    key = tab_label.lower()
+    if key == "modpacks":
+        if not goto(pg, "Mods"):
+            return False
+        segments = find(pg, lambda c: getattr(c, "data", None) == "content-modpack"
+                        and callable(getattr(c, "on_click", None)))
+        if segments:
+            fire_control(segments[0], "__nav_Modpacks__")
+            return True
+        return False
     for c in every_control(pg):
-        if callable(getattr(c, "on_click", None)):
-            # a nav button's own Row holds exactly the label text
-            if any(ctrl_text(x).strip() == tab_label for x in walk(c)):
-                fire_control(c, f"__nav_{tab_label}__")
-                return True
+        handler = getattr(c, "on_click", None)
+        if callable(handler) and getattr(handler, "__defaults__", None) == (key,):
+            fire_control(c, f"__nav_{tab_label}__")
+            return True
     return False
 
 
 def fresh_build():
     pg = FakePage()
-    app.run_sync(pg)
+    # Directed scenarios represent a configured launcher. The blind sweep
+    # above still exercises the first-run tour and default account state.
+    from unittest.mock import patch
+    load = core.load_config
+    with patch.object(core, "load_config", side_effect=lambda: dict(
+            load(), onboarded=True, username="TesterName", last_version="1.20.1")):
+        app.run_sync(pg)
     return pg
+
+
+def select_instance(pg, version):
+    # Play's Dropdown is retained as picker state, outside the mounted tree.
+    # Select the installed card through the same panel a user opens.
+    buttons = clickable_with_subtext(pg, "pick a minecraft version")
+    if not buttons:
+        return False
+    fire_control(buttons[0], "__directed_picker_open__")
+    rows = find(pg, lambda c: getattr(c, "data", None) == "version-panel-row-" + version)
+    if not rows:
+        return False
+    fire_control(rows[0], "__directed_instance_pick__")
+    return True
 
 
 # --- Scenario A: Play -> launch_game (valid username + installed version) ---
 pgA = fresh_build()
-set_fields(pgA, "TextField", "Username", "TesterName")
-set_fields(pgA, "Dropdown", "Version", "1.20.1")
-# The real Play button wraps a "PLAY"/"DOWNLOAD" Text; fire every play-ish
-# clickable (firing the nav "Play" too is harmless - it just reselects the tab).
-for btn in clickable_with_subtext(pgA, "play"):
+check("directed Play finds its username input",
+      set_fields(pgA, "TextField", "Username", "TesterName") == 1)
+check("directed Play selects the installed instance through the picker",
+      select_instance(pgA, "1.20.1"))
+# Fire the original action once. A second wrapper click can cancel the worker
+# that the first click just started, instead of adding any launch coverage.
+actions = find(pgA, lambda c: getattr(getattr(c, "on_click", None), "__name__", "") == "_main_action_click")
+check("directed Play finds the main action", len(actions) == 1)
+for btn in actions:
     fire_control(btn, "__directed_play__")
 
 # --- Scenario B: Delete instance -> confirm -> delete_version ---
 pgB = fresh_build()
-set_fields(pgB, "Dropdown", "Version", "1.20.1")
+check("directed Delete selects the installed instance through the picker",
+      select_instance(pgB, "1.20.1"))
 for btn in find(pgB, lambda c: (getattr(c, "tooltip", "") or "") == "Delete instance"):
     fire_control(btn, "__directed_delete_open__")      # opens the confirm dialog
 for btn in find(pgB, lambda c: type(c).__name__ == "TextButton"
@@ -212,7 +248,7 @@ for btn in find(pgB, lambda c: type(c).__name__ == "TextButton"
 
 # --- Scenario C: Modpacks tab -> Create -> valid name -> Export ------------
 pgC = fresh_build()
-goto(pgC, "Modpacks")                                  # mount the modpacks tab
+check("directed export opens Mods then Modpacks", goto(pgC, "Modpacks"))
 for btn in clickable_with_subtext(pgC, "create modpack"):
     fire_control(btn, "__directed_create_open__")      # opens the create dialog
 set_fields(pgC, "TextField", "Pack name", "My Test Pack")   # the gate that blocks export

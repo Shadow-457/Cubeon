@@ -70,6 +70,8 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/emotes/EmoteFavorites.java",
     "mod/src/main/java/com/cubeon/client/ui/ClientUi.java",
     "mod/src/main/java/com/cubeon/client/ui/MenuUi.java",
+    "mod/src/main/java/com/cubeon/client/ui/ClientTheme.java",
+    "mod/src/main/java/com/cubeon/client/ui/ThemeMenu.java",
     "mod/src/main/java/com/cubeon/client/ui/ClientToasts.java",
     "mod/src/main/java/com/cubeon/client/ui/HudMenu.java",
     "mod/src/main/java/com/cubeon/client/ui/HudIcon.java",

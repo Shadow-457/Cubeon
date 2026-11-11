@@ -124,7 +124,7 @@ class JavaTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             folder=Path(temp);harness=folder/'EmoteTest.java';harness.write_text(HARNESS)
             java=ROOT/'mod/src/main/java/com/cubeon/client'
-            sources=[java/'Json.java',java/'Bridge.java',*sorted((java/'emotes').glob('*.java')), *sorted((java/'ui').glob('*.java')),harness]
+            sources=[java/'Json.java',java/'Bridge.java',*sorted((java/'emotes').glob('*.java')),java/'ui/ClientUi.java',harness]
             run=subprocess.run(['javac','--release','17','-d',str(folder),*map(str,sources)],capture_output=True,text=True,timeout=60)
             self.assertEqual(run.returncode,0,run.stdout+run.stderr)
             run=subprocess.run(['java','-cp',str(folder),'EmoteTest'],capture_output=True,text=True,timeout=60)

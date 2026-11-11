@@ -1,6 +1,24 @@
 <?xml version='1.0' encoding='utf-8'?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:xhtml="http://www.w3.org/1999/xhtml"><url><loc>https://www.ylet.online/</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/" /></url><url><loc>https://www.ylet.online/ar</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/" /></url><url><loc>https://www.ylet.online/about</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/about" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/about" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/about" /></url><url><loc>https://www.ylet.online/ar/about</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/about" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/about" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/about" /></url><url><loc>https://www.ylet.online/benchmarks</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/benchmarks" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/benchmarks" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/benchmarks" /></url><url><loc>https://www.ylet.online/ar/benchmarks</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/benchmarks" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/benchmarks" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/benchmarks" /></url><url><loc>https://www.ylet.online/cookies</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/cookies" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/cookies" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/cookies" /></url><url><loc>https://www.ylet.online/ar/cookies</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/cookies" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/cookies" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/cookies" /></url><url><loc>https://www.ylet.online/cosmetics</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/cosmetics" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/cosmetics" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/cosmetics" /></url><url><loc>https://www.ylet.online/ar/cosmetics</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/cosmetics" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/cosmetics" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/cosmetics" /></url><url><loc>https://www.ylet.online/docs</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/docs" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/docs" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/docs" /><image:image>
-      <image:loc>https://www.ylet.online/assets/cubeon-play.png</image:loc>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <url>
+    <loc>https://www.ylet.online/</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/about</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/benchmarks</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/cookies</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/cosmetics</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/docs</loc>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/cubeon-play.webp</image:loc>
     </image:image>
     <image:image>
       <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-mods.png</image:loc>
@@ -35,4 +53,50 @@
     <image:image>
       <image:loc>https://www.ylet.online/assets/screenshots/cubeon-shoulder-companion-textures.png</image:loc>
     </image:image>
-  </url><url><loc>https://www.ylet.online/ar/docs</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/docs" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/docs" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/docs" /></url><url><loc>https://www.ylet.online/doctor</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/doctor" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/doctor" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/doctor" /></url><url><loc>https://www.ylet.online/ar/doctor</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/doctor" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/doctor" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/doctor" /></url><url><loc>https://www.ylet.online/download</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/download" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/download" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/download" /></url><url><loc>https://www.ylet.online/ar/download</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/download" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/download" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/download" /></url><url><loc>https://www.ylet.online/files</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/files" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/files" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/files" /></url><url><loc>https://www.ylet.online/ar/files</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/files" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/files" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/files" /></url><url><loc>https://www.ylet.online/getting-started</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/getting-started" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/getting-started" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/getting-started" /></url><url><loc>https://www.ylet.online/ar/getting-started</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/getting-started" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/getting-started" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/getting-started" /></url><url><loc>https://www.ylet.online/help</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/help" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/help" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/help" /></url><url><loc>https://www.ylet.online/ar/help</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/help" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/help" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/help" /></url><url><loc>https://www.ylet.online/licenses</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/licenses" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/licenses" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/licenses" /></url><url><loc>https://www.ylet.online/ar/licenses</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/licenses" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/licenses" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/licenses" /></url><url><loc>https://www.ylet.online/modpacks</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/modpacks" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/modpacks" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/modpacks" /></url><url><loc>https://www.ylet.online/ar/modpacks</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/modpacks" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/modpacks" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/modpacks" /></url><url><loc>https://www.ylet.online/mods</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/mods" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/mods" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/mods" /></url><url><loc>https://www.ylet.online/ar/mods</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/mods" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/mods" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/mods" /></url><url><loc>https://www.ylet.online/multiplayer</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/multiplayer" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/multiplayer" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/multiplayer" /></url><url><loc>https://www.ylet.online/ar/multiplayer</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/multiplayer" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/multiplayer" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/multiplayer" /></url><url><loc>https://www.ylet.online/privacy</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/privacy" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/privacy" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/privacy" /></url><url><loc>https://www.ylet.online/ar/privacy</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/privacy" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/privacy" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/privacy" /></url><url><loc>https://www.ylet.online/refunds</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/refunds" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/refunds" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/refunds" /></url><url><loc>https://www.ylet.online/ar/refunds</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/refunds" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/refunds" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/refunds" /></url><url><loc>https://www.ylet.online/terms</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/terms" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/terms" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/terms" /></url><url><loc>https://www.ylet.online/ar/terms</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/terms" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/terms" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/terms" /></url><url><loc>https://www.ylet.online/troubleshooting</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/troubleshooting" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/troubleshooting" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/troubleshooting" /></url><url><loc>https://www.ylet.online/ar/troubleshooting</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/troubleshooting" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/troubleshooting" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/troubleshooting" /></url><url><loc>https://www.ylet.online/minecraft-launcher</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/minecraft-launcher" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/minecraft-launcher" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/minecraft-launcher" /></url><url><loc>https://www.ylet.online/ar/minecraft-launcher</loc><xhtml:link rel="alternate" hreflang="en" href="https://www.ylet.online/minecraft-launcher" /><xhtml:link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/minecraft-launcher" /><xhtml:link rel="alternate" hreflang="x-default" href="https://www.ylet.online/minecraft-launcher" /></url><url><loc>https://www.ylet.online/cubeon-bench</loc></url></urlset>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/doctor</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/download</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/files</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/getting-started</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/help</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/licenses</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/modpacks</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/mods</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/multiplayer</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/privacy</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/refunds</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/terms</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/troubleshooting</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/minecraft-launcher</loc>
+  </url>
+  <url>
+    <loc>https://www.ylet.online/cubeon-bench</loc>
+  </url>
+</urlset>

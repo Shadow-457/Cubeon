@@ -12,61 +12,16 @@
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
-<!-- cubeon:auto-language -->
-<script>
-(function () {
-  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
-  if (location.protocol === 'file:') return;
-  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
-  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
-  if (m) cur = m[1];
-  function search() {
-    var out = '', q;
-    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
-    return (out ? '?' + out : '') + location.hash;
-  }
-  function urlFor(code) {
-    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
-    if (rest === '/index.html') rest = '/';
-    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
-    return (code === 'en' ? '' : '/' + code) + rest + search();
-  }
-  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
-  var q = null;
-  try { q = new URLSearchParams(location.search); } catch (e) {}
-  if (q && q.get('lang') && names[q.get('lang')]) {
-    pref = q.get('lang');
-    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
-    location.replace(urlFor(pref));
-    return;
-  }
-  if (!pref) {
-    var list = navigator.languages || [navigator.language || ''];
-    for (var i = 0; i < list.length; i++) {
-      var code = String(list[i]).toLowerCase().split('-')[0];
-      if (names[code]) { pref = code; break; }
-    }
-  }
-  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
-})();
-</script>
-<!-- /cubeon:auto-language -->
 <link rel="stylesheet" href="assets/site.css" />
 <script>document.documentElement.classList.add('js')</script>
-<!-- cubeon:seo -->
-<link rel="alternate" hreflang="en" href="https://www.ylet.online/cookies" />
-<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/cookies" />
-<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/cookies" />
 <link rel="canonical" href="https://www.ylet.online/cookies" />
 <meta property="og:url" content="https://www.ylet.online/cookies" />
-<!-- /cubeon:seo -->
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta property="og:image:alt" content="Cubeon Launcher: free, open-source Minecraft Java launcher for Windows and Linux, with the launcher window, mods, modpacks and skins." />
 <meta property="og:image:secure_url" content="https://www.ylet.online/assets/og.png" />
 <meta property="og:image:type" content="image/png" />
 <meta property="og:locale" content="en_US" />
-<meta property="og:locale:alternate" content="ar_AR" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Cubeon Cookies and Optional Doctor AI" />
 <meta name="twitter:description" content="Cubeon uses no tracking cookies. Optional Doctor AI connects to Groq and Kilo through Cubeon’s server. Learn how logs and interface preferences are handled." />
@@ -81,19 +36,7 @@
     <a class="brand" href="index.html" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
     <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">☰</button>
     <nav class="nav-links" id="navSlots" aria-label="Main">
-      <!-- cubeon:language -->
-<div class="lang-menu">
-  <details>
-    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
-    <nav class="lang-list" aria-label="Language">
-          <a href="/cookies" hreflang="en" lang="en" aria-current="true">English</a>
-          <a href="/ar/cookies" hreflang="ar" lang="ar">العربية</a>
-    </nav>
-  </details>
-</div>
-<!-- /cubeon:language -->
-
-      <a href="index.html">Home</a>
+<a href="index.html">Home</a>
       <a href="download.html">Download</a>
       <a href="docs.html">Docs</a>
       <a class="nav-bench" href="/cubeon-bench" aria-label="Cubeon Bench cosmetics resource pack editor (Coming soon)"><span>Bench</span><span class="nav-status">Coming soon</span></a>
@@ -126,7 +69,7 @@
   <p>Doctor does not load an AI provider script, create a visitor account or use provider sign-in cookies. Uploading a file or choosing Analyze log sends the excerpt to Cubeon's server, which calls Kilo auto/free. Local checks and file previews work without it. Logs and guides are kept in page memory, not Cubeon browser storage. See <a href="privacy.html#doctor">Doctor privacy details</a>.</p>
   <h2>Small interface preferences</h2>
   <p>Cubeon Bench is coming soon. Projects and preferences saved with its previous editor may remain in this browser. Its coming-soon page uses the same cookieless Vercel page counts as the main website.</p>
-  <p>The dismissal of our cookie information badge is remembered in localStorage on this browser. If a consent banner is enabled, its choice is also stored there. The language you pick for the site is saved as <code>cubeon-lang</code> so it is not asked again. These preferences are not sent to an analytics service.</p>
+  <p>The dismissal of our cookie information badge is remembered in localStorage on this browser. If a consent banner is enabled, its choice is also stored there. These preferences are not sent to an analytics service.</p>
 
   <h2>What the app stores</h2>
   <p>The Cubeon launcher keeps your settings, your name and your skins in a folder on your computer. Those are ordinary files rather than cookies, and they stay on your machine unless you upload a skin so that other players can see it.</p>

@@ -1,6 +1,5 @@
 """Generated diagnostics stay untracked without losing bundled runtime assets."""
 from pathlib import Path
-import hashlib
 import re
 import subprocess
 import sys
@@ -38,18 +37,17 @@ def main():
     samples = ["logs/build.log", "net/minecraft/Example.class",
                ".venv/lib/example.py", ".venv-build/lib/example.py",
                "ui/__pycache__/example.pyc", "agents/docs/ux_shots/preview.png"]
+    agent_samples = ["agents/docs/module-map.md", "agents/README.md",
+                     "agents/2026-11-11_local_note.md", "agents/history/local.md"]
+    plugin = "assets/jars/connect-spigot.jar"
     ignored = set(subprocess.check_output(
         ["git", "check-ignore", "--no-index", "-z", "--stdin"], cwd=REPO,
-        input="\0".join(samples) + "\0", text=True).split("\0"))
-    public_hashes = {
-        hashlib.sha256((REPO / path).read_bytes()).digest()
-        for path in tracked if path.startswith("docs/") and path.endswith(".md")
-        and (REPO / path).is_file()
-    }
-    mirrors = [path for path in tracked if path.startswith("agents/")
-               and path.endswith(".md") and (REPO / path).is_file()
-               and hashlib.sha256((REPO / path).read_bytes()).digest() in public_hashes]
-    index = (REPO / "agents/docs/module-map.md").read_text()
+        input="\0".join(samples + agent_samples + [plugin]) + "\0",
+        text=True).split("\0"))
+    agent_files = sorted(path for path in tracked if path.startswith("agents/"))
+    # Agent references are local, ignored aids and are absent on a fresh clone.
+    index_path = REPO / "agents/docs/module-map.md"
+    index = index_path.read_text() if index_path.is_file() else ""
     readme = (REPO / "README.md").read_text()
     capture = (REPO / "tools/ux_capture.py").read_text()
     # Flet serialises an unset Scale axis as null; the Flutter client then
@@ -79,22 +77,21 @@ def main():
     checks = {
         "generated outputs are not tracked": not generated,
         "generated outputs remain ignored": set(samples) <= ignored,
-        "the legacy server plugin remains available for source installs": "assets/jars/connect-spigot.jar" in tracked,
+        "the externally delivered server plugin stays untracked and ignored":
+            plugin not in tracked and plugin in ignored,
         "companion mod jars remain bundled": any(path.startswith("assets/jars/cubeon-client-") for path in tracked),
         "bundled client jars contain the cosmetic catalogue": not stale_jars,
         "the Gradle wrapper remains available": "mod/gradle/wrapper/gradle-wrapper.jar" in tracked,
-        "the agent module map remains tracked": "agents/docs/module-map.md" in tracked,
-        "public guides have no tracked agent mirrors": not mirrors,
-        "old task diaries are not distributed": not any(
-            Path(path).parent == Path("agents") and Path(path).name[:4].isdigit()
-            for path in tracked),
-        "the current module index stays concise": len(index.splitlines()) <= 300,
-        "module index references existing Python files": not missing,
+        "local agent references are not distributed": not agent_files,
+        "local agent references remain ignored": set(agent_samples) <= ignored,
+        "the optional local module index stays concise": len(index.splitlines()) <= 300,
+        "the optional local module index references existing Python files": not missing,
         "public guide names use the organized layout": all(
             (REPO / path).is_file() for path in (
-                "docs/user-guide.md", "docs/release/windows-smoke-test.md",
+                "docs/user-guide.md", "docs/architecture/overview.md",
+                "docs/development/testing.md", "docs/release/windows-smoke-test.md",
                 "docs/reports/2026-09-17-bug-report.md")),
-        "README uses the actual website screenshot": 'src="web/assets/cubeon-play.png"' in readme,
+        "README uses the actual website screenshot": 'src="web/assets/cubeon-play.webp"' in readme,
         "README badges are flat-square with a live release version":
             "style=flat-square" in readme and "img.shields.io/github/v/release/" in readme,
         "new captures do not repopulate the agent docs":
@@ -106,8 +103,8 @@ def main():
         print(f"  {'ok' if result else 'FAIL'}   {label}")
     if generated:
         print("Tracked generated files:\n" + "\n".join(generated))
-    if mirrors:
-        print("Duplicate agent guides:\n" + "\n".join(sorted(mirrors)))
+    if agent_files:
+        print("Tracked local agent references:\n" + "\n".join(agent_files))
     if missing:
         print("Missing module references:\n" + "\n".join(sorted(set(missing))))
     if bad_scales:

@@ -33,7 +33,7 @@ public class FeatherCapture {
  }
 }
 '''
-def font(size):return ImageFont.truetype(str(ROOT/'web/assets/fonts/Inter.ttf'),size)
+def font(size):return ImageFont.truetype(str(ROOT/'assets/fonts/Inter.ttf'),size)
 def transform(points,yaw=155,pitch=6,normal=False):
  p=points.copy();p[...,1]=(-p[...,1] if normal else 8-p[...,1]);p[...,2]=-p[...,2]
  y,x=math.radians(yaw),math.radians(pitch)

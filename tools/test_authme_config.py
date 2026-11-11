@@ -11,7 +11,7 @@ sys.path[:0] = [os.path.dirname(__file__),
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__)))]
 import _sandbox_home
 _sandbox_home.isolate()
-from cubeon import server
+from cubeon import jre, server
 
 
 class HostedAuth(unittest.TestCase):
@@ -81,15 +81,16 @@ class HostedAuth(unittest.TestCase):
         def spawn(*args, **kwargs):
             self.assertIn("maxRegPerIp: 0", self.path.read_text())
             self.assertIn("enabled: false", self.path.read_text())
+            self.assertEqual(args[0][0], "/verified/java")
             return SimpleNamespace(pid=123456)
         with patch.object(server, "is_server_running", return_value=False), \
                 patch.object(server, "is_server_installed", return_value=True), \
                 patch.object(server, "eula_accepted", return_value=True), \
-                patch.object(server, "find_java_for_version", return_value="java"), \
-                patch.object(server, "java_major_version", return_value=25), \
+                patch.object(jre, "ensure_java_for_version", return_value="/verified/java") as ensure_java, \
                 patch.object(server.subprocess, "Popen", side_effect=spawn):
             try:
                 self.assertEqual(server.start_server("1.21.11", 2048).pid, 123456)
+                ensure_java.assert_called_once_with("1.21.11", None, status_cb=None)
             finally:
                 server._server_processes.pop("1.21.11", None)
 

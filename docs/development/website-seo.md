@@ -8,12 +8,12 @@ Edition launcher for Windows, Linux and macOS. The homepage visibly identifies
 in the introduction, and links to installation, mods, modpacks, multiplayer
 and troubleshooting guides.
 
-`web/sitemap.xml` lists 20 English public pages and their Arabic translations
-(40 canonical URLs), plus the English-only Cubeon Bench landing page (41 total), using `/` for the homepage and extensionless paths for
-other pages. Russian and Ukrainian catalogues are empty: those existing routes
-serve English fallbacks with `noindex, follow`, English canonical URLs and
-`lang="en"`. They stay out of the sitemap, language picker, browser-language
-detection and hreflang alternatives until translated. It excludes error pages, API calls,
+`web/sitemap.xml` lists 21 English public pages, including the Cubeon Bench
+**Coming soon** placeholder, using `/` for the homepage and extensionless paths
+for other pages. The website is English-only. Former Arabic, Russian and
+Ukrainian routes permanently redirect to the matching English pages; the site
+has no locale catalogues, language picker or browser-language redirect.
+The sitemap excludes error pages, API calls,
 download redirects and report fragments. `web/robots.txt` allows crawling and
 advertises the sitemap; API routes are excluded. Error pages carry `noindex`.
 Both Vercel configurations enable clean URLs with no trailing slash.
@@ -33,8 +33,8 @@ Linux and macOS. `/minecraft-launcher` is a substantive choosing guide for
 platforms, mod loaders, modpacks, backups and how to compare FPS measurements.
 It explains Cubeon's fit and limitations and links to the official Minecraft
 launcher when account sign-in or Bedrock is needed. Its Article and breadcrumb
-data match visible content; translated page IDs use their own canonical URLs
-while product and publisher IDs remain shared.
+data match visible content and use the guide's canonical URL, with shared
+product and publisher IDs.
 
 The homepage, download page, docs hub and installation/mod guides link to this
 guide. Do not add unsupported “number one” claims, fake comparisons, ratings,
@@ -42,21 +42,21 @@ keyword lists or misspelled search terms to the page. Broad queries are competit
 clear content and crawlability support relevance without guaranteeing placement.
 
 The homepage preloads a 1268×724 WebP screenshot (33,708 bytes instead of the
-549,181-byte PNG), with a PNG fallback and explicit dimensions. Regenerate it
-with `python3 tools/prepare_website_hero.py` after changing the public Play PNG.
+549,181-byte source PNG), with explicit dimensions. The website and repository
+README share that WebP. Regenerate it with `python3 tools/prepare_website_hero.py
+--source path/to/capture.png` after changing the Play capture. The tool's local
+default source is the ignored `archive/ui-captures/website-originals/cubeon-play.png`.
 This reduces image transfer; it is not a measured Core Web Vitals score.
 
-`tools/translate_website.py build` adds new public `PAGES` entries to the sitemap
-and preserves its image records. Only languages with populated catalogues are
-advertised. Adding a catalogue entry alone does not translate a whole language;
-complete and check the catalogue before publishing it. Empty fallback routes
-become indexable when built with a populated catalogue. The IndexNow tool accepts
-canonical locale pages and resolves locale homepages to their `index.html` files.
+When adding or removing a public page, update `web/sitemap.xml` and preserve its
+image records. The IndexNow tool accepts the sitemap's canonical English pages
+and resolves the homepage to `web/index.html`. Retired locale URLs are redirect
+sources and must not be submitted as canonical pages.
 
 ## Official identity and AI search
 
 `/about` is the official product facts page: spelling, game edition, platforms,
-Apache 2.0 source license, local/offline profiles, downloads, repository and
+GPL-3.0 source license, local/offline profiles, downloads, repository and
 support links. Homepage and AboutPage data share the same SoftwareApplication
 ID and connect the official SoftwareSourceCode record to it. The homepage,
 docs index and GitHub README link to the facts page. Cubeon and the similarly
@@ -151,7 +151,7 @@ site and repository links on project profiles and genuine software listings.
 The `/about` page is the reusable source of facts for those listings and for
 reviewers. A concise listing description is:
 
-> Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for
+> Cubeon Launcher is a free, GPL-3.0 open-source desktop launcher for
 > Minecraft Java Edition on Windows, Linux and macOS. It manages game versions,
 > compatible modded instances, mods, modpacks, skins, friends and local servers.
 > It uses local/offline player profiles and does not provide Microsoft sign-in.
@@ -197,7 +197,7 @@ site name; neither a recrawl nor structured data guarantees an immediate change.
 `web/sitemap.xml` includes 12 images using Google's image sitemap namespace,
 associated with the docs page that visibly displays all of them. Ten public copies from
 `archive/ui-captures/seo-images/` live in `web/assets/screenshots/`; the existing
-Play PNG and in-game cosmetics WebP are reused. New PNGs have descriptive filenames
+Play and in-game cosmetics WebP files are reused. The ten PNGs have descriptive filenames
 and embedded title/description metadata. `tools/prepare_seo_images.py` regenerates
 the public copies with Pillow and masks account details, friend IDs and chat previews.
 Original captures stay in the ignored archive.
@@ -207,8 +207,9 @@ captions, links to the relevant guides and direct links to the full-size origina
 The gallery uses ordinary server-rendered HTML and works without JavaScript.
 `tools/prepare_docs_image_previews.py` creates 900-pixel WebP previews from the
 already-redacted public assets. Native lazy loading and explicit dimensions reduce
-initial traffic and avoid layout shifts. The PNG/WebP originals remain unchanged
-as the fallback images and full-size downloads.
+initial traffic and avoid layout shifts. The public PNG/WebP files supply fallback
+images and full-size downloads. The larger Play and in-game cosmetics source PNGs
+stay in the ignored `archive/ui-captures/website-originals/` directory.
 
 Discovery uses the visible docs content and the sitemap, without hidden HTML,
 keyword stuffing or crawler-specific responses. Images are publicly accessible
@@ -218,21 +219,6 @@ PNG metadata is descriptive asset information, not a promise that Google uses it
 After publishing, submit or resubmit the existing `/sitemap.xml` in Search Console.
 
 ## After publishing
-
-### Cubeon Bench
-
-`/cubeon-bench` is a static **Coming soon** page for a resource pack editor
-exclusively for Cubeon cosmetics. The old editor, bundled texture library and
-build tools have been removed. Its canonical URL stays in the sitemap; metadata
-uses the shared `/assets/og.png` and WebPage structured data, without advertising
-an available editor. Both Vercel configurations redirect the former workspace
-and landing URLs to this page.
-
-The page retains the main website's cookieless Vercel Analytics snippet. The
-small `/cubeon-bench/sw.js` retirement worker removes only `cubeon-bench-*`
-offline caches and unregisters itself. It does not erase saved browser projects
-or reload an open editor tab. Existing registrations receive it on their normal
-update check or through the coming-soon page's update request.
 
 1. Verify that the live homepage, `/about`, `/download`, `/minecraft-launcher`, `/llms.txt`, `/robots.txt` and `/sitemap.xml`
    return HTTP 200 on `www.ylet.online`. The deployed static output must

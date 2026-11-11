@@ -1,6 +1,6 @@
 # Cubeon Launcher
 
-> Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows and Linux. The official website is https://www.ylet.online/ and the official repository is https://github.com/Shadow-457/Cubeon.
+> Cubeon Launcher is a free, GPL-3.0 open-source desktop launcher for Minecraft Java Edition on Windows and Linux. The official website is https://www.ylet.online/ and the official repository is https://github.com/Shadow-457/Cubeon.
 
 ## Product facts
 
@@ -22,7 +22,7 @@
 - [Downloads](https://www.ylet.online/download): official platform downloads.
 - [Source code](https://github.com/Shadow-457/Cubeon): source and build instructions.
 - [Releases](https://github.com/Shadow-457/Cubeon/releases): current binaries, release notes and beta labels.
-- [License](https://github.com/Shadow-457/Cubeon/blob/main/LICENSE): Apache License 2.0 source license.
+- [License](https://github.com/Shadow-457/Cubeon/blob/main/LICENSE): GNU General Public License v3.0 source license.
 
 ## Player documentation
 

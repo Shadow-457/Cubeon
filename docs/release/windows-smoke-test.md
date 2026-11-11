@@ -34,7 +34,7 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
      A generic warning does not prove a disk-space problem. ☐
 5. Launch Cubeon. Expect a normal window with the Cubeon UI. ☐
    - **Watch closely here.** The window does a hidden start and is revealed
-     later (see `agents/docs/module-map.md`); if it flashes and disappears, or
+     later (see the [startup architecture](../architecture/overview.md)); if it flashes and disappears, or
      stays invisible, or shows a black rectangle, that is the bug to report.
 6. The first-run dialog asks for your in-game name. Type one, confirm. The
    window must stay alive and usable. ☐

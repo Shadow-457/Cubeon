@@ -200,7 +200,7 @@ launcher was gone.
 - **Polling cadence**: backup scheduler 30 min; watchdog recovery only while a
   session is live, both already event-driven enough. No change.
 - **Network**: update check is one background GET at startup; friends/P2P run
-  on their own threads with dedupe (see agents/docs/module-map.md). No
+  on their own threads with dedupe (see the [launcher module reference](../architecture/launcher.md)). No
   duplicate-request pattern found that could be fixed safely here.
 
 ## Correctness issues noticed (NOT fixed here, per pass rules)

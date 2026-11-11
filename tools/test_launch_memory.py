@@ -241,9 +241,18 @@ class LaunchMemoryTests(unittest.TestCase):
         save.side_effect = OSError('full disk')
         namespace['on_ram_change_end'](None)
         self.assertTrue(namespace['ram_warning'].visible)
+        self.assertEqual(cfg['ram_mb'], 4096)
+        self.assertEqual(slider.value, 4096)
+        self.assertEqual(namespace['_ram_saved']['value'], 4096)
         save.side_effect = None
         namespace['on_ram_change_end'](None)
+        self.assertEqual(save.call_count, 2)
+        slider.value = 5120
+        namespace['on_ram_change'](None)
+        namespace['on_ram_change_end'](None)
         self.assertEqual(save.call_count, 3)
+        self.assertEqual(cfg['ram_mb'], 5120)
+        self.assertEqual(namespace['_ram_saved']['value'], 5120)
 
 
 if __name__ == '__main__':

@@ -7,45 +7,6 @@
 <meta name="description" content="You don't have access to this page. Head back to Cubeon's home page, download page or help page." />
 <meta name="robots" content="noindex" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
-<!-- cubeon:auto-language -->
-<script>
-(function () {
-  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
-  if (location.protocol === 'file:') return;
-  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
-  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
-  if (m) cur = m[1];
-  function search() {
-    var out = '', q;
-    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
-    return (out ? '?' + out : '') + location.hash;
-  }
-  function urlFor(code) {
-    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
-    if (rest === '/index.html') rest = '/';
-    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
-    return (code === 'en' ? '' : '/' + code) + rest + search();
-  }
-  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
-  var q = null;
-  try { q = new URLSearchParams(location.search); } catch (e) {}
-  if (q && q.get('lang') && names[q.get('lang')]) {
-    pref = q.get('lang');
-    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
-    location.replace(urlFor(pref));
-    return;
-  }
-  if (!pref) {
-    var list = navigator.languages || [navigator.language || ''];
-    for (var i = 0; i < list.length; i++) {
-      var code = String(list[i]).toLowerCase().split('-')[0];
-      if (names[code]) { pref = code; break; }
-    }
-  }
-  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
-})();
-</script>
-<!-- /cubeon:auto-language -->
 <link rel="stylesheet" href="/assets/site.css" />
 <script>document.documentElement.classList.add('js')</script>
 <style>
@@ -63,13 +24,8 @@
   html.js .void-code{animation:shake 2.4s ease-in-out infinite}
   @media(prefers-reduced-motion:reduce){html.js .void-code{animation:none}}
 </style>
-<!-- cubeon:seo -->
-<link rel="alternate" hreflang="en" href="https://www.ylet.online/403" />
-<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/403" />
-<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/403" />
 <link rel="canonical" href="https://www.ylet.online/403" />
 <meta property="og:url" content="https://www.ylet.online/403" />
-<!-- /cubeon:seo -->
 </head>
 <body>
 <a class="skip" href="#content">Skip to content</a>
@@ -79,19 +35,7 @@
     <a class="brand" href="/" aria-label="Cubeon home"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
     <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">☰</button>
     <nav class="nav-links" id="navSlots" aria-label="Main">
-      <!-- cubeon:language -->
-<div class="lang-menu">
-  <details>
-    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
-    <nav class="lang-list" aria-label="Language">
-          <a href="/403" hreflang="en" lang="en" aria-current="true">English</a>
-          <a href="/ar/403" hreflang="ar" lang="ar">العربية</a>
-    </nav>
-  </details>
-</div>
-<!-- /cubeon:language -->
-
-      <a href="/">Home</a>
+<a href="/">Home</a>
       <a href="/download">Download</a>
       <a href="/benchmarks">Benchmarks</a>
       <a href="/help">Help</a>

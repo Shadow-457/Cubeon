@@ -90,6 +90,24 @@ The Python test loop, exclusions, and platform jobs are defined in
 [`.github/workflows/build.yml`](../../.github/workflows/build.yml).
 CI is not identical to the default smoke gate.
 
+The Ubuntu job runs `tools/test_*.py` with a fresh `CUBEON_GAME_DIR` for each
+script. Its explicit exclusions require separate local fixtures:
+
+| Excluded checks | Prerequisites |
+| --- | --- |
+| `test_visual_*.py`, `test_wedge_watchdog.py` | A graphical desktop and the native Flet client; these inspect actual windows and recovery behavior. |
+| `test_cosmetic_elytra_native.py`, `test_live_cape_native.py`, `test_client_263_native.py`, `test_gif_capes_native.py` | Installed compatible Minecraft/Fabric, built companion JARs, a matching JDK, cached game dependencies and a graphical display/OpenGL driver. Use isolated game fixtures. |
+| `test_rust_engine_native.py` | Built native Rust executables, matching prepared local resources and a working graphics backend. Resource preparation needs Java 25. |
+| `test_rust_profile_native.py` | Compiled Rust libraries for the selected `--profile` (`fast` or `release`) and `rustc` matching their build toolchain. |
+| `test_camera_blur_gpu.py` | Linux EGL/OpenGL with a working driver and PyOpenGL; it executes production shaders and reads back pixels. |
+| `test_webdoctor_browser.py`, `test_website_browser.py` | Playwright and Chromium installed locally, or `CUBEON_TEST_CHROMIUM` pointing to a compatible browser. |
+
+These exclusions do not disable the companion compile/archive, shader lifecycle,
+website SEO, or Rust backend unit checks. Run a native or browser
+script explicitly once its prerequisites are available, and report its result
+separately from the headless CI gate. `--suites` has its own registered inventory;
+the workflow exclusion list does not automatically apply to that command.
+
 Report exact commands, failures, and skips. A passing headless run does not
 establish desktop frame rate, window visibility, or platform packaging.
 Use [Windows smoke testing](../release/windows-smoke-test.md) and the

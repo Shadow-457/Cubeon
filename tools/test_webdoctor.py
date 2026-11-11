@@ -64,20 +64,22 @@ class WebDoctorTests(unittest.TestCase):
             pass
         with patch.object(dialogs, 'open_dialog') as opened, patch.object(webdoctor, 'open_doctor', return_value=False) as browser:
             snack = []
+            previous_language = i18n.current()
+            self.addCleanup(i18n.set_language, previous_language)
             i18n.set_language('ar')
             show_crash_dialog(Page(), reason='Error', log_text='OutOfMemoryError',
                               version_label='1.21', show_snack=lambda *a, **k: snack.append(a))
             dlg = opened.call_args.args[1]
-            self.assertEqual(len(dlg.actions), 5, 'Crash report has Check & fix, Doctor, Copy, Discord and Close')
+            self.assertEqual(len(dlg.actions), 5, 'Crash report has compatibility, log analysis, Copy, Discord and Close')
             import flet as ft
             self.assertFalse(any(getattr(a, 'icon', None) == ft.Icons.BUILD_ROUNDED for a in dlg.actions))
             buttons = [a for a in dlg.actions if getattr(a,'data',None) == 'crash-web-doctor']
             self.assertEqual(len(buttons),1)
-            self.assertEqual(buttons[0].content, 'الطبيب')
+            self.assertEqual(buttons[0].content, 'Analyze log')
+            self.assertEqual(buttons[0].icon, ft.Icons.MANAGE_SEARCH_ROUNDED)
             buttons[0].on_click(None)
             browser.assert_called_once_with('OutOfMemoryError',reason='Error',version_label='1.21')
             self.assertIn('Copy log',snack[0][0])
-            i18n.set_language('en')
 
     def test_javascript_core(self):
         node = shutil.which('node')

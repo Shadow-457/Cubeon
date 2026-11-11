@@ -141,6 +141,11 @@ class PetTests(unittest.TestCase):
         seasonal.refresh(stubs.core.load_config())
         page = fz.FakePage()
         stubs.app.run_sync(page)
+        # Settings is retained but only mounts its controls on first opening.
+        import app_driver
+        driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
+        self.assertTrue(driver.open_tab('settings'))
+        self.assertTrue(driver.open_tab('play'))
         controls = list(fz.every_control(page))
         handler = lambda name: next(c for c in controls if getattr(getattr(c, 'on_change', None), '__name__', '') == name)
         toggle = handler('_on_season_overlay_toggle')

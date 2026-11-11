@@ -12,6 +12,8 @@ provide the implementation details.
 - [Development setup](development/setup.md): run the source and configure tools.
 - [Contributing](development/development-workflow.md): make and verify changes.
 - [Testing](development/testing.md): smoke checks, regression suites, and UI checks.
+- [Instance migration](development/instance-storage-redesign.md): content isolation, recovery and folder layout.
+- [Native Rust beta](development/horizon-integration-plan.md): supported behavior, builds and verification limits.
 - [Website Doctor](development/website-doctor.md): Groq/Kilo setup and log-transfer contracts.
 - [Website SEO](development/website-seo.md): crawl files, canonical URLs and Search Console setup.
 - [Security reporting](../SECURITY.md): report a vulnerability privately.
@@ -54,7 +56,6 @@ Other dated reports:
 
 - [September 17 bug report](reports/2026-09-17-bug-report.md)
 - [September 18 CI investigation](reports/2026-09-18-ci-investigation.md)
-- [Community rules](community/discord-rules.md)
 
 When behavior changes, update its guide and relevant protocol reference.
 Keep dated investigations intact rather than rewriting their conclusions.

@@ -1081,6 +1081,13 @@ class VersionPicker:
                      and matches(e)]
 
     def _render_new(self):
+        # A foreground Next/Back can race a catalogue/support completion.
+        # Protect the loading snapshot and row construction together so an
+        # older loading render cannot overwrite the completed worker's rows.
+        with thread_safe_ui.TREE_LOCK:
+            self._render_new_locked()
+
+    def _render_new_locked(self):
         if self._new_step == 1:
             self.list.controls[:] = []
             return

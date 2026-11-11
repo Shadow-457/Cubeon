@@ -442,7 +442,7 @@ This is best-effort, not a hard guarantee: a UUID's first writer wins it, and
 an unclaimed name can be pointed anywhere by whoever heartbeats first. That's
 exactly what `/report` and the `blocked:<uuid>` kill-switch (above) are for -
 and why LocalSkin still shows *you* your own skin no matter what the network
-says. Design notes: `agents/docs/phase1-skins-capes.md`.
+says. Design notes: [skin identity workflow](../docs/decisions/skins-identity-workflow.md).
 
 The read path for players who haven't uploaded anything is a hard 404, which
 is also what makes CSL fall through cleanly to LocalSkin when offline.

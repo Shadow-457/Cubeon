@@ -12,45 +12,6 @@
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
-<!-- cubeon:auto-language -->
-<script>
-(function () {
-  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
-  if (location.protocol === 'file:') return;
-  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
-  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
-  if (m) cur = m[1];
-  function search() {
-    var out = '', q;
-    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
-    return (out ? '?' + out : '') + location.hash;
-  }
-  function urlFor(code) {
-    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
-    if (rest === '/index.html') rest = '/';
-    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
-    return (code === 'en' ? '' : '/' + code) + rest + search();
-  }
-  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
-  var q = null;
-  try { q = new URLSearchParams(location.search); } catch (e) {}
-  if (q && q.get('lang') && names[q.get('lang')]) {
-    pref = q.get('lang');
-    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
-    location.replace(urlFor(pref));
-    return;
-  }
-  if (!pref) {
-    var list = navigator.languages || [navigator.language || ''];
-    for (var i = 0; i < list.length; i++) {
-      var code = String(list[i]).toLowerCase().split('-')[0];
-      if (names[code]) { pref = code; break; }
-    }
-  }
-  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
-})();
-</script>
-<!-- /cubeon:auto-language -->
 <link rel="stylesheet" href="assets/site.css" />
 <link rel="preload" as="image" type="image/webp" href="/assets/cubeon-play.webp" fetchpriority="high" />
 <script>document.documentElement.classList.add('js','sky');
@@ -133,7 +94,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       "@id": "https://www.ylet.online/#launcher",
       "name": "Cubeon Launcher",
       "url": "https://www.ylet.online/",
-      "description": "Cubeon Launcher is a free, Apache 2.0 open-source Minecraft Java Edition desktop launcher for Windows and Linux. Manage versions, modded instances, skins, friends and local servers.",
+      "description": "Cubeon Launcher is a free, GPL-3.0 open-source Minecraft Java Edition desktop launcher for Windows and Linux. Manage versions, modded instances, skins, friends and local servers.",
       "applicationCategory": "GameApplication",
       "operatingSystem": "Windows 10, Windows 11, Linux",
       "isAccessibleForFree": true,
@@ -144,7 +105,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
         "url": "https://www.ylet.online/download"
       },
       "downloadUrl": "https://www.ylet.online/download",
-      "screenshot": "https://www.ylet.online/assets/cubeon-play.png",
+      "screenshot": "https://www.ylet.online/assets/cubeon-play.webp",
       "image": "https://www.ylet.online/assets/og.png",
       "publisher": {
         "@id": "https://www.ylet.online/#organization"
@@ -208,7 +169,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
           "name": "What is Cubeon Launcher?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows and Linux. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is www.ylet.online and the source repository is Shadow-457/Cubeon on GitHub. Read the official project facts for supported profiles, downloads and limitations."
+            "text": "Cubeon Launcher is a free, GPL-3.0 open-source desktop launcher for Minecraft Java Edition on Windows and Linux. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is www.ylet.online and the source repository is Shadow-457/Cubeon on GitHub. Read the official project facts for supported profiles, downloads and limitations."
           }
         },
         {
@@ -344,20 +305,14 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
   ]
 }
 </script>
-<!-- cubeon:seo -->
-<link rel="alternate" hreflang="en" href="https://www.ylet.online/" />
-<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar" />
-<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/" />
 <link rel="canonical" href="https://www.ylet.online/" />
 <meta property="og:url" content="https://www.ylet.online/" />
-<!-- /cubeon:seo -->
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta property="og:image:alt" content="Cubeon Launcher: free, open-source Minecraft Java launcher for Windows and Linux, with the launcher window, mods, modpacks and skins." />
 <meta property="og:image:secure_url" content="https://www.ylet.online/assets/og.png" />
 <meta property="og:image:type" content="image/png" />
 <meta property="og:locale" content="en_US" />
-<meta property="og:locale:alternate" content="ar_AR" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Cubeon Launcher | Free Minecraft Launcher for Windows and Linux" />
 <meta name="twitter:description" content="Cubeon Launcher (sometimes searched as Cubion) is a free, open-source Minecraft Java launcher for Windows and Linux, with mods, modpacks and skins." />
@@ -372,19 +327,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
     <a class="brand" href="/" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
     <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">☰</button>
     <nav class="nav-links" id="navSlots" aria-label="Main">
-      <!-- cubeon:language -->
-<div class="lang-menu">
-  <details>
-    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
-    <nav class="lang-list" aria-label="Language">
-          <a href="/" hreflang="en" lang="en" aria-current="true">English</a>
-          <a href="/ar" hreflang="ar" lang="ar">العربية</a>
-    </nav>
-  </details>
-</div>
-<!-- /cubeon:language -->
-
-      <a href="index.html" aria-current="page">Home</a>
+<a href="index.html" aria-current="page">Home</a>
       <a href="download.html">Download</a>
       <a href="docs.html">Docs</a>
       <a class="nav-bench" href="/cubeon-bench" aria-label="Cubeon Bench cosmetics resource pack editor (Coming soon)"><span>Bench</span><span class="nav-status">Coming soon</span></a>
@@ -405,10 +348,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
   <div class="wrap hero-wrap">
       <div class="isle" aria-hidden="false">
         <div class="shot">
-          <picture>
-            <source srcset="assets/cubeon-play.webp" type="image/webp" />
-            <img src="assets/cubeon-play.png" width="1308" height="795" fetchpriority="high" decoding="async" alt="The Cubeon launcher window: a Minecraft profile, a version picker, a mod loader row and a big green Play button." />
-          </picture>
+          <img src="assets/cubeon-play.webp" width="1308" height="795" fetchpriority="high" decoding="async" alt="The Cubeon launcher window: a Minecraft profile, a version picker, a mod loader row and a big green Play button." />
         </div>
         <div class="rock" aria-hidden="true"></div>
       </div>
@@ -457,7 +397,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
     <figure class="shot cosmetics-shot">
       <picture>
         <source srcset="assets/cubeon-cosmetics.webp" type="image/webp" />
-        <img src="assets/cubeon-cosmetics.png" width="1280" height="720" loading="lazy" decoding="async" alt="Cubeon shoulder companion and back cosmetics rendered on a Minecraft player beside the ocean." />
+        <img src="assets/cubeon-cosmetics.webp" width="1280" height="720" loading="lazy" decoding="async" alt="Cubeon shoulder companion and back cosmetics rendered on a Minecraft player beside the ocean." />
       </picture>
     </figure>
   </div>
@@ -569,7 +509,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
 
     <h3 class="faq-h">The basics</h3>
     <div class="faq">
-      <div class="q" id="what-is-cubeon-launcher"><button class="q-a" type="button" aria-expanded="false">What is Cubeon Launcher?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows and Linux. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is <a href="https://www.ylet.online/">www.ylet.online</a> and the source repository is <a href="https://github.com/Shadow-457/Cubeon">Shadow-457/Cubeon on GitHub</a>. Read the <a href="about.html">official project facts</a> for supported profiles, downloads and limitations.</p></div></div></div>
+      <div class="q" id="what-is-cubeon-launcher"><button class="q-a" type="button" aria-expanded="false">What is Cubeon Launcher?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Cubeon Launcher is a free, GPL-3.0 open-source desktop launcher for Minecraft Java Edition on Windows and Linux. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is <a href="https://www.ylet.online/">www.ylet.online</a> and the source repository is <a href="https://github.com/Shadow-457/Cubeon">Shadow-457/Cubeon on GitHub</a>. Read the <a href="about.html">official project facts</a> for supported profiles, downloads and limitations.</p></div></div></div>
       <div class="q" id="cubeon-search-spelling"><button class="q-a" type="button" aria-expanded="false">Why does my Cubeon search show Cubion?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Search engines may suggest the similarly spelled Cubion when you search for Cubeon. This project's name is Cubeon Launcher, with an e. To find this launcher, search for Cubeon Minecraft Launcher or use the official website at <a href="https://www.ylet.online/">www.ylet.online</a> and the <a href="https://github.com/Shadow-457/Cubeon">Shadow-457/Cubeon repository on GitHub</a>.</p></div></div></div>
       <div class="q" id="cubeon-supported-loaders"><button class="q-a" type="button" aria-expanded="false">Which Minecraft edition and mod loaders does Cubeon support?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Cubeon launches Minecraft Java Edition with Vanilla, Fabric, Quilt, Forge or NeoForge instances. It does not launch Bedrock Edition. Mods must match the selected Minecraft version and loader; shaders also need a compatible setup such as Iris. See the <a href="mods.html">mods and shaders guide</a>.</p></div></div></div>
       <div class="q" id="choosing-minecraft-launcher"><button class="q-a" type="button" aria-expanded="false">Is Cubeon the best Minecraft launcher for my setup?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Cubeon is a good fit if you want a free, open-source Java Edition launcher with compatible mod loaders, mods, modpacks, skins and friends on Windows or Linux. It uses local/offline profiles and does not provide Microsoft sign-in or launch Bedrock Edition. The best choice depends on your game edition, server requirements and mods; use the <a href="minecraft-launcher.html">Minecraft launcher guide</a> to check those needs before downloading.</p></div></div></div>

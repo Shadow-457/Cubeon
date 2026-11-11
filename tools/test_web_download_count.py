@@ -265,7 +265,13 @@ check("site.js declares which routes count as a download", bool(routes_block))
 site_routes = tuple(re.findall(r"'([^']+)'", routes_block.group(1))) if routes_block else ()
 with open(os.path.join(WEB, "vercel.json"), encoding="utf-8") as handle:
     vercel_config = json.load(handle)
-asset_redirects = [rule for rule in vercel_config.get("redirects", []) if not rule.get("has")]
+# Domain and legacy page redirects are not downloads. Keep every counted route
+# in this check even if its destination changes, so a GitHub/auth-wall regression
+# still fails, and include new Worker redirects to catch uncounted downloads.
+asset_redirects = [rule for rule in vercel_config.get("redirects", [])
+                   if not rule.get("has") and
+                   (rule.get("source") in site_routes or
+                    rule.get("destination", "").startswith(WORKER_URL + "/"))]
 asset_routes = tuple(rule.get("source") for rule in asset_redirects)
 check("every counted route is a real download route, and all of them are counted",
       set(site_routes) == set(asset_routes),
@@ -310,17 +316,17 @@ check("the counter is bound to KV, so a fresh namespace starts at 0",
 check("the counter allows the site's origin and is never cached",
       "Access-Control-Allow-Origin" in worker_source and "no-store" in worker_source)
 
+# Scan tracked working-tree files, matching the committed-source invariant.
+# Generated native targets and local dependencies can be many gigabytes.
+# Both alternatives require a token BODY: merely naming `github_pat_` in an
+# audit note is not evidence of a committed secret. Only filenames are printed.
 leak = subprocess.run(
-    ["grep", "-rl", "--exclude-dir=.git", "--exclude-dir=archive",
-     "--exclude-dir=dist", "--exclude-dir=build", "--exclude-dir=node_modules",
-     "--exclude-dir=__pycache__", "--exclude-dir=.wrangler",
-     "--exclude=test_web_download_count.py",  # this file quotes the patterns
-     # Both alternatives require a token BODY. `github_pat_` on its own used to
-     # match, so any file that merely NAMED the pattern (an audit note listing
-     # what it searched for) tripped the scanner - a false positive that proves
-     # nothing about a committed secret.
-     "github_pat_[A-Za-z0-9_]\\{20,\\}\\|ghp_[A-Za-z0-9]\\{20,\\}", REPO],
-    capture_output=True, text=True)
+    ["git", "grep", "-l", "-E",
+     r"github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}",
+     "--", ".", ":(exclude)tools/test_web_download_count.py"],
+    capture_output=True, text=True, cwd=REPO)
+check("the tracked-source credential scan completed", leak.returncode in (0, 1),
+      leak.stderr.strip())
 check("no GitHub token is committed anywhere", leak.stdout.strip() == "",
       leak.stdout.strip())
 
@@ -453,7 +459,7 @@ with open(os.path.join(WEB, "privacy.html"), encoding="utf-8") as handle:
 check("privacy.html discloses the shared press total", "download counter" in privacy_html)
 
 # the community link must exist everywhere it was promised
-INVITE = "https://discord.gg/Vj7g7vVY8K"
+INVITE = "https://discord.gg/DTbG8P3Ru9"
 for page in web_pages:
     with open(os.path.join(WEB, page), encoding="utf-8") as handle:
         html = handle.read()

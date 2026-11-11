@@ -54,12 +54,14 @@ public class Probe {
         required = ['hud/HudFeatures','hud/ExtraHud','hud/HudReadings','ui/HudIcon',
                     'mixin/ChunkDistanceOptionsMixin','mixin/LocalSimulationDistanceMixin',
                     'mixin/SodiumDistanceMixin','mixin/SodiumLegacyDistanceMixin',
-                    'mixin/AutoSprintMixin','mixin/CustomReticleMixin','mixin/ComboDamageMixin']
+                    'mixin/AutoSprintMixin','mixin/ComboDamageMixin']
         for bracket in matrix['brackets']:
             name = matrix['jar_name'].replace('{version}',matrix['mod_version']).replace('{key}',bracket['key'])
             with self.subTest(version=bracket['key']),zipfile.ZipFile(ROOT/'assets/jars'/name) as jar:
+                entries = set(jar.namelist())
                 for value in required:
-                    self.assertIn('com/cubeon/client/'+value+'.class',jar.namelist())
+                    self.assertIn('com/cubeon/client/'+value+'.class',entries)
+                self.assertNotIn('com/cubeon/client/mixin/CustomReticleMixin.class',entries)
                 if bracket['key'] == matrix['brackets'][0]['key']:
                     code = subprocess.run(['javap','-p','-classpath',str(ROOT/'assets/jars'/name),
                                            'com.cubeon.client.mixin.SodiumLegacyDistanceMixin'],
@@ -69,12 +71,15 @@ public class Probe {
                                   'Constructor HEAD handler must be static before super()')
                 config = json.loads(jar.read('cubeon-client.mixins.json'))
                 self.assertFalse(config['required'])
+                self.assertNotIn('CustomReticleMixin',config['client'])
                 for value in required:
                     if value.startswith('mixin/'):
                         self.assertIn(value.split('/')[1],config['client'])
-                for feature in ['clock','system','potions','coordinates','direction','minimap','biome','daylight','combo','reticle','sprint']:
-                    labels = json.loads(jar.read('assets/cubeon-client/lang/en_us.json'))
+                labels = json.loads(jar.read('assets/cubeon-client/lang/en_us.json'))
+                for feature in ['clock','system','potions','coordinates','direction','biome','daylight','combo','sprint']:
                     self.assertIn('cubeonclient.hud.'+feature,labels)
+                for feature in ['minimap','reticle']:
+                    self.assertNotIn('cubeonclient.hud.'+feature,labels)
 
     @unittest.skipUnless(os.environ.get('CUBEON_DISTANCE_LEGACY'), 'Set CUBEON_DISTANCE_LEGACY to the isolated legacy constructor probe directory')
     def test_native_legacy_constructor(self):

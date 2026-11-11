@@ -67,14 +67,12 @@ UPDATER = ROOT / "cubeon" / "updater.py"
 # release assets by name (the .deb by prefix/suffix, never by version), so these
 # are cosmetic - a stale one is ugly, not broken.
 SITE_FILES = tuple(
-    # Stamp localized display labels too, preserving their translated prefix.
-    (ROOT / "web" / locale / filename, pattern, replacement)
-    for locale in ("", "ar", "ru", "uk")
+    (ROOT / "web" / filename, pattern, replacement)
     for filename, pattern, replacement in (
         ("index.html", re.compile(r"(?<![\w.])v\d+\.\d+\.\d+(?![\w.])"),
          "v{version}"),
         ("download.html", re.compile(
-            r"(?<![\w.])((?:Version|الإصدار) )\d+\.\d+\.\d+(?![\w.])"),
+            r"(?<![\w.])(Version )\d+\.\d+\.\d+(?![\w.])"),
          r"\g<1>{version}"),
     )
 )

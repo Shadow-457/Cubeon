@@ -87,8 +87,7 @@ check("an edited sidecar is re-read", (edited or {}).get("slug") == "sodium-extr
 # --- 3. a same-size rewrite in the same mtime tick is still fresh ----------
 # Only the writers in this module can guarantee this: they drop the entry.
 OLD_SLUG, NEW_SLUG = "sodium-aaaaa", "sodium-bbbbb"   # same length on purpose
-with open(sidecar, "w", encoding="utf-8") as fh:
-    json.dump({"slug": OLD_SLUG}, fh)
+M._write_meta(profile, jar, OLD_SLUG)
 check("the old slug is cached", (M._read_meta(profile, jar) or {}).get("slug") == OLD_SLUG)
 before = os.stat(sidecar)
 M._write_meta(profile, jar, NEW_SLUG)

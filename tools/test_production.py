@@ -167,7 +167,8 @@ with ExitStack() as stack:
             (launch, "sync_mods_to_game", lambda *a: None),
             (content, "sync_content_to_game", lambda *a: None),
             (doctor, "run_doctor", lambda *a, **kw: {}),
-            (milestones, "begin_play_session", lambda *a: None),
+            (launch, "java_major_version", lambda *a, **kw: 17),
+            (milestones, "begin_play_session", lambda *a, **kw: None),
             (launch, "build_launch_command", lambda *a, **k: ["java", "--username", a[1]])):
         stack.enter_context(patch.object(target, attr, value))
     published = []
@@ -181,6 +182,20 @@ with ExitStack() as stack:
         result = launch.launch_game(*args, mc_version="1.20.1", loader="vanilla",
                                     on_exit=lambda code: done1.set())
     check(result is proc1 and published[-1] == "FirstName", "common launch captures spawned username")
+    with patch.object(launch.subprocess, "Popen") as duplicate_spawn:
+        try:
+            launch.launch_game(*args, mc_version="1.20.1", loader="vanilla")
+        except RuntimeError as ex:
+            check("already running" in str(ex), "duplicate launch reports the live game")
+        else:
+            check(False, "duplicate launch is rejected")
+        check(not duplicate_spawn.called, "duplicate launch never spawns another game")
+    check(watchdog.effective_username("Committed") == "FirstName" and len(published) == 1,
+          "rejected launch preserves the live session and publication")
+    proc1.finish()
+    check(done1.wait(3) and published[-1] == "Committed",
+          "first matching exit publishes committed username")
+    before_failure = len(published)
     with patch.object(launch.subprocess, "Popen", side_effect=OSError("spawn failed")):
         try:
             launch.launch_game(*args, mc_version="1.20.1", loader="vanilla")
@@ -188,8 +203,8 @@ with ExitStack() as stack:
             pass
         else:
             check(False, "spawn failure raises")
-    check(watchdog.effective_username("Committed") == "FirstName" and len(published) == 1,
-          "failed spawn leaves prior session and publication untouched")
+    check(watchdog.effective_username("Committed") == "Committed" and len(published) == before_failure,
+          "failed spawn leaves session and publication untouched")
     with patch.object(launch.subprocess, "Popen", return_value=proc2) as spawn:
         launch.launch_game("1.20.1", "SecondName", 1024, 800, 600, None,
                            mc_version="1.20.1", loader="vanilla",
@@ -197,10 +212,8 @@ with ExitStack() as stack:
                            on_exit=lambda code, lines: done2.set())
         check(spawn.call_args.args[0][-4:] == ["--server", "127.0.0.1", "--port", "25565"],
               "join launch shares captured-name lifecycle")
-    proc1.finish()
-    check(done1.wait(3) and watchdog.effective_username("Committed") == "SecondName",
-          "older concurrent exit does not overwrite newer session")
-    check(published[-1] == "SecondName", "stale exit reconciliation reads current effective name")
+    check(watchdog.effective_username("Committed") == "SecondName" and published[-1] == "SecondName",
+          "join launch publishes the new game's captured name")
     proc2.finish()
     check(done2.wait(3) and published[-1] == "Committed", "latest matching exit publishes committed username")
     proc3 = GameProcess(987656)

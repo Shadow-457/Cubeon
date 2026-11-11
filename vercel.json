@@ -83,6 +83,66 @@
       "source": "/cubeon-bench/index.html",
       "destination": "/cubeon-bench",
       "permanent": false
+    },
+    {
+      "source": "/ar",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/ar/index",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/ar/index.html",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/ar/:path*",
+      "destination": "/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/ru",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/ru/index",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/ru/index.html",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/ru/:path*",
+      "destination": "/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/uk",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/uk/index",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/uk/index.html",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/uk/:path*",
+      "destination": "/:path*",
+      "permanent": true
     }
   ]
 }

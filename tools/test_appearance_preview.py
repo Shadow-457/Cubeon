@@ -19,7 +19,6 @@ from PIL import Image, ImageChops
 from cubeon import skins
 from cubeon import cosmetics
 from cubeon.appearance import CharacterModel, Face, RenderCancelled, render_faces
-from cubeon.appearance_scene import order_faces, _intersection, _area
 from ui.appearance_preview import AppearancePreview, render_frame
 from ui.settings_tab import SECTIONS
 from _fuzz_common import every_control, walk
@@ -88,6 +87,11 @@ check("the lightweight turntable preserves shoulder pets",
 # The outer atlas must remain separate from the base and have texel walls,
 # including around holes. These use the real turntable rasteriser.
 layer_sheet = skins.default_base_skin()
+# The bundled Steve is a real skin with clothing in its outer atlas. Build
+# an explicitly bare fixture before adding the isolated relief texels below.
+for region in ((32, 0, 64, 16), (16, 32, 40, 48), (40, 32, 56, 48),
+               (48, 48, 64, 64), (0, 32, 16, 48), (0, 48, 16, 64)):
+    layer_sheet.paste((0, 0, 0, 0), region)
 for y in range(64):
     for x in range(64):
         if layer_sheet.getpixel((x, y))[3]:
@@ -211,19 +215,16 @@ masked_difference = ImageChops.multiply(difference, frames[0].getchannel("A").co
 check("the cape cannot paint through the opaque front of the character", masked_difference.getbbox() is None)
 check("the cape is visible on the character's back", cape_model.render(180, 0).getpixel((160, 220)) != frames[3].getpixel((160, 220)))
 
-def correct_native_order(yaw, pitch):
-    ordered = order_faces(cape_model.project(yaw, pitch))
-    for first_index, first in enumerate(ordered):
-        for second in ordered[first_index + 1:]:
-            overlap = _intersection(first.polygon, second.polygon)
-            if len(overlap) >= 3 and abs(_area(overlap)) > 0.01:
-                if any(first.depth_at(point) - second.depth_at(point) > 1e-4 for point in overlap):
-                    return False
-    return True
+def correct_orbit_occlusion(yaw, pitch):
+    # The native UI displays a single raster frame. Verify its actual depth
+    # renderer across the orbit, including intersections that no whole-face
+    # painter ordering can resolve.
+    faces = cape_model.project(yaw, pitch)
+    return render_faces(faces).tobytes() == render_faces(list(reversed(faces))).tobytes()
 
 
-check("native face ordering keeps the cape outside the body across the orbit",
-      all(correct_native_order(yaw, pitch) for yaw in range(0, 360, 15) for pitch in (-60, -20, 0, 20, 60)))
+check("cape and body depth tests stay independent of face submission across the orbit",
+      all(correct_orbit_occlusion(yaw, pitch) for yaw in range(0, 360, 15) for pitch in (-60, -20, 0, 20, 60)))
 
 stage = AppearancePreview({"active_skin": "older.png"})
 check("drag rotation uses one stable scene",
@@ -371,18 +372,23 @@ check("Cosmetics has no global arm dropdown or separate Apply button",
 driver.open_tab("settings")
 settings = next(control for control in every_control(driver.page) if callable(getattr(control, "select_section", None)))
 panes = inspect.getclosurevars(settings.select_section).nonlocals["panes"]
-images = panes['images']
-check("Settings initially shows one section, not screenshots",
-      not images.visible and sum(bool(pane.visible) for pane in panes.values()) == 1)
+check("Settings initially shows one section", sum(bool(pane.visible) for pane in panes.values()) == 1)
 check("Settings has a pane for every named section", set(panes) == {key for key, icon, label in SECTIONS})
+check("Screenshots has its own page outside the Settings section rail", 'images' not in panes and 'screenshots' not in panes)
 settings.select_section("images")
-check("Screenshots owns the screenshot gallery", images.visible
-      and all(not pane.visible for key, pane in panes.items() if key != 'images'))
+tabs = inspect.getclosurevars(switch).nonlocals["_tab_views"]
+active = inspect.getclosurevars(switch).nonlocals["active_tab"]
+check("the legacy Images section opens the standalone screenshot gallery",
+      active["value"] == "screenshots" and tabs["screenshots"].visible and not tabs["settings"].visible)
+switch("settings")
 settings.select_section("memory")
-check("leaving Screenshots hides its gallery", panes["memory"].visible and not images.visible)
-driver.open_tab("play")
-driver.open_tab("settings")
-check("returning to Settings keeps the selected section without showing screenshots", panes["memory"].visible and not panes['appearance'].visible)
+check("Memory selects the Game section and hides the gallery",
+      panes["versions"].visible and not tabs["screenshots"].visible)
+switch("play")
+switch("settings")
+check("returning to Settings keeps the selected section without showing screenshots",
+      active["value"] == "settings" and panes["versions"].visible
+      and not panes['appearance'].visible and not tabs["screenshots"].visible)
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

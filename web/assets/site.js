@@ -308,15 +308,4 @@
       el.remove();
     });
   })();
-  /* ---- language menu: remember an explicit choice so the early redirect
-     script in <head> does not send this visitor back to their browser
-     language on the next English page. A quote-only failure is ignored. ---- */
-  var langMenu = document.querySelector('.lang-menu');
-  if(langMenu){
-    langMenu.addEventListener('click', function(e){
-      var a = e.target && e.target.closest ? e.target.closest('a[hreflang]') : null;
-      if(!a) return;
-      try { localStorage.setItem('cubeon-lang', a.getAttribute('hreflang')); } catch (_) {}
-    });
-  }
 })();

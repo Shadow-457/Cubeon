@@ -70,6 +70,12 @@ class StartupRecoveryTests(unittest.TestCase):
                     sys.frozen = True
                     os.environ['LD_LIBRARY_PATH'] = '/cubeon-test-bundle/_internal'
                     os.environ['LD_LIBRARY_PATH_ORIG'] = '/cubeon-test-host/lib'
+                    # The fake locator never unpacks a client, but configure()
+                    # must still find the bundled archive before the real run.
+                    archive = Path(sys._MEIPASS) / 'assets' / 'flet-linux-ubuntu22.04-x64.tar.gz'
+                    archive.touch()
+                    fd.get_package_bin_dir = lambda: str(archive.parent)
+                    fd.get_artifact_filename = lambda: archive.name
                 fd.__locate_and_unpack_flet_view = lambda *args: (
                     [sys.executable, '-u', {str(client)!r}], os.environ.copy(),
                     {str(home / 'client.pid')!r})
@@ -96,6 +102,10 @@ class StartupRecoveryTests(unittest.TestCase):
                         'EGL_PLATFORM', 'LIBGL_DRM_DEVICE', 'MESA_LOADER_DRIVER_OVERRIDE'):
                 env.pop(key, None)
             env['XDG_SESSION_TYPE'] = 'x11'
+            # Select Flet's desktop path even on a headless runner. The mocked
+            # client never connects to X11; a web server would bypass it.
+            env['DISPLAY'] = ':cubeon-recovery-fixture'
+            env.pop('FLET_FORCE_WEB_SERVER', None)
             env.update(overrides or {})
             proc = subprocess.Popen([sys.executable, str(driver)], env=env,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

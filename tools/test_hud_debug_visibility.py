@@ -30,7 +30,7 @@ FIXTURE = r'''
 import java.util.*;
 
 public class CubeonHud {
-    enum Overlay { FPS, KEYS, ARMOR, PING, CPS, CLOCK, SYSTEM, POTIONS, COORDINATES, DIRECTION, MINIMAP, BIOME, DAYLIGHT, COMBO }
+    enum Overlay { FPS, KEYS, ARMOR, PING, CPS, CLOCK, SYSTEM, POTIONS, COORDINATES, DIRECTION, BIOME, DAYLIGHT, COMBO }
     static final List<String> draws = new ArrayList<>();
     interface DrawAction { void draw(GuiBase gui, ClientBase client, int x, int y); }
     static void sampleClicks(ClientBase client) {}
@@ -166,6 +166,9 @@ class FriendsToastRenderer {
     static void render(GuiBase gui, ClientBase client, int w, int h) { CubeonHud.draws.add("TOAST"); }
 }
 class LegacyHealthProjection {
+    static void render(GuiBase gui, ClientBase client) { CubeonHud.draws.add("HEALTH"); }
+}
+class WorldHealthProjection {
     static void render(GuiBase gui, ClientBase client) { CubeonHud.draws.add("HEALTH"); }
 }
 '''

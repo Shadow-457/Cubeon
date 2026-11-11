@@ -1,9 +1,10 @@
 # Cubeon Rust beta integration
 
-Status: implemented locally, 2026-11-05. The Linux runtime and original resource
-exporters are built and packaged. Native terrain rendering, save/reopen and
-persistent local identity are verified. Public release, Windows execution and
-FPS benchmarking remain pending.
+Status updated 2026-11-09. The Linux runtime and original resource exporters
+are built and packaged. Native terrain rendering, save/reopen and persistent
+local identity are verified on Linux. Linux and Windows runtime packages are
+published as `rust-26.3-beta.2`; Windows gameplay and FPS benchmarking remain
+unverified.
 
 ## Product behavior
 

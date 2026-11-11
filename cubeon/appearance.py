@@ -256,7 +256,10 @@ def render_faces(faces, textures=None, size=(320, 440), supersample=1, *, cancel
     canvas = Image.new("RGBA", (width, height))
     depth_buffer = Image.new("F", canvas.size, -100000)
     translucent = []
-    for face in sorted(faces, key=lambda face: face.depth):
+    # Coplanar limb/voxel edges can tie in depth. Use the model's stable face
+    # index so those pixels and translucent layers don't depend on submission
+    # order when a caller reuses or reverses the projected faces.
+    for face in sorted(faces, key=lambda face: (face.depth, face.index)):
         if cancel is not None and cancel.is_set():
             raise RenderCancelled()
         texture = face.texture if textures is None else textures.get(face.index)

@@ -23,7 +23,7 @@ SHOTS = [
 
 def main():
     TARGET.mkdir(parents=True, exist_ok=True)
-    font = ImageFont.truetype(str(ROOT / "web/assets/fonts/Inter.ttf"), 14)
+    font = ImageFont.truetype(str(ROOT / "assets/fonts/Inter.ttf"), 14)
     for stamp, name, title, description in SHOTS:
         with Image.open(SOURCE / f"Screenshot_20261030_{stamp}.png") as original:
             # Copy pixels only: capture metadata and EXIF do not reach the public copy.

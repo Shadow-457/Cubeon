@@ -21,7 +21,7 @@ require FUSE support.
 
 The companion mod jars in `assets/jars/` are bundled runtime assets. The platform
 scripts stage assets through `packaging/runtime_assets.py`, which excludes only
-`connect-spigot.jar`: Paper setup downloads that plugin from its developer's
+`connect-spigot.jar`, which is also ignored by Git: Paper setup downloads that plugin from its developer's
 GitHub release and caches a verified copy for later servers. Keep the desktop
 client, companion jars and other launcher assets bundled. If you change the
 mod, rebuild its jars before packaging:

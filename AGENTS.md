@@ -1,10 +1,12 @@
 # Repository instructions
 
 ## Before work
-- **Read `agents/docs/module-map.md` FIRST.** It is the one-stop index: what
+- **Read `agents/docs/module-map.md` FIRST when present.** It is the local index: what
   every module does, where the entry points are, the invariants you must not
   break, and how to run the tests.
-- Read the newest task note in `agents/`. Address any relevant open question
+- On a fresh checkout, use `docs/architecture/overview.md` and
+  `docs/development/testing.md`; local `agents/` references are ignored by Git.
+- Read the newest task note in `agents/` when present. Address any relevant open question
   in your own completion note.
 
 ## After work
@@ -14,6 +16,7 @@
   about work that never happened misleads the next agent.
 - **If you learned a durable fact** (an invariant, a path, a gotcha, a contract)
   that the next agent will need, add a line to `agents/docs/module-map.md`
-  instead of leaving it only in the task note.
+  when present instead of leaving it only in the task note. Shared contracts belong
+  in the relevant public guide under `docs/`.
 
-See `agents/README.md` for the reference layout and note format.
+See `agents/README.md` when present for the local reference layout and note format.

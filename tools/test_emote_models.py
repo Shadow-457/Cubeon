@@ -145,7 +145,8 @@ public class ModelTest {
     for relative,text in fixtures.items():
      p=folder/relative;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text);paths.append(p)
     java=ROOT/'mod/src/main/java/com/cubeon/client'
-    paths += [java/'Json.java',java/'Bridge.java',*sorted((java/'emotes').glob('*.java')), *sorted((java/'ui').glob('*.java'))]
+    # The wheel only depends on ClientUi; skin/HUD menus have separate compile coverage.
+    paths += [java/'Json.java',java/'Bridge.java',*sorted((java/'emotes').glob('*.java')),java/'ui/ClientUi.java']
     run=subprocess.run(['javac','--release','17','-d',str(folder),*map(str,paths)],capture_output=True,text=True,timeout=60)
     self.assertEqual(run.returncode,0,run.stdout+run.stderr)
     run=subprocess.run(['java','-cp',str(folder),'ModelTest'],capture_output=True,text=True,timeout=60)

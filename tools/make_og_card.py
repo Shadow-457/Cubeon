@@ -7,9 +7,9 @@ SIZE = (1200, 630)
 
 
 def main():
-    source = ROOT / 'web/assets/cubeon-play.png'
+    source = ROOT / 'web/assets/cubeon-play.webp'
     target = source.with_name('og.png')
-    font_path = str(source.with_name('fonts') / 'Inter.ttf')
+    font_path = str(ROOT / 'assets/fonts/Inter.ttf')
     heading = ImageFont.truetype(font_path, 48)
     label = ImageFont.truetype(font_path, 26)
     body = ImageFont.truetype(font_path, 21)

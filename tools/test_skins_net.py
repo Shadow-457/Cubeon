@@ -152,24 +152,26 @@ check("composed sheet passes the Worker's PNG guard", worker_is_skin_png(png),
 check("composed sheet is well under the 24KB skin cap", len(png) < 24 * 1024, f"{len(png)}B")
 
 # ---------------------------------------------------------------------------
-# 2. Happy path WITH content: first publish fires heartbeat THEN upload
+# 2. Happy path WITH content: heartbeat, skin/face, then optional cosmetics
 #
 # default_cfg carries a real uploaded skin - a no-skin player must NOT
 # upload anything (see section 5), so the full two-call contract needs actual
-# custom content.
+# custom content. Skin publication must finish before optional cosmetic writes.
 # ---------------------------------------------------------------------------
 clear_marker()
 reset_calls()
 ok_all()
 skins._publish_skin(default_cfg)
 
-check("first publish makes three POSTs (heartbeat + cosmetics + upload)", len(_calls) == 3, len(_calls))
+EMPTY_COSMETICS = {slot: None for slot in
+                  ("shoulder", "back", "face", "head", "waist", "hand", "trail", "aura")}
+check("first publish makes three POSTs (heartbeat + upload + cosmetics)", len(_calls) == 3, len(_calls))
 hb = _calls[0] if _calls else {}
-up = _calls[2] if len(_calls) > 2 else {}
-peer = _calls[1] if len(_calls) > 1 else {}
+up = _calls[1] if len(_calls) > 1 else {}
+peer = _calls[2] if len(_calls) > 2 else {}
 check("cosmetic publication is authenticated, UUID-keyed and clears old peer items",
       peer.get("url") == skins.csl.CUBEON_API_BASE + "/api/cosmetics"
-      and peer.get("json") == {"uuid": stable_uuid(), "back": None, "shoulder": None}
+      and peer.get("json") == {"uuid": stable_uuid(), **EMPTY_COSMETICS}
       and bearer_of(peer) == stable_secret())
 check("heartbeat goes to the heartbeat URL", hb.get("url") == skins._HEARTBEAT_URL)
 check("upload goes to the skin URL", up.get("url") == skins._UPLOAD_URL)
@@ -241,8 +243,8 @@ ok_all()
 skins._publish_skin(default_cfg)
 check("a different endpoint needs pointer, cosmetics and skin in that backend",
       len(_calls) == 3 and _calls[0]["url"] == skins._HEARTBEAT_URL
-      and _calls[1]["url"].endswith("/api/cosmetics")
-      and _calls[2]["url"] == skins._UPLOAD_URL, len(_calls))
+      and _calls[1]["url"] == skins._UPLOAD_URL
+      and _calls[2]["url"].endswith("/api/cosmetics"), len(_calls))
 
 # ---------------------------------------------------------------------------
 # 4. Failure handling: 403 and network errors are swallowed, don't poison
@@ -271,7 +273,7 @@ check("during cooldown no POST is made", _calls == [])
 clear_marker()
 reset_calls()
 _next["raise"] = False
-_responses_list = [_FakeResp(200, {"status": "ok"}), _FakeResp(200), _FakeResp(403, {"error": "not_yours"})]
+_responses_list = [_FakeResp(200, {"status": "ok"}), _FakeResp(403, {"error": "not_yours"})]
 _seq = {"n": 0}
 def _sequenced_post(url, json=None, headers=None, timeout=None):
     _seq["n"] += 1
@@ -290,7 +292,8 @@ check("heartbeat success survives an upload failure (identity half recorded)",
       state.get("username") == "TestUser" and state.get("uuid") == stable_uuid(),
       json.dumps(state))
 check("failed upload leaves no hash in the marker (retried next sync)",
-      state.get("hash") is None and len(_calls) == 3)
+      state.get("hash") is None and state.get("cosmetics") is None
+      and len(_calls) == 2 and _calls[-1]["url"] == skins._UPLOAD_URL)
 
 clear_marker()
 reset_calls()
@@ -602,7 +605,8 @@ peer_cfg = {"username": "PeerOwner", "active_back_item": "back_void_wings",
 skins._publish_skin(peer_cfg)
 check("first cosmetic selection heartbeats and publishes IDs without a skin upload",
       len(_calls) == 2 and _calls[1]["json"] == {
-          "uuid": stable_uuid(), "back": "back_void_wings", "shoulder": "shoulder_star_owl"})
+          "uuid": stable_uuid(), **EMPTY_COSMETICS,
+          "back": "back_void_wings", "shoulder": "shoulder_star_owl"})
 reset_calls()
 skins._publish_skin(peer_cfg)
 check("unchanged peer selection makes zero requests", _calls == [])
@@ -611,7 +615,7 @@ peer_cfg["active_back_item"] = None
 skins._publish_skin(peer_cfg)
 check("clearing a back item sends null and preserves the selected shoulder",
       len(_calls) == 1 and _calls[0]["json"] == {
-          "uuid": stable_uuid(), "back": None, "shoulder": "shoulder_star_owl"})
+          "uuid": stable_uuid(), **EMPTY_COSMETICS, "shoulder": "shoulder_star_owl"})
 reset_calls()
 _next["resp"] = _FakeResp(403)
 peer_cfg["active_shoulder_item"] = None
@@ -628,11 +632,11 @@ skins._save_publish_state(marker)
 ok_all()
 skins._publish_skin(peer_cfg)
 check("a later retry clears the last shared shoulder without republishing identity",
-      len(_calls) == 1 and skins._load_publish_state().get("cosmetics") == {"back": None, "shoulder": None})
+      len(_calls) == 1 and skins._load_publish_state().get("cosmetics") == EMPTY_COSMETICS)
 
 clear_marker()
 reset_calls()
-_responses_list = [_FakeResp(200), _FakeResp(403), _FakeResp(200)]
+_responses_list = [_FakeResp(200), _FakeResp(200), _FakeResp(403)]
 _seq["n"] = 0
 skins.requests.post = _sequenced_post
 try:
@@ -640,9 +644,12 @@ try:
 finally:
     skins.requests.post = _orig_post
 marker = skins._load_publish_state()
-check("cosmetic failure stops the batch before another quota-consuming skin request",
-      marker.get("hash") is None and marker.get("cosmetics") is None
-      and marker.get("retry_not_before", 0) > 0 and _seq["n"] == 2)
+check("an optional cosmetic failure preserves the already published skin and face",
+      marker.get("hash") == hashlib.sha256(png).hexdigest()
+      and marker.get("face_hash") is not None and marker.get("cosmetics") is None
+      and marker.get("retry_not_before", 0) > 0 and _seq["n"] == 3
+      and _calls[1]["url"] == skins._UPLOAD_URL
+      and _calls[2]["url"].endswith("/api/cosmetics"))
 
 # Quota/backoff behavior must survive a real marker reload, not just memory.
 reset_calls()
@@ -650,10 +657,10 @@ clear_marker()
 next_response(200, {"status": "ok", "fresh_identity": True})
 skins._publish_skin({"username": "BrandNew", "active_skin": None})
 check("a confirmed new vanilla identity needs one request and no empty cosmetic write",
-      len(_calls) == 1 and skins._load_publish_state().get("cosmetics") == {"back": None, "shoulder": None})
+      len(_calls) == 1 and skins._load_publish_state().get("cosmetics") == EMPTY_COSMETICS)
 reset_calls()
 clear_marker()
-_responses_list = [_FakeResp(200), _FakeResp(200), _FakeResp(429,
+_responses_list = [_FakeResp(200, {"fresh_identity": True}), _FakeResp(429,
                    {"error": "kv_write_budget_exhausted"}, {"Retry-After": "7200"})]
 _seq["n"] = 0
 skins.requests.post = _sequenced_post
@@ -665,7 +672,8 @@ finally:
 marker = skins._load_publish_state()
 check("failed upload keeps confirmed identity/cosmetics and backs off until the UTC quota reset",
       marker.get("username") == "TestUser" and marker.get("cosmetics") is not None
-      and marker.get("hash") is None and marker.get("retry_not_before", 0) >= 172800)
+      and marker.get("hash") is None and marker.get("retry_not_before", 0) >= 172800
+      and _seq["n"] == 2 and _calls[-1]["url"] == skins._UPLOAD_URL)
 reset_calls()
 with patch.object(skins.time, "time", return_value=100001):
     skins._publish_skin(default_cfg)

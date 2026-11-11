@@ -53,7 +53,7 @@ public class WheelTest {
    check(wheel.hit(cx,cy)==EmoteWheel.STOP,"Center stops; it never picks an emote");
    check(wheel.hit(0,0)==EmoteWheel.NONE,"Outside cannot accidentally start an emote");
    check(wheel.hit(cx+radius*.385,cy)==EmoteWheel.NONE,"Inner gutter is a dead zone");
-   check(wheel.hit(cx-70,cy+radius+24)==EmoteWheel.TOGGLE,"Display toggle remains reachable");
+   check(wheel.hit(cx,cy-14)==EmoteWheel.TOGGLE,"Display toggle is reachable inside the center");
    for(int i=0;i<wheel.slots();i++){
     double angle=i*Math.PI*2/wheel.slots()-Math.PI/2;
     check(wheel.hit(cx+Math.cos(angle)*radius*.72,cy+Math.sin(angle)*radius*.72)==i,"All favorite wedge centers match labels");
@@ -70,7 +70,7 @@ public class WheelTest {
    wheel.render(preview,width,height,cx+1,cy-radius*3/4,true,true);
    check(preview.calls<2600,"Cached wheel rendering remains bounded");
    ImageIO.write(preview.image,"png",new File("/tmp/cubeon-emote-wheel-"+height+".png"));
-   check(wheel.hit(cx+70,cy+radius+24)==EmoteWheel.EDIT,"Favorite editor button is reachable");
+   check(wheel.hit(cx,cy+14)==EmoteWheel.EDIT,"Favorite editor is reachable inside the center");
    wheel.edit(true);
    Canvas library=new Canvas(width,height,labels);wheel.render(library,width,height,cx,cy,true,true);
    ImageIO.write(library.image,"png",new File("/tmp/cubeon-emote-library-"+height+".png"));
@@ -98,7 +98,7 @@ public class WheelTest {
 }
 ''')
             shared = ROOT / "mod/src/main/java/com/cubeon/client"
-            paths = [source, shared / "Json.java", shared / "Bridge.java", *sorted((shared / "emotes").glob("*.java")), *sorted((shared / "ui").glob("*.java"))]
+            paths = [source, shared / "Json.java", shared / "Bridge.java", *sorted((shared / "emotes").glob("*.java")), shared / "ui/ClientUi.java"]
             result = subprocess.run(["javac", "--release", "17", "-d", str(temp), *map(str, paths)], capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run(["java", "-Djava.awt.headless=true", "-cp", str(temp), "WheelTest", str(temp / "labels.properties")], capture_output=True, text=True, timeout=60)

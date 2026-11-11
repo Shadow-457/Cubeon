@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -367,7 +368,10 @@ def main():
     # Regression coverage: deleting a version used to leave this pack listed
     # as "installed" forever, since versions.delete_version() only touches
     # .minecraft/versions/<id> and has no reason to know about modpacks.
-    modpacks.PROFILES_DIR = scratch  # profile_dir ("<scratch>/profile") is a child of this
+    modpacks.PROFILES_DIR = scratch  # The fixture profile is a child of this.
+    # Listing/forgetting uses mods.iter_profile_dirs(), which also scans
+    # registered private profiles. Redirect its legacy root, not its iterator.
+    _mods.PROFILES_DIR = scratch
     with open(os.path.join(profile_dir, modpacks.MODPACK_META_FILENAME), "r", encoding="utf-8") as fh:
         written_meta = json.load(fh)
     real_version_id = written_meta["version_id"]
@@ -597,34 +601,76 @@ def main():
     # --- cancellation propagates out of a progress callback -----------------
     # The UI cancels a modpack install by raising from its status/progress
     # callback (the only stop mll and the download loop honor). That exception
-    # must reach the caller unchanged and must leave the pack UNLISTED - the
-    # marker is dropped when the rebuild starts and only rewritten on success.
-    # Kept LAST on purpose: it deliberately leaves the profile without a marker.
+    # must reach the caller unchanged. A cancelled update restores the prior
+    # working marker; a cancelled first install must never become listed.
     class _CancelSentinel(Exception):
         pass
 
-    def _cancel_case(label, trigger):
-        mrpack_cancel = os.path.join(scratch, "cancel.mrpack")
+    def _cancel_case(phase, trigger, *, existing):
+        label = f"{phase}, {'update' if existing else 'fresh install'}"
+        case_dir = tempfile.mkdtemp(prefix="cancel-", dir=scratch)
+        cancel_root = os.path.join(case_dir, "profiles")
+        cancel_profile = os.path.join(cancel_root,
+                                      modpacks.profile_key("1.20.1", "fabric"))
+        cancel_marker = os.path.join(cancel_profile, modpacks.MODPACK_META_FILENAME)
+        prior_marker = json.dumps(written_meta, sort_keys=True).encode("utf-8")
+        if existing:
+            shutil.copytree(profile_dir, cancel_profile)
+            with open(cancel_marker, "wb") as fh:
+                fh.write(prior_marker)
+        else:
+            os.makedirs(cancel_profile)
+        mrpack_cancel = os.path.join(case_dir, "cancel.mrpack")
         build_mrpack(mrpack_cancel)
+        sentinel = _CancelSentinel(label)
+        hidden_at_cancel = []
 
         def _cancel_status(text):
             if text.startswith(trigger):
-                raise _CancelSentinel()
+                hidden_at_cancel.append(not os.path.isfile(cancel_marker))
+                raise sentinel
 
-        try:
-            modpacks._install_from_zip(mrpack_cancel, status_cb=_cancel_status)
-            check(f"cancel: raising from status_cb aborts ({label})", False)
-        except _CancelSentinel:
-            check(f"cancel: raising from status_cb aborts ({label})", True)
-        except Exception as ex:
-            check(f"cancel: raising from status_cb aborts ({label})", False,
-                  f"{ex.__class__.__name__}: {ex}")
-        check(f"cancel: no pack marker left behind ({label})",
-              not os.path.isfile(os.path.join(profile_dir,
-                                              modpacks.MODPACK_META_FILENAME)))
+        with patch.object(modpacks, "PROFILES_DIR", cancel_root), \
+                patch.object(_mods, "PROFILES_DIR", cancel_root), \
+                patch.object(modpacks, "get_profile_dir", return_value=cancel_profile), \
+                patch.object(_mods, "get_profile_dir", return_value=cancel_profile), \
+                patch.object(modpacks, "content_profile_dir",
+                             side_effect=lambda ct, mc, loader, version_id=None:
+                             os.path.join(cancel_profile, ct)), \
+                patch.object(modpacks.requests, "get", _fake_get):
+            try:
+                modpacks._install_from_zip(mrpack_cancel, status_cb=_cancel_status)
+                check(f"cancel: raising from status_cb aborts ({label})", False)
+            except _CancelSentinel as ex:
+                check(f"cancel: raising from status_cb aborts ({label})", ex is sentinel)
+            except Exception as ex:
+                check(f"cancel: raising from status_cb aborts ({label})", False,
+                      f"{ex.__class__.__name__}: {ex}")
+            check(f"cancel: marker hidden while install runs ({label})",
+                  hidden_at_cancel == [True], hidden_at_cancel)
+            if existing:
+                restored = None
+                if os.path.isfile(cancel_marker):
+                    with open(cancel_marker, "rb") as fh:
+                        restored = fh.read()
+                check(f"cancel: prior working marker restored unchanged ({label})",
+                      restored == prior_marker)
+                check(f"cancel: prior pack remains listed ({label})",
+                      any(p.get("version_id") == real_version_id
+                          for p in modpacks.list_installed_modpacks()))
+            else:
+                check(f"cancel: no first-install marker left behind ({label})",
+                      not os.path.isfile(cancel_marker))
+                check(f"cancel: first install remains unlisted ({label})",
+                      modpacks.list_installed_modpacks() == [])
+            check(f"cancel: marker backup retired ({label})",
+                  not os.path.exists(cancel_marker + ".bak"))
+            check(f"cancel: in-flight claim released ({label})",
+                  modpacks.active_pack_installs() == {})
 
-    _cancel_case("version phase", "Installing Minecraft")
-    _cancel_case("parallel mod fetch", "Downloading mods")
+    for existing in (True, False):
+        _cancel_case("version phase", "Installing Minecraft", existing=existing)
+        _cancel_case("parallel mod fetch", "Downloading mods", existing=existing)
 
     print(f"\n{_passed} passed, {_failed} failed")
     return 1 if _failed else 0

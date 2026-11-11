@@ -12,61 +12,16 @@
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
-<!-- cubeon:auto-language -->
-<script>
-(function () {
-  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
-  if (location.protocol === 'file:') return;
-  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
-  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
-  if (m) cur = m[1];
-  function search() {
-    var out = '', q;
-    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
-    return (out ? '?' + out : '') + location.hash;
-  }
-  function urlFor(code) {
-    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
-    if (rest === '/index.html') rest = '/';
-    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
-    return (code === 'en' ? '' : '/' + code) + rest + search();
-  }
-  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
-  var q = null;
-  try { q = new URLSearchParams(location.search); } catch (e) {}
-  if (q && q.get('lang') && names[q.get('lang')]) {
-    pref = q.get('lang');
-    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
-    location.replace(urlFor(pref));
-    return;
-  }
-  if (!pref) {
-    var list = navigator.languages || [navigator.language || ''];
-    for (var i = 0; i < list.length; i++) {
-      var code = String(list[i]).toLowerCase().split('-')[0];
-      if (names[code]) { pref = code; break; }
-    }
-  }
-  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
-})();
-</script>
-<!-- /cubeon:auto-language -->
 <link rel="stylesheet" href="assets/site.css" />
 <script>document.documentElement.classList.add('js')</script>
-<!-- cubeon:seo -->
-<link rel="alternate" hreflang="en" href="https://www.ylet.online/docs" />
-<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/docs" />
-<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/docs" />
 <link rel="canonical" href="https://www.ylet.online/docs" />
 <meta property="og:url" content="https://www.ylet.online/docs" />
-<!-- /cubeon:seo -->
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta property="og:image:alt" content="Cubeon Launcher: free, open-source Minecraft Java launcher for Windows and Linux, with the launcher window, mods, modpacks and skins." />
 <meta property="og:image:secure_url" content="https://www.ylet.online/assets/og.png" />
 <meta property="og:image:type" content="image/png" />
 <meta property="og:locale" content="en_US" />
-<meta property="og:locale:alternate" content="ar_AR" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Cubeon Launcher Docs - Minecraft Setup, Mods &amp; Crash Help" />
 <meta name="twitter:description" content="Cubeon Minecraft Launcher guides and screenshots: setup, mods, modpacks, skins, friends, servers, settings and crash help, with a full-size image gallery." />
@@ -81,20 +36,7 @@
     <a class="brand" href="index.html" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
     <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">&#9776;</button>
     <nav class="nav-links" id="navSlots" aria-label="Main">
-      <!-- cubeon:language -->
-<div class="lang-menu">
-  <details>
-    <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
-    <nav class="lang-list" aria-label="Language">
-          <a href="/docs" hreflang="en" lang="en" aria-current="true">English</a>
-      <a class="nav-bench" href="/cubeon-bench" aria-label="Cubeon Bench cosmetics resource pack editor (Coming soon)"><span>Bench</span><span class="nav-status">Coming soon</span></a>
-          <a href="/ar/docs" hreflang="ar" lang="ar">العربية</a>
-    </nav>
-  </details>
-</div>
-<!-- /cubeon:language -->
-
-      <a href="index.html">Home</a>
+<a href="index.html">Home</a>
       <a href="download.html">Download</a>
       <a href="docs.html" aria-current="page">Docs</a>
       <a href="doctor.html">Doctor</a>
@@ -430,10 +372,10 @@
         <p>Explore the launcher, its Minecraft content tools and in-game cosmetics. Open any image at full size, or follow its guide for the steps.</p>
         <div class="docs-gallery">
           <figure>
-            <a class="gallery-image" href="assets/cubeon-play.png" aria-label="Open full-size image: Play and game versions">
+            <a class="gallery-image" href="assets/cubeon-play.webp" aria-label="Open full-size image: Play and game versions">
               <picture>
                 <source srcset="assets/screenshots/previews/cubeon-play.webp" type="image/webp">
-                <img src="assets/cubeon-play.png" width="1308" height="795" loading="lazy" decoding="async" alt="Cubeon Launcher Play screen with Minecraft version selection and the Play button.">
+                <img src="assets/cubeon-play.webp" width="1308" height="795" loading="lazy" decoding="async" alt="Cubeon Launcher Play screen with Minecraft version selection and the Play button.">
               </picture>
             </a>
             <figcaption><h3>Play and game versions</h3><p>Choose a game version and manage your Minecraft instances. <a href="getting-started.html#versions">Read the guide</a>.</p></figcaption>

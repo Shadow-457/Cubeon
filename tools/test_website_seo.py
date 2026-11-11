@@ -22,12 +22,15 @@ class Page(HTMLParser):
         self.meta, self.canonicals, self.links, self.headings, self.schemas = {}, [], [], [], []
         self.favicons = []
         self.images = []
+        self.language = None
         self.title = ''
         self.active = None
         self.feed(source)
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if tag == 'html':
+            self.language = attrs.get('lang')
         if tag == 'meta':
             key = attrs.get('name') or attrs.get('property')
             self.meta.setdefault(key, []).append(attrs.get('content', ''))
@@ -66,11 +69,6 @@ class SEOTests(unittest.TestCase):
         self.pages = {path.stem: Page(path.read_text()) for path in WEB.glob('*.html')
                       if not re.fullmatch(r'google[0-9a-f]+', path.stem)}
         self.pages['cubeon-bench'] = Page((WEB / 'cubeon-bench/index.html').read_text())
-        self.localized = {}
-        for language in ('ar', 'uk', 'ru'):
-            for path in (WEB / language).glob('*.html'):
-                key = language + ('' if path.stem == 'index' else '/' + path.stem)
-                self.localized[key] = Page(path.read_text())
 
     def test_canonical_inventory_and_sitemap(self):
         expected = set()
@@ -93,20 +91,6 @@ class SEOTests(unittest.TestCase):
                 descriptions.append(page.meta['description'][0])
         self.assertEqual(len(titles), len(set(titles)))
         self.assertEqual(len(descriptions), len(set(descriptions)))
-        for key, page in self.localized.items():
-            if key.rsplit('/', 1)[-1].isdigit():
-                self.assertIn('noindex', ','.join(page.meta.get('robots', [])))
-                continue
-            if key.split('/')[0] in ('uk', 'ru'):
-                self.assertIn('noindex', ','.join(page.meta.get('robots', [])))
-                stem = key.split('/', 1)[1] if '/' in key else 'index'
-                self.assertEqual(page.canonicals, self.pages[stem].canonicals)
-                self.assertEqual(page.meta['og:url'], self.pages[stem].canonicals)
-                continue
-            url = ORIGIN + '/' + key
-            expected.add(url)
-            self.assertEqual(page.canonicals, [url])
-            self.assertEqual(page.meta['og:url'], [url])
         sitemap = ET.parse(WEB / 'sitemap.xml')
         locations = [entry.text for entry in sitemap.findall('./{*}url/{http://www.sitemaps.org/schemas/sitemap/0.9}loc')]
         self.assertEqual(len(locations), len(set(locations)))
@@ -114,7 +98,8 @@ class SEOTests(unittest.TestCase):
         # Error pages, API routes, redirect-only downloads and personal log fragments stay out.
         self.assertTrue(all(not urlsplit(url).query and not urlsplit(url).fragment for url in locations))
         robots = (WEB / 'robots.txt').read_text()
-        self.assertIn('User-agent: *\nAllow: /\nDisallow: /api/', robots)
+        # Python 3.12's robots parser takes the first matching rule.
+        self.assertIn('User-agent: *\nDisallow: /api/\nAllow: /', robots)
         self.assertIn('Sitemap: ' + ORIGIN + '/sitemap.xml', robots)
 
     def test_image_discovery_matches_visible_page_content(self):
@@ -126,8 +111,7 @@ class SEOTests(unittest.TestCase):
         for page in sitemap.findall('s:url', namespace):
             page_url = page.find('s:loc', namespace).text
             page_key = urlsplit(page_url).path.strip('/') or 'index'
-            html = (self.localized if '/' in page_key or page_key in ('ar', 'uk', 'ru')
-                    else self.pages)[page_key]
+            html = self.pages[page_key]
             for image in page.findall('image:image', namespace):
                 location = image.find('image:loc', namespace)
                 self.assertIsNotNone(location)
@@ -189,9 +173,36 @@ class SEOTests(unittest.TestCase):
         self.assertEqual(fallback, (ROOT / 'assets/icon.ico').read_bytes())
         self.assertNotIn('Disallow: /assets', (WEB / 'robots.txt').read_text())
 
-    def test_launcher_social_metadata_is_complete_and_localized(self):
-        pages = {**self.pages, **self.localized}
-        for key, page in pages.items():
+    def test_site_is_english_only_without_language_switching(self):
+        for folder in ('ar', 'ru', 'uk', 'i18n'):
+            self.assertFalse((WEB / folder).exists(), folder)
+        for key, page in self.pages.items():
+            with self.subTest(page=key):
+                self.assertEqual(page.language, 'en')
+                path = WEB / ('cubeon-bench/index.html' if key == 'cubeon-bench' else f'{key}.html')
+                source = path.read_text()
+                for marker in ('hreflang=', 'cubeon:language', 'cubeon:auto-language',
+                               'cubeon-lang', 'navigator.language', 'navigator.languages'):
+                    self.assertNotIn(marker, source)
+        for asset in ('site.js', 'site.css'):
+            source = (WEB / 'assets' / asset).read_text()
+            for marker in ('lang-menu', 'lang-list', 'cubeon-lang', 'hreflang',
+                           'navigator.language', 'navigator.languages'):
+                self.assertNotIn(marker, source)
+
+    def test_retired_locale_urls_redirect_to_english_pages(self):
+        for config in (ROOT / 'vercel.json', WEB / 'vercel.json'):
+            redirects = {entry['source']: entry for entry in json.loads(config.read_text())['redirects']
+                         if not entry.get('has')}
+            for locale in ('ar', 'ru', 'uk'):
+                for suffix in ('', '/index', '/index.html', '/:path*'):
+                    with self.subTest(config=config, source=locale + suffix):
+                        rule = redirects['/' + locale + suffix]
+                        self.assertEqual(rule['destination'], '/:path*' if suffix == '/:path*' else '/')
+                        self.assertTrue(rule['permanent'])
+
+    def test_launcher_social_metadata_is_complete(self):
+        for key, page in self.pages.items():
             if key == 'cubeon-bench' or key.rsplit('/', 1)[-1].isdigit():
                 continue
             with self.subTest(page=key):
@@ -203,13 +214,9 @@ class SEOTests(unittest.TestCase):
                 self.assertEqual(page.meta['twitter:card'], ['summary_large_image'])
                 for field in ('title', 'description', 'image', 'image:alt'):
                     self.assertEqual(page.meta['twitter:' + field], page.meta['og:' + field])
-                expected = 'ar_AR' if key.split('/')[0] == 'ar' else 'en_US'
-                self.assertEqual(page.meta['og:locale'], [expected])
-                alternate = 'en_US' if expected == 'ar_AR' else 'ar_AR'
-                self.assertEqual(page.meta['og:locale:alternate'], [alternate])
+                self.assertEqual(page.meta['og:locale'], ['en_US'])
+                self.assertNotIn('og:locale:alternate', page.meta)
                 self.assertNotIn('an account name', page.meta['og:image:alt'][0])
-        self.assertNotEqual(self.localized['ar'].meta['twitter:title'],
-                            self.pages['index'].meta['twitter:title'])
         image = (WEB / 'assets/og.png').read_bytes()
         self.assertEqual(struct.unpack('>II', image[16:24]), (1200, 630))
 
@@ -347,15 +354,12 @@ class SEOTests(unittest.TestCase):
         self.assertEqual(faq['about'], {'@id': ORIGIN + '/#launcher'})
         self.assertEqual(visible[0]['name'], 'What is Cubeon Launcher?')
         self.assertIn('Minecraft Java Edition', visible[0]['acceptedAnswer']['text'])
-        arabic = (WEB / 'ar/index.html').read_text()
-        arabic_graph = json.loads(Page(arabic).schemas[0])['@graph']
-        arabic_faq, = [node for node in arabic_graph if node['@type'] == 'FAQPage']
-        self.assertEqual(arabic_faq['mainEntity'], Answers(arabic).answers)
+        self.assertIn('GPL-3.0', visible[0]['acceptedAnswer']['text'])
 
     def test_plain_text_project_guide_uses_public_official_sources(self):
         guide = (WEB / 'llms.txt').read_text()
         self.assertTrue(guide.startswith('# Cubeon Launcher\n'))
-        self.assertIn('Apache 2.0', guide)
+        self.assertIn('GPL-3.0', guide)
         self.assertIn('local/offline', guide)
         self.assertIn('Microsoft account sign-in is not available', guide)
         self.assertIn('/llms.txt', self.pages['about'].links)

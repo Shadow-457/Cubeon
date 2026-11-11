@@ -219,21 +219,20 @@ try:
     check("stamp counts replacements per file",
           all(isinstance(n, int) and n > 0 for _p, n in rv.stamp("2.6.1", site=True)))
 
-    (tmp / "web" / "ar").mkdir()
-    localized = tmp / "web" / "ar" / "download.html"
-    localized.write_text(
-        '<p>الإصدار 1.3.38 &middot; مثبّت</p>'
+    download = tmp / "web" / "download.html"
+    download.write_text(
+        '<p>Version 1.3.38 &middot; installer</p>'
         '<a href="/releases/download/v1.3.38/old.zip">Archive</a>', encoding="utf-8")
     saved_site = rv.SITE_FILES
     rv.SITE_FILES = tuple((tmp / path.relative_to(rv.ROOT), pattern, replacement)
                           for path, pattern, replacement in orig_site)
     try:
         rv.stamp("1.3.45")
-        translated = localized.read_text(encoding="utf-8")
-        check("stable stamp updates translated labels and preserves archive URLs",
-              'الإصدار 1.3.45' in translated
-              and '/releases/download/v1.3.38/old.zip' in translated)
-        check("localized stable stamping is idempotent", not rv.stamp("1.3.45", check=True))
+        updated = download.read_text(encoding="utf-8")
+        check("stable stamp updates English labels and preserves archive URLs",
+              'Version 1.3.45' in updated
+              and '/releases/download/v1.3.38/old.zip' in updated)
+        check("English stable stamping is idempotent", not rv.stamp("1.3.45", check=True))
     finally:
         rv.SITE_FILES = saved_site
 

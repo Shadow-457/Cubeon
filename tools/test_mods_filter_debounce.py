@@ -181,8 +181,12 @@ check("clearing does not rebuild instantly", immediate == 0,
       f"{immediate} rebuild(s)")
 check("clearing repaints the unfiltered list once", after_window == 1,
       f"{after_window} rebuild(s)")
-check("the whole list is back within screen capacity", len(list_view.controls) == len(NAMES),
-      f"{len(list_view.controls)} rows")
+client_row = scope["client_preference_row"]
+content_rows = [row for row in list_view.controls if row is not client_row]
+check("clearing restores every installed mod", len(content_rows) == len(NAMES),
+      f"{len(content_rows)} content rows")
+check("the managed-client preference returns outside the filtered results",
+      client_row.visible and list_view.controls.count(client_row) == 1)
 
 print()
 print(f"{passed} passed, {failed} failed")

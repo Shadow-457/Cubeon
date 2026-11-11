@@ -190,7 +190,10 @@ def main():
     refused = {"value": False}
 
     def reentrant_body(zip_path, *, progress_cb=None, status_cb=None,
-                       max_cb=None, icon_url=None, source_id=None):
+                       max_cb=None, icon_url=None, source_id=None,
+                       transaction=None):
+        if transaction is None:
+            raise AssertionError("the guarded body must receive its install transaction")
         calls["n"] += 1
         if calls["n"] == 1:
             try:
@@ -243,7 +246,7 @@ def main():
     check("button: a pack install maps to a disabled INSTALLING state",
           'elif _pack_installing_selected():' in main_src
           and 'mode = "installing"' in main_src
-          and 'play_button_text.value = "INSTALLING..."' in main_src,
+          and 'play_button_text.value = i18n.t("INSTALLING...")' in main_src,
           "the Play button must read the registry, not a UI flag")
     check("button: the disabled state is not a lying CANCEL",
           'mode == "installing"' in main_src

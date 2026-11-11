@@ -588,7 +588,7 @@ SUITES = [
     # of .github/workflows/build.yml, so a broken release is caught here.
     "test_release_version.py", "test_release_pipeline.py",
     "test_launcher_installers.py", "test_auto_update.py",
-    "test_linux_graphical_installer.py", "test_navigation_background.py", "test_website_translation.py",
+    "test_linux_graphical_installer.py", "test_navigation_background.py",
     "test_modpack_performance.py",
     # The FPS boost as the user experiences it (options.txt + Sodium's own
     # config/sodium-options.json), and the motion layer every hover goes

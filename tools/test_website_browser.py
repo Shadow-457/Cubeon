@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    with Image.open(ROOT / 'web/assets/cubeon-play.png') as original:
+    with Image.open(ROOT / 'web/assets/cubeon-play.webp') as original:
         play_size = list(original.size)
     captures = ROOT / 'archive/ui-captures'
     captures.mkdir(parents=True, exist_ok=True)
@@ -117,48 +117,36 @@ def main():
                     question.click()
                     expect(question).to_have_attribute('aria-expanded', 'true')
                     expect(page.locator('#what-is-cubeon-launcher .q-body p')).to_be_visible()
-                    expect(page.locator('#what-is-cubeon-launcher .q-body')).to_contain_text('Apache 2.0')
+                    expect(page.locator('#what-is-cubeon-launcher .q-body')).to_contain_text('GPL-3.0')
                 if path == '/about':
                     expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://www.ylet.online/about')
                     expect(page.locator('.project-facts')).to_contain_text('Minecraft Java Edition')
             assert not errors, errors
             page.close()
-        # Language choice must work without the optional consent feature.
-        # The translation edit accidentally removed a function terminator,
-        # disabling all shared JS and hiding every hero download pane.
+        # Retired browser preferences and a foreign browser locale must leave
+        # English pages in place, with working shared controls.
         for width in [1440, 390, 320]:
             context = browser.new_context(viewport={'width': width, 'height': 1000},
                                           locale='ar', reduced_motion='reduce')
+            context.add_init_script("localStorage.setItem('cubeon-lang', 'ar')")
             page = context.new_page()
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.route('**/*', route)
-            page.goto('https://cubeon.test/ar/docs')
-            recovery = page.locator('#guide-recovery-mods')
-            expect(recovery.locator('h2')).to_have_text('مودات الاستعادة')
-            expect(recovery.locator('a[download]')).to_have_count(25)
-            for group in recovery.locator('details').all():
-                if group.get_attribute('open') is None:
-                    group.locator('summary').click()
-            assert recovery.evaluate('(e) => e.scrollWidth <= e.clientWidth + 1'), (width, 'Arabic recovery overflow')
-            assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, 'Arabic docs overflow')
-            page.goto('https://cubeon.test/ar/minecraft-launcher')
-            expect(page.locator('html')).to_have_attribute('dir', 'rtl')
-            expect(page.locator('table tbody tr')).to_have_count(6)
-            expect(page.locator('article')).to_contain_text('Microsoft')
-            assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, 'Arabic guide overflow')
-            page.goto('https://cubeon.test/ar/?time=night')
-            expect(page.locator('html')).to_have_attribute('dir', 'rtl')
-            expect(page.locator('.sign .pane.on .btn')).to_be_visible()
-            assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, 'Arabic overflow')
-            if width < 880:
-                page.locator('#navToggle').click()
-            page.locator('.lang-menu summary').click()
-            page.locator('.lang-menu a[hreflang="en"]').click()
-            expect(page.locator('html')).to_have_attribute('lang', 'en')
-            assert page.evaluate('localStorage.getItem("cubeon-lang")') == 'en'
-            page.goto('https://cubeon.test/download')
-            expect(page.locator('html')).to_have_attribute('lang', 'en')
+            for path in ['/docs', '/minecraft-launcher', '/?time=night', '/download']:
+                page.goto('https://cubeon.test' + path)
+                expect(page.locator('html')).to_have_attribute('lang', 'en')
+                expect(page.locator('.lang-menu')).to_have_count(0)
+                assert page.url == 'https://cubeon.test' + path
+                assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, path)
+                if path == '/docs':
+                    expect(page.locator('#guide-recovery-mods h2')).to_have_text('Recovery mods')
+                    expect(page.locator('#guide-recovery-mods a[download]')).to_have_count(25)
+                if path == '/minecraft-launcher':
+                    expect(page.locator('table tbody tr')).to_have_count(6)
+                    expect(page.locator('article')).to_contain_text('Microsoft')
+                if path.startswith('/?'):
+                    expect(page.locator('.sign .pane.on .btn')).to_be_visible()
             assert not errors, errors
             context.close()
         page = browser.new_page(java_script_enabled=False)

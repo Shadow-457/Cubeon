@@ -27,7 +27,10 @@ instructions.txt
 .opencode
 .codex
 .antigravity
-agents
+# Local agent references and completion notes are retained on disk.
+/agents/
+# Minekube Connect is downloaded and cached on demand, outside source releases.
+/assets/jars/connect-spigot.jar
 
 # --- local secrets (tokens, keys) ---
 .env

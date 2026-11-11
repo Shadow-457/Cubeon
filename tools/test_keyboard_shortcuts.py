@@ -17,6 +17,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _sandbox_home
+_sandbox_home.isolate()
 
 from cubeon import shortcuts as keys
 
@@ -178,9 +180,15 @@ import app_driver
 
 driver = app_driver.build_headless()
 handler = driver.page.on_keyboard_event
+overlay_gate = inspect.getclosurevars(handler).nonlocals["_shortcut_overlay_open"]
+tour = inspect.getclosurevars(overlay_gate).nonlocals["_onboard_overlay"]
 jump = inspect.getclosurevars(handler).nonlocals["_jump_to_tab"]
 switch = inspect.getclosurevars(jump).nonlocals["switch_tab"]
 active = inspect.getclosurevars(switch).nonlocals["active_tab"]
+handler(ft.KeyboardEvent("keyboard_event", driver.page, "2", True, False, False, False))
+check("onboarding blocks real Shift-number navigation", active["value"] == "play")
+tour.visible = False
+check("closing onboarding releases the shortcut gate", not overlay_gate())
 for digit in range(1, 10):
     handler(ft.KeyboardEvent("keyboard_event", driver.page, str(digit), False, False, False, False))
 check("real Flet event.control never acts as a Ctrl modifier", active["value"] == "play")

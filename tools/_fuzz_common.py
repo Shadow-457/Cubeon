@@ -238,8 +238,10 @@ def clickable_with_subtext(pg, needle):
 
 
 def set_fields(pg, kind, label, value):
+    """Set a named input, including compact inputs that use a hint as label."""
     hits = find(pg, lambda c: type(c).__name__ == kind
-                and (getattr(c, "label", "") or "") == label)
+                and ((getattr(c, "label", "") or "") == label
+                     or (getattr(c, "hint_text", "") or "") == label))
     for c in hits:
         c.value = value
     return len(hits)
