@@ -1,9 +1,0 @@
-[Desktop Entry]
-Name=Cubeon
-Comment=Minecraft launcher with a friends layer
-Exec=cubeon
-Icon=cubeon
-Terminal=false
-Type=Application
-Categories=Game;
-StartupNotify=true
