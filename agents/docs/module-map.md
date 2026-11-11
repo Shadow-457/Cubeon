@@ -47,7 +47,7 @@ substitute for current code.
 | Window and crash handling | `window_close.py`, `winwindow.py`, `winchrome.py`, `incident.py`, `crash.py`, `logging_setup.py` |
 | Input and presentation | `shortcuts.py`, `seasonal.py`, `color_templates.py`, `status_text.py` |
 | Launcher language | `i18n.py`, `lang/` |
-| Release version metadata | `updater.py` (APP_VERSION only; no launcher update code) |
+| Release version metadata and auto-update | `updater.py` (APP_VERSION only), `auto_update.py` (verified GitHub release check/download/handoff), `_update_helpers.py` (detached OS install helpers) |
 | Optional features | `features.py`, `osnotify.py`, `ui_sounds.py`, `voice.py` |
 
 Except for explicit paths, names in this table are relative to `cubeon/`. Check source ownership before
@@ -1899,12 +1899,24 @@ keep builders consistent with the shared `THEME` contract.
   baseline failure, not evidence of Java, GPU or instance-storage corruption.
   Build isolation uses absolute `CUBEON_BUILD_DIST` / `CUBEON_BUILD_WORK`, including
   the spec/cache; PyInstaller data inputs must remain absolute with that spec path.
-- The launcher auto-updater is removed. Startup performs no release checks;
-  Settings has no update channel/check control or Cubeon update notification
-  switch. `cubeon/updater.py` retains only the literal APP_VERSION for release
-  stamping, installer resources and HTTP identity. Launcher upgrades are manual
-  through the download page and existing platform installers. No replacement
-  update system has been implemented.
+- The launcher auto-updater runs one background attempt after startup (never on
+  Flet's event loop). It checks GitHub's stable `/releases/latest`, and only
+  frozen Windows installs registered under `HKCU\Software\Cubeon` and
+  user-owned x86_64 AppImages are eligible. Draft/prerelease releases are
+  ignored; the tag must be newer than the build's `APP_VERSION` and the unique
+  platform asset must carry GitHub's SHA-256 digest. Downloads are cached under
+  `CUBEON_HOME/updates/v1/<target-hash>/`, verified by size/SHA-256/executable
+  header, and installed by a detached helper only after the launcher claims an
+  idle update gate, writes a commit token and exits. Linux relaunches and
+  health-checks the new AppImage with rollback; Windows runs the NSIS installer
+  silently and leaves the user to reopen Cubeon. A failed release is paused for
+  24 hours. There is no Settings update toggle; `cubeon/updater.py` still only
+  owns the literal `APP_VERSION` used for stamping/identity.
+- Windows helper spawn must use `CREATE_NO_WINDOW` only. PowerShell 5.1 exits 0
+  immediately without executing `-File` when `DETACHED_PROCESS` is also set, so
+  the helper never writes `ready` and every update fails at `wait_ready`.
+  `tools/test_auto_update.py::WindowsScriptTests.test_spawned_helper_actually_executes`
+  exercises the real spawn path.
 - `storage.application_busy(state)` owns the storage-migration UI gate for
   active games, installs, session teardown and hosted servers. It treats failed
   ownership probes as busy and runs outside TREE_LOCK; the backend migration
@@ -2239,7 +2251,7 @@ requires retrying with normal system access, not changing unrelated app code.
   published binaries/tag; use `[skip ci]` for metadata/site commits to avoid minting a new beta.
   Rebuild with the current workflow, not an old pre-promotion commit. Preserve concurrent release
   metadata and do not force-push over another change.
-  Windows packaging verifies NSIS transactions without depending on the removed
+  Windows packaging verifies NSIS transactions independently of the
   auto-updater; retained helper tests must pass an explicit fixture version,
   since using the stamped APP_VERSION invalidates their older release metadata.
   Stable website stamps include English, Arabic, Russian and Ukrainian fallback

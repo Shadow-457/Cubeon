@@ -566,7 +566,11 @@ def spawn_helper(directory: Path, job: dict) -> Handoff:
         script.write_text(WINDOWS_HELPER, encoding="utf-8-sig", newline="\r\n")
         command = [executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                    "-File", str(script), "-JobPath", str(directory / "job.json")]
-        options = {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS}
+        # PowerShell 5.1 exits immediately without running -File when started
+        # with DETACHED_PROCESS, so the helper never writes "ready". A
+        # CREATE_NO_WINDOW child still outlives the launcher and keeps its
+        # redirected stdio; do not add DETACHED_PROCESS back.
+        options = {"creationflags": subprocess.CREATE_NO_WINDOW}
     with (directory / "helper.log").open("ab", buffering=0) as output:
         process = subprocess.Popen(command, cwd=directory, env=env, stdin=subprocess.DEVNULL,
                                    stdout=output, stderr=output, close_fds=True, **options)

@@ -523,6 +523,25 @@ class WindowsScriptTests(unittest.TestCase):
                                      capture_output=True, text=True, timeout=20)
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
 
+    def test_spawned_helper_actually_executes(self):
+        # DETACHED_PROCESS makes powershell.exe exit 0 without running -File.
+        # Exercise the real spawn path, not just the script parser.
+        with tempfile.TemporaryDirectory(prefix="cubeon-powershell-spawn-") as tmp:
+            directory = Path(tmp)
+            marker = directory / "spawned.txt"
+            script = f"Set-Content -LiteralPath '{marker}' -Value ok\n"
+            job = {"kind": "windows", "token": "a" * 32}
+            with mock.patch("cubeon._update_helpers.WINDOWS_HELPER", script):
+                handoff = update.spawn_helper(directory, job)
+                try:
+                    self.assertEqual(handoff.process.wait(timeout=20), 0,
+                                     (directory / "helper.log").read_text())
+                finally:
+                    if handoff.process.poll() is None:
+                        handoff.process.kill()
+                        handoff.process.wait(timeout=5)
+            self.assertEqual(marker.read_text(encoding="utf-8").strip(), "ok")
+
 
 @unittest.skipUnless(os.name == "nt" and NATIVE_WINDOWS, "opt-in disposable Windows updater transactions")
 class WindowsHelperTests(unittest.TestCase):
