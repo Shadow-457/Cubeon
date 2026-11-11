@@ -1,8 +1,0 @@
-[package]
-name = "cubeon-theme"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
-description = "Cubeon's design tokens, fonts and icons, shared by the launcher, the website and the game's menus"
-
-[dependencies]
