@@ -1,5 +1,0 @@
-Manifest-Version: 1.0
-FMLCorePlugin: com.cubeon.forge.CameraPlugin
-FMLCorePluginContainsFMLMod: true
-ForceLoadAsMod: true
-
