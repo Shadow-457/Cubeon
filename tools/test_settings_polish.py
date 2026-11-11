@@ -72,6 +72,11 @@ class SettingsPolish(unittest.TestCase):
             return {str(c.value).casefold() for c in walk(panes[key]) if isinstance(c,ft.Text)}
         self.assertTrue({'backups','launcher','automatic backups'} <= texts('account'))
         self.assertTrue({'maximum ram','advanced java settings','minecraft files'} <= texts('versions'))
+        java_pane = self.control(data='java-runtime-pane')
+        self.assertIn(java_pane, list(walk(panes['versions'])))
+        advanced_java = self.control(data='settings-java-advanced')
+        self.assertNotIn(java_pane, list(walk(advanced_java)))
+        self.assertTrue(java_pane.visible)
         self.assertTrue({'animations','theme','seasonal look'} <= texts('appearance'))
         original=tuple(id(c) for c in walk(self.root))
         for alias,target in {'launcher':'account','system':'account','backups':'account',

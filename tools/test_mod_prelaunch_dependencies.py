@@ -4,6 +4,7 @@ import ast
 import hashlib
 import io
 import json
+import logging
 import os
 from pathlib import Path
 import sys
@@ -407,6 +408,97 @@ class DependencyTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "cloth-config >=16.0.0"):
                 exec(compile(module, "<actual launch gate>", "exec"), scope)
         self.assertEqual(events, [])
+
+
+class FPSFirstStartupTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = DependencyTests()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.mc = "26.3"
+        self.fixture.profile.joinpath("moreculling-1.6.2.jar").unlink()
+        self.builds = {slug: jar(slug, "1.0") for slug in perf_mods.PERF_MOD_SLUGS}
+        self.lookups = []
+        self.root_downloads = []
+
+    def prepare(self, optional_mods=()):
+        source = Path(__file__).resolve().parents[1].joinpath("cubeon/launch.py").read_text()
+        launch = next(node for node in ast.parse(source).body
+                      if isinstance(node, ast.FunctionDef) and node.name == "launch_game")
+        block = next(node for node in launch.body if isinstance(node, ast.If)
+                     and "sync_fps_boost" in ast.unparse(node))
+        game = Path(self.fixture.temp.name) / "game"
+        game.mkdir(exist_ok=True)
+
+        def lookup(slug, **kwargs):
+            self.lookups.append(slug)
+            blob = self.builds.get(slug)
+            if blob is None:
+                return None
+            return dict(url=f"https://cdn.modrinth.com/fps/{slug}.jar", filename=slug + ".jar",
+                        hashes={"sha512": hashlib.sha512(blob).hexdigest()})
+
+        def download(url, filename, **kwargs):
+            slug = kwargs["slug"]
+            self.root_downloads.append(slug)
+            path = self.fixture.profile / filename
+            path.write_bytes(self.builds[slug])
+            if slug == "moreculling":
+                perf_mods.allow_explicit_more_culling(str(self.fixture.profile))
+            mods._write_meta(str(self.fixture.profile), filename, slug,
+                             project_id=kwargs["project_id"], url=url)
+            return str(path)
+
+        project_slugs = {project: slug for slug, project, _ in perf_mods.PERF_MODS + perf_mods.OPTIONAL_PERF_MODS}
+        with patch.object(perf_mods, "get_mod_download", side_effect=lookup), \
+                patch.object(perf_mods, "download_mod", side_effect=download), \
+                patch.object(mods, "get_mod_download", side_effect=lambda ref, **kwargs:
+                             self.fixture.lookup(project_slugs.get(ref, ref), **kwargs)), \
+                patch.object(mods, "get_mod_versions", return_value=[]), \
+                patch.object(net, "download_to", side_effect=self.fixture.download):
+            exec(compile(ast.Module(body=[block], type_ignores=[]), "<actual FPS preparation>", "exec"),
+                 dict(__package__="cubeon", __name__="cubeon.launch", logging=logging,
+                      cfg=dict(fps_boost_enabled=True, fps_boost_optional_mods=list(optional_mods)),
+                      mc_version=self.fixture.mc, loader="fabric", version_id=self.fixture.instance,
+                      game_dir=str(game), status_cb=None))
+
+    def assert_clean_first_and_repeat_startup(self, optional_mods=()):
+        # This is the final Play gate's exact offline/read-only policy.
+        with patch.object(mods, "get_mod_download", side_effect=AssertionError("unexpected network")), \
+                patch.object(net, "download_to", side_effect=AssertionError("unexpected download")):
+            report = deps.run_dependency_doctor(self.fixture.mc, "fabric", version_id=self.fixture.instance,
+                                               auto_fix=False, check_online=False)
+        self.assertEqual(report["unfixed"], [], report)
+        self.lookups.clear()
+        self.root_downloads.clear()
+        self.fixture.lookups.clear()
+        self.fixture.downloads.clear()
+        self.prepare(optional_mods)
+        self.assertEqual(self.lookups, [])
+        self.assertEqual(self.root_downloads, [])
+        self.assertEqual(self.fixture.lookups, [])
+        self.assertEqual(self.fixture.downloads, [])
+
+    def test_fresh_fps_suite_installs_actual_jar_dependencies_before_first_startup(self):
+        self.builds["moreculling"] = jar("moreculling", "1.9.2", {"cloth-config": ">=16.0.0"})
+        candidate = self.fixture.remote_jar("cloth-config")
+        self.prepare(["moreculling"])
+        self.assertTrue(self.fixture.profile.joinpath(candidate["filename"]).exists())
+        self.assert_clean_first_and_repeat_startup(["moreculling"])
+
+    def test_fps_sodium_conflict_is_resolved_before_first_startup_preserving_existing_mod(self):
+        moreculling = self.fixture.profile / "moreculling-1.9.2.jar"
+        original = jar("moreculling", "1.9.2", {"cloth-config": ">=16.0.0"},
+                       breaks={"sodium": "<=0.9.3-beta.1"})
+        moreculling.write_bytes(original)
+        self.builds["sodium"] = jar("sodium", "0.9.2+mc26.3")
+        compatible = self.fixture.remote_jar("sodium", "0.9.3-beta.2")
+        self.fixture.remote_jar("cloth-config")
+        self.prepare()
+        self.assertEqual(moreculling.read_bytes(), original)
+        self.assertTrue(self.fixture.profile.joinpath(compatible["filename"]).exists())
+        self.assertEqual(self.fixture.profile.joinpath("sodium.jar.disabled").read_bytes(), self.builds["sodium"])
+        self.assert_clean_first_and_repeat_startup()
 
 
 if __name__ == "__main__":

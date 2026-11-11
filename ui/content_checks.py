@@ -17,8 +17,23 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
     action = ft.FilledButton(content=i18n.t("Resolve"), data="content-resolve")
     close = ft.TextButton(content=i18n.t("Close"), data="content-check-close")
     busy = {"value": False}
+    action_label = {"value": i18n.t("Resolve")}
+    busy_label = ft.Text(i18n.t("Resolving…"), color=ON_ACCENT)
+    busy_content = ft.Row([
+        ft.ProgressRing(width=16, height=16, stroke_width=2, color=ON_ACCENT,
+                        data="content-resolve-progress"),
+        busy_label], spacing=8, tight=True, alignment=ft.MainAxisAlignment.CENTER)
     disable_buttons = []
     lock = threading.Lock()
+
+    def sync_actions():
+        action.content = busy_content if busy["value"] else action_label["value"]
+        action.disabled = close.disabled = busy["value"]
+        for button in disable_buttons:
+            button.disabled = busy["value"]
+            thread_safe_ui.refresh(button)
+        thread_safe_ui.refresh(action)
+        thread_safe_ui.refresh(close)
 
     def paint(current):
         problems = current.get("unfixed") or []
@@ -53,13 +68,13 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
                               if problem.get("error") and current.get("attempted") else []),
                             *([ft.Row(controls, wrap=True)] if controls else [])], spacing=4),
                         padding=12, border_radius=RADIUS, bgcolor=palette["SURFACE_HI"]))
-        action.content = i18n.t("Install & resolve" if missing and others else "Install" if missing else "Resolve")
+        action_label["value"] = i18n.t("Install & resolve" if missing and others else "Install" if missing else "Resolve")
         action.visible = bool(problems)
         if not problems:
             status.value = i18n.t("Mod dependencies checked. Runtime will be verified on Play."
                                  if current.get("runtime_unverified") else "Everything is compatible. You can press Play.")
         thread_safe_ui.refresh(result_rows)
-        thread_safe_ui.refresh(action)
+        sync_actions()
         thread_safe_ui.refresh(status)
 
     def dismiss(event=None):
@@ -83,15 +98,9 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
                 update_status("Close the game and finish installs before changing mods.")
                 return
             busy["value"] = True
+            busy_label.value = i18n.t("Disabling…" if disable_option else "Resolving…")
             state["fixing_mods"] = target[3]
-            action.disabled = True
-            close.disabled = True
-            for button in disable_buttons:
-                button.disabled = True
-                thread_safe_ui.refresh(button)
-            thread_safe_ui.refresh(action)
-            thread_safe_ui.refresh(close)
-        update_status(f"Disabling {disable_option['name']}…" if disable_option else "Finding a compatible set…")
+            sync_actions()
 
         def worker():
             current = None
@@ -119,29 +128,19 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
                     if state.get("fixing_mods") == target[3]:
                         state["fixing_mods"] = None
                     busy["value"] = False
-                    action.disabled = False
-                    close.disabled = False
-                    for button in disable_buttons:
-                        button.disabled = False
-                        thread_safe_ui.refresh(button)
-                    thread_safe_ui.refresh(action)
-                    thread_safe_ui.refresh(close)
+                    sync_actions()
                 lock.release()
             if current is not None and on_done:
                 on_done(current)
 
         try:
+            update_status(f"Disabling {disable_option['name']}…" if disable_option else "Finding a compatible set…")
             threading.Thread(target=worker, daemon=True).start()
         except Exception as error:
             with thread_safe_ui.TREE_LOCK:
                 state["fixing_mods"] = None
                 busy["value"] = False
-                action.disabled = close.disabled = False
-                for button in disable_buttons:
-                    button.disabled = False
-                    thread_safe_ui.refresh(button)
-                thread_safe_ui.refresh(action)
-                thread_safe_ui.refresh(close)
+                sync_actions()
             lock.release()
             update_status(f"Could not start this check: {error}")
 

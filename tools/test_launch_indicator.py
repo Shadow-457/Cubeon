@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 import types
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -69,6 +70,7 @@ class FakePage:
         self.snackbars = []
         self.session = types.SimpleNamespace()
         self.services = []
+        self.tasks = []
 
     def update(self, *controls):
         self.update_calls += 1
@@ -86,6 +88,7 @@ class FakePage:
         return fn(*a, **kw)
 
     def run_task(self, fn, *a, **kw):
+        self.tasks.append(fn.__name__)
         return None
 
 
@@ -239,6 +242,8 @@ check("the crash explanation survives to the label",
       f"expected {explained[:40]!r} in {[t for t in shown if 'crash' in t or 'memory' in t]!r}")
 check("the crash is reported as out-of-memory (the real cause)",
       any("out of memory" in t for t in shown))
+check("a failed launch has a CRASHED stage", "crashed" in shown)
+check("a genuine failure still opens its report", "_open_async" in page.tasks)
 
 # NOTE: the sidebar's READY/CRASHED label is deliberately not asserted here.
 # It lives in the brand block, which this tree walker doesn't reach, so an
@@ -255,7 +260,11 @@ check("no progress bar is left pulsing after the crash",
 print("\n2. a game that actually starts DOES show the running indicator")
 
 
+saved_exit = {}
+
+
 def launch_stays_up(*a, on_exit=None, status_cb=None, **kw):
+    saved_exit["callback"] = on_exit
     if status_cb:
         status_cb("Installing CustomSkinLoader")
     # on_exit is never called - the game is still running.
@@ -274,6 +283,29 @@ check("no crash text while the game is up",
 check("the loading bar is GONE once the game is running",
       not any(getattr(b, "visible", False) for b in bars(page2)),
       f"bars={[(getattr(b,'visible',None), getattr(b,'value','n/a')) for b in bars(page2)]}")
+
+# The reported failure arrives after RUNNING is already painted, unlike an
+# immediate startup crash. Use the actual retained exit callback to reproduce
+# both that transition and HotSpot's SIGTERM status.
+REALMS_LINES = [
+    "[IO-Worker-1/INFO]: Could not authorize you against Realms server: "
+    "java.lang.RuntimeException: Failed to parse into SignedJWT: 0",
+    "[IO-Worker-1/ERROR]: Couldn't connect to realms",
+    "net.minecraft.class_4355: Realms authentication error with message "
+    "'java.lang.RuntimeException: Failed to parse into SignedJWT: 0'",
+    "\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:642)",
+]
+saved_exit["callback"](143, REALMS_LINES)
+ended = texts(page2)
+check("a later SIGTERM replaces RUNNING with STOPPED",
+      "stopped" in ended and "running" not in ended)
+check("SIGTERM gives a termination explanation without blaming Realms or Java",
+      any("termination signal" in t for t in ended)
+      and not any("realms" in t or "java" in t for t in ended if "game stopped" in t))
+check("an external stop does not open a false crash report", "_open_async" not in page2.tasks)
+check("a stopped game returns the button to PLAY", "play" in ended)
+check("the stopped card stays visible so its explanation is readable",
+      find(page2, lambda c: getattr(c, "data", None) == "instance-install-progress").visible)
 
 # --------------------------------------------------------------------------
 print("\n3. a clean quit clears the indicator instead of stranding it")
@@ -295,6 +327,8 @@ check("no 'Minecraft is running' left over after a clean quit",
 check("no bar left pulsing after a clean quit",
       not any(getattr(b, "value", 0) is None and getattr(b, "visible", False)
               for b in bars(page3)))
+check("a clean quit hides the progress card",
+      not find(page3, lambda c: getattr(c, "data", None) == "instance-install-progress").visible)
 
 # --------------------------------------------------------------------------
 print("\n4. the bar never carries state from the previous launch")
@@ -316,6 +350,45 @@ check("no visible bar resumes at the previous run's fraction",
 check("no visible bar sits frozen at a determinate 0%",
       not any(getattr(b, "value", None) == 0 for b in after),
       f"values={[getattr(b,'value','n/a') for b in after]}")
+
+# The fallback must retire stale RUNNING/busy controls even if repaint fails.
+with patch.object(app.thread_safe_ui, "refresh", side_effect=[RuntimeError("fixture: repaint failed")] + [None] * 20):
+    saved_exit["callback"](-15, REALMS_LINES)
+fallback = texts(page4)
+check("a failed exit repaint still leaves STOPPED, never RUNNING",
+      "stopped" in fallback and "running" not in fallback)
+check("the fallback still returns to PLAY", "play" in fallback)
+check("the fallback leaves no pulsing bar",
+      not any(getattr(b, "visible", False) for b in bars(page4)))
+
+# --------------------------------------------------------------------------
+print("\n5. intentional Quit and real fatal exits keep their own behavior")
+core.launch_game = lambda *a, on_exit=None, **kw: on_exit(143, REALMS_LINES)
+with patch("cubeon.watchdog.consume_intentional_stop", return_value=True):
+    page5 = build()
+    click_play(page5)
+check("intentional Quit hides the card without a crash report",
+      not find(page5, lambda c: getattr(c, "data", None) == "instance-install-progress").visible
+      and "_open_async" not in page5.tasks)
+
+core.launch_game = lambda *a, on_exit=None, **kw: on_exit(-11, ["Fatal error: native renderer failed"])
+page6 = build()
+click_play(page6)
+check("SIGSEGV remains a crash with a report",
+      "crashed" in texts(page6) and "_open_async" in page6.tasks)
+
+print("\n6. unrelated Realms output never replaces a genuine crash cause")
+for code in (-15, 143):
+    reason = app._explain_exit(code, REALMS_LINES).lower()
+    check(f"termination {code} never claims Java corruption or a Realms crash",
+          "game stopped" in reason and "realms" not in reason and "java" not in reason)
+reason = app._explain_exit(1, REALMS_LINES).lower()
+check("Realms-only output uses an honest unknown-cause fallback",
+      "without naming a cause" in reason and "realms" not in reason)
+reason = app._explain_exit(1, ["Exception: renderer broke"] + REALMS_LINES).lower()
+check("an earlier real error survives a later background Realms failure", "renderer broke" in reason)
+reason = app._explain_exit(1, CRASH_LINES + REALMS_LINES).lower()
+check("real out-of-memory evidence still wins over background auth failures", "out of memory" in reason)
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

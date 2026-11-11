@@ -12,8 +12,8 @@ Legacy managed More Culling copies are disabled once; explicit installs, pack
 content and required dependencies stay. ThreadTweak, Krypton and Dynamic FPS
 stay retired. BadOptimizations was restored at the user's request.
 
-Downloads are bounded and best-effort. Final prelaunch Doctor verifies the
-installed dependency graph; no published build means no invented compatibility.
+Downloads are bounded and best-effort. FPS setup resolves the installed graph
+before the final read-only Play check; no build means no invented compatibility.
 Graphics transitions are independent of the client menu and of mod downloads.
 """
 import json
@@ -623,8 +623,9 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         parts.append("disabled legacy More Culling (kept in Mods as Disabled)")
     if repair_dependencies:
         # Read the actual jars, including already-kept builds: old launchers
-        # installed More Culling without Cloth Config. Play defers this to its
-        # final Doctor gate so dependency repair runs only once per launch.
+        # installed More Culling without Cloth Config. Resolve here before
+        # staging: the final Play gate is offline/read-only and cannot repair
+        # requirements or conflicts introduced by automatic FPS additions.
         try:
             from .mod_dependencies import run_dependency_doctor
             dependencies = run_dependency_doctor(

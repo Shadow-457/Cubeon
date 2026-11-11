@@ -36,7 +36,6 @@ public final class EnemyHealthRenderer {
                 .rotate(client.gameRenderer.getCamera().getRotation());
         Vec3d camera = HealthCamera.position(client.gameRenderer.getCamera());
         var forward = new Vector3f(0, 0, -1).rotate(client.gameRenderer.getCamera().getRotation());
-        EnemyHealthBar.Fill fill = (x, y, x2, y2, color) -> CubeonHud.fillEnemyRect(context, x, y, x2, y2, color);
         int drawn = 0;
         for (LivingEntity enemy : enemies) {
             if (drawn == EnemyHealthBar.MAX_BARS) break;
@@ -58,16 +57,13 @@ public final class EnemyHealthRenderer {
             Vec3d bottom = project.apply(anchor.add(down.x, down.y, down.z));
             if (name == null || bottom == null || !EnemyHealthBar.onScreen(name.x, name.y, name.z)
                     || !EnemyHealthBar.onScreen(bottom.x, bottom.y, bottom.z)) continue;
-            float scale = EnemyHealthBar.labelScale(name.y, bottom.y, context.getScaledWindowHeight());
-            if (!Float.isFinite(scale) || scale <= 0) continue;
-            float width = Math.max(2, EnemyHealthBar.WIDTH * scale);
-            float height = Math.max(1, EnemyHealthBar.HEIGHT * scale);
-            float center = EnemyHealthBar.preciseScreenX(name.x, context.getScaledWindowWidth());
-            float nameY = EnemyHealthBar.preciseScreenY(name.y, context.getScaledWindowHeight());
-            float y = nameY + (EnemyHealthBar.NAME_HEIGHT + 2) * scale;
-            float x = center - width / 2;
-            if (x < 0 || x + width > context.getScaledWindowWidth()
-                    || y + height > context.getScaledWindowHeight()) continue;
+            float axisSample = 2F * EnemyHealthBar.NAME_HEIGHT / EnemyHealthBar.WIDTH;
+            Vec3d side = project.apply(anchor.add(right.x * axisSample, right.y * axisSample, right.z * axisSample));
+            if (side == null) continue;
+            var pose = EnemyHealthBar.pose(name.x, name.y, side.x, side.y, bottom.x, bottom.y,
+                    context.getScaledWindowWidth(), context.getScaledWindowHeight());
+            if (!pose.valid() || !EnemyHealthBar.onScreen(pose,
+                    context.getScaledWindowWidth(), context.getScaledWindowHeight())) continue;
             if (!visible(client, camera, eye) || !visible(client, camera, bar)
                     || !visible(client, camera, bar.add(right.x, right.y, right.z))
                     || !visible(client, camera, bar.add(-right.x, -right.y, -right.z))) continue;
@@ -76,11 +72,10 @@ public final class EnemyHealthRenderer {
                     || (!enemy.isCustomNameVisible() && !(client.crosshairTarget instanceof EntityHitResult hit
                     && hit.getEntity() == enemy)))) {
                 var label = enemy.getName();
-                CubeonHud.drawEnemyName(context, client, label, center,
-                        nameY, scale);
+                CubeonHud.drawEnemyName(context, client, label, pose);
             }
             float fraction = EnemyHealthBar.fraction(enemy.getHealth(), enemy.getMaxHealth());
-            EnemyHealthBar.draw(fill, center, y, scale, fraction);
+            CubeonHud.drawEnemyBar(context, pose, fraction);
             drawn++;
         }
     }

@@ -462,14 +462,29 @@ public final class CubeonHud {
 		graphics.fill(dashX, dashY, dashX + 10, dashY + 1, down ? KEY_TEXT_DOWN : KEY_TEXT);
 	}
 
-    /** Mob labels use the same projected scale as vanilla player name tags. */
+    /** Names and bars share the projected label plane, including walking/hurt tilt. */
+    private static void applyEnemyPose(GuiGraphicsExtractor graphics, EnemyHealthBar.Pose pose) {
+        graphics.pose().mul(new org.joml.Matrix3x2f(pose.rightX(), pose.rightY(),
+                pose.downX(), pose.downY(), pose.originX(), pose.originY()));
+    }
+
     public static void drawEnemyName(GuiGraphicsExtractor graphics, Minecraft client, net.minecraft.network.chat.Component label,
-                                     float center, float top, float scale) {
+                                     EnemyHealthBar.Pose pose) {
         graphics.pose().pushMatrix();
         try {
-            graphics.pose().translate(center, top);
-            graphics.pose().scale(scale, scale);
+            applyEnemyPose(graphics, pose);
             graphics.text(client.font, label, -client.font.width(label) / 2, 0, 0xFFE4E7EB, true);
+        } finally {
+            graphics.pose().popMatrix();
+        }
+    }
+
+    public static void drawEnemyBar(GuiGraphicsExtractor graphics, EnemyHealthBar.Pose pose, float fraction) {
+        graphics.pose().pushMatrix();
+        try {
+            applyEnemyPose(graphics, pose);
+            EnemyHealthBar.drawLocal((x, y, right, bottom, color) ->
+                    fillEnemyRect(graphics, x, y, right, bottom, color), pose.scale(), fraction);
         } finally {
             graphics.pose().popMatrix();
         }

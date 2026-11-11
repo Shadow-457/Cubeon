@@ -532,7 +532,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
                        on_open_screenshots=None,
                        account_pane=None, on_replay_onboarding=None,
-                       on_motion_change=None, detected_java_label=None):
+                       on_motion_change=None, detected_java_label=None,
+                       java_runtime_pane=None):
     """Assemble Settings from the existing controls and callbacks.
 
     `save_width_height_java` is main.py's save_settings() minus the button
@@ -729,6 +730,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     ram_warning.max_lines = 2
     ram_warning.overflow = ft.TextOverflow.ELLIPSIS
     versions_pane.controls.extend([
+        *([block("Java runtime", group([_body(java_runtime_pane)]))]
+          if java_runtime_pane is not None else []),
         block(i18n.t("Memory"), group([
             _body(ft.Column(
                 [

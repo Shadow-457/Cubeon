@@ -230,6 +230,7 @@ from ui.server_tab import build_server_tab  # Imports the server_tab builder fun
 from ui.stats_tab import build_stats_tab  # Stats tab: playtime overview and server activity
 from ui.activity_widgets import build_badges
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
+from ui.java_runtime import build_java_runtime_pane
 from ui.import_section import build_import_section  # Settings -> Import: copy a local FastClient instance
 from ui.seasonal_ui import (  # Seasonal badge/companion (runtime half of cubeon/seasonal.py)
     SeasonalAnimator, build_badge as build_season_badge,
@@ -356,6 +357,12 @@ def _explain_exit(code: int, lines=None) -> str:
     names the fix. Anything unrecognised falls back to the real error line,
     which is still far better than the previous behaviour of showing nothing.
     """
+    # HotSpot returns 128 + SIGTERM; direct subprocess signal deaths use -15.
+    # The last background error cannot tell us who sent the termination signal.
+    if code in (-15, 143):
+        return (f"Game stopped (exit {code}): Minecraft received a termination "
+                "signal. Press Play to start it again.")
+
     text = "\n".join(lines or [])
     low = text.lower()
 
@@ -446,7 +453,18 @@ def _explain_exit(code: int, lines=None) -> str:
     # Nothing recognised - surface the last line that looks like an actual
     # error, rather than the harmless final log line.
     for line in reversed(lines or []):
-        if any(marker in line.lower() for marker in
+        low_line = line.lower()
+        # Offline sessions use token "0". Realms rejects it on a background
+        # worker even while worlds run normally; keep that output in the log,
+        # but do not present it as the reason Minecraft exited.
+        if any(marker in low_line for marker in (
+                "failed to parse into signedjwt: 0",
+                "realms authentication error",
+                "could not authorize you against realms server",
+                "failed to fetch realms feature flags",
+                "couldn't connect to realms")):
+            continue
+        if any(marker in low_line for marker in
                ("exception", "error", "caused by", "fatal")):
             return f"Crashed (exit {code}): {line.strip()[:140]}"
     # Still nothing. Do NOT fall back to blaming Java: the game ran far enough
@@ -3776,7 +3794,7 @@ async def main(page: ft.Page):
     _PLAY_CLICK_COOLDOWN = 0.35  # seconds
 
     def _main_action_click(e=None):
-        if instance_storage.blocked():
+        if instance_storage.blocked() or state.get("java_runtime_busy"):
             return
         """The one big button, three meanings: while an install is in flight
         it is Cancel, while a game is live it is Quit Game, otherwise it
@@ -3953,6 +3971,8 @@ async def main(page: ft.Page):
         """
         if state.get("ending_session") and state.get("running_version"):
             mode = "ending"
+        if state.get("java_runtime_busy"):
+            mode = "java"
 
         def paint(bg, fg):
             play_button.bgcolor = bg
@@ -4013,7 +4033,7 @@ async def main(page: ft.Page):
             play_button_icon.icon = ft.Icons.CANCEL_ROUNDED
             play_button_text.value = i18n.t("CANCEL")
             play_button.disabled = False
-        elif mode in ("launching", "cancelling", "ending"):
+        elif mode in ("launching", "cancelling", "ending", "java"):
             # Transient waits where stopping is no longer (or not yet)
             # possible: the install phase is over and the game is spawning
             # (launching), a cancel has been requested and the worker is
@@ -4025,6 +4045,7 @@ async def main(page: ft.Page):
                 "launching": "LAUNCHING...",
                 "cancelling": "CANCELLING...",
                 "ending": "ENDING...",
+                "java": i18n.t("CHECKING JAVA..."),
             }[mode]
             play_button.disabled = True
         elif mode == "running":
@@ -4692,6 +4713,9 @@ async def main(page: ft.Page):
         with thread_safe_ui.TREE_LOCK, _launch_state_lock:
             if instance_storage.blocked():
                 return False
+            if state.get("java_runtime_busy"):
+                _show_snack(i18n.t("Wait for the Java check to finish before playing."))
+                return False
             if _deleting_versions:
                 _show_snack("An instance is being deleted. Wait for it to finish before playing.")
                 return False
@@ -4785,7 +4809,7 @@ async def main(page: ft.Page):
         return True
 
     def on_play_click():
-        if instance_storage.blocked():
+        if instance_storage.blocked() or state.get("java_runtime_busy"):
             return False
         """
         This is called when the user clicks the main play/download button.
@@ -5319,6 +5343,9 @@ async def main(page: ft.Page):
                     latest = None
                 if latest is not None and latest.get("session_id") != session_id:
                     return
+                stopped = code in (-15, 143) and not intentional_stop
+                crashed = bool(code) and not intentional_stop and not stopped
+                progress_stage.value = "CRASHED" if crashed else "STOPPED"
                 # Bulletproof: everything below is UI + presence teardown. A
                 # failure here must never strand the running claim - the
                 # fallback guarantees the state is cleared and the button
@@ -5327,6 +5354,9 @@ async def main(page: ft.Page):
                     try:
                         with _launch_state_lock:
                             state["running_version"] = None
+                        progress_bar.visible = False
+                        progress_spinner.visible = False
+                        progress_percent.visible = False
                         if version_dropdown.value == target_version:
                             _sync_play_button()
                         thread_safe_ui.refresh(progress_card)
@@ -5337,7 +5367,8 @@ async def main(page: ft.Page):
                     with _launch_state_lock:
                         state["running_version"] = None  # version is safe to delete again
                         progress_bar.visible = False
-                        crashed = bool(code) and not intentional_stop
+                        progress_spinner.visible = False
+                        progress_percent.visible = False
                     if crashed:
                         # A non-zero exit is a crash or a refused launch. Saying so
                         # matters: the old code hid this entirely, so a failed
@@ -5346,7 +5377,7 @@ async def main(page: ft.Page):
                         reason = _explain_exit(code, lines)
                         progress_label.value = reason
                         progress_label.visible = True
-                        progress_spinner.visible = False
+                        progress_card.visible = True
                         set_status("Crashed")
                         # The one-line reason stays under the button; the log
                         # and a way to ask for help open on top (2026-10-23).
@@ -5354,6 +5385,11 @@ async def main(page: ft.Page):
                             _show_crash_report(reason, lines, session_id)
                         except Exception:
                             pass  # the reason line is still there
+                    elif stopped:
+                        progress_label.value = _explain_exit(code, lines)
+                        progress_label.visible = True
+                        progress_card.visible = True
+                        set_status("Stopped")
                     else:
                         progress_bar.visible = False
                         progress_label.visible = False
@@ -7108,6 +7144,18 @@ async def main(page: ft.Page):
         overflow=ft.TextOverflow.ELLIPSIS,
     )
 
+    def _java_runtime_ready(java_path):
+        detected_java_label.value = f"{i18n.t('Found')}: {java_path}"
+        detected_java_label.tooltip = java_path
+        thread_safe_ui.refresh(detected_java_label)
+
+    java_runtime_pane = build_java_runtime_pane(
+        page, cfg=cfg, launcher_state=state,
+        get_version=lambda: version_dropdown.value,
+        get_java_path=lambda: java_path_field.value,
+        on_ready=_java_runtime_ready, on_busy_change=lambda: _sync_play_button(),
+    )
+
     # -----------------------------------------------------------------
     # BACKUP SYSTEM (Settings tab)
     # -----------------------------------------------------------------
@@ -7911,6 +7959,7 @@ async def main(page: ft.Page):
         width_field=width_field, height_field=height_field,
         java_path_field=java_path_field, custom_jvm_field=custom_jvm_field,
         detected_java=None, detected_java_label=detected_java_label,
+        java_runtime_pane=java_runtime_pane,
         import_pane=import_pane,
         on_open_screenshots=lambda: switch_tab("screenshots"),
         backup_enabled_switch=backup_enabled_switch,

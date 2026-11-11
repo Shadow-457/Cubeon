@@ -600,7 +600,7 @@ def application_busy(state: dict) -> bool:
     if blocked():
         return True
     if any(state.get(key) for key in ("running_version", "installing_version",
-                                     "launching_version", "ending_session")):
+                                     "launching_version", "ending_session", "java_runtime_busy")):
         return True
     try:
         from . import watchdog, server

@@ -200,6 +200,116 @@ class ResultsUITests(unittest.TestCase):
         return checks_ui.show_content_issues(self.page, self.state, self.target,
             dict(checked=2, fixed=[], unfixed=entries or [self.missing]), **kwargs)
 
+    def assert_resolving(self, dialog):
+        from _fuzz_common import walk
+        action = dialog.actions[1]
+        controls = list(walk(action))
+        labels = [control.value for control in controls if isinstance(control, checks_ui.ft.Text)]
+        self.assertIn('Resolving…', labels)
+        self.assertTrue(any(isinstance(control, checks_ui.ft.ProgressRing) and control.visible
+                            for control in controls))
+        self.assertTrue(action.disabled)
+        self.assertTrue(dialog.actions[0].disabled)
+        for control in walk(dialog):
+            if str(getattr(control, 'data', '')).startswith('content-disable-'):
+                self.assertTrue(control.disabled)
+
+    def test_resolve_shows_busy_feedback_before_worker_and_blocks_repeat_actions(self):
+        from _fuzz_common import walk
+        option = dict(filename='alpha.jar', name='Alpha', owner='alpha')
+        conflict = dict(self.conflict, disable_options=[option])
+        dialog = self.open([self.missing, conflict])
+        action = dialog.actions[1]
+        disable = next(control for control in walk(dialog)
+                       if getattr(control, 'data', None) == 'content-disable-alpha.jar')
+        self.assertEqual(action.content, 'Install & resolve')
+        with patch.object(checks_ui, 'check_content', side_effect=[self.clean, self.clean]) as check:
+            action.on_click(None)
+            self.assert_resolving(dialog)
+            self.assertEqual(self.state['fixing_mods'], self.target[3])
+            # Even queued clicks reaching the old callback cannot start another operation.
+            for _ in range(5):
+                action.on_click(None)
+                disable.on_click(None)
+                dialog.actions[0].on_click(None)
+            self.assertEqual(len(QueuedThread.jobs), 1)
+            self.assertTrue(dialog.open)
+            check.assert_not_called()
+            QueuedThread.jobs.pop()()
+        self.assertFalse(action.visible)
+        self.assertFalse(action.disabled)
+        self.assertFalse(dialog.actions[0].disabled)
+        self.assertIsNone(self.state['fixing_mods'])
+
+    def test_progress_and_remaining_issues_keep_busy_until_worker_finishes(self):
+        completed = []
+        dialog = self.open([self.missing, self.conflict], on_done=completed.append)
+        action = dialog.actions[1]
+        unresolved = dict(checked=2, fixed=[], unfixed=[self.missing, self.conflict])
+
+        def resolve(*args, **kwargs):
+            if kwargs.get('resolve'):
+                kwargs['status_cb']('Finding a compatible build of sodium…')
+                self.assert_resolving(dialog)
+                action.on_click(None)
+                self.assertEqual(len(QueuedThread.jobs), 0)
+            return unresolved
+
+        with patch.object(checks_ui, 'check_content', side_effect=resolve):
+            action.on_click(None)
+            self.assert_resolving(dialog)
+            QueuedThread.jobs.pop()()
+        self.assertTrue(action.visible)
+        self.assertEqual(action.content, 'Install & resolve')
+        self.assertFalse(action.disabled)
+        self.assertFalse(dialog.actions[0].disabled)
+        self.assertIsNone(self.state['fixing_mods'])
+        self.assertEqual(len(completed), 1)
+
+    def test_worker_error_restores_each_action_label_and_retry(self):
+        cases = [([self.missing], 'Install'), ([self.conflict], 'Resolve'),
+                 ([self.missing, self.conflict], 'Install & resolve')]
+        for entries, label in cases:
+            with self.subTest(label=label):
+                dialog = self.open(entries)
+                action = dialog.actions[1]
+                with patch.object(checks_ui, 'check_content', side_effect=OSError('offline')):
+                    action.on_click(None)
+                    self.assert_resolving(dialog)
+                    QueuedThread.jobs.pop()()
+                self.assertEqual(action.content, label)
+                self.assertTrue(action.visible)
+                self.assertFalse(action.disabled)
+                self.assertFalse(dialog.actions[0].disabled)
+                self.assertIsNone(self.state['fixing_mods'])
+                with patch.object(checks_ui, 'check_content', side_effect=[self.clean, self.clean]):
+                    action.on_click(None)
+                    self.assertEqual(len(QueuedThread.jobs), 1)
+                    QueuedThread.jobs.pop()()
+
+    def test_thread_start_error_restores_feedback_and_releases_claim_for_retry(self):
+        from _fuzz_common import walk
+        option = dict(filename='alpha.jar', name='Alpha', owner='alpha')
+        dialog = self.open([self.missing, dict(self.conflict, disable_options=[option])])
+        action = dialog.actions[1]
+        with patch.object(checks_ui.threading, 'Thread', side_effect=RuntimeError('no worker')):
+            action.on_click(None)
+        self.assertEqual(action.content, 'Install & resolve')
+        self.assertFalse(action.disabled)
+        self.assertFalse(dialog.actions[0].disabled)
+        self.assertIsNone(self.state['fixing_mods'])
+        for control in walk(dialog):
+            if str(getattr(control, 'data', '')).startswith('content-disable-'):
+                self.assertFalse(control.disabled)
+        self.assertFalse(any(isinstance(control, checks_ui.ft.ProgressRing) and control.visible
+                             for control in walk(action)))
+        self.assertEqual(QueuedThread.jobs, [])
+        with patch.object(checks_ui, 'check_content', side_effect=[self.clean, self.clean]):
+            action.on_click(None)
+            self.assert_resolving(dialog)
+            self.assertEqual(len(QueuedThread.jobs), 1)
+            QueuedThread.jobs.pop()()
+
     def test_open_is_not_consent_and_labels_match_the_issues(self):
         with patch.object(checks_ui, 'check_content') as check:
             missing = self.open()

@@ -408,8 +408,8 @@ def test_resources(matrix):
             leftovers.append(str(path.relative_to(MOD)))
     ok(not leftovers, f"removed game effects are absent from all source/resources ({leftovers})")
     if os.path.isfile(hud_cfg_path):
-        ok(hud_cfg.get("client") == ["ClientPacketListenerMixin"],
-           "the 26.x HUD config registers only the ping hook")
+        ok(hud_cfg.get("client") == ["ClientPacketListenerMixin", "EnemyHealthGameRendererAccessor"],
+           "the 26.x HUD config registers ping and native health projection hooks")
 
 
 def test_removed_effect_guard():

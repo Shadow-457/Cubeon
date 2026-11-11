@@ -93,7 +93,20 @@ check('Server navigation is Settings, Plugins, Console', [
     for button in _server_row.controls] == ['Settings', 'Plugins', 'Console'])
 driver.open_tab("server_settings")
 driver.open_tab("server_plugins")
+driver.open_tab("server_console")
 controls = list(fz.every_control(page))
+
+# A queued server start must recheck the Java repair claim before spawning.
+start_reason = function_from_controls(controls, "_start_blocked_reason")
+start_body = function_from_controls(controls, "_start_worker_body")
+server_state = scope(start_reason)["state"]
+server_state["java_runtime_busy"] = True
+check("server Start explains the active Java check", "Java check" in start_reason("1.20.1"))
+with patch.object(stubs.core, "start_server") as spawn:
+    finished = []
+    start_body("1.20.1", on_started=lambda: finished.append(True))
+    check("a queued server start waits for Java repair", not spawn.called and finished == [True])
+server_state["java_runtime_busy"] = False
 
 
 def run(fn):

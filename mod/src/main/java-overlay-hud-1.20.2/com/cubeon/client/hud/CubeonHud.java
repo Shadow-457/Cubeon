@@ -464,15 +464,31 @@ public final class CubeonHud {
 	}
 
 
-    /** Mob labels use the same projected scale as vanilla player name tags. */
+    /** Names and bars share the projected label plane, including walking/hurt tilt. */
+    private static void applyEnemyPose(DrawContext context, EnemyHealthBar.Pose pose) {
+        context.getMatrices().peek().getPositionMatrix().mul(new org.joml.Matrix4f()
+                .m00(pose.rightX()).m01(pose.rightY()).m10(pose.downX()).m11(pose.downY())
+                .m30(pose.originX()).m31(pose.originY()));
+    }
+
     public static void drawEnemyName(DrawContext context, MinecraftClient client, net.minecraft.text.Text label,
-                                     float center, float top, float scale) {
+                                     EnemyHealthBar.Pose pose) {
         context.getMatrices().push();
         try {
-            context.getMatrices().translate(center, top, 0);
-            context.getMatrices().scale(scale, scale, 1.0F);
+            applyEnemyPose(context, pose);
             context.drawTextWithShadow(client.textRenderer, label,
-                -client.textRenderer.getWidth(label) / 2, 0, 0xFFE4E7EB);
+                    -client.textRenderer.getWidth(label) / 2, 0, 0xFFE4E7EB);
+        } finally {
+            context.getMatrices().pop();
+        }
+    }
+
+    public static void drawEnemyBar(DrawContext context, EnemyHealthBar.Pose pose, float fraction) {
+        context.getMatrices().push();
+        try {
+            applyEnemyPose(context, pose);
+            EnemyHealthBar.drawLocal((x, y, right, bottom, color) ->
+                    fillEnemyRect(context, x, y, right, bottom, color), pose.scale(), fraction);
         } finally {
             context.getMatrices().pop();
         }

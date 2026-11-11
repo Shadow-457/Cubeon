@@ -43,12 +43,22 @@ package com.cubeon.client.hud;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 public class CubeonHud {
-    public static void drawEnemyName(DrawContext draw, MinecraftClient client, String label, float center, float top, float scale) {
-        draw.labels.add(new int[]{Math.round(center), Math.round(top), Math.round(scale * 1000)});
+    public static void drawEnemyName(DrawContext draw, MinecraftClient client, String label, EnemyHealthBar.Pose pose) {
+        draw.labels.add(new int[]{Math.round(pose.originX()), Math.round(pose.originY()), Math.round(pose.scale() * 1000)});
+        draw.labelPoses.add(pose);
     }
-    public static void fillEnemyRect(DrawContext draw, float x,float y,float right,float bottom,int color) {
-        draw.precise.add(new float[]{x,y,right,bottom});
-        draw.fill(Math.round(x),Math.round(y),Math.round(right),Math.round(bottom),color);
+    public static void drawEnemyBar(DrawContext draw, EnemyHealthBar.Pose pose, float fraction) {
+        EnemyHealthBar.drawLocal((x,y,right,bottom,color) -> {
+            float[] quad={pose.x(x,y),pose.y(x,y),pose.x(right,y),pose.y(right,y),
+                    pose.x(right,bottom),pose.y(right,bottom),pose.x(x,bottom),pose.y(x,bottom)};
+            draw.quads.add(quad);
+            float left=Math.min(Math.min(quad[0],quad[2]),Math.min(quad[4],quad[6]));
+            float top=Math.min(Math.min(quad[1],quad[3]),Math.min(quad[5],quad[7]));
+            float end=Math.max(Math.max(quad[0],quad[2]),Math.max(quad[4],quad[6]));
+            float base=Math.max(Math.max(quad[1],quad[3]),Math.max(quad[5],quad[7]));
+            draw.precise.add(new float[]{left,top,end,base});
+            draw.fill(Math.round(left),Math.round(top),Math.round(end),Math.round(base),color);
+        },pose.scale(),fraction);
     }
 }''',
     'net/minecraft/util/math/Vec3d.java': '''
@@ -142,13 +152,15 @@ import java.util.*;
 import net.minecraft.client.MinecraftClient.Font;
 public class DrawContext {
     public List<float[]> precise = new ArrayList<>();
+    public List<float[]> quads = new ArrayList<>();
+    public List<com.cubeon.client.hud.EnemyHealthBar.Pose> labelPoses = new ArrayList<>();
     public List<int[]> fills = new ArrayList<>();
     public List<int[]> labels = new ArrayList<>();
     public int getScaledWindowWidth() { return 200; }
     public int getScaledWindowHeight() { return 100; }
     public void fill(int x,int y,int x2,int y2,int color) { fills.add(new int[]{x,y,x2,y2,color}); }
     public void drawTextWithShadow(Font font,String label,int x,int y,int color) { labels.add(new int[]{x,y}); }
-    public void clear() { fills.clear(); labels.clear(); precise.clear(); }
+    public void clear() { fills.clear(); labels.clear(); precise.clear(); quads.clear(); labelPoses.clear(); }
 }''',
     'net/minecraft/util/hit/HitResult.java': '''
 package net.minecraft.util.hit;
@@ -200,13 +212,20 @@ public class MinecraftClient {
     }
     public static class Projection {
         public double depth=0.5, horizontal=0;
+        public org.joml.Matrix4f renderedViewProjection;
         public Camera camera = new Camera();
         public Camera getCamera() { return camera; }
         public Vec3d project(Vec3d point) {
+            if(renderedViewProjection!=null) {
+                var clip=renderedViewProjection.transform(new org.joml.Vector4f(
+                        (float)(point.x-camera.position.x),(float)(point.y-camera.position.y),
+                        (float)(point.z-camera.position.z),1));
+                return new Vec3d(clip.x/clip.w,clip.y/clip.w,clip.z/clip.w);
+            }
             var facing = new org.joml.Vector3d(point.x, point.y - 3.3, point.z + 3)
                     .rotate(new org.joml.Quaterniond(camera.rotation).conjugate());
             double perspective = Math.abs(-3 + facing.z) / 3;
-            return new Vec3d(horizontal + facing.x * .8 / perspective, facing.y * .8 / perspective, depth);
+            return new Vec3d(horizontal + facing.x * .4 / perspective, facing.y * .8 / perspective, depth);
         }
     }
 }''',
@@ -229,16 +248,75 @@ public class HealthTest {
     static DrawContext draw = new DrawContext();
     static void require(boolean okay, String why) { if (!okay) throw new AssertionError(why); }
     static boolean interpolationProbe;
+    static float frameDelta=.5F;
     static void render() {
         if (client.world != null && !interpolationProbe) for (var entity:client.world.entities) {
             entity.lastRenderX=entity.pos.x; entity.lastRenderY=entity.pos.y; entity.lastRenderZ=entity.pos.z;
         }
         draw.clear();
-        EnemyHealthRenderer.render(draw, client, client.gameRenderer::project, 0.5F);
+        EnemyHealthRenderer.render(draw, client, client.gameRenderer::project, frameDelta);
     }
     static void hidden(LivingEntity enemy, String why) {
         client.world.entities = new ArrayList<>(List.of(enemy)); render();
         require(draw.fills.isEmpty() && draw.labels.isEmpty(), why);
+    }
+    static void near(double actual,double expected,String why) {
+        require(Math.abs(actual-expected)<.002,why+": actual="+actual+" expected="+expected);
+    }
+    static double[] gui(Vec3d point) {
+        var projected=client.gameRenderer.project(point);
+        return new double[]{(projected.x+1)*100,(1-projected.y)*50};
+    }
+    static void movingLabelPlane() {
+        Hostile mob=new Hostile(); client.world.entities=new ArrayList<>(List.of(mob));
+        interpolationProbe=true;
+        double previousCenter=0,previousTop=0; int rolledFrames=0,rollovers=0;
+        for(int frame=0;frame<120;frame++) {
+            int tick=frame/6; frameDelta=(frame%6)/6F;
+            double time=tick+frameDelta;
+            mob.lastRenderX=-.2+(tick-1)*.01; mob.lastRenderY=1; mob.lastRenderZ=-3.5+(tick-1)*.005;
+            mob.pos=new Vec3d(-.2+tick*.01,1,-3.5+tick*.005);
+            // Physics history is deliberately unrelated to rendered movement.
+            mob.physicsPos=new Vec3d(8,-3,2);
+            client.gameRenderer.camera.position=new Vec3d(.08*Math.sin(time*.12),1.6,0);
+            // Walking bob/hurt tilt live in the world matrix, independent of Camera.rotation.
+            var projection=new org.joml.Matrix4f().perspective((float)Math.PI/2,2,.05F,100);
+            client.gameRenderer.renderedViewProjection=projection
+                    .rotateZ((float)(.09*Math.sin(time*.13))).rotateX((float)(.025*Math.cos(time*.07)));
+            render();
+            require(draw.quads.size()==2 && draw.labelPoses.size()==1,"Moving visible mob keeps name and health quads");
+            Vec3d anchor=new Vec3d(mob.lastRenderX+(mob.pos.x-mob.lastRenderX)*frameDelta,
+                    1+mob.getHeight()+.5,mob.lastRenderZ+(mob.pos.z-mob.lastRenderZ)*frameDelta);
+            var origin=gui(anchor); var right=gui(anchor.add(EnemyHealthBar.NAME_WORLD_HEIGHT,0,0));
+            var down=gui(anchor.add(0,-EnemyHealthBar.NAME_WORLD_HEIGHT,0));
+            double rx=(right[0]-origin[0])/9,ry=(right[1]-origin[1])/9;
+            double dx=(down[0]-origin[0])/9,dy=(down[1]-origin[1])/9;
+            var label=draw.labelPoses.get(0);
+            near(label.originX(),origin[0],"Mob label follows rendered anchor through tick rollover");
+            near(label.originY(),origin[1],"Mob label uses current camera translation");
+            near(label.rightX(),rx,"Label preserves projected right X");
+            near(label.rightY(),ry,"Label preserves world-view roll");
+            near(label.downX(),dx,"Label preserves projected down X");
+            near(label.downY(),dy,"Label preserves projected down Y");
+            near(label.scale(),Math.hypot(dx,dy),"Tilted label scale uses the full down vector");
+            var quad=draw.quads.get(0);
+            float[] local={-18,11,18,11,18,15,-18,15};
+            for(int vertex=0;vertex<4;vertex++) {
+                double x=local[vertex*2],y=local[vertex*2+1];
+                near(quad[vertex*2],origin[0]+rx*x+dx*y,"Health corner follows label plane X");
+                near(quad[vertex*2+1],origin[1]+ry*x+dy*y,"Health corner follows label plane Y");
+            }
+            double center=(quad[0]+quad[2])*.5,top=(quad[1]+quad[3])*.5;
+            if(frame>0) require(Math.abs(center-previousCenter)<.25 && Math.abs(top-previousTop)<.25,
+                    "Camera/entity movement remains continuous between frames and across ticks");
+            if(Math.abs(quad[1]-quad[3])>.05) rolledFrames++;
+            if(frame>0 && frame%6==0) rollovers++;
+            previousCenter=center;previousTop=top;
+        }
+        require(rolledFrames>80 && rollovers==19,"Probe exercises tilted bars and repeated tick rollover");
+        client.gameRenderer.renderedViewProjection=null;
+        client.gameRenderer.camera.position=new Vec3d(0,1.6,0);
+        interpolationProbe=false;frameDelta=.5F;
     }
     public static void main(String[] args) throws Exception {
         Path directory=Path.of(System.getProperty("test.config"));
@@ -378,6 +456,7 @@ public class HealthTest {
         mob.pos=new Vec3d(0,1,-3);
         mob.custom=true; mob.named=true; render(); require(draw.labels.isEmpty(),"No duplicate visible custom mob name");
         mob.named=false; render(); require(draw.labels.size()==1,"Hidden custom tag gets a name");
+        movingLabelPlane();
         client.world.entities=new ArrayList<>();
         for (int i=0;i<70;i++) client.world.entities.add(new PlayerEntity());
         render(); require(draw.fills.size()==64,"Crowds capped at 32 bars");
@@ -434,8 +513,10 @@ def mojang_source(source):
                      ('import net.minecraft.util.math.*;', 'import net.minecraft.world.phys.*;')]:
         source = source.replace(old, new)
     source = source.replace('int y,int color) { labels.add', 'int y,int color,boolean shadow) { labels.add')
-    source = source.replace('client.gameRenderer::projectPointToScreen, 0.5F',
-                            '0.5F, client.screen == null && !client.options.hideGui, client.gameRenderer.camera.rotation, client.gameRenderer.camera.getPosition()')
+    source = source.replace('client.gameRenderer::projectPointToScreen, frameDelta',
+                            'frameDelta, client.screen == null && !client.options.hideGui, client.gameRenderer.camera.rotation, client.gameRenderer.camera.getPosition()')
+    source = source.replace('public Vec3 projectPointToScreen(Vec3 point) { return renderer.projectPointToScreen(point); }',
+                            'public Vec3 project(Vec3 point) { return renderer.projectPointToScreen(point); }')
     source = source.replace('getBoundingAABB', 'getBoundingBox')
     return source
 
@@ -448,12 +529,27 @@ class EnemyHealthTests(unittest.TestCase):
             with self.subTest(namespace=namespace), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 sources = []
-                for relative, source in FIXTURES.items():
+                fixtures=dict(FIXTURES)
+                if namespace == 'mojang':
+                    # The native camera-state adapter has a separate production-code probe.
+                    fixtures['com/cubeon/client/hud/WorldHealthProjection.java'] = '''
+package com.cubeon.client.hud;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.util.math.Vec3d;
+public final class WorldHealthProjection {
+    public static Frame current(MinecraftClient client) { return new Frame(client.gameRenderer); }
+    public record Frame(MinecraftClient.Projection renderer) {
+        public Vec3d camera() { return renderer.camera.getPos(); }
+        public org.joml.Quaternionfc rotation() { return renderer.camera.getRotation(); }
+        public Vec3d project(Vec3d point) { return renderer.project(point); }
+    }
+}'''
+                for relative, source in fixtures.items():
                     if namespace == 'mojang':
                         # Derive fixture file path from its transformed package/public type.
                         source = mojang_source(source)
                         package = re.search(r'package ([\w.]+);', source)[1]
-                        name = re.search(r'public (?:class|interface|record) (\w+)', source)[1]
+                        name = re.search(r'public (?:final )?(?:class|interface|record) (\w+)', source)[1]
                         relative = package.replace('.', '/') + '/' + name + '.java'
                     path = root / relative
                     path.parent.mkdir(parents=True, exist_ok=True)

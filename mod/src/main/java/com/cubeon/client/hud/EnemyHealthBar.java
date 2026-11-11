@@ -17,6 +17,51 @@ public final class EnemyHealthBar {
         void draw(float x, float y, float right, float bottom, int color);
     }
 
+    /** Projected label plane: camera effects can rotate or shear both GUI axes. */
+    public record Pose(float originX, float originY, float rightX, float rightY,
+                       float downX, float downY) {
+        public float scale() { return (float) Math.hypot(downX, downY); }
+        public float x(float x, float y) { return originX + rightX * x + downX * y; }
+        public float y(float x, float y) { return originY + rightY * x + downY * y; }
+        public boolean valid() {
+            return Float.isFinite(originX) && Float.isFinite(originY)
+                    && Float.isFinite(rightX) && Float.isFinite(rightY)
+                    && Float.isFinite(downX) && Float.isFinite(downY)
+                    && scale() > 0 && rightX * downY - rightY * downX > 0;
+        }
+    }
+
+    public static Pose pose(double x, double y, double rightX, double rightY,
+                            double bottomX, double bottomY, int width, int height) {
+        return new Pose(preciseScreenX(x, width), preciseScreenY(y, height),
+                (float) ((rightX - x) * width / (2 * NAME_HEIGHT)),
+                (float) ((y - rightY) * height / (2 * NAME_HEIGHT)),
+                (float) ((bottomX - x) * width / (2 * NAME_HEIGHT)),
+                (float) ((y - bottomY) * height / (2 * NAME_HEIGHT)));
+    }
+
+    /** Test all rotated bar corners before tracing visibility rays. */
+    public static boolean onScreen(Pose pose, int width, int height) {
+        float scale = pose.scale();
+        float halfWidth = Math.max(WIDTH, 2 / scale) / 2;
+        float top = NAME_HEIGHT + 2;
+        float bottom = top + Math.max(HEIGHT, 1 / scale);
+        for (float x : new float[]{-halfWidth, halfWidth}) {
+            for (float y : new float[]{top, bottom}) {
+                float screenX = pose.x(x, y), screenY = pose.y(x, y);
+                if (screenX < 0 || screenX > width || screenY < 0 || screenY > height) return false;
+            }
+        }
+        return true;
+    }
+
+    /** Draw in label units, retaining the minimum GUI-pixel thickness at a distance. */
+    public static void drawLocal(Fill fill, float scale, float fraction) {
+        draw((x, y, right, bottom, color) ->
+                        fill.draw(x / scale, y / scale, right / scale, bottom / scale, color),
+                0, (NAME_HEIGHT + 2) * scale, scale, fraction);
+    }
+
     /** Preserve subpixel motion and a visible fill without integer-size jumps. */
     public static void draw(Fill fill, float center, float top, float scale, float fraction) {
         float width = Math.max(2, WIDTH * scale);

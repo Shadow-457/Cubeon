@@ -1159,6 +1159,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     def _start_blocked_reason(version_id: str | None) -> str | None:
         """Why Start can't run right now, in plain language - or None if it can."""
+        if state.get("java_runtime_busy"):
+            return "Wait for the Java check to finish before starting a server."
         if not _hosting_allowed(version_id):
             return "Servers unavailable for Rust beta"
         if not version_id:
@@ -1217,6 +1219,11 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         callbacks. Shared by Start and Restart so they behave identically.
         Starting IS sharing now: the Minekube Connect plugin and config are
         ensured right here, so there's no separate enable button to forget."""
+        if state.get("java_runtime_busy"):
+            append_console("[server start deferred: Java check in progress]")
+            if on_started:
+                on_started()
+            return
         if not _hosting_allowed(version_id):
             if on_started:
                 on_started()

@@ -69,6 +69,7 @@ assuming a helper is UI-free: the package also contains Flet support modules.
 | Server Plugins catalogue | `ui/plugins_catalogue.py`; shared cards and pane transitions in `ui/content_tiles.py` |
 | Activity statistics | `ui/stats_tab.py`, `ui/stats_chart.py` |
 | Settings | `ui/settings_tab.py` |
+| Explicit Java verification/setup | `ui/java_runtime.py`; Settings → Game, shared verified `jre.ensure_java_for_version` path |
 | Screenshot gallery | `ui/screenshot_gallery.py` |
 
 Tabs are retained. Mods, Modpacks and Servers control trees warm after first paint; catalogue requests
@@ -283,6 +284,10 @@ keep builders consistent with the shared `THEME` contract.
 - Quit owns `state["ending_session"]` until its worker reconciles watchdog liveness, on success or
   failure. Recovered games have no `on_exit`, so termination must restore the button itself. Optional
   playtime/log/presence cleanup must never prevent the exit callback or hold the UI tree lock.
+- Game exit 143 (HotSpot SIGTERM) and -15 (subprocess SIGTERM) show STOPPED without a crash dialog;
+  the signal does not establish who stopped it. Other failed exits show CRASHED. Retire RUNNING and
+  busy controls even on repaint failure. `_explain_exit` excludes known offline Realms authentication
+  output from generic cause selection while full logs retain it (`test_launch_indicator.py`).
 
 ### Play and content
 
@@ -427,6 +432,12 @@ keep builders consistent with the shared `THEME` contract.
   bypass the positive cache, which also fingerprints runtime dependencies.
   `test_java_setup.py` and `test_java_downloads.py` cover selection, repair, bounds,
   failover, cancellation, resume isolation and installation coalescing.
+- Settings → Game's **Check & repair Java** captures the selected instance and custom path, then
+  runs that same verified setup on a cancellable worker; build remains probe-free. Legacy Forge 1.8.9
+  retains its exact Java-8 identity. `java_runtime_busy` blocks Play, server starts and storage changes
+  until success/failure/cancellation acknowledgement; scoped repaint failures never strand the claim.
+  Healthy system/custom runtimes are reused, and managed replacements keep `jre`'s checksum/probe/rollback
+  contract. `test_java_runtime_ui.py` and the launch/Settings/server checks cover this action.
 - `versions.version_folder` and `validate_launch_profile` guard install/launch/delete paths before
   mll or sanitizers write: reject traversal, external directory/canonical-file symlinks and unsafe,
   cyclic or overly deep `inheritsFrom`/`jar` references. The tolerant scan also rejects external
@@ -903,6 +914,8 @@ keep builders consistent with the shared `THEME` contract.
   Issues open `ui/content_checks.show_content_issues`, grouped into missing dependencies and conflicts.
   Only Install/Resolve authorizes graph resolution; capture the original instance, single-flight the worker,
   block game/install/launch claims, retain backups/rollback, recheck locally, and keep failed actions retryable.
+  Its retained spinner and Resolving…/Disabling… content survive result repaints until the worker finishes;
+  both the action and Close stay disabled, then regain their idle state on completion or start failure.
   The crash report uses the same fast check and labels website access **Analyze log**; no visible Doctor/fix-repair action.
   Resource-pack/shader checks remain scoped to their type. A failed scan must not announce a clean result.
 - Mod compatibility issue rows also offer explicit **Disable mod**, without graph resolution or downloads.
@@ -1017,6 +1030,10 @@ keep builders consistent with the shared `THEME` contract.
   and Exordium (`exordium`); defaults are empty. Unchecking stops additions,
   not already-installed jars. BadOptimizations must not be pruned as retired.
   Missing builds return `unavailable`, distinct from lookup/download `failed`.
+  Launch FPS preparation must use `repair_dependencies=True`: newly added suites resolve their declared
+  dependency/conflict graph before staging, because the final offline/read-only Play gate cannot repair
+  first-startup additions. Fresh More Culling/Cloth Config and existing More Culling/Sodium conflicts are
+  covered by `FPSFirstStartupTests` in `test_mod_prelaunch_dependencies.py`.
   Queries require the exact Minecraft/native loader; curated
   Quilt builds query Fabric. Existing renderer/logic ports, disabled JARs and
   removals suppress competing additions. The client menu toggle is independent;
@@ -1812,8 +1829,10 @@ keep builders consistent with the shared `THEME` contract.
   physics history and caused vertical bouncing. Healthy bars use Cubeon green.
   Bars are 36×4 name-tag units (0.025 world units/unit), scaled with camera-facing projected label
   height, distance, FOV and GUI scale; fixed screen pixels look oversized relative to distant names.
-  Sample the rotated camera-down vector, not world Y. Added mob names use that same scale through
-  the era-specific `CubeonHud.drawEnemyName`; thin distant bars retain a visible health fill.
+  Project both rotated camera-right/down vectors into `EnemyHealthBar.Pose` and apply that full
+  plane to bars and added mob names through the native HUD matrices. A scalar vertical size and
+  screen-aligned rectangle lose walking/hurt roll, even with the correct world projection.
+  Keep `drawLocal`'s GUI-pixel minimum thickness; thin distant bars retain a visible health fill.
   Reject anchors behind the actual camera using the rotated −Z forward vector
   before projecting: 26.x reversed-Z makes negative NDC depth an unreliable
   behind-camera test. Screen/depth/size checks precede the four occlusion rays.
@@ -1827,6 +1846,13 @@ keep builders consistent with the shared `THEME` contract.
   never read the GUI's orthographic projection or reuse a frame across worlds. Hold the captured world
   weakly so returning to the title screen cannot retain it. `test_enemy_health.py`
   runs the real renderers, Gson config and legacy projectors with recorded draws and cached JOML.
+  Its independent world-tilt/movement sweep includes tick rollover; rotating the fixture camera
+  and projector together cancels the walking-bob condition and cannot verify this contract.
+  26.x extracts the HUD before drawing the world: its Mojang `WorldHealthProjection.current`
+  snapshots the current extracted camera and invokes native bob/hurt transforms through
+  `EnemyHealthGameRendererAccessor`. `projectPointToScreen` omits those effects, and capturing
+  during world drawing would lag a frame. `test_enemy_health_projection.py` covers effect order,
+  current-camera changes and snapshot isolation; nausea is outside this bob/hurt adapter.
 - Enemy-health occlusion rays originate at the actual camera and test interpolated eyes plus
   bar center/edges against visual block shapes. Fractional bar/name coordinates reach native
   HUD draws through pose transforms; rounding before scaling causes jitter and disappearing fills.
@@ -1980,6 +2006,9 @@ keep builders consistent with the shared `THEME` contract.
   not collapse them as accidental duplication. The `zoom-double`/`zoom-float` split follows
   `GameRenderer.getFov`'s return type (double through 1.21.1, float from 1.21.2), not a HUD era.
 - Current mod assembly needs JDK 25+ for Gradle, while bytecode targets Java 17.
+- Standalone Forge 1.8.9 build/test tools accept `--minecraft-dir`; migrated combined storage needs
+  `<storage root>/instances/.runtime` (the folder containing `versions/` and `libraries/`), since their
+  default legacy Minecraft root does not follow the storage resolver.
 - Bundle the Flet desktop client, color templates and required companion mod jars.
   `packaging/runtime_assets.py` stages assets for Linux/Windows/macOS while excluding
   only `assets/jars/connect-spigot.jar`; public/no-Friends builds already omit all jars.
@@ -2056,7 +2085,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Seasonal artwork and roaming buddy | `test_play_seasons.py`, `test_launcher_pet.py`, `test_seasonal_animator_pause.py`; native fixture `capture_play_seasons.py` |
 | Keyboard and local feedback | `test_keyboard_shortcuts.py`, `test_keyboard_accessibility.py`, `test_ui_sounds.py` |
 | Play/selection/banner | `test_version_ui.py`, `test_version_art_cache.py`, `test_play_backend_audit.py` |
-| Play backend/path safety | `test_version_path_safety.py`, `test_launch_claim.py`, `test_launch_log_tail.py`, `test_instance_install_flow.py` |
+| Play backend/path safety | `test_version_path_safety.py`, `test_launch_claim.py`, `test_launch_indicator.py`, `test_launch_log_tail.py`, `test_instance_install_flow.py` |
 | Mods and artwork | `test_mod_ui_stability.py`, `test_modpack_performance.py`, `test_loader_content_rules.py` |
 | Local mod import | `test_local_mod_import.py`, `test_mods_management_ui.py`, `test_importer.py`; native fixture `capture_local_mod_import.py` |
 | FastClient instance import | `test_fastclient_import.py`; native Settings/selection fixture `capture_fastclient_import.py` |
@@ -2076,7 +2105,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
 | Freelook / zoom | `test_freelook.py` (`--targets` needs mapped game JARs), `test_zoom.py`, full 24-version Gradle build |
 | Camera motion blur | `test_camera_blur.py --targets`, `test_camera_blur_lifecycle.py`, `test_camera_blur_gpu.py` (Linux EGL/PyOpenGL), full 24-version Gradle build |
-| Java setup and downloads | `test_java_setup.py`, `test_java_downloads.py`, `test_launch_fixes.py`, `test_net.py`, `test_forge189_client.py` |
+| Java setup and downloads | `test_java_setup.py`, `test_java_runtime_ui.py`, `test_java_downloads.py`, `test_launch_fixes.py`, `test_net.py`, `test_forge189_client.py` |
 | Windows/startup | `test_winproc.py`, `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_source_runtime.py`, `test_startup_recovery.py`, `test_incident.py`, `test_wedge_watchdog.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py`, `test_forge189_client.py --targets --download-csl` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |

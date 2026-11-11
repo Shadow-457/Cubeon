@@ -21,6 +21,10 @@ public final class EnemyHealthRenderer {
                               org.joml.Quaternionfc cameraRotation, Vec3 camera) {
         // The era-specific HUD owns menu/F1 APIs (these moved into Gui/Hud in 26.2).
         if (!visible || !CubeonHudConfig.get().showEnemyHealth || client.player == null || client.level == null) return;
+        var frame = WorldHealthProjection.current(client);
+        if (frame == null) return;
+        camera = frame.camera();
+        cameraRotation = frame.rotation();
         var player = client.player;
         var enemies = client.level.getEntitiesOfClass(LivingEntity.class,
                 player.getBoundingBox().inflate(EnemyHealthBar.RANGE), entity ->
@@ -33,7 +37,6 @@ public final class EnemyHealthRenderer {
                 .rotate(cameraRotation);
         var right = new Vector3f(EnemyHealthBar.WIDTH * 0.025F / 2, 0, 0).rotate(cameraRotation);
         var forward = new Vector3f(0, 0, -1).rotate(cameraRotation);
-        EnemyHealthBar.Fill fill = (x, y, x2, y2, color) -> CubeonHud.fillEnemyRect(graphics, x, y, x2, y2, color);
         int drawn = 0;
         for (LivingEntity enemy : enemies) {
             if (drawn == EnemyHealthBar.MAX_BARS) break;
@@ -50,20 +53,17 @@ public final class EnemyHealthRenderer {
             Vec3 eye = anchor.add(0, enemy.getEyeHeight() - enemy.getBbHeight() - 0.5, 0);
             float barOffset = (EnemyHealthBar.NAME_HEIGHT + 2 + EnemyHealthBar.HEIGHT / 2F) / EnemyHealthBar.NAME_HEIGHT;
             Vec3 bar = anchor.add(down.x * barOffset, down.y * barOffset, down.z * barOffset);
-            var name = client.gameRenderer.projectPointToScreen(anchor);
-            var bottom = client.gameRenderer.projectPointToScreen(anchor.add(down.x, down.y, down.z));
-            if (!EnemyHealthBar.onScreen(name.x, name.y, name.z)
+            var name = frame.project(anchor);
+            var bottom = frame.project(anchor.add(down.x, down.y, down.z));
+            if (name == null || bottom == null || !EnemyHealthBar.onScreen(name.x, name.y, name.z)
                     || !EnemyHealthBar.onScreen(bottom.x, bottom.y, bottom.z)) continue;
-            float scale = EnemyHealthBar.labelScale(name.y, bottom.y, graphics.guiHeight());
-            if (!Float.isFinite(scale) || scale <= 0) continue;
-            float width = Math.max(2, EnemyHealthBar.WIDTH * scale);
-            float height = Math.max(1, EnemyHealthBar.HEIGHT * scale);
-            float center = EnemyHealthBar.preciseScreenX(name.x, graphics.guiWidth());
-            float nameY = EnemyHealthBar.preciseScreenY(name.y, graphics.guiHeight());
-            float y = nameY + (EnemyHealthBar.NAME_HEIGHT + 2) * scale;
-            float x = center - width / 2;
-            if (x < 0 || x + width > graphics.guiWidth()
-                    || y + height > graphics.guiHeight()) continue;
+            float axisSample = 2F * EnemyHealthBar.NAME_HEIGHT / EnemyHealthBar.WIDTH;
+            var side = frame.project(anchor.add(right.x * axisSample, right.y * axisSample, right.z * axisSample));
+            if (side == null) continue;
+            var pose = EnemyHealthBar.pose(name.x, name.y, side.x, side.y, bottom.x, bottom.y,
+                    graphics.guiWidth(), graphics.guiHeight());
+            if (!pose.valid() || !EnemyHealthBar.onScreen(pose,
+                    graphics.guiWidth(), graphics.guiHeight())) continue;
             if (!visible(client, camera, eye) || !visible(client, camera, bar)
                     || !visible(client, camera, bar.add(right.x, right.y, right.z))
                     || !visible(client, camera, bar.add(-right.x, -right.y, -right.z))) continue;
@@ -71,11 +71,10 @@ public final class EnemyHealthRenderer {
                     || (!enemy.isCustomNameVisible() && !(client.hitResult instanceof EntityHitResult hit
                     && hit.getEntity() == enemy)))) {
                 var label = enemy.getName();
-                CubeonHud.drawEnemyName(graphics, client, label, center,
-                        nameY, scale);
+                CubeonHud.drawEnemyName(graphics, client, label, pose);
             }
             float fraction = EnemyHealthBar.fraction(enemy.getHealth(), enemy.getMaxHealth());
-            EnemyHealthBar.draw(fill, center, y, scale, fraction);
+            CubeonHud.drawEnemyBar(graphics, pose, fraction);
             drawn++;
         }
     }

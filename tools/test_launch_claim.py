@@ -106,6 +106,21 @@ class DeferredThread:
 
 
 with patch("main.threading.Thread", DeferredThread):
+    state["java_runtime_busy"] = True
+    set_button_mode("play")
+    check("Java repair paints a disabled, honest Play action",
+          play_button.disabled and play_text.value == "CHECKING JAVA...")
+    main_action(None)
+    check("Java repair blocks hero and direct Play requests",
+          on_play() is False and jobs == [])
+    check("Java repair blocks the shared install/launch funnel",
+          begin("1.20.1", "tester") is False and jobs == [])
+    from cubeon import storage
+    check("Java repair blocks storage migration", storage.application_busy(state))
+    state["java_runtime_busy"] = False
+    set_button_mode("play")
+    check("completed Java repair restores Play", not play_button.disabled and play_text.value == "PLAY")
+
     # Cancellation remains claimed until the worker acknowledges its Event.
     on_cancel = function_from_controls(controls, "on_cancel_install")
     switch_tab = function_from_controls(controls, "switch_tab")

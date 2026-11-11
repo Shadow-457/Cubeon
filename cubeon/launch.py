@@ -1456,7 +1456,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             try:
                 report = perf_mods.ensure_installed(
                     mc_version, loader, status_cb=status_cb, version_id=version_id,
-                    repair_dependencies=False,
+                    repair_dependencies=True,
                     optional_mods=cfg.get("fps_boost_optional_mods", []))
                 if report["installed"] and status_cb:
                     status_cb("FPS boost installed")
