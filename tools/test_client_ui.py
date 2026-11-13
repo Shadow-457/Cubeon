@@ -100,46 +100,49 @@ public class UiTest {
    public float blurPlusStrength(){return plusStrength[0];}public void setBlurPlusStrength(float value){plusStrength[0]=value;}
    public boolean health(){return false;}public boolean animations(){return true;}public boolean wingDepth(){return true;}public boolean otherCosmetics(){return false;}public boolean cameraBlur(){return false;}public float blurIntensity(){return 1f;}
   };
+  int[] featureActions=new int[HudMenu.featureCount()];
+  for(int i=0;i<13;i++)featureActions[i]=HudMenu.toggleAction(i);
+  int[] extras={HudMenu.SPRINT,HudMenu.CAMERA_BLUR,HudMenu.HEALTH,HudMenu.ANIMATIONS,HudMenu.WING_DEPTH,
+                HudMenu.OTHER_COSMETICS,HudMenu.MENU_ANIMATIONS,HudMenu.OWN_NAME_TAG,HudMenu.BLUR_PLUS};
+  System.arraycopy(extras,0,featureActions,13,extras.length);
   for(int[] size:new int[][]{{320,240},{520,304},{640,360},{960,540}}) {
    int w=size[0],h=size[1];HudMenu menu=new HudMenu();menu.layout(w,h);
    Canvas canvas=new Canvas(w,h,font,labels);Thread.sleep(180);menu.render(canvas,w,h,0,0,settings);
+   var editorButton=menu.control(HudMenu.HUD_EDITOR);var themesButton=menu.control(HudMenu.THEMES);
+   check(editorButton!=null&&themesButton!=null&&editorButton.x()<themesButton.x(),"HUD editor is a separate top-left icon");
+   for(int tool:new int[]{HudMenu.THEMES,HudMenu.SKINS,HudMenu.RESET,HudMenu.EMOTES,HudMenu.FRIENDS,HudMenu.DONE}) {
+    var icon=menu.control(tool);check(icon!=null&&icon.w()==20&&icon.h()==20&&icon.y()==themesButton.y(),"Utility actions use compact top-right icons: "+tool);
+   }
    boolean[] visited=new boolean[HudMenu.featureCount()];
    for(int page=0;page<menu.pages();page++) {
     menu.render(canvas,w,h,0,0,settings);bounds(menu,w,h);
-    for(int i=0;i<visited.length;i++)if(menu.control(HudMenu.DETAIL+i)!=null)visited[i]=true;
+    for(int i=0;i<visited.length;i++) {
+     var card=menu.control(featureActions[i]);
+     if(card!=null) { visited[i]=true;check(card.h()<=46,"Feature cards stay compact"); }
+     var settingsButton=menu.control(HudMenu.DETAIL+i);
+     boolean configurable=i==5||i>=13;
+     check((settingsButton!=null)==(card!=null&&configurable),
+             "Only Clock and non-HUD cards expose compact settings icons: "+i);
+     if(settingsButton!=null) check(settingsButton.w()<=18&&settingsButton.h()<=18,
+             "Feature settings use a small icon instead of a full button");
+    }
     menu.scroll(1);menu.layout(w,h);
    }
    for(boolean seen:visited)check(seen,"Every feature is reachable through pagination");
-   for(int i=0;i<HudMenu.featureCount();i++) {
-    menu.activate(HudMenu.DETAIL+i);menu.layout(w,h);bounds(menu,w,h);
-    menu.render(canvas,w,h,0,0,settings);
-    check(menu.control(HudMenu.BACK)!=null,"Details always have Back");
-    var strength=menu.control(HudMenu.BLUR_PLUS_STRENGTH);
-    if(strength!=null){
-     int saved=saves[0];check(menu.beginScale(strength.x()+10,strength.y()+25),"Plus strength accepts drag");
-     check(plusStrength[0]==.25f,"Plus strength reaches minimum");
-     menu.render(canvas,w,h,strength.x()+strength.w()+30,strength.y()+25,settings);
-     check(menu.selection()==HudMenu.BLUR_PLUS_STRENGTH,"Strength drag retains focus outside the control");
-     menu.dragScale(strength.x()+strength.w()+30);check(plusStrength[0]==2,"Plus strength clamps outside the track");
-     check(saves[0]==saved,"Strength drag avoids repeated disk writes");
-     menu.finishScale();check(saves[0]==saved+1,"Strength drag saves once on release");
-    }
-    if(i<13){
-     int action=HudMenu.toggleAction(i)+2;var slider=menu.control(action);
-     check(menu.control(action-1)!=null&&slider!=null,"Every overlay has Move and a size slider");
-     float untouched=scales[(i+1)%13];int saved=saves[0];
-     check(menu.beginScale(slider.x()+10,slider.y()+25),"Slider accepts pointer down");
-     check(scales[i]==.5f,"Slider reaches its minimum");
-     menu.dragScale(slider.x()+slider.w()+100);check(scales[i]==2,"Drag outside the track clamps to maximum");
-     menu.dragScale(slider.x()+slider.w()/2.0);check(scales[i]==1.25f,"Slider supports intermediate sizes");
-     check(saves[0]==saved,"Dragging does not write config per mouse event");
-     check(menu.finishScale()&&saves[0]==saved+1,"Release saves exactly once");
-     check(!menu.finishScale()&&saves[0]==saved+1,"Duplicate releases do not save");
-     check(menu.adjustScale(.01f)&&scales[i]==1.26f,"Arrow keys make fine slider adjustments");
-     check(scales[(i+1)%13]==untouched,"Sizing one overlay preserves every other size");
-    }
-    menu.activate(HudMenu.BACK);menu.layout(w,h);
+   for(int i=0;i<13;i++) {
+    int action=HudMenu.toggleAction(i);
+    check(menu.control(action+1)==null&&menu.control(action+2)==null,"Per-module Move/size controls are removed");
    }
+   menu.activate(HudMenu.DETAIL+5);menu.layout(w,h);
+   check(menu.control(HudMenu.CLOCK_MODE)!=null,"Clock settings retain World/System time editing");
+   check(menu.control(HudMenu.toggleAction(5)+1)==null&&menu.control(HudMenu.toggleAction(5)+2)==null,
+           "Clock settings do not restore per-overlay move/size controls");
+   menu.back();menu.activate(HudMenu.DETAIL+14);menu.layout(w,h);
+   check(menu.control(HudMenu.BLUR_INTENSITY)!=null,"Camera Blur settings remain reachable");
+   menu.back();menu.activate(HudMenu.DETAIL+21);menu.layout(w,h);
+   check(menu.control(HudMenu.BLUR_PLUS_STRENGTH)!=null,"Motion Blur+ strength remains reachable");
+   menu.back();menu.layout(w,h);
+   check(!menu.activate(featureActions[0]),"Clicking a feature card delegates its direct toggle to the native screen");
    menu.activate(HudMenu.CATEGORY+4);menu.layout(w,h);
    check(menu.control(HudMenu.SPRINT)!=null&&menu.control(0)==null,"Movement filters to auto sprint");
    menu.activate(HudMenu.CATEGORY);menu.focusSearchShortcut();menu.type('/');check(menu.query().isEmpty(),"Search shortcut does not add a slash to the query");
@@ -165,6 +168,8 @@ public class UiTest {
    int panel=Math.min(340,w-24),left=(w-panel)/2;
    check(HudEditorChrome.done(w,h,left+panel-44,h-28),"Done is reachable by pointer");
    check(!HudEditorChrome.done(w,h,left+12,h-28),"Help label cannot close the editor");
+   check(HudEditorChrome.resizeHandle(w/2-26,h/2-8,52,16,w/2+25,h/2+7),"Bottom-right resize grip is reachable");
+   check(!HudEditorChrome.resizeHandle(w/2-26,h/2-8,52,16,w/2,h/2),"Widget body remains a move target");
    HudEditorChrome.render(editor,w,h,"Move FPS",0,0,0,0,52,16,false);
    HudEditorChrome.render(editor,w,h,"Move FPS",0,0,w-52,h-16,52,16,false);
    check(HudEditorChrome.overlaps(0,0,40,20,39,10,30,20),"Overlapping HUD rectangles are detected");
@@ -231,7 +236,7 @@ public class UiTest {
   HudMenu still=new HudMenu();Canvas first=new Canvas(640,360,font,labels),second=new Canvas(640,360,font,labels);
   still.render(first,640,360,0,0,settings);still.render(second,640,360,0,0,settings);
   check(java.util.Arrays.equals(first.image.getRGB(0,0,1920,1080,null,0,1920),second.image.getRGB(0,0,1920,1080,null,0,1920)),"Disabled menu animations paint immediately and stay still");
-  System.out.println("Custom font, feature catalogue, search, categories, all details, minimum GUI scale, text/draw bounds, keyboard/pointer focus, resize, drag toolbar/edge frames and wheel previews passed.");
+  System.out.println("Custom font, compact direct-toggle cards, small feature settings, icon toolbar, search/categories, minimum GUI scale, text/draw bounds, keyboard/pointer focus, shared move/resize editor and wheel previews passed.");
  }
 }
 ''', encoding="utf-8")

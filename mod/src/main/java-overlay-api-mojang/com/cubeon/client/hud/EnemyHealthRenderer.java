@@ -35,7 +35,7 @@ public final class EnemyHealthRenderer {
         enemies.sort(Comparator.comparingDouble(player::distanceToSqr));
         var down = new Vector3f(0, -EnemyHealthBar.NAME_WORLD_HEIGHT, 0)
                 .rotate(cameraRotation);
-        var right = new Vector3f(EnemyHealthBar.WIDTH * 0.025F / 2, 0, 0).rotate(cameraRotation);
+        var right = new Vector3f(EnemyHealthBar.NAME_WORLD_HEIGHT, 0, 0).rotate(cameraRotation);
         var forward = new Vector3f(0, 0, -1).rotate(cameraRotation);
         int drawn = 0;
         for (LivingEntity enemy : enemies) {
@@ -51,30 +51,25 @@ public final class EnemyHealthRenderer {
                     EnemyHealthBar.lerp(enemy.zOld, enemy.getZ(), partialTick));
             if (!EnemyHealthBar.inFront(anchor.x-camera.x, anchor.y-camera.y, anchor.z-camera.z, forward)) continue;
             Vec3 eye = anchor.add(0, enemy.getEyeHeight() - enemy.getBbHeight() - 0.5, 0);
-            float barOffset = (EnemyHealthBar.NAME_HEIGHT + 2 + EnemyHealthBar.HEIGHT / 2F) / EnemyHealthBar.NAME_HEIGHT;
-            Vec3 bar = anchor.add(down.x * barOffset, down.y * barOffset, down.z * barOffset);
+            int hearts = EnemyHealthBar.heartValue(enemy.getHealth());
             var name = frame.project(anchor);
             var bottom = frame.project(anchor.add(down.x, down.y, down.z));
             if (name == null || bottom == null || !EnemyHealthBar.onScreen(name.x, name.y, name.z)
                     || !EnemyHealthBar.onScreen(bottom.x, bottom.y, bottom.z)) continue;
-            float axisSample = 2F * EnemyHealthBar.NAME_HEIGHT / EnemyHealthBar.WIDTH;
-            var side = frame.project(anchor.add(right.x * axisSample, right.y * axisSample, right.z * axisSample));
+            var side = frame.project(anchor.add(right.x, right.y, right.z));
             if (side == null) continue;
             var pose = EnemyHealthBar.pose(name.x, name.y, side.x, side.y, bottom.x, bottom.y,
                     graphics.guiWidth(), graphics.guiHeight());
             if (!pose.valid() || !EnemyHealthBar.onScreen(pose,
-                    graphics.guiWidth(), graphics.guiHeight())) continue;
-            if (!visible(client, camera, eye) || !visible(client, camera, bar)
-                    || !visible(client, camera, bar.add(right.x, right.y, right.z))
-                    || !visible(client, camera, bar.add(-right.x, -right.y, -right.z))) continue;
+                    graphics.guiWidth(), graphics.guiHeight(), EnemyHealthBar.contentWidth(hearts))) continue;
+            if (!visible(client, camera, eye)) continue;
             if (!(enemy instanceof Player) && (!enemy.hasCustomName()
                     || (!enemy.isCustomNameVisible() && !(client.hitResult instanceof EntityHitResult hit
                     && hit.getEntity() == enemy)))) {
                 var label = enemy.getName();
                 CubeonHud.drawEnemyName(graphics, client, label, pose);
             }
-            float fraction = EnemyHealthBar.fraction(enemy.getHealth(), enemy.getMaxHealth());
-            CubeonHud.drawEnemyBar(graphics, pose, fraction);
+            CubeonHud.drawEnemyBar(graphics, client, pose, hearts);
             drawn++;
         }
     }

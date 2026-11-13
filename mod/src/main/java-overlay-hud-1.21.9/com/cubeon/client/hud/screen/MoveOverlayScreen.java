@@ -22,12 +22,17 @@ public final class MoveOverlayScreen extends Screen {
     private static final Overlay[] OVERLAYS = Overlay.values();
 
 	private final Screen parent;
-	private final Overlay overlay;
+	private Overlay overlay;
 
 	/** Grab offset in pixels from the widget's top-left corner to the click point. */
 	private double grabX;
 	private double grabY;
 	private boolean dragging;
+	private boolean resizing;
+	private int resizeX, resizeY;
+	private float resizeBaseWidth, resizeBaseHeight;
+
+	public MoveOverlayScreen(Screen parent) { this(parent, firstEnabled()); }
 
 	public MoveOverlayScreen(Screen parent, Overlay overlay) {
 		super(Text.translatable(switch (overlay) {
@@ -40,6 +45,11 @@ public final class MoveOverlayScreen extends Screen {
 			}));
 		this.parent = parent;
 		this.overlay = overlay;
+	}
+	private static Overlay firstEnabled() {
+		CubeonHudConfig config=CubeonHudConfig.get();
+		for(Overlay candidate:OVERLAYS) if(CubeonHud.enabled(candidate,config)) return candidate;
+		return Overlay.FPS;
 	}
 
 	@Override
@@ -61,6 +71,7 @@ public final class MoveOverlayScreen extends Screen {
 		}
 
 		CubeonHudConfig config = CubeonHudConfig.get();
+		ClientUi.Canvas ui=canvas(context);
 		int x = CubeonHud.posX(overlay, config, this.client, this.width);
 		int y = CubeonHud.posY(overlay, config, this.client, this.height);
 		int w = CubeonHud.widthOf(overlay, this.client);
@@ -69,15 +80,16 @@ public final class MoveOverlayScreen extends Screen {
         for (Overlay other : OVERLAYS) {
             if (other == overlay || !CubeonHud.enabled(other, config)) continue;
             CubeonHud.renderPreview(context, this.client, config, other, this.width, this.height);
-            HudEditorChrome.peer(canvas(context), this.width, this.height,
+            HudEditorChrome.peer(ui, this.width, this.height,
                     CubeonHud.posX(other, config, this.client, this.width),
                     CubeonHud.posY(other, config, this.client, this.height),
                     CubeonHud.widthOf(other, this.client), CubeonHud.heightOf(other, this.client), x, y, w, h);
         }
         CubeonHud.renderPreview(context, this.client, config, overlay, this.width, this.height);
 
-        HudEditorChrome.render(canvas(context), this.width, this.height, this.title.getString(),
-                mouseX, mouseY, x, y, w, h, this.dragging);
+        HudEditorChrome.render(ui, this.width, this.height,
+                ui.translate("cubeonclient.hud."+CubeonHud.slotOf(overlay)),
+                mouseX, mouseY, x, y, w, h, this.dragging||this.resizing);
 	}
 
 	@Override
@@ -90,11 +102,22 @@ public final class MoveOverlayScreen extends Screen {
 			return true;
 		}
 
-		if (click.button() == 0 && this.client != null && isOverWidget(click.x(), click.y())) {
+		if (click.button() == 0 && this.client != null) {
+			Overlay hit=hitOverlay(click.x(),click.y());
+			if(hit==null) return false;
+			this.overlay=hit;
 			CubeonHudConfig config = CubeonHudConfig.get();
+			int x=CubeonHud.posX(overlay,config,this.client,this.width),y=CubeonHud.posY(overlay,config,this.client,this.height);
+			int w=CubeonHud.widthOf(overlay,this.client),h=CubeonHud.heightOf(overlay,this.client);
+			if(HudEditorChrome.resizeHandle(x,y,w,h,click.x(),click.y())) {
+				float scale=CubeonHud.scaleOf(overlay);
+				this.resizeX=x;this.resizeY=y;this.resizeBaseWidth=w/scale;this.resizeBaseHeight=h/scale;
+				this.resizing=true;this.dragging=false;return true;
+			}
 			this.grabX = click.x() - CubeonHud.posX(overlay, config, this.client, this.width);
 			this.grabY = click.y() - CubeonHud.posY(overlay, config, this.client, this.height);
 			this.dragging = true;
+			this.resizing = false;
 			return true;
 		}
 
@@ -104,6 +127,15 @@ public final class MoveOverlayScreen extends Screen {
 	@Override
 	public boolean mouseDragged(Click click, double horizontalAmount, double verticalAmount) {
 		if (super.mouseDragged(click, horizontalAmount, verticalAmount)) {
+			return true;
+		}
+
+		if (this.resizing && this.client != null) {
+			float scale=(float)Math.max((click.x()-this.resizeX)/Math.max(1,this.resizeBaseWidth),
+					(click.y()-this.resizeY)/Math.max(1,this.resizeBaseHeight));
+			CubeonHudConfig config=CubeonHudConfig.get();
+			config.setScaleForLive(CubeonHud.slotOf(overlay),scale);
+			CubeonHud.moveTo(overlay,config,this.client,this.resizeX,this.resizeY,this.width,this.height);
 			return true;
 		}
 
@@ -119,8 +151,9 @@ public final class MoveOverlayScreen extends Screen {
 
 	@Override
 	public boolean mouseReleased(Click click) {
-		if (this.dragging) {
+		if (this.dragging || this.resizing) {
 			this.dragging = false;
+			this.resizing = false;
 			CubeonHudConfig.save();
 			return true;
 		}
@@ -169,12 +202,21 @@ public final class MoveOverlayScreen extends Screen {
             public String translate(String key) { return Text.translatable(key).getString(); }
         }; }
 
-	private boolean isOverWidget(double mouseX, double mouseY) {
+	private Overlay hitOverlay(double mouseX,double mouseY) {
+		if(isOverWidget(overlay,mouseX,mouseY)) return overlay;
+		CubeonHudConfig config=CubeonHudConfig.get();
+		for(int i=OVERLAYS.length-1;i>=0;i--) {
+			Overlay candidate=OVERLAYS[i];
+			if(candidate!=overlay&&CubeonHud.enabled(candidate,config)&&isOverWidget(candidate,mouseX,mouseY)) return candidate;
+		}
+		return null;
+	}
+	private boolean isOverWidget(Overlay target,double mouseX, double mouseY) {
 		CubeonHudConfig config = CubeonHudConfig.get();
-		int x = CubeonHud.posX(overlay, config, this.client, this.width) - PADDING;
-		int y = CubeonHud.posY(overlay, config, this.client, this.height) - PADDING;
-		int w = CubeonHud.widthOf(overlay, this.client) + 2 * PADDING;
-		int h = CubeonHud.heightOf(overlay, this.client) + 2 * PADDING;
+		int x = CubeonHud.posX(target, config, this.client, this.width) - PADDING;
+		int y = CubeonHud.posY(target, config, this.client, this.height) - PADDING;
+		int w = CubeonHud.widthOf(target, this.client) + 2 * PADDING;
+		int h = CubeonHud.heightOf(target, this.client) + 2 * PADDING;
 
 		return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
 	}

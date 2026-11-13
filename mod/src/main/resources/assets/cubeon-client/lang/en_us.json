@@ -114,7 +114,7 @@
   "cubeonclient.hud.armor_hint": "Equipped armor and remaining durability.",
   "cubeonclient.hud.ping_hint": "Latency to the current server.",
   "cubeonclient.hud.cps_hint": "Mouse clicks per second.",
-  "cubeonclient.hud.health_hint": "Compact health bars beneath nearby enemy names.",
+  "cubeonclient.hud.health_hint": "One heart and an integer heart count beneath nearby enemy names.",
   "cubeonclient.hud.animations_hint": "Animate your equipped Cubeon cosmetics.",
   "cubeonclient.menu.back": "Back",
   "cubeonclient.menu.enabled": "Enabled",

@@ -1,7 +1,8 @@
 """Exercise actual enemy-health renderers/config with recorded GUI draws.
 
 Minecraft fixtures supply entities and projection; production code filters them,
-lays out bars, clamps health and persists the toggle. Gradle checks real APIs.
+lays out one heart plus an integer, preserves smooth motion and persists the toggle.
+Gradle checks real APIs.
 """
 import json
 import os
@@ -47,7 +48,9 @@ public class CubeonHud {
         draw.labels.add(new int[]{Math.round(pose.originX()), Math.round(pose.originY()), Math.round(pose.scale() * 1000)});
         draw.labelPoses.add(pose);
     }
-    public static void drawEnemyBar(DrawContext draw, EnemyHealthBar.Pose pose, float fraction) {
+    public static void drawEnemyBar(DrawContext draw, MinecraftClient client,
+                                    EnemyHealthBar.Pose pose, int hearts) {
+        draw.healthValues.add(hearts);
         EnemyHealthBar.drawLocal((x,y,right,bottom,color) -> {
             float[] quad={pose.x(x,y),pose.y(x,y),pose.x(right,y),pose.y(right,y),
                     pose.x(right,bottom),pose.y(right,bottom),pose.x(x,bottom),pose.y(x,bottom)};
@@ -58,7 +61,7 @@ public class CubeonHud {
             float base=Math.max(Math.max(quad[1],quad[3]),Math.max(quad[5],quad[7]));
             draw.precise.add(new float[]{left,top,end,base});
             draw.fill(Math.round(left),Math.round(top),Math.round(end),Math.round(base),color);
-        },pose.scale(),fraction);
+        },hearts);
     }
 }''',
     'net/minecraft/util/math/Vec3d.java': '''
@@ -133,7 +136,9 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.util.math.Box;
 public class ClientWorld {
     public boolean cameraBlocked, barBlocked, edgeBlocked;
+    public int raycasts;
     public net.minecraft.util.hit.HitResult raycast(net.minecraft.world.RaycastContext ray) {
+        raycasts++;
         boolean blocked = (cameraBlocked && ray.from.x > 5) || (barBlocked && ray.to.y > 2)
                 || (edgeBlocked && Math.abs(ray.to.x) > .1)
                 || entities.stream().anyMatch(entity -> entity.occluded);
@@ -156,11 +161,12 @@ public class DrawContext {
     public List<com.cubeon.client.hud.EnemyHealthBar.Pose> labelPoses = new ArrayList<>();
     public List<int[]> fills = new ArrayList<>();
     public List<int[]> labels = new ArrayList<>();
+    public List<Integer> healthValues = new ArrayList<>();
     public int getScaledWindowWidth() { return 200; }
     public int getScaledWindowHeight() { return 100; }
     public void fill(int x,int y,int x2,int y2,int color) { fills.add(new int[]{x,y,x2,y2,color}); }
     public void drawTextWithShadow(Font font,String label,int x,int y,int color) { labels.add(new int[]{x,y}); }
-    public void clear() { fills.clear(); labels.clear(); precise.clear(); quads.clear(); labelPoses.clear(); }
+    public void clear() { fills.clear(); labels.clear(); healthValues.clear(); precise.clear(); quads.clear(); labelPoses.clear(); }
 }''',
     'net/minecraft/util/hit/HitResult.java': '''
 package net.minecraft.util.hit;
@@ -253,7 +259,7 @@ public class HealthTest {
         if (client.world != null && !interpolationProbe) for (var entity:client.world.entities) {
             entity.lastRenderX=entity.pos.x; entity.lastRenderY=entity.pos.y; entity.lastRenderZ=entity.pos.z;
         }
-        draw.clear();
+        draw.clear(); if(client.world!=null)client.world.raycasts=0;
         EnemyHealthRenderer.render(draw, client, client.gameRenderer::project, frameDelta);
     }
     static void hidden(LivingEntity enemy, String why) {
@@ -263,6 +269,49 @@ public class HealthTest {
     static void near(double actual,double expected,String why) {
         require(Math.abs(actual-expected)<.002,why+": actual="+actual+" expected="+expected);
     }
+    static float[] bounds() {
+        float left=Float.POSITIVE_INFINITY,top=Float.POSITIVE_INFINITY;
+        float right=Float.NEGATIVE_INFINITY,bottom=Float.NEGATIVE_INFINITY;
+        for(var quad:draw.precise) {
+            left=Math.min(left,quad[0]);top=Math.min(top,quad[1]);
+            right=Math.max(right,quad[2]);bottom=Math.max(bottom,quad[3]);
+        }
+        return new float[]{left,top,right,bottom};
+    }
+    static int rectangleCount(int hearts) {
+        int[] count={0};EnemyHealthBar.drawLocal((x,y,right,bottom,color)->count[0]++,hearts);
+        return count[0];
+    }
+    static int[] pixels() {
+        int[] result=new int[EnemyHealthBar.HEART_WIDTH*EnemyHealthBar.HEIGHT];
+        EnemyHealthBar.draw((x,y,right,bottom,color)-> {
+            for(int row=0;row<EnemyHealthBar.HEIGHT;row++) for(int col=0;col<EnemyHealthBar.HEART_WIDTH;col++) {
+                float px=col+.5F,py=row+.5F;
+                if(px>=x && px<right && py>=y && py<bottom) result[row*EnemyHealthBar.HEART_WIDTH+col]=color;
+            }
+        },0,0,1);
+        return result;
+    }
+    static int pixel(int[] image,int x,int y) {
+        return image[y*EnemyHealthBar.HEART_WIDTH+x];
+    }
+    static void heartStates() {
+        require(EnemyHealthBar.heartValue(20)==10,"Twenty HP displays as ten hearts");
+        require(EnemyHealthBar.heartValue(19)==10,"Odd HP rounds up to a visible whole-heart count");
+        require(EnemyHealthBar.heartValue(6)==3,"Six HP displays heart 3");
+        require(EnemyHealthBar.heartValue(5)==3,"Five HP remains visible as heart 3");
+        require(EnemyHealthBar.heartValue(.1F)==1,"Positive fractional HP stays visible");
+        require(EnemyHealthBar.heartValue(100)==50,"High-health mobs keep their real heart count");
+        for(float invalid:new float[]{0,Float.NaN,Float.POSITIVE_INFINITY,Float.NEGATIVE_INFINITY,-1})
+            require(EnemyHealthBar.heartValue(invalid)==0,"Invalid health displays zero");
+        require(EnemyHealthBar.contentWidth(3)<EnemyHealthBar.contentWidth(10),"Two-digit values reserve more width");
+        int[] heart=pixels();
+        require(pixel(heart,2,0)==0xFF000000,"Heart uses vanilla black outline");
+        require(pixel(heart,1,2)==0xFFFF1313,"Heart uses vanilla red");
+        require(pixel(heart,2,2)==0xFFFFC8C8,"Heart keeps vanilla highlight pixel");
+        require(pixel(heart,1,4)==0xFFBB1313,"Heart keeps vanilla lower shadow");
+        require(rectangleCount(3)<40,"Single-heart drawing stays cheap");
+    }
     static double[] gui(Vec3d point) {
         var projected=client.gameRenderer.project(point);
         return new double[]{(projected.x+1)*100,(1-projected.y)*50};
@@ -271,6 +320,9 @@ public class HealthTest {
         Hostile mob=new Hostile(); client.world.entities=new ArrayList<>(List.of(mob));
         interpolationProbe=true;
         double previousCenter=0,previousTop=0; int rolledFrames=0,rollovers=0;
+        var localQuads=new ArrayList<float[]>();
+        EnemyHealthBar.drawLocal((x,y,right,bottom,color)->localQuads.add(
+                new float[]{x,y,right,y,right,bottom,x,bottom}),5);
         for(int frame=0;frame<120;frame++) {
             int tick=frame/6; frameDelta=(frame%6)/6F;
             double time=tick+frameDelta;
@@ -284,7 +336,7 @@ public class HealthTest {
             client.gameRenderer.renderedViewProjection=projection
                     .rotateZ((float)(.09*Math.sin(time*.13))).rotateX((float)(.025*Math.cos(time*.07)));
             render();
-            require(draw.quads.size()==2 && draw.labelPoses.size()==1,"Moving visible mob keeps name and health quads");
+            require(draw.quads.size()==rectangleCount(5) && draw.labelPoses.size()==1,"Moving visible mob keeps name and heart quads");
             Vec3d anchor=new Vec3d(mob.lastRenderX+(mob.pos.x-mob.lastRenderX)*frameDelta,
                     1+mob.getHeight()+.5,mob.lastRenderZ+(mob.pos.z-mob.lastRenderZ)*frameDelta);
             var origin=gui(anchor); var right=gui(anchor.add(EnemyHealthBar.NAME_WORLD_HEIGHT,0,0));
@@ -300,7 +352,7 @@ public class HealthTest {
             near(label.downY(),dy,"Label preserves projected down Y");
             near(label.scale(),Math.hypot(dx,dy),"Tilted label scale uses the full down vector");
             var quad=draw.quads.get(0);
-            float[] local={-18,11,18,11,18,15,-18,15};
+            float[] local=localQuads.get(0);
             for(int vertex=0;vertex<4;vertex++) {
                 double x=local[vertex*2],y=local[vertex*2+1];
                 near(quad[vertex*2],origin[0]+rx*x+dx*y,"Health corner follows label plane X");
@@ -309,16 +361,17 @@ public class HealthTest {
             double center=(quad[0]+quad[2])*.5,top=(quad[1]+quad[3])*.5;
             if(frame>0) require(Math.abs(center-previousCenter)<.25 && Math.abs(top-previousTop)<.25,
                     "Camera/entity movement remains continuous between frames and across ticks");
-            if(Math.abs(quad[1]-quad[3])>.05) rolledFrames++;
+            if(Math.abs(ry*EnemyHealthBar.contentWidth(5))>.05) rolledFrames++;
             if(frame>0 && frame%6==0) rollovers++;
             previousCenter=center;previousTop=top;
         }
-        require(rolledFrames>80 && rollovers==19,"Probe exercises tilted bars and repeated tick rollover");
+        require(rolledFrames>80 && rollovers==19,"Probe exercises tilted hearts and repeated tick rollover");
         client.gameRenderer.renderedViewProjection=null;
         client.gameRenderer.camera.position=new Vec3d(0,1.6,0);
         interpolationProbe=false;frameDelta=.5F;
     }
     public static void main(String[] args) throws Exception {
+        heartStates();
         Path directory=Path.of(System.getProperty("test.config"));
         var old=new com.google.gson.JsonObject();
         old.addProperty("showFps",true); old.addProperty("fpsScale",1.25F);
@@ -378,24 +431,29 @@ public class HealthTest {
         require(Arrays.equals(CubeonHudConfig.get().emoteFavorites,new String[]{"sit", "laugh"}),
                 "HUD position reset preserves emote favorites");
         render();
-        require(draw.fills.size()==2 && draw.labels.isEmpty(),"One player bar; no duplicate name");
-        int[] background=draw.fills.get(0), fill=draw.fills.get(1);
-        require(Arrays.equals(background,new int[]{82,61,118,65,EnemyHealthBar.BACKGROUND}),"Bar is beneath projected name at GUI scale");
-        require(fill[2]-fill[0]==17 && fill[3]-fill[1]==2,"Half health, thin inset fill");
+        require(draw.fills.size()==rectangleCount(5) && draw.labels.isEmpty(),"One player heart and number; no duplicate name");
+        require(draw.healthValues.equals(List.of(5)),"Ten HP displays one heart plus integer 5");
+        require(client.world.raycasts==1,"One visible enemy costs one occlusion ray");
+        int[] background=draw.fills.get(0);
+        float[] originalBounds=bounds();
+        near(originalBounds[0],100+EnemyHealthBar.left(5),"Heart starts left of the centered integer label");
+        near(originalBounds[1],61,"Hearts sit below the name");
+        near(originalBounds[2]-originalBounds[0],EnemyHealthBar.HEART_WIDTH,"Single heart width");
+        near(originalBounds[3]-originalBounds[1],EnemyHealthBar.HEIGHT,"Single heart height");
         // Subpixel motion is retained instead of snapping names/bars each frame.
         float previousX=draw.precise.get(0)[0];
         client.gameRenderer.horizontal=.0005; render();
         require(draw.precise.get(0)[0]>previousX && draw.precise.get(0)[0]-previousX<.1F,
                 "Small camera movement keeps fractional bar position");
         client.gameRenderer.horizontal=0;
-        // Crossing the former 2/3-pixel height threshold cannot collapse the fill.
+        // Heart geometry scales continuously through nearby distance changes.
         float previousFillHeight=0;
         for(int i=0;i<=20;i++) {
             enemy.pos=new Vec3d(0,1,-3/(.60+i*.0025)); render();
-            var preciseFill=draw.precise.get(1);
+            var preciseFill=bounds();
             float fillHeight=preciseFill[3]-preciseFill[1];
-            require(fillHeight>=.999F,"Distant health fill stays visible");
-            if(i>0) require(Math.abs(fillHeight-previousFillHeight)<.02F,"Smooth resize without inset flicker");
+            require(fillHeight>0,"Distant hearts retain positive geometry");
+            if(i>0) require(Math.abs(fillHeight-previousFillHeight)<.03F,"Smooth heart resize through distance changes");
             previousFillHeight=fillHeight;
         }
         enemy.pos=new Vec3d(0,1,-3);
@@ -403,10 +461,6 @@ public class HealthTest {
         client.world.cameraBlocked=true; hidden(enemy,"Camera wall occlusion, even with player line of sight");
         client.world.cameraBlocked=false;
         client.gameRenderer.camera.position=new Vec3d(0,1.6,0);
-        client.world.barBlocked=true; hidden(enemy,"Label hidden behind wall above visible eyes");
-        client.world.barBlocked=false;
-        client.world.edgeBlocked=true; hidden(enemy,"Bar edge hidden behind wall");
-        client.world.edgeBlocked=false;
         // Render history and physics history differ during entity movement.
         interpolationProbe=true;
         enemy.lastRenderY=0; enemy.pos=new Vec3d(0,2,-3); enemy.physicsPos=new Vec3d(0,-5,-3);
@@ -414,19 +468,22 @@ public class HealthTest {
         require(Arrays.equals(draw.fills.get(0),background),"Bar follows vanilla render interpolation, ignoring physics history");
         interpolationProbe=false; enemy.physicsPos=null;
         enemy.pos=new Vec3d(0,1,-1.5); render();
-        require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==72 && draw.fills.get(0)[3]-draw.fills.get(0)[1]==8,"Near bar scales with name tag");
+        near(bounds()[2]-bounds()[0],EnemyHealthBar.HEART_WIDTH*2,"Near heart scales with name tag");
+        near(bounds()[3]-bounds()[1],EnemyHealthBar.HEIGHT*2,"Near hearts retain shape proportions");
         enemy.pos=new Vec3d(0,1,-6); render();
-        require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==18 && draw.fills.get(0)[3]-draw.fills.get(0)[1]==2,"Far bar keeps same name-tag proportions");
-        require(draw.fills.size()==2,"Thin distant bar retains health fill");
+        near(bounds()[2]-bounds()[0],EnemyHealthBar.HEART_WIDTH*.5,"Far heart keeps name-tag proportions");
+        near(bounds()[3]-bounds()[1],EnemyHealthBar.HEIGHT*.5,"Far hearts keep shape proportions");
+        require(draw.fills.size()==rectangleCount(5),"Distant heart retains its geometry");
         enemy.pos=new Vec3d(0,1,-3);
         client.gameRenderer.camera.rotation.rotateX((float)Math.PI / 3); render();
-        require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==36,"Camera pitch preserves camera-facing label size");
+        near(bounds()[2]-bounds()[0],EnemyHealthBar.HEART_WIDTH,"Camera pitch preserves camera-facing label size");
         client.gameRenderer.camera.rotation.identity().rotateZ((float)Math.PI / 4); render();
-        require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==36,"Camera roll preserves camera-facing label size");
+        near(bounds()[2]-bounds()[0],EnemyHealthBar.HEART_WIDTH,"Camera roll preserves camera-facing label size");
         client.gameRenderer.camera.rotation.identity();
-        enemy.health=100; render(); require(draw.fills.get(1)[2]-draw.fills.get(1)[0]==34,"Overhealth clamped");
-        enemy.health=Float.NaN; render(); require(draw.fills.size()==1,"Invalid health cannot overflow bar");
-        enemy.health=5; render(); require(draw.fills.get(1)[4]==0xFFE87979,"Low health muted red");
+        enemy.health=100; render(); require(draw.healthValues.equals(List.of(50)),"High-health mobs show integer 50");
+        enemy.health=Float.NaN; render(); require(draw.healthValues.equals(List.of(0)),"Invalid health displays integer zero safely");
+        enemy.health=19; render(); require(draw.healthValues.equals(List.of(10)),"Nineteen HP displays integer ten");
+        enemy.health=1; render(); require(draw.healthValues.equals(List.of(1)),"One HP displays integer one");
         enemy.health=10;
         hidden(client.player,"No self bar"); hidden(new LivingEntity(),"No passive mob clutter");
         enemy.alive=false; hidden(enemy,"Dead"); enemy.alive=true;
@@ -441,28 +498,29 @@ public class HealthTest {
         client.gameRenderer.depth=-.01; enemy.pos=new Vec3d(0,1,3);
         hidden(enemy,"Behind-camera negative reversed-Z depth cannot mirror into HUD");
         enemy.pos=new Vec3d(0,1,-3); client.gameRenderer.depth=.01;
-        render(); require(draw.fills.size()==2,"Visible reversed-Z depth remains supported");
+        render(); require(draw.fills.size()==rectangleCount(5),"Visible reversed-Z depth remains supported");
         client.gameRenderer.depth=1.01; hidden(enemy,"Behind camera/outside depth"); client.gameRenderer.depth=.5;
         client.gameRenderer.horizontal=2; hidden(enemy,"Offscreen"); client.gameRenderer.horizontal=0;
         client.currentScreen=new Object(); hidden(enemy,"Menu open"); client.currentScreen=null;
         client.options.hudHidden=true; hidden(enemy,"F1 hidden"); client.options.hudHidden=false;
         var world=client.world; client.world=null; render(); require(draw.fills.isEmpty(),"No world"); client.world=world;
         Hostile mob=new Hostile(); client.world.entities=new ArrayList<>(List.of(mob)); render();
-        require(draw.fills.size()==2 && draw.labels.size()==1 && draw.labels.get(0)[1]+9<draw.fills.get(0)[1],"Mob name above bar");
+        require(draw.fills.size()==rectangleCount(5) && draw.labels.size()==1 && draw.labels.get(0)[1]+9<bounds()[1],"Mob name above health label");
         mob.pos=new Vec3d(0,1,-6); render();
-        require(draw.labels.get(0)[2]==500 && draw.fills.get(0)[2]-draw.fills.get(0)[0]==18,"Distant mob name and bar share scale");
+        require(draw.labels.get(0)[2]==500,"Distant mob label scales"); near(bounds()[2]-bounds()[0],EnemyHealthBar.HEART_WIDTH*.5,"Distant mob name and heart share scale");
         mob.pos=new Vec3d(0,1,-1.5); render();
-        require(draw.labels.get(0)[2]==2000 && draw.fills.get(0)[2]-draw.fills.get(0)[0]==72,"Near mob name and bar share scale");
+        require(draw.labels.get(0)[2]==2000,"Near mob label scales"); near(bounds()[2]-bounds()[0],EnemyHealthBar.HEART_WIDTH*2,"Near mob name and heart share scale");
         mob.pos=new Vec3d(0,1,-3);
         mob.custom=true; mob.named=true; render(); require(draw.labels.isEmpty(),"No duplicate visible custom mob name");
         mob.named=false; render(); require(draw.labels.size()==1,"Hidden custom tag gets a name");
         movingLabelPlane();
         client.world.entities=new ArrayList<>();
         for (int i=0;i<70;i++) client.world.entities.add(new PlayerEntity());
-        render(); require(draw.fills.size()==64,"Crowds capped at 32 bars");
-        require(EnemyHealthBar.fraction(-5,20)==0 && EnemyHealthBar.fraction(10,0)==0,"Invalid bounds");
+        render(); require(draw.fills.size()==32*rectangleCount(5),"Crowds capped at 32 compact health labels");
+        require(client.world.raycasts==32,"Crowds use one visibility ray per rendered enemy");
+        require(EnemyHealthBar.heartValue(-5)==0,"Invalid health clamps safely");
         require(!EnemyHealthBar.onScreen(Double.NaN,0,0),"Invalid projection");
-        System.out.println("Toggle persistence, filtering, near/far proportions, camera pitch/roll, names, clamping and crowd limit passed.");
+        System.out.println("Integer health, filtering, smooth motion, one-ray visibility and crowd limit passed.");
     }
 }''',
 }
@@ -556,7 +614,8 @@ public final class WorldHealthProjection {
                     path.write_text(source)
                     sources.append(str(path))
                 sources += [str(MAIN / 'java/com/cubeon/client/hud' / (name + '.java'))
-                            for name in ('EnemyHealthBar', 'CubeonHudConfig', 'HudFeatures')]
+                            for name in ('EnemyHealthBar', 'EnemyHealthFrame', 'HealthHearts',
+                                         'CubeonHudConfig', 'HudFeatures')]
                 sources += [str(MAIN / 'java/com/cubeon/client' / name) for name in
                             ('Json.java', 'Bridge.java', 'ui/ClientTheme.java', 'emotes/EmoteState.java',
                              'emotes/EmotePose.java', 'emotes/EmoteFavorites.java')]
@@ -634,11 +693,11 @@ public class LegacyTest {
         PlayerEntity enemy=new PlayerEntity(); enemy.pos=new Vec3d(0,1,-3);
         client.world.entities=new ArrayList<>(List.of(enemy));
         render(); require(draw.fills.isEmpty(),"No world frame yet");
-        capture(); render(); require(draw.fills.size()==2,"Perspective projects visible enemy");
+        capture(); render(); require(!draw.fills.isEmpty(),"Perspective projects visible enemy hearts");
         render(); require(draw.fills.isEmpty(),"World frame is consumed once");
         enemy.pos=new Vec3d(0,1,3); capture(); render(); require(draw.fills.isEmpty(),"Behind camera rejected before division");
         context.camera.rotation.rotateY((float)Math.PI); capture(); render();
-        require(draw.fills.size()==2,"Camera rotation respected");
+        require(!draw.fills.isEmpty(),"Camera rotation respected");
         capture(); client.world=new ClientWorld(); render(); require(draw.fills.isEmpty(),"Old world's projection rejected");
         client.world.entities=new ArrayList<>(List.of(enemy));
         CubeonHudConfig.get().showEnemyHealth=false; capture();
@@ -672,7 +731,8 @@ public class LegacyTest {
                     path.write_text(source)
                     sources.append(str(path))
                 sources += [str(MAIN / 'java/com/cubeon/client/hud' / (name + '.java'))
-                            for name in ('EnemyHealthBar', 'CubeonHudConfig', 'HudFeatures')]
+                            for name in ('EnemyHealthBar', 'EnemyHealthFrame', 'HealthHearts',
+                                         'CubeonHudConfig', 'HudFeatures')]
                 sources += [str(MAIN / 'java/com/cubeon/client' / name) for name in
                             ('Json.java', 'Bridge.java', 'ui/ClientTheme.java', 'emotes/EmoteState.java',
                              'emotes/EmotePose.java', 'emotes/EmoteFavorites.java')]

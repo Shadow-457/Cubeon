@@ -479,12 +479,15 @@ public final class CubeonHud {
         }
     }
 
-    public static void drawEnemyBar(GuiGraphicsExtractor graphics, EnemyHealthBar.Pose pose, float fraction) {
+    public static void drawEnemyBar(GuiGraphicsExtractor graphics, Minecraft client,
+                                    EnemyHealthBar.Pose pose, int hearts) {
         graphics.pose().pushMatrix();
         try {
             applyEnemyPose(graphics, pose);
             EnemyHealthBar.drawLocal((x, y, right, bottom, color) ->
-                    fillEnemyRect(graphics, x, y, right, bottom, color), pose.scale(), fraction);
+                    fillEnemyRect(graphics, x, y, right, bottom, color), hearts);
+            graphics.text(client.font, Integer.toString(hearts), Math.round(EnemyHealthBar.numberX(hearts)),
+                    EnemyHealthBar.TOP, 0xFFE4E7EB, true);
         } finally {
             graphics.pose().popMatrix();
         }

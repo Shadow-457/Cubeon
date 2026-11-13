@@ -50,39 +50,37 @@ class ModSearchTests(unittest.TestCase):
         params = self.calls[0][1]
         self.assertEqual(params["index"], "relevance")
         self.assertEqual(json.loads(params["facets"]), [
-            ["project_type:mod"], ["categories:fabric"],
-            ["versions:1.21.11"], ["categories:equipment"],
+            ["project_type:mod"], ["versions:1.21.11"],
+            ["categories:fabric"], ["categories:equipment"],
         ])
 
-    def test_descriptive_name_falls_back_without_removing_filters(self):
-        self.routes["durability warner", 0] = [hit()]
+    def test_descriptive_name_is_sent_exactly_once_with_filters(self):
+        self.routes["armor durability warner", 0] = [hit()]
         results = mods.search_mods("armor durability warner", "1.21.11", "fabric")
         self.assertEqual(results[0]["slug"], "durabilitywarner")
-        self.assertEqual(results[0]["search_query"], "durability warner")
-        self.assertEqual(len(self.calls), 2)
-        self.assertEqual(self.calls[0][1]["facets"], self.calls[1][1]["facets"])
+        self.assertEqual(results[0]["search_query"], "armor durability warner")
+        self.assertEqual(len(self.calls), 1)
         self.assertEqual(results[0]["game_versions"], ["1.21.11"])
         self.assertEqual(results[0]["loaders"], ["fabric"])
+        self.assertTrue(results[0]["facet_compatible"])
 
-    def test_british_spelling_can_match_american_title(self):
-        self.routes["armor hud", 0] = [hit()]
+    def test_search_text_is_not_rewritten(self):
+        self.routes["armour hud", 0] = [hit()]
         result = mods.search_mods("armour hud")[0]
-        self.assertEqual(result["search_query"], "armor hud")
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(result["search_query"], "armour hud")
+        self.assertEqual(len(self.calls), 1)
 
-    def test_cached_related_search_keeps_the_same_query_on_later_pages(self):
-        self.routes["durability warner", 0] = [hit("first"), hit("second")]
-        self.routes["durability warner", 2] = [hit("third")]
-        self.routes["armor durability", 4] = [hit("unrelated")]
+    def test_pagination_keeps_the_exact_query_and_caches_each_page(self):
+        self.routes["armor durability warner", 0] = [hit("first"), hit("second")]
+        self.routes["armor durability warner", 2] = [hit("third")]
         first = mods.search_mods("armor durability warner", limit=2)
         second = mods.search_mods("armor durability warner", limit=2, offset=2)
         last = mods.search_mods("armor durability warner", limit=2, offset=4)
         self.assertEqual([result["slug"] for result in first], ["first", "second"])
         self.assertEqual(second[0]["slug"], "third")
         self.assertEqual(last, [])
-        self.assertEqual([params["query"] for _, params in self.calls], [
-            "armor durability warner", "durability warner", "durability warner", "durability warner",
-        ])
+        self.assertEqual([params["query"] for _, params in self.calls],
+                         ["armor durability warner"] * 3)
         before = len(self.calls)
         mods.search_mods("armor durability warner", limit=2)
         self.assertEqual(len(self.calls), before)
@@ -90,7 +88,7 @@ class ModSearchTests(unittest.TestCase):
     def test_short_and_empty_queries_do_not_fan_out(self):
         for query in ("", "durabilitywarner"):
             mods.search_mods(query)
-        self.assertEqual(len(self.calls), 3)  # one broad retry for the named query
+        self.assertEqual(len(self.calls), 2)
         self.assertEqual(self.calls[0][1]["index"], "downloads")
 
     def test_popular_mods_fill_pages_keep_filters_and_reuse_cached_results(self):
@@ -108,19 +106,32 @@ class ModSearchTests(unittest.TestCase):
             self.assertEqual((params['limit'], params['offset'], params['index']),
                              ('24', str(offset), 'downloads'))
             self.assertEqual(json.loads(params['facets']), [
-                ['project_type:mod'], ['categories:fabric'], ['versions:1.21.11']])
+                ['project_type:mod'], ['versions:1.21.11'], ['categories:fabric']])
 
-    def test_no_matches_are_bounded_and_do_not_start_new_search_on_later_pages(self):
+    def test_search_preserves_modrinths_result_order(self):
+        self.routes['optimization', 0] = [
+            hit('first'),
+            dict(hit('second'), downloads=1),
+            dict(hit('third'), downloads=2),
+            dict(hit('fourth'), downloads=1),
+            dict(hit('fifth'), downloads=999_999),
+        ]
+        results = mods.search_mods('optimization', '1.20.1', 'fabric', limit=5)
+        self.assertEqual([result['slug'] for result in results],
+                         ['first', 'second', 'third', 'fourth', 'fifth'])
+
+    def test_no_matches_make_one_exact_request_per_page(self):
         self.assertEqual(mods.search_mods("armor durability warner"), [])
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), 1)
         self.assertEqual(mods.search_mods("armor durability warner", offset=10), [])
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), 2)
 
     def test_all_modrinth_search_only_removes_explicit_compatibility_filters(self):
         self.routes["durabilitywarner", 0] = [hit(versions=["1.20.1"], loader="forge")]
         result = mods.search_mods("durabilitywarner", mc_version=None, loader=None)[0]
         self.assertEqual(json.loads(self.calls[0][1]["facets"]), [["project_type:mod"]])
-        self.assertIn("No build for Minecraft", mod_compatibility_note(result, "1.21.11", "fabric"))
+        self.assertFalse(result["facet_compatible"])
+        self.assertEqual("", mod_compatibility_note(result, "1.21.11", "fabric"))
 
     def test_pasted_project_link_resolves_without_search_index_or_category_filters(self):
         self.routes["durabilitywarner"] = {
@@ -156,7 +167,7 @@ class ModSearchTests(unittest.TestCase):
     def test_unknown_metadata_still_requires_install_time_file_resolution(self):
         self.assertEqual(mod_compatibility_note({}, "1.21.11", "fabric"), "")
         self.assertIn("Choose a mod loader", mod_compatibility_note(hit(), "1.21.11", "vanilla"))
-        self.assertIn("No Forge build", mod_compatibility_note({"loaders": ["fabric"]}, "1.21.11", "forge"))
+        self.assertEqual("", mod_compatibility_note({"loaders": ["fabric"]}, "1.21.11", "forge"))
         self.assertEqual(mod_compatibility_note({"game_versions": ["1.21.11"], "loaders": ["fabric"]},
                                                 "1.21.11", "fabric"), "")
 
@@ -166,20 +177,20 @@ class ModSearchTests(unittest.TestCase):
             self.routes["durabilitywarner", 0] = [hit()]
             clock.return_value = 1030
             self.assertEqual(mods.search_mods("durabilitywarner"), [])
-            self.assertEqual(len(self.calls), 2)
+            self.assertEqual(len(self.calls), 1)
             clock.return_value = 1061
             self.assertEqual(mods.search_mods("durabilitywarner")[0]["slug"], "durabilitywarner")
-            self.assertEqual(len(self.calls), 3)
+            self.assertEqual(len(self.calls), 2)
 
-    def test_dependency_id_and_split_title_find_real_project_names(self):
-        for query, actual in (("cloth_config", "Cloth Config"),
-                              ("yet_another_config_lib_v3", "YetAnotherConfigLib"),
-                              ("better grassify", "bettergrassify")):
-            self.routes[actual, 0] = [hit(actual)]
+    def test_dependency_ids_and_split_titles_remain_exact_queries(self):
+        for query in ("cloth_config", "yet_another_config_lib_v3", "better grassify"):
+            self.routes[query, 0] = [hit(query)]
             results = mods.search_mods(query, "1.21.11", "fabric")
-            self.assertEqual(results[0]["search_query"], actual)
+            self.assertEqual(results[0]["search_query"], query)
+        self.assertEqual([params["query"] for _, params in self.calls],
+                         ["cloth_config", "yet_another_config_lib_v3", "better grassify"])
 
-    def test_broad_fallback_keeps_pagination_and_truthful_compatibility(self):
+    def test_empty_filtered_results_never_retry_without_facets(self):
         def fetch(url, **kwargs):
             params = kwargs["params"]
             self.calls.append((url, dict(params)))
@@ -188,10 +199,12 @@ class ModSearchTests(unittest.TestCase):
         with patch.object(mods.net, "get_json", side_effect=fetch):
             first = mods.search_mods("missing", "1.21.11", "fabric", limit=1)
             second = mods.search_mods("missing", "1.21.11", "fabric", limit=1, offset=1)
-        self.assertTrue(first[0]["search_broadened"])
-        self.assertTrue(second[0]["search_broadened"])
-        self.assertEqual(second[0]["slug"], "other-1")
-        self.assertIn("No build for Minecraft", mod_compatibility_note(first[0], "1.21.11", "fabric"))
+        self.assertEqual(first, [])
+        self.assertEqual(second, [])
+        self.assertEqual(len(self.calls), 2)
+        for _, params in self.calls:
+            self.assertEqual(json.loads(params["facets"]), [
+                ["project_type:mod"], ["versions:1.21.11"], ["categories:fabric"]])
 
     def test_memory_cache_honors_each_callers_freshness_window(self):
         cache = mods.local_cache

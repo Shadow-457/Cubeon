@@ -14,7 +14,7 @@ FILES = (
     "emotes/EmoteRoom.java", "cosmetics/CosmeticSelection.java", "cosmetics/RemoteCosmetics.java",
     "hud/CubeonHudConfig.java",
     "ui/ClientTheme.java",
-    "hud/CameraBlur.java",
+    "hud/CameraBlur.java", "hud/HealthHearts.java",
 )
 
 

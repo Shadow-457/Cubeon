@@ -163,8 +163,11 @@ public final class Hud189 extends Gui {
         GlStateManager.rotate(mc.getRenderManager().playerViewX,1,0,0);
         GlStateManager.scale(-.025,-.025,.025);
         GlStateManager.disableLighting(); GlStateManager.disableCull();
-        drawRect(-20,0,20,4,0xb0202b30);
-        drawRect(-20,0,-20+Math.round(40*Math.max(0,Math.min(1,e.getHealth()/Math.max(1,e.getMaxHealth())))),4,0xe67edac5);
+        int hearts=HealthHearts.value(e.getHealth()); String value=Integer.toString(hearts);
+        int width=HealthHearts.WIDTH+2+mc.fontRendererObj.getStringWidth(value),left=-width/2;
+        HealthHearts.draw((x,y,right,bottom,color) -> drawRect((int)x,(int)y,(int)right,(int)bottom,color),
+                left,0,1);
+        mc.fontRendererObj.drawStringWithShadow(value,left+HealthHearts.WIDTH+2,0,0xffeaf5f3);
         GlStateManager.enableCull(); GlStateManager.enableLighting(); GlStateManager.popMatrix();
     }
 }

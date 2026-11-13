@@ -1,14 +1,16 @@
 package com.cubeon.client.hud;
 
-/** Name-tag-sized bar shared by both Minecraft namespaces. */
+/** Projected enemy heart-and-number label shared by both Minecraft namespaces. */
 public final class EnemyHealthBar {
     public static final double RANGE = 24.0;
     public static final int MAX_BARS = 32;
-    public static final int WIDTH = 36;
-    public static final int HEIGHT = 4;
+    public static final int HEART_WIDTH = HealthHearts.HEART_WIDTH;
+    public static final int GAP = 2;
+    public static final int DIGIT_WIDTH = 6;
+    public static final int HEIGHT = HealthHearts.HEIGHT;
     public static final int NAME_HEIGHT = 9;
     public static final float NAME_WORLD_HEIGHT = 0.225F;
-    public static final int BACKGROUND = 0xD914181E;
+    public static final int TOP = NAME_HEIGHT + 2;
 
     private EnemyHealthBar() {}
 
@@ -40,12 +42,11 @@ public final class EnemyHealthBar {
                 (float) ((y - bottomY) * height / (2 * NAME_HEIGHT)));
     }
 
-    /** Test all rotated bar corners before tracing visibility rays. */
-    public static boolean onScreen(Pose pose, int width, int height) {
-        float scale = pose.scale();
-        float halfWidth = Math.max(WIDTH, 2 / scale) / 2;
-        float top = NAME_HEIGHT + 2;
-        float bottom = top + Math.max(HEIGHT, 1 / scale);
+    /** Test all rotated heart-and-number corners before tracing visibility. */
+    public static boolean onScreen(Pose pose, int width, int height, int contentWidth) {
+        float halfWidth = contentWidth / 2F;
+        float top = TOP;
+        float bottom = top + HEIGHT;
         for (float x : new float[]{-halfWidth, halfWidth}) {
             for (float y : new float[]{top, bottom}) {
                 float screenX = pose.x(x, y), screenY = pose.y(x, y);
@@ -55,22 +56,30 @@ public final class EnemyHealthBar {
         return true;
     }
 
-    /** Draw in label units, retaining the minimum GUI-pixel thickness at a distance. */
-    public static void drawLocal(Fill fill, float scale, float fraction) {
-        draw((x, y, right, bottom, color) ->
-                        fill.draw(x / scale, y / scale, right / scale, bottom / scale, color),
-                0, (NAME_HEIGHT + 2) * scale, scale, fraction);
+    public static int heartValue(float health) {
+        return HealthHearts.value(health);
     }
 
-    /** Preserve subpixel motion and a visible fill without integer-size jumps. */
-    public static void draw(Fill fill, float center, float top, float scale, float fraction) {
-        float width = Math.max(2, WIDTH * scale);
-        float height = Math.max(1, HEIGHT * scale);
-        float x = center - width / 2;
-        float inset = Math.max(0, Math.min(scale, (height - 1) / 2));
-        fill.draw(x, top, x + width, top + height, BACKGROUND);
-        if (fraction > 0) fill.draw(x + inset, top + inset,
-                x + inset + (width - 2 * inset) * fraction, top + height - inset, color(fraction));
+    public static int contentWidth(int hearts) {
+        return HEART_WIDTH + GAP + Math.max(1, Integer.toString(Math.max(0, hearts)).length()) * DIGIT_WIDTH;
+    }
+
+    public static float left(int hearts) {
+        return -contentWidth(hearts) / 2F;
+    }
+
+    public static float numberX(int hearts) {
+        return left(hearts) + HEART_WIDTH + GAP;
+    }
+
+    /** One heart follows the same continuous projected plane as the integer label. */
+    public static void drawLocal(Fill fill, int hearts) {
+        draw(fill, left(hearts), TOP, 1);
+    }
+
+    /** Preserve subpixel motion without integer-size jumps. */
+    public static void draw(Fill fill, float left, float top, float scale) {
+        HealthHearts.draw(fill::draw, left, top, scale);
     }
 
     public static double lerp(double previous, double current, float delta) {
@@ -81,15 +90,6 @@ public final class EnemyHealthBar {
     public static boolean inFront(double x, double y, double z, org.joml.Vector3fc forward) {
         double distance = x * forward.x() + y * forward.y() + z * forward.z();
         return Double.isFinite(distance) && distance > 0.05;
-    }
-
-    public static float fraction(float health, float maximum) {
-        if (!Float.isFinite(health) || !Float.isFinite(maximum) || maximum <= 0) return 0;
-        return Math.max(0, Math.min(1, health / maximum));
-    }
-
-    public static int color(float fraction) {
-        return fraction > 0.5F ? 0xFF83C13D : fraction > 0.25F ? 0xFFEBC46A : 0xFFE87979;
     }
 
     /** Minecraft project methods return NDC, not GUI pixels. Reject behind-camera points. */
@@ -114,7 +114,7 @@ public final class EnemyHealthBar {
         return (float) ((1 - ndc) * 0.5 * height);
     }
 
-    /** Keep bar and label proportions together under distance, FOV and GUI scaling. */
+    /** Keep hearts and label proportions together under distance, FOV and GUI scaling. */
     public static float labelScale(double top, double bottom, int screenHeight) {
         return (float) (Math.abs(bottom - top) * 0.5 * screenHeight / NAME_HEIGHT);
     }

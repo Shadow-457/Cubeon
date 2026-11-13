@@ -504,7 +504,8 @@ class Handoff:
 
 
 def create_job(target: Target, release: Release, download: Path, cache: Path, *, cancel=None,
-               args=None, parent_pid=None, parent_wait=PARENT_WAIT_SECONDS, health_wait=HEALTH_WAIT_SECONDS) -> tuple[Path, dict]:
+               args=None, parent_pid=None, parent_wait=PARENT_WAIT_SECONDS,
+               health_wait=HEALTH_WAIT_SECONDS, show_ui=True) -> tuple[Path, dict]:
     """Capture the target's bytes before the UI closes; no script interpolation."""
     import psutil
     from .atomicio import write_json
@@ -528,7 +529,7 @@ def create_job(target: Target, release: Release, download: Path, cache: Path, *,
         "parent_started_ms": int(psutil.Process(parent_pid).create_time() * 1000),
         "parent_wait": parent_wait, "health_wait": health_wait,
         "lock": str(cache / "update.lock"), "failed": str(cache / f"failed-{release.sha256}"),
-        "args": list(sys.argv[1:] if args is None else args),
+        "args": list(sys.argv[1:] if args is None else args), "show_ui": bool(show_ui),
     }
     if target.kind == "linux":
         # /proc start ticks survive PID reuse and exec, including AppImage's
@@ -565,7 +566,7 @@ def spawn_helper(directory: Path, job: dict) -> Handoff:
         # PowerShell 5.1 needs a BOM to read non-ASCII source consistently.
         script.write_text(WINDOWS_HELPER, encoding="utf-8-sig", newline="\r\n")
         command = [executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                   "-File", str(script), "-JobPath", str(directory / "job.json")]
+                   "-STA", "-File", str(script), "-JobPath", str(directory / "job.json")]
         # PowerShell 5.1 exits immediately without running -File when started
         # with DETACHED_PROCESS, so the helper never writes "ready". A
         # CREATE_NO_WINDOW child still outlives the launcher and keeps its
@@ -631,12 +632,14 @@ def _clean_cache(cache: Path, keep: Path):
 
 
 class AutoUpdater:
-    """One background startup attempt; busy applications defer to next launch."""
-    def __init__(self, *, prepare, request_exit, resume, notice=None, current=APP_VERSION):
+    """One startup attempt; busy state or the user's Later choice defers it."""
+    def __init__(self, *, prepare, request_exit, resume, notice=None, confirm=None,
+                 current=APP_VERSION):
         self.prepare = prepare
         self.request_exit = request_exit
         self.resume = resume
         self.notice = notice
+        self.confirm = confirm
         self.current = current
         self.cancel_event = threading.Event()
         self._thread = None
@@ -695,6 +698,10 @@ class AutoUpdater:
             _check_cancel(self.cancel_event)
             if other_launcher_running(target):
                 self._notice("deferred", release)
+                return
+            if self.confirm is not None and not self.confirm(release, self.cancel_event):
+                _check_cancel(self.cancel_event)
+                self._notice("postponed", release)
                 return
             # Hashing/space/identity probes happen BEFORE the UI claim, outside
             # TREE_LOCK. The detached helper repeats the hash after shutdown.

@@ -17,11 +17,12 @@ import logging
 import threading   # For running network calls in the background without freezing the UI
 import time        # Throttle for the automatic problem check
 import weakref
+from concurrent.futures import ThreadPoolExecutor
 
 # Flet imports - Flet is a UI framework for Python (like Flutter)
 import flet as ft
 from ui.image_memory import preview_image
-from cubeon import i18n
+from cubeon import i18n, mod_catalogue
 from cubeon.mod_loaders import MOD_CAPABLE_LOADERS
 from cubeon.content import content_mc_versions
 from cubeon import cubeonfriends
@@ -78,12 +79,8 @@ def batch_progress_text(value: float, total: float, eta: "str | None" = None) ->
 def mod_compatibility_note(mod: dict, mc_version: str | None, loader: str | None) -> str:
     if loader not in MOD_CAPABLE_LOADERS:
         return "Choose a mod loader on the Play tab."
-    versions = mod.get("game_versions")
-    loaders = mod.get("loaders")
-    if mc_version and versions is not None and mc_version not in versions:
-        return f"No build for Minecraft {mc_version}. Open the mod to see supported versions."
-    if loaders is not None and loader not in loaders:
-        return f"No {loader.title()} build. Open the mod to see supported loaders."
+    if mod.get("compatibility_target") == [mc_version, loader] and mod.get("compatible") is False:
+        return f"No matching build for Minecraft {mc_version} / {loader.title()}."
     return ""
 
 
@@ -200,7 +197,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def _make_installed_icon(m):
         """Embedded pack art, stored project art or a Cubeon logo fallback."""
-        slug = m.get("slug")
+        slug = (mod_catalogue.identity(m) if m.get("source") == "curseforge" else m.get("slug"))
         holder = ft.Container(
             width=44, height=44, bgcolor=CARD_FILL, border_radius=RADIUS,
             alignment=ft.Alignment.CENTER,
@@ -232,7 +229,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         def worker():
             try:
-                got = core.get_mod_icons(slugs)
+                mr_slugs = [slug for slug in slugs if not slug.startswith("curseforge:")]
+                got = core.get_mod_icons(mr_slugs) if mr_slugs else {}
+                for slug in slugs:
+                    if slug.startswith("curseforge:"):
+                        try:
+                            got[slug] = (core.get_mod_details(slug) or {}).get("icon_url")
+                        except Exception:
+                            pass
             except Exception:
                 with thread_safe_ui.TREE_LOCK:
                     icon_inflight.difference_update(slugs)
@@ -355,6 +359,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             return cached[1]
         names = set()
         for m in items:
+            if m.get("project_id") or m.get("slug"):
+                names.add(mod_catalogue.identity(m))
+                if m.get("source") == "curseforge":
+                    continue
             inst_slug = (m.get("slug") or "").lower()
             if inst_slug:
                 names.add(inst_slug)
@@ -1361,7 +1369,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         pending = _search_debounce["timer"]
         if pending is not None:
             pending.cancel()
-        _search_debounce["timer"] = threading.Timer(0.45, run_mod_search_safe)
+        # Match Prism Launcher's search cadence: quick enough to feel live,
+        # long enough that typing a word still produces one request.
+        _search_debounce["timer"] = threading.Timer(0.35, run_mod_search_safe)
         _search_debounce["timer"].daemon = True
         _search_debounce["timer"].start()
 
@@ -1533,7 +1543,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         header_title.value = dict(CONTENT_TABS)[_ct()]
         if _is_mod():
             header_subtitle.value = "Choose a mod loader on Play to install mods." if not _can_install() else ''
-            mod_search_field.hint_text = "Search mods or paste a Modrinth link..."
+            mod_search_field.hint_text = "Search mods or paste a Modrinth / CurseForge link..."
         elif _ct() == "resourcepack":
             header_subtitle.value = "Texture packs work in vanilla and modded Minecraft."
             mod_search_field.hint_text = "Search resource packs... e.g. faithful, stay true"
@@ -1646,7 +1656,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     type_preferences = {}
 
     def _browse_key():
-        return (mod_search_field.value.strip(), state.get("selected_mc_version"),
+        return (mod_search_field.value.strip(), current_mc_version_for_search(),
                 version_dropdown.value, state.get("mod_loader"), _ct(),
                 active_category["value"], search_scope["compatible"], BROWSE_PAGE_SIZE)
 
@@ -1655,6 +1665,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         _refresh_browse_scope()
         key = _browse_key()
         cached = browse_sessions.get(key)
+        if cached and (time.monotonic() - cached.get("fetched_at", time.monotonic()) >= 60
+                       and (not any(cached["pages"].values()) or cached.get("provider_errors"))):
+            browse_sessions.pop(key, None)
+            cached = None
         if cached is not None:
             return cached['token']
         browse_generation["value"] += 1
@@ -1663,7 +1677,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     def _browse_current(token):
         return token == browse_state['token'] and token[1] == _browse_key()
 
+    force_search = {"value": False}
+
     def _retry_search(event=None):
+        force_search["value"] = True
         browse_sessions.pop(_browse_key(), None)
         run_mod_search_safe()
 
@@ -1680,7 +1697,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         """Every catalogue, including popular Mods, fetches one page at a time."""
         return True
 
-    def _browse_fetch(page_num: int, key=None):
+    def _browse_fetch(page_num: int, key=None, *, source="modrinth", force=False):
         """One page of results for the CURRENT browse key. Runs on a worker
         thread. May return fewer than BROWSE_PAGE_SIZE hits, which the caller
         treats as the last page."""
@@ -1690,14 +1707,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             mc_version, loader = None, None
         offset = page_num * page_size
         if content_type == "mod":
+            options = {"source": source} if source != "modrinth" else {}
+            if force:
+                options["force"] = True
             if query:
                 return core.search_mods(
                     query, mc_version=mc_version, loader=loader,
                     categories=[cat] if cat else None,
-                    limit=page_size, offset=offset)
+                    limit=page_size, offset=offset, **options)
             return core.get_recommended_mods(
                 mc_version=mc_version, loader=loader, category=cat or None,
-                limit=page_size, offset=offset)
+                limit=page_size, offset=offset, **options)
         if query:
             return core.search_content(
                 content_type, query, mc_version=mc_version,
@@ -1707,11 +1727,90 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             content_type, mc_version=mc_version, category=cat or None,
             limit=page_size, offset=offset)
 
+    def _load_mod_page(page_num, token):
+        session = browse_sessions.get(token[1])
+        if session is None:
+            return
+        request = (token, page_num)
+        if request in browse_inflight:
+            return
+        browse_inflight.add(request)
+        link = mod_catalogue.reference(token[1][0])
+        sources = (link["source"],) if link else mod_catalogue.SOURCES
+        results, finished, errors = {}, set(), {}
+        session["provider_pending"] = set(sources)
+        retained_rows = [row for row in browse_results_view.controls
+                         if callable(getattr(row, "on_click", None))
+                         and row.data not in ("content-loading", "content-empty", "cubeon-client-browse")]
+        if retained_rows:
+            retained_rows = list(browse_results_view.controls)
+
+        def publish(source, hits, error=None):
+            with thread_safe_ui.TREE_LOCK:
+                if browse_sessions.get(token[1]) is not session:
+                    browse_inflight.discard(request)
+                    return
+                finished.add(source)
+                session["provider_pending"].discard(source)
+                if error:
+                    errors[source] = str(error)
+                else:
+                    results[source] = [dict(hit, source=source) for hit in hits or []]
+                    if len(hits or []) < BROWSE_PAGE_SIZE:
+                        session.setdefault("provider_ends", {})[source] = page_num
+                session["provider_errors"] = dict(errors)
+                merged = mod_catalogue.interleave(results.get("modrinth", []), results.get("curseforge", []))
+                if merged or len(finished) == len(sources):
+                    session["pages"][page_num] = merged
+                if len(finished) == len(sources):
+                    browse_inflight.discard(request)
+                    session["fetched_at"] = time.monotonic()
+                    ends = session.get("provider_ends", {})
+                    if not errors and all(source in ends for source in sources):
+                        session["total_pages"] = max(ends[source] for source in sources) + 1
+                if _browse_current(token):
+                    if not merged and errors and retained_rows:
+                        browse_results_view.controls[:] = retained_rows
+                        for row in retained_rows:
+                            row.ignore_interactions = False
+                        browse_results_view.disabled = False
+                        browse_status_text.value = " · ".join(f"{mod_catalogue.LABELS[s]} unavailable" for s in errors)
+                        browse_retry.opacity, browse_retry.disabled = 1, False
+                        for control in (browse_results_view, browse_status_text, browse_retry):
+                            thread_safe_ui.refresh(control)
+                    elif merged or len(finished) == len(sources):
+                        _render_browse_page()
+                    elif errors:
+                        browse_status_text.value = " · ".join(f"{mod_catalogue.LABELS[s]} unavailable" for s in errors)
+                        browse_retry.opacity, browse_retry.disabled = 1, False
+                        for control in (browse_status_text, browse_retry):
+                            thread_safe_ui.refresh(control)
+
+        def worker(source):
+            try:
+                if page_num > session.get("provider_ends", {}).get(source, MAX_BROWSE_PAGES):
+                    hits = []
+                else:
+                    hits = _browse_fetch(page_num, token[1], source=source, force=session.get("force", False))
+                publish(source, hits)
+            except Exception as error:
+                publish(source, [], error)
+
+        for source in sources:
+            try:
+                threading.Thread(target=lambda source=source: worker(source), daemon=True,
+                                 name=f"cubeon-mod-search-{source}").start()
+            except Exception as error:
+                publish(source, [], error)
+
     def _load_browse_page(page_num: int, token, error_prefix: str):
         """Fetches page `page_num` for `token` and renders it when it still
         belongs to the current browse. An already-cached page just re-renders."""
         if page_num in browse_state["pages"]:
             _render_browse_page()
+            return
+        if token[1][4] == "mod":
+            _load_mod_page(page_num, token)
             return
         request = (token, page_num)
         if request in browse_inflight:
@@ -1800,7 +1899,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         if cached is None:
             cached = dict(empty_msg=empty_msg, page=0, pages={}, results=[],
                           paged=_browse_is_paged(), total_pages=MAX_BROWSE_PAGES,
-                          token=token)
+                          token=token, force=force_search["value"])
+            force_search["value"] = False
             browse_sessions[key] = cached
             while len(browse_sessions) > 12:
                 browse_sessions.pop(next(iter(browse_sessions)))
@@ -1921,7 +2021,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 empty_state(browse_state.get("empty_msg") or "No results",
                             "Try a different search or adjust the filters."))
             if _is_mod() and _browse_query() and (search_scope["compatible"] or active_category["value"]):
-                rows.append(quiet_chip("Search all Modrinth", on_click=_search_all_modrinth))
+                rows.append(quiet_chip("Search all versions and loaders", on_click=_search_all_modrinth))
         else:
             # Snapshot the mode once: a background recommend/search worker can
             # finish and call this right after the user flipped the content-type
@@ -1941,7 +2041,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     is_installed = (any(_is_client_mod(item) for item in _cached_installed('mod'))
                                     if mod.get('builtin_client') else
                                     slug in already or (bool(compact) and compact in already)
-                                    or (bool(pid) and pid in already))
+                                    or (bool(pid) and pid in already)) if mod_catalogue.source_of(mod) == "modrinth" else (mod_catalogue.identity(mod) in already)
                 else:
                     # Resource packs / shaders store no Modrinth slug (they're
                     # just .zips in a shared folder), so match the project's
@@ -1959,12 +2059,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         layout_tiles(browse_results_view, bool(displayed_results))
         browse_results_view.disabled = False
 
-        matched_query = results[0].get("search_query", _browse_query()) if results else ""
         browse_status_text.value = (
-            "No filtered matches · showing other versions, loaders or categories"
-            if any(item.get('search_broadened') for item in results)
-            else f'Related matches for "{matched_query}"' if matched_query and matched_query != _browse_query()
-            else f"{len(displayed_results)} result(s)" if displayed_results else "")
+            f"{len(displayed_results)} result(s)" if displayed_results else "")
         browse_status_text.tooltip = browse_status_text.value
         browse_pager_label.value = f"Page {page_num + 1} of {total_pages}"
         browse_pager_row.visible = True
@@ -1972,6 +2068,20 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         browse_pager_next.disabled = page_num >= total_pages - 1
         browse_retry.opacity = 0
         browse_retry.disabled = True
+        if _is_mod():
+            errors = browse_state.get("provider_errors", {})
+            pending = browse_state.get("provider_pending", set())
+            notes = [f"{mod_catalogue.LABELS[source]} unavailable" for source in errors]
+            notes.extend(f"Loading {mod_catalogue.LABELS[source]}…" for source in sorted(pending))
+            if notes:
+                browse_status_text.value = " · ".join(notes)
+                browse_status_text.tooltip = "\n".join(errors.values()) or browse_status_text.value
+            if errors:
+                browse_retry.opacity, browse_retry.disabled = 1, False
+            if errors and not displayed_results:
+                browse_results_view.controls[:] = [empty_state("Search unavailable", "Couldn't check both catalogues. Retry the search."),
+                                                  quiet_chip("Retry", on_click=_retry_search)]
+                layout_tiles(browse_results_view, False)
         # Results often land moments after the tab switch, while the user is
         # already moving. Repaint only the browse region instead of diffing
         # the whole page in that moment.
@@ -2033,7 +2143,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             thread_safe_ui.refresh(catalogue_host)
         return True
 
-    def open_mod_detail(mod, content_type=None):
+    def open_mod_detail(mod, content_type=None, *, force=False):
         """Open the full menu for one mod, keyed by its Modrinth id or slug.
         Manually dropped-in files have neither, so there is nothing to look
         up - those rows simply don't open a menu."""
@@ -2042,14 +2152,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             return
 
         content_type = content_type or _ct()
+        detail_source = mod_catalogue.source_of(mod)
+        lookup_ref = mod_catalogue.identity(mod, ref) if detail_source == "curseforge" else ref
         detail_mc = state["selected_mc_version"]
         detail_version = version_dropdown.value
         detail_search_mc = current_mc_version_for_search()
         detail_loader = state.get("mod_loader")
         feedback = install_registry.project(
-            (content_type, detail_mc, detail_loader, detail_version), ref, mod.get("slug"))
+            (content_type, detail_mc, detail_loader, detail_version, detail_source), ref, mod.get("slug"))
         title = mod.get("title") or mod.get("display_name") or "Mod"
-        icon_url = mod.get("icon_url") or installed_icon_urls.get(mod.get('slug'))
+        icon_url = mod.get("icon_url") or installed_icon_urls.get(lookup_ref if detail_source == 'curseforge' else mod.get('slug'))
         blurb = (mod.get("description") or "").strip()
 
         detail_navigation["generation"] += 1
@@ -2161,6 +2273,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             hashes=v.get("hashes"),
                             status_cb=on_status, progress_cb=_install_progress,
                             cancel_event=feedback.cancel_event,
+                            **({"source": detail_source, "file_id": v.get("file_id") or v.get("id")}
+                               if detail_source == "curseforge" else {"file_id": v.get("id")}),
                         )
                     else:
                         core.download_content(
@@ -2191,10 +2305,25 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 on_error(error)
 
         quick_state = {"repaints": []}
-        release_state = {"error": None, "checked": False}
+        release_state = {"error": None, "checked": False, "next_offset": None, "loading": False}
+
+        def _external_action(url):
+            def visit(event):
+                if _http_url(url):
+                    page.run_task(ft.UrlLauncher().launch_url, url)
+            def import_file(event):
+                if (content_type, detail_mc, detail_loader, detail_version) == _installed_target(content_type):
+                    open_local_mod_picker(event)
+            return ft.Column([
+                ft.Text("Download on CurseForge, then import the JAR.", size=11, color=TEXT_DIM),
+                ft.TextButton("Open CurseForge", on_click=visit),
+                ft.TextButton("Import from file", on_click=import_file),
+            ], spacing=0)
 
         def _install_button(v, details, *, label="Install", big=False):
             """An Install button that owns its busy / done / error states."""
+            if v.get("compatible") and not v.get("url") and v.get("website_url"):
+                return _external_action(v["website_url"])
             done = {"v": bool(installed_now.get(v.get("filename")))}
             blocked = (not detail_mc or not detail_loader or not detail_version
                        or not v.get('url') or not v.get('filename')
@@ -2290,7 +2419,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         def _meta_line(details):
             """Only what a player decides on: how popular it is, what loader it
             runs on, and which Minecraft versions it covers."""
-            pills = []
+            pills = [_detail_badge(mod_catalogue.LABELS[detail_source])] if content_type == "mod" else []
             if details.get("downloads"):
                 pills.append(_detail_badge(
                     _human_count(details["downloads"]) + " downloads"))
@@ -2313,14 +2442,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             holder = ft.Container(width=180)
 
             def _paint():
-                if not compat:
+                restricted = next((v for v in versions if v.get("compatible") and not v.get("url") and v.get("website_url")), None)
+                if not compat and restricted:
+                    holder.content = _external_action(restricted["website_url"])
+                elif not compat:
                     message = ("Couldn't check compatible releases." if release_state["error"]
                                or not release_state["checked"] else
-                               "No build for this Minecraft version and loader.")
+                               "No matching build for this Minecraft version and loader.")
                     holder.content = ft.Column([
                         ft.Text(message, size=12.5, color=TEXT_DIM,
                                 tooltip=release_state["error"]),
-                        ft.TextButton(content="Retry", on_click=lambda event: open_mod_detail(mod, content_type),
+                        ft.TextButton(content="Retry", on_click=lambda event: open_mod_detail(mod, content_type, force=True),
                                       style=ft.ButtonStyle(color=ACCENT))], spacing=4)
                 else:
                     best = compat[0]
@@ -2402,11 +2534,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                         else "No versions are available for this mod.",
                                         size=12.5, color=TEXT_DIM))
                 else:
-                    ordered = compat + others
+                    ordered = sorted(versions, key=lambda v: (bool(v.get("compatible")), v.get("date_published") or ""), reverse=True)
                     for v in ordered[:version_limit['value']]:
                         rows.append(_build_version_row(v, details))
                     hidden = max(0, len(ordered) - version_limit['value'])
-                    if not hidden and version_limit['value'] > 8:
+                    if release_state["loading"]:
+                        more.visible, more.disabled = True, True
+                        more_text.value = "Loading releases…"
+                    elif not hidden and release_state["next_offset"] is not None:
+                        more.visible, more.disabled = True, False
+                        more_text.value = "Retry more releases" if release_state["error"] else "Show more versions"
+                    elif not hidden and version_limit['value'] > 8:
                         more.visible = True
                         more_text.value = "Show fewer versions"
                     elif hidden > 0:
@@ -2422,6 +2560,41 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     pass
 
             def _toggle(e=None):
+                if (detail_source == "curseforge" and version_limit['value'] >= len(versions)
+                        and release_state["next_offset"] is not None):
+                    if release_state["loading"]:
+                        return
+                    release_state["loading"] = True
+                    _paint()
+                    def load_more():
+                        try:
+                            items = core.get_mod_versions(lookup_ref, mc_version=detail_search_mc,
+                                loader=detail_loader, offset=release_state["next_offset"],
+                                force=bool(release_state["error"]))
+                            with thread_safe_ui.TREE_LOCK:
+                                if not current():
+                                    return
+                                seen_ids = {v["id"] for v in versions}
+                                versions.extend(v for v in items if v["id"] not in seen_ids)
+                                release_state["next_offset"] = getattr(items, "next_offset", None)
+                                release_state["error"] = None
+                                version_limit['value'] += 25
+                        except Exception as error:
+                            with thread_safe_ui.TREE_LOCK:
+                                release_state["error"] = str(error)
+                        finally:
+                            with thread_safe_ui.TREE_LOCK:
+                                release_state["loading"] = False
+                                more.disabled = False
+                                if current():
+                                    _paint()
+                    try:
+                        threading.Thread(target=load_more, daemon=True, name="cubeon-mod-releases").start()
+                    except Exception as error:
+                        release_state.update(loading=False, error=str(error))
+                        more.disabled = False
+                        _paint()
+                    return
                 version_limit['value'] = (version_limit['value'] + 25
                                           if version_limit['value'] < len(versions) else 8)
                 _paint()
@@ -2457,8 +2630,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             hero_title.tooltip = hero_title.value
             hero_description.value = details.get("description") or blurb
             author = details.get("author") or mod.get("author")
+            target = " ".join(filter(None, [(detail_loader or "vanilla").title(), detail_mc]))
             hero_meta.value = " · ".join(filter(None, [f"by {author}" if author else "",
-                (detail_loader or "vanilla").title(), detail_mc]))
+                f"Target: {target}" if target else ""]))
             hero_action.content = _quick_action(details, versions)
             thread_safe_ui.refresh(hero)
             sidebar = ft.Column(spacing=10)
@@ -2473,7 +2647,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     ft.Text(str(value), color=TEXT, size=11.5, selectable=True)], spacing=4))
             sidebar.controls.append(ft.Text(i18n.t("Links"), color=ACCENT, size=13, font_family=FONT_DISPLAY))
             from urllib.parse import quote
-            for label, url in (("Project on Modrinth", f"https://modrinth.com/{content_type}/{quote(details.get('slug') or ref, safe='')}"),
+            project_link = (("Project on CurseForge", details.get("website_url")) if detail_source == "curseforge" else
+                            ("Project on Modrinth", f"https://modrinth.com/{content_type}/{quote(details.get('slug') or ref, safe='')}"))
+            for label, url in (project_link,
                                ("Source code", details.get("source_url")), ("Report an issue", details.get("issues_url")),
                                ("Wiki", details.get("wiki_url")), ("Discord", details.get("discord_url"))):
                 safe_url = _http_url(url)
@@ -2557,42 +2733,39 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             )
 
         def worker():
-            details, versions, err = None, [], None
-            try:
-                details = core.get_mod_details(ref) or {}
-            except Exception as ex:
-                err = ex
-            if details is None:
-                details = {}
-            try:
-                versions = core.get_mod_versions(
-                    ref, mc_version=detail_search_mc,
-                    loader=detail_loader if content_type == "mod" else None)
-                if content_type != "mod":
-                    candidates = content_mc_versions(detail_search_mc)
-                    versions = [dict(v, compatible=(not candidates or any(
-                        candidate in (v.get("game_versions") or []) for candidate in candidates)))
-                        for v in versions]
-            except Exception as error:
-                release_state["error"] = str(error)
-                versions = []
-            if any(version.get("compatible") and version.get("url") for version in versions):
-                release_state["checked"] = True
-            else:
+            # Prism loads project information and the filtered version list as
+            # separate jobs. Do the same so opening details costs one network
+            # round-trip instead of two serial waits.
+            def fetch_details():
                 try:
-                    latest = (core.get_mod_download(ref, mc_version=detail_search_mc, loader=detail_loader)
-                              if content_type == "mod" else
-                              core.get_content_download(content_type, ref, mc_version=detail_search_mc))
-                    release_state["checked"] = True
-                    if latest and latest.get("url") and latest.get("filename"):
-                        matching = dict(latest, compatible=True,
-                                        game_versions=[detail_search_mc] if detail_search_mc else [],
-                                        loaders=[detail_loader] if content_type == "mod" and detail_loader else [])
-                        versions = [matching, *(version for version in versions
-                                                if version.get("filename") != matching["filename"])]
-                        release_state["error"] = None
+                    return core.get_mod_details(lookup_ref, **({"force": True} if force else {})) or {}, None
                 except Exception as error:
-                    release_state["error"] = str(error)
+                    return {}, error
+
+            def fetch_versions():
+                try:
+                    return core.get_mod_versions(
+                        lookup_ref, mc_version=detail_search_mc,
+                        loader=detail_loader if content_type == "mod" else None,
+                        **({"force": True} if force else {}),
+                        **({"file_id": mod["file_id"]} if mod.get("file_id") else {})), None
+                except Exception as error:
+                    return [], error
+
+            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="cubeon-mod-detail") as pool:
+                details_job = pool.submit(fetch_details)
+                versions_job = pool.submit(fetch_versions)
+                details, _details_error = details_job.result()
+                versions, versions_error = versions_job.result()
+
+            release_state["next_offset"] = getattr(versions, "next_offset", None)
+            release_state["checked"] = versions_error is None
+            release_state["error"] = str(versions_error) if versions_error else None
+            if content_type != "mod":
+                candidates = content_mc_versions(detail_search_mc)
+                versions = [dict(v, compatible=(not candidates or any(
+                    candidate in (v.get("game_versions") or []) for candidate in candidates)))
+                    for v in versions]
             details = {**mod, **details}
             try:
                 target = (content_type, detail_mc, detail_loader, detail_version)
@@ -2665,21 +2838,24 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         builtin = bool(mod.get('builtin_client'))
         row_content_type = _ct()
         if mod.get('slug') and mod.get('icon_url'):
-            installed_icon_urls[mod['slug']] = mod['icon_url']
+            installed_icon_urls[mod_catalogue.identity(mod) if mod.get("source") == "curseforge" else mod["slug"]] = mod["icon_url"]
         row_target = _installed_target(row_content_type)
-        compatibility_note = (mod_compatibility_note(
-            mod, current_mc_version_for_search(), state.get("mod_loader"))
-            if row_content_type == "mod" else "")
-        key = _row_key(mod.get("project_id") or mod.get("slug") or mod["title"])
-        feedback = install_registry.project(key[:4], mod.get("project_id") or mod.get("slug") or mod.get("title"), mod.get("slug"))
+        compatibility_note = ""
+        if row_content_type == "mod" and not mod.get("facet_compatible"):
+            compatibility_note = mod_compatibility_note(
+                mod, current_mc_version_for_search(), state.get("mod_loader"))
+        row_source = mod_catalogue.source_of(mod)
+        key = _row_key(mod_catalogue.identity(mod))
+        feedback = install_registry.project(key[:4] + (row_source,), mod.get("project_id") or mod.get("slug") or mod.get("title"), mod.get("slug"))
         cached = browse_rows.get(key)
         if cached and cached[0] == mod:
             cached[2](is_installed)
             return cached[1]
-        available = not is_installed and not compatibility_note and _can_install(row_content_type)
+        compatible = not compatibility_note
+        available = not is_installed and compatible and _can_install(row_content_type)
         # The download button's text and icon change based on installed status
         download_btn_text = ft.Text(
-            i18n.t("Installed") if is_installed else "Unavailable" if compatibility_note else "Install",
+            i18n.t("Installed") if is_installed else "Incompatible" if not compatible else "Install",
             size=12.5, weight=ft.FontWeight.W_700,
             color=ON_ACCENT if available else TEXT_DIM,
             max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True,
@@ -2698,8 +2874,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=8),
             ink=False,
-            disabled=is_installed or bool(compatibility_note) or not _can_install(row_content_type),
-            tooltip=compatibility_note or ("Choose a compatible mod loader on the Play tab first." if not _can_install(row_content_type) else None),
+            disabled=is_installed or not compatible or not _can_install(row_content_type),
+            tooltip=(compatibility_note or
+                     ("Choose a compatible mod loader on the Play tab first."
+                      if not _can_install(row_content_type) else None)),
         )
 
         def on_download(e):
@@ -2716,13 +2894,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             content_type = row_content_type
             if row_target != _installed_target(row_content_type):
                 return
-            if not _can_install(content_type) or (content_type == "mod" and mod_compatibility_note(
-                    mod, current_mc_version_for_search(), state.get("mod_loader"))):
+            if not _can_install(content_type) or (content_type == "mod" and compatibility_note):
                 return
             selected_mc = state["selected_mc_version"]
             selected_version = version_dropdown.value
             search_mc_version = current_mc_version_for_search()
             selected_loader = state.get("mod_loader")
+            force_lookup = feedback.result == "error"
             if row_state["installed"] or not feedback.start(cancellable=True):
                 return
 
@@ -2737,13 +2915,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     feedback.check_cancelled()
                     if content_type == "mod":
                         file_info = core.get_mod_download(mod["project_id"], mc_version=search_mc_version,
-                                                          loader=selected_loader, cancel_event=feedback.cancel_event)
+                                                          loader=selected_loader, cancel_event=feedback.cancel_event,
+                                                          **({"source": row_source} if row_source != "modrinth" else {}),
+                                                          **({"file_id": mod["file_id"]} if mod.get("file_id") else {}),
+                                                          **({"force": True} if force_lookup else {}))
                     else:
                         file_info = core.get_content_download(content_type, mod["project_id"], mc_version=search_mc_version,
                                                               cancel_event=feedback.cancel_event)
                     feedback.check_cancelled()
                     if not file_info:
-                        feedback.finish(error="No matching file for this version and loader.")
+                        feedback.finish(error="No matching build for this version and loader.")
                         return
 
                     feedback.status("Downloading...")
@@ -2803,6 +2984,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             hashes=file_info.get("hashes"),
                             status_cb=_dep_status, progress_cb=_batch_progress,
                             cancel_event=feedback.cancel_event,
+                            **({"source": row_source, "file_id": file_info.get("file_id") or file_info.get("id")}
+                               if row_source == "curseforge" else {"file_id": file_info.get("modrinth_version_id")}),
                         )
                         deps_note = f" +{len(result['installed']) - 1} deps" \
                             if len(result["installed"]) > 1 else ""
@@ -2844,6 +3027,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 except net.DownloadCancelled as error:
                     feedback.finish(error=error)
                     _refresh_after_install((content_type, selected_mc, selected_loader, selected_version))
+                except mod_catalogue.ExternalDownloadRequired as error:
+                    feedback.finish(error=error)
+                    with thread_safe_ui.TREE_LOCK:
+                        if row_target == _installed_target(row_content_type):
+                            open_mod_detail(mod, row_content_type, force=True)
                 except Exception as ex:
                     # Say WHY in one line - "Failed" alone left the user with
                     # no idea whether to retry, free up disk, or pick another
@@ -2882,7 +3070,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                         size=11.5, color=TEXT_DIM, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                 ft.Text("Bundled with Cubeon", size=10.5, color=TEXT_FAINT) if builtin else
                                 ft.Row([ft.Icon(ft.Icons.DOWNLOAD_OUTLINED, size=12, color=TEXT_FAINT),
-                                        ft.Text(downloads_label(mod.get('downloads')), size=10.5, color=TEXT_FAINT)], spacing=4),
+                                        ft.Text(downloads_label(mod.get('downloads')), size=10.5, color=TEXT_FAINT),
+                                        _detail_badge(mod_catalogue.LABELS[row_source]) if row_content_type == 'mod' else ft.Container()], spacing=4),
                             ],
                             spacing=4, expand=True,
                         ),
@@ -2914,13 +3103,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             download_btn_text.value = action_text(job) if job.busy else (
                 "Try again" if builtin and job.result == "error" else
                 "Reinstall" if builtin and installed else i18n.t("Installed") if installed else "Try again" if job.result == "error"
-                else "Unavailable" if compatibility_note else "Install")
-            can_install = (builtin or not installed) and not compatibility_note and _can_install(row_content_type)
+                else "Incompatible" if not compatible else "Install")
+            can_install = (builtin or not installed) and compatible and _can_install(row_content_type)
             download_btn_text.color = (TEXT_DIM if job.busy or not can_install else
                                        DANGER if job.result == 'error' else ON_ACCENT)
             icon.color = download_btn_text.color
             download_btn.bgcolor = SURFACE_HI if job.busy else ACCENT if can_install and job.result != 'error' else None
-            download_btn.disabled = job.cancelling if job.busy and job.cancellable else job.busy or (installed and not builtin) or bool(compatibility_note) or not _can_install(row_content_type)
+            download_btn.disabled = job.cancelling if job.busy and job.cancellable else job.busy or (installed and not builtin) or not compatible or not _can_install(row_content_type)
             download_btn.tooltip = job.text if job.busy or job.result == "error" else (
                 job.note if installed else compatibility_note or None)
             download_btn.on_click = None if installed and not builtin and not job.busy else on_download

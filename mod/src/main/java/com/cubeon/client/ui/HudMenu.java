@@ -11,7 +11,7 @@ public final class HudMenu {
     public static final int EMOTES=15, HEALTH=16, ANIMATIONS=17, WING_DEPTH=18,
             OTHER_COSMETICS=19, CAMERA_BLUR=20, BLUR_INTENSITY=21, RESET=22,
             FRIENDS=23, DONE=24, SPRINT=53, CLOCK_MODE=54, SKINS=55, MENU_ANIMATIONS=56, OWN_NAME_TAG=57, BLUR_PLUS=58, BLUR_PLUS_STRENGTH=59,
-            DETAIL=70, SEARCH=100, CATEGORY=101, PREVIOUS=107, NEXT=108, BACK=109,
+            HUD_EDITOR=61, DETAIL=70, SEARCH=100, CATEGORY=101, PREVIOUS=107, NEXT=108, BACK=109,
             THEMES=60, ACTION_COUNT=124, NONE=-1;
     private static final String[] CATEGORIES={"All", "HUD", "Player", "Render", "Movement", "Cosmetics"};
     private static final HudFeatures[] OVERLAYS=HudFeatures.values();
@@ -52,6 +52,9 @@ public final class HudMenu {
     public static int overlayIndex(int action) { return action>=0&&action<15?action/3:action>=25&&action<25+(OVERLAYS.length-5)*3?5+(action-25)/3:-1; }
     public static int overlayOperation(int action) { return action<15?action%3:(action-25)%3; }
     public static int featureCount() { return FEATURES.length; }
+    private static boolean configurable(Feature feature) {
+        return feature.overlay < 0 || feature.slot.equals("clock");
+    }
     private final Rect[] controls=new Rect[ACTION_COUNT], cards=new Rect[FEATURES.length];
     private final float[] glow=new float[ACTION_COUNT];
     private final float[] toggleMotion=new float[FEATURES.length];
@@ -180,18 +183,15 @@ public final class HudMenu {
         panelHeight=Math.min(h-24,Math.min(320,Math.max(216,Math.round(h*.78f))));
         x=(w-panelWidth)/2; y=(h-panelHeight)/2; compact=panelWidth<496||panelHeight<290;
         if(themes!=null) { themes.layout(controls,x,y,panelWidth,panelHeight); return; }
-        controls[THEMES]=new Rect(x+panelWidth-84,y+9,72,20);
-        int footer=y+panelHeight-34, footerW=(panelWidth-48)/5;
-        int[] footerIds={SKINS,RESET,EMOTES,FRIENDS,DONE};
-        for(int i=0;i<5;i++) controls[footerIds[i]]=new Rect(x+12+i*(footerW+6),footer,footerW,24);
+        controls[HUD_EDITOR]=new Rect(x+10,y+8,20,20);
+        int[] tools={THEMES,SKINS,RESET,EMOTES,FRIENDS,DONE};
+        int tool=20,gap=4,toolsWidth=tools.length*tool+(tools.length-1)*gap;
+        int toolsLeft=x+panelWidth-10-toolsWidth;
+        for(int i=0;i<tools.length;i++) controls[tools[i]]=new Rect(toolsLeft+i*(tool+gap),y+8,tool,tool);
         if(detail>=0) {
             controls[BACK]=new Rect(x+12,y+40,72,22);
             Feature f=FEATURES[detail]; int top=y+100, row=28, cell=(panelWidth-30)/2;
             controls[f.action]=new Rect(x+12,top,cell,24);
-            if(f.overlay>=0) {
-                controls[f.action+1]=new Rect(x+18+cell,top,cell,24);
-                controls[f.action+2]=new Rect(x+12,top+row,cell,36);
-            }
             if(f.action==BLUR_PLUS) controls[BLUR_PLUS_STRENGTH]=new Rect(x+12,top+row,cell,36);
             if(f.slot.equals("clock")) controls[CLOCK_MODE]=new Rect(x+18+cell,top+row,cell,24);
             if(f.slot.equals("camera_blur")) controls[BLUR_INTENSITY]=new Rect(x+18+cell,top,cell,24);
@@ -204,8 +204,8 @@ public final class HudMenu {
             }
             int left=x+12, top=y+90, availableW=panelWidth-24;
             int cols=availableW>=480?3:2;
-            int room=footer-top-34;
-            int rows=room>=108?2:1, capacity=cols*rows;
+            int pager=y+panelHeight-28, room=Math.max(42,pager-top-6);
+            int rows=Math.max(1,Math.min(4,(room+6)/48)), capacity=cols*rows;
             var matches=new ArrayList<Integer>(); String needle=query.toLowerCase(Locale.ROOT).trim();
             for(int i=0;i<FEATURES.length;i++) {
                 Feature f=FEATURES[i];
@@ -215,16 +215,20 @@ public final class HudMenu {
             filtered=matches.stream().mapToInt(Integer::intValue).toArray();
             pages=Math.max(1,(filtered.length+capacity-1)/capacity); page=Math.min(page,pages-1);
             int cw=(availableW-(cols-1)*8)/cols;
-            int cardHeight=Math.min(68,(room-(rows-1)*8)/rows);
+            int cardHeight=Math.min(46,(room-(rows-1)*6)/rows);
             for(int j=0;j<capacity&&page*capacity+j<filtered.length;j++) {
                 int index=filtered[page*capacity+j]; Feature f=FEATURES[index];
-                int cx=left+(j%cols)*(cw+8),cy=top+(j/cols)*(cardHeight+8);
+                int cx=left+(j%cols)*(cw+8),cy=top+(j/cols)*(cardHeight+6);
                 cards[index]=new Rect(cx,cy,cw,cardHeight);
-                controls[f.action]=new Rect(cx+cw-36,cy+6,28,20);
-                controls[DETAIL+index]=new Rect(cx+6,cy+cardHeight-19,cw-12,18);
+                if(configurable(f)) {
+                    int settingsSize=Math.min(18,cardHeight-10);
+                    controls[f.action]=new Rect(cx,cy,cw-settingsSize-10,cardHeight);
+                    controls[DETAIL+index]=new Rect(cx+cw-settingsSize-5,
+                            cy+(cardHeight-settingsSize)/2,settingsSize,settingsSize);
+                } else controls[f.action]=cards[index];
             }
-            controls[PREVIOUS]=new Rect(left,footer-28,28,20);
-            controls[NEXT]=new Rect(left+availableW-28,footer-28,28,20);
+            controls[PREVIOUS]=new Rect(left,pager,28,20);
+            controls[NEXT]=new Rect(left+availableW-28,pager,28,20);
         }
         if(selection>=0&&controls[selection]==null) selection=NONE;
     }
@@ -257,8 +261,9 @@ public final class HudMenu {
         }
         initializedToggles=true;
         MenuUi.panel(canvas,x,y,panelWidth,panelHeight,10,MenuUi.SURFACE,MenuUi.BORDER_HI,fade);
-        MenuUi.mark(canvas,x+12,y+9,fade);
-        ClientUi.left(canvas,canvas.translate("cubeonclient.menu.title"),x+40,y+14,ClientUi.alpha(MenuUi.TEXT,fade));
+        Rect firstTool=controls[THEMES];
+        ClientUi.left(canvas,ClientUi.fit(canvas,canvas.translate("cubeonclient.menu.title"),
+                Math.max(40,firstTool.x-(x+38)-5)),x+38,y+14,ClientUi.alpha(MenuUi.TEXT,fade));
         ClientUi.Canvas frame=canvas;
         if(s.menuAnimations()) canvas=MenuUi.transform(canvas,0,.55f+.45f*progress(now,changedAt,130_000_000f));
         if(detail>=0) {
@@ -268,10 +273,6 @@ public final class HudMenu {
             String hint=canvas.translate("cubeonclient.hud."+f.slot+"_hint");
             ClientUi.left(canvas,ClientUi.fit(canvas,hint,panelWidth-24),x+12,y+77,ClientUi.alpha(MenuUi.DIM,fade));
             action(canvas,f.action,canvas.translate(enabled(f,s)?"cubeonclient.menu.enabled":"cubeonclient.menu.disabled"),enabled(f,s),fade);
-            if(f.overlay>=0) {
-                action(canvas,f.action+1,canvas.translate("cubeonclient.menu.move"),false,fade);
-                slider(canvas,f.action+2,s.scale(f.overlay),fade);
-            }
             if(f.action==BLUR_PLUS) slider(canvas,BLUR_PLUS_STRENGTH,s.blurPlusStrength(),fade);
             action(canvas,CLOCK_MODE,canvas.translate(s.worldClock()?"cubeonclient.menu.world_time":"cubeonclient.menu.system_time"),false,fade);
             action(canvas,BLUR_INTENSITY,canvas.translate("cubeonclient.hud.blur_intensity")+": "+Math.round(s.blurIntensity()*100)+"%",false,fade);
@@ -289,28 +290,30 @@ public final class HudMenu {
             }
             for(int i=0;i<FEATURES.length;i++) {
                 Rect card=cards[i]; if(card==null) continue; Feature f=FEATURES[i];
-                float hover=Math.max(glow[f.action],glow[DETAIL+i]);
-                MenuUi.panel(canvas,card.x,card.y,card.w,card.h,6,MenuUi.SURFACE_HI,ClientUi.mix(MenuUi.BORDER,MenuUi.ACCENT,hover),fade);
-                HudIcon.draw(canvas,i,card.x+8,card.y+5,card.h<60?14:20,fade);
-                Rect toggle=controls[f.action];
-                MenuUi.toggle(canvas,toggle.x+2,toggle.y+4,toggleMotion[i],fade);
-                if(glow[f.action]>.1f) MenuUi.panel(canvas,toggle.x,toggle.y,toggle.w,toggle.h,6,0x00000000,ClientUi.alpha(MenuUi.ACCENT,glow[f.action]),fade);
-                ClientUi.left(canvas,ClientUi.fit(canvas,latestLabel(f),card.w-16),card.x+8,card.y+(card.h<60?23:31),ClientUi.alpha(MenuUi.TEXT,fade));
-                Rect gear=controls[DETAIL+i];
-                ClientUi.left(canvas,ClientUi.fit(canvas,canvas.translate("cubeonclient.menu.configure"),gear.w-26),gear.x+2,gear.y+3,ClientUi.alpha(ClientUi.mix(MenuUi.FAINT,MenuUi.TEXT,glow[DETAIL+i]),fade));
-                HudIcon.gear(canvas,gear.x+gear.w-14,gear.y+3,fade);
+                float hover=glow[f.action], on=toggleMotion[i];
+                int fill=ClientUi.mix(MenuUi.SURFACE_HI,MenuUi.SELECTED,.72f*on);
+                int border=ClientUi.mix(MenuUi.BORDER,on>.5f?MenuUi.BORDER_HI:MenuUi.DIM,.35f+.45f*hover);
+                MenuUi.panel(canvas,card.x,card.y,card.w,card.h,6,fill,border,fade);
+                int icon=Math.min(22,card.h-10);
+                HudIcon.draw(canvas,i,card.x+7,card.y+(card.h-icon)/2,icon,on>.5f,fade);
+                int textX=card.x+icon+14;
+                Rect settings=controls[DETAIL+i];
+                int trailing=settings==null?20:card.x+card.w-textX-settings.w-10;
+                ClientUi.left(canvas,ClientUi.fit(canvas,latestLabel(f),card.w-icon-trailing),textX,
+                        card.y+(card.h-9)/2,ClientUi.alpha(ClientUi.mix(MenuUi.FAINT,MenuUi.TEXT,.28f+.72f*on),fade));
+                int dot=on>.5f?MenuUi.ACCENT_HI:MenuUi.FAINT;
+                int dotX=settings==null?card.x+card.w-10:settings.x-7;
+                ClientUi.rounded(canvas,dotX,card.y+card.h/2-2,4,4,2,ClientUi.alpha(dot,fade));
+                if(settings!=null) HudIcon.settings(canvas,settings.x,settings.y,settings.w,glow[DETAIL+i],fade);
             }
             if(filtered.length==0) canvas.text(canvas.translate("cubeonclient.menu.no_matches"),x+panelWidth/2,y+panelHeight/2,ClientUi.alpha(MenuUi.DIM,fade));
             action(canvas,PREVIOUS,"‹",false,fade); action(canvas,NEXT,"›",false,fade);
-            canvas.text((page+1)+" / "+pages,x+panelWidth/2,y+panelHeight-54,ClientUi.alpha(MenuUi.FAINT,fade));
+            canvas.text((page+1)+" / "+pages,x+panelWidth/2,y+panelHeight-22,ClientUi.alpha(MenuUi.FAINT,fade));
         }
         canvas=frame;
-        action(canvas,THEMES,canvas.translate("cubeonclient.menu.themes"),false,fade);
-        action(canvas,RESET,canvas.translate("cubeonclient.hud.reset"),false,fade);
-        action(canvas,SKINS,canvas.translate("cubeonclient.cosmetics.title"),false,fade);
-        action(canvas,EMOTES,canvas.translate("cubeonclient.hud.emotes"),false,fade);
-        action(canvas,FRIENDS,canvas.translate("cubeonclient.friends.title"),false,fade);
-        action(canvas,DONE,canvas.translate("cubeonclient.emotes.done"),true,fade);
+        for(int id:new int[]{HUD_EDITOR,THEMES,SKINS,RESET,EMOTES,FRIENDS,DONE}) {
+            Rect r=controls[id]; HudIcon.tool(canvas,id,r.x,r.y,r.w,glow[id],fade);
+        }
     }
     private static float progress(long now,long start,float duration) {
         float t=Math.max(0,Math.min(1,(now-start)/duration));

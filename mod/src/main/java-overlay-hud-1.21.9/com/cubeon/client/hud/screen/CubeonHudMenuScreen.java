@@ -134,6 +134,7 @@ public final class CubeonHudMenuScreen extends Screen {
             return true;
         }
         switch (action) {
+            case HudMenu.HUD_EDITOR -> { if (this.client != null) this.client.setScreen(new MoveOverlayScreen(this)); }
             case HudMenu.SKINS -> { if (this.client != null) this.client.setScreen(new SkinLibraryScreen(this)); }
             case HudMenu.FRIENDS -> { if (this.client != null) this.client.setScreen(new FriendsChatScreen(this)); }
             case HudMenu.EMOTES -> { if (this.client != null) this.client.setScreen(new EmoteMenuScreen()); }

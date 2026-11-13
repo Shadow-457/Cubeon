@@ -35,6 +35,82 @@ def generate_rounded_rims():
     save(atlas, "rounded-rims.png")
 
 
+def generate_tool_icons():
+    """Seven clean toolbar masks, rendered large and downsampled for a crisp 20px UI."""
+    cell = 512
+    atlas = Image.new("RGBA", (128 * 7, 128))
+
+    def icon_canvas():
+        image = Image.new("RGBA", (cell, cell))
+        return image, ImageDraw.Draw(image)
+
+    def p(value):
+        return round(value * cell / 64)
+
+    def round_line(draw, points, width=5):
+        scaled = [(p(x), p(y)) for x, y in points]
+        stroke = p(width)
+        draw.line(scaled, fill="white", width=stroke, joint="curve")
+        radius = stroke // 2
+        for x, y in (scaled[0], scaled[-1]):
+            draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill="white")
+
+    def paste(index, image):
+        atlas.paste(image.resize((128, 128), Image.Resampling.LANCZOS), (index * 128, 0))
+
+    # HUD settings: three compact sliders.
+    image, draw = icon_canvas()
+    for y, knob in ((18, 26), (32, 41), (46, 22)):
+        round_line(draw, [(14, y), (50, y)], 4)
+        draw.ellipse((p(knob-5), p(y-5), p(knob+5), p(y+5)), fill="white")
+        draw.ellipse((p(knob-2), p(y-2), p(knob+2), p(y+2)), fill=(0, 0, 0, 0))
+    paste(0, image)
+
+    # Themes: painter's palette with three colour wells and a thumb hole.
+    image, draw = icon_canvas()
+    draw.ellipse((p(10), p(12), p(54), p(52)), outline="white", width=p(5))
+    draw.ellipse((p(39), p(35), p(55), p(51)), fill=(0, 0, 0, 0))
+    for x, y in ((23, 24), (34, 20), (19, 35)):
+        draw.ellipse((p(x-3), p(y-3), p(x+3), p(y+3)), fill="white")
+    paste(1, image)
+
+    # Cosmetics: a simple coat hanger.
+    image, draw = icon_canvas()
+    round_line(draw, [(32, 20), (32, 16), (35, 12), (40, 12), (43, 15), (43, 19), (38, 24)], 4)
+    round_line(draw, [(38, 24), (53, 43), (11, 43), (26, 25)], 5)
+    paste(2, image)
+
+    # Reset layout: circular arrow with a clear arrowhead.
+    image, draw = icon_canvas()
+    draw.arc((p(12), p(12), p(52), p(52)), start=38, end=330, fill="white", width=p(5))
+    draw.polygon([(p(47), p(11)), (p(54), p(22)), (p(41), p(22))], fill="white")
+    paste(3, image)
+
+    # Emotes: outlined smile.
+    image, draw = icon_canvas()
+    draw.ellipse((p(11), p(11), p(53), p(53)), outline="white", width=p(5))
+    for x in (24, 40):
+        draw.ellipse((p(x-3), p(25-3), p(x+3), p(25+3)), fill="white")
+    draw.arc((p(20), p(24), p(44), p(45)), start=0, end=180, fill="white", width=p(4))
+    paste(4, image)
+
+    # Friends / chat: two overlapping speech bubbles.
+    image, draw = icon_canvas()
+    draw.rounded_rectangle((p(10), p(13), p(42), p(37)), radius=p(7), outline="white", width=p(4))
+    draw.polygon([(p(18), p(35)), (p(18), p(44)), (p(27), p(36))], fill="white")
+    draw.rounded_rectangle((p(24), p(27), p(54), p(49)), radius=p(7), outline="white", width=p(4))
+    draw.polygon([(p(44), p(47)), (p(49), p(55)), (p(50), p(46))], fill="white")
+    paste(5, image)
+
+    # Done / close: a balanced rounded X.
+    image, draw = icon_canvas()
+    round_line(draw, [(17, 17), (47, 47)], 5)
+    round_line(draw, [(47, 17), (17, 47)], 5)
+    paste(6, image)
+
+    save(atlas, "tools.png")
+
+
 def main():
     TARGET.mkdir(parents=True, exist_ok=True)
     size = 512
@@ -42,6 +118,7 @@ def main():
     ImageDraw.Draw(rounded).ellipse((0, 0, size-1, size-1), fill="white")
     save(rounded.resize((128, 128), Image.Resampling.LANCZOS), "rounded.png")
     generate_rounded_rims()
+    generate_tool_icons()
     icons = Image.new("RGBA", (128 * 11, 128))
     for pose, arms in enumerate(ARMS):
         icon = Image.new("RGBA", (512, 512))

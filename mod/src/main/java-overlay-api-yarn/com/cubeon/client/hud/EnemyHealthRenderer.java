@@ -32,7 +32,7 @@ public final class EnemyHealthRenderer {
         enemies.sort(Comparator.comparingDouble(player::squaredDistanceTo));
         var down = new Vector3f(0, -EnemyHealthBar.NAME_WORLD_HEIGHT, 0)
                 .rotate(client.gameRenderer.getCamera().getRotation());
-        var right = new Vector3f(EnemyHealthBar.WIDTH * 0.025F / 2, 0, 0)
+        var right = new Vector3f(EnemyHealthBar.NAME_WORLD_HEIGHT, 0, 0)
                 .rotate(client.gameRenderer.getCamera().getRotation());
         Vec3d camera = HealthCamera.position(client.gameRenderer.getCamera());
         var forward = new Vector3f(0, 0, -1).rotate(client.gameRenderer.getCamera().getRotation());
@@ -50,23 +50,20 @@ public final class EnemyHealthRenderer {
                     EnemyHealthBar.lerp(enemy.lastRenderZ, enemy.getZ(), tickDelta));
             if (!EnemyHealthBar.inFront(anchor.x-camera.x, anchor.y-camera.y, anchor.z-camera.z, forward)) continue;
             Vec3d eye = anchor.add(0, enemy.getEyeHeight(enemy.getPose()) - enemy.getHeight() - 0.5, 0);
-            float barOffset = (EnemyHealthBar.NAME_HEIGHT + 2 + EnemyHealthBar.HEIGHT / 2F) / EnemyHealthBar.NAME_HEIGHT;
-            Vec3d bar = anchor.add(down.x * barOffset, down.y * barOffset, down.z * barOffset);
+            int hearts = EnemyHealthBar.heartValue(enemy.getHealth());
             Vec3d name = project.apply(anchor);
             // Sample camera-facing label height, including when looking up/down.
             Vec3d bottom = project.apply(anchor.add(down.x, down.y, down.z));
             if (name == null || bottom == null || !EnemyHealthBar.onScreen(name.x, name.y, name.z)
                     || !EnemyHealthBar.onScreen(bottom.x, bottom.y, bottom.z)) continue;
-            float axisSample = 2F * EnemyHealthBar.NAME_HEIGHT / EnemyHealthBar.WIDTH;
-            Vec3d side = project.apply(anchor.add(right.x * axisSample, right.y * axisSample, right.z * axisSample));
+            Vec3d side = project.apply(anchor.add(right.x, right.y, right.z));
             if (side == null) continue;
             var pose = EnemyHealthBar.pose(name.x, name.y, side.x, side.y, bottom.x, bottom.y,
                     context.getScaledWindowWidth(), context.getScaledWindowHeight());
             if (!pose.valid() || !EnemyHealthBar.onScreen(pose,
-                    context.getScaledWindowWidth(), context.getScaledWindowHeight())) continue;
-            if (!visible(client, camera, eye) || !visible(client, camera, bar)
-                    || !visible(client, camera, bar.add(right.x, right.y, right.z))
-                    || !visible(client, camera, bar.add(-right.x, -right.y, -right.z))) continue;
+                    context.getScaledWindowWidth(), context.getScaledWindowHeight(),
+                    EnemyHealthBar.contentWidth(hearts))) continue;
+            if (!visible(client, camera, eye)) continue;
             // Add a mob name only when vanilla has no visible tag for it.
             if (!(enemy instanceof PlayerEntity) && (!enemy.hasCustomName()
                     || (!enemy.isCustomNameVisible() && !(client.crosshairTarget instanceof EntityHitResult hit
@@ -74,8 +71,7 @@ public final class EnemyHealthRenderer {
                 var label = enemy.getName();
                 CubeonHud.drawEnemyName(context, client, label, pose);
             }
-            float fraction = EnemyHealthBar.fraction(enemy.getHealth(), enemy.getMaxHealth());
-            CubeonHud.drawEnemyBar(context, pose, fraction);
+            CubeonHud.drawEnemyBar(context, client, pose, hearts);
             drawn++;
         }
     }

@@ -282,8 +282,10 @@ class ControllerTests(unittest.TestCase):
         self.close = mock.Mock(return_value=True)
         self.resume = mock.Mock()
         self.notice = mock.Mock()
+        self.confirm = mock.Mock(return_value=True)
         self.controller = update.AutoUpdater(prepare=self.prepare, request_exit=self.close,
-                                             resume=self.resume, notice=self.notice)
+                                             resume=self.resume, notice=self.notice,
+                                             confirm=self.confirm)
         self.handoff = mock.Mock()
         self.patches = contextlib.ExitStack()
         self.addCleanup(self.patches.close)
@@ -304,6 +306,15 @@ class ControllerTests(unittest.TestCase):
         self.close.assert_not_called()
         self.resume.assert_not_called()
         self.notice.assert_any_call("deferred", self.release)
+
+    def test_later_keeps_launcher_open_and_does_not_start_helper(self):
+        self.confirm.return_value = False
+        self.controller.run()
+        self.prepare.assert_not_called()
+        update.create_job.assert_not_called()
+        update.spawn_helper.assert_not_called()
+        self.close.assert_not_called()
+        self.notice.assert_any_call("postponed", self.release)
 
     def test_readiness_failure_or_rejected_close_cancels_and_restores(self):
         for failure in ("ready", "close"):
@@ -343,6 +354,18 @@ class ControllerTests(unittest.TestCase):
         self.controller.stop()
         self.controller.start()
         self.assertIsNone(self.controller._thread)
+
+
+class HelperSourceTests(unittest.TestCase):
+    def test_windows_helper_is_a_visible_restart_flow(self):
+        controller_source = (ROOT / "cubeon" / "auto_update.py").read_text(encoding="utf-8")
+        self.assertIn("System.Windows.Forms", WINDOWS_HELPER)
+        self.assertIn("Cubeon Updater", WINDOWS_HELPER)
+        self.assertIn("Restart Cubeon", WINDOWS_HELPER)
+        self.assertIn("Waiting for Cubeon to close", WINDOWS_HELPER)
+        self.assertIn("Installing Cubeon", WINDOWS_HELPER)
+        self.assertIn("Start-Cubeon", WINDOWS_HELPER)
+        self.assertIn('"-STA", "-File"', controller_source)
 
 
 @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("flock"), "native Linux helper")
@@ -503,6 +526,7 @@ class LinuxHelperTests(unittest.TestCase):
         checked = subprocess.run(["/bin/bash", "-n"], input=LINUX_HELPER, text=True, capture_output=True)
         self.assertEqual(checked.returncode, 0, checked.stderr)
         directory, job = update.create_job(self.target, self.release, self.download, self.cache, args=[], parent_pid=self.parent.pid)
+        self.assertIs(job["show_ui"], True)
         self.assertEqual((directory / "job.bin").read_bytes().split(b"\0")[15:], [b""])
         args = ["", 'quotes " and $dollars', "line\nbreak"]
         directory, _ = update.create_job(self.target, self.release, self.download, self.cache, args=args, parent_pid=self.parent.pid)
@@ -580,7 +604,8 @@ class WindowsHelperTests(unittest.TestCase):
                     handoff = None
                     try:
                         target = update.Target("windows", installed / "Cubeon.exe")
-                        directory, job = update.create_job(target, release, download, cache, parent_pid=parent.pid, args=[])
+                        directory, job = update.create_job(target, release, download, cache,
+                                                           parent_pid=parent.pid, args=[], show_ui=False)
                         handoff = update.spawn_helper(directory, job)
                         update.wait_ready(handoff, threading.Event(), timeout=30)
                         with self.assertRaises(update.UpdateError), update.TargetLock(cache / "update.lock"):

@@ -336,9 +336,12 @@ class Resolver:
                     from .global_mod_cache import _matches_hashes
                     if not _matches_hashes(destination, choice.candidate.get("hashes") or {}):
                         raise ValueError("The staged mod changed after download verification")
-                    mods._write_meta(self.directory, os.path.basename(destination), choice.project,
+                    mods._write_meta(self.directory, os.path.basename(destination), choice.candidate.get("slug") or choice.project,
                                      project_id=choice.candidate.get("project_id") or choice.project,
-                                     url=choice.candidate.get("url"))
+                                     url=choice.candidate.get("url"),
+                                     **({"source": "curseforge", "file_id": choice.candidate.get("id"),
+                                         "icon_url": choice.candidate.get("icon_url")}
+                                        if choice.candidate.get("source") == "curseforge" else {}))
             published_snapshot = mods._doctor_profile_snapshot(self.directory)
             actual = {}
             for item, meta, provided in self.scan(self.mc, self.loader, self.version_id):

@@ -18,6 +18,7 @@ public final class WorldHealthProjection {
     private static boolean ready;
     private WorldHealthProjection() {}
     public static void capture(Matrix4fc view, Matrix4fc projection, Vec3d position, ClientWorld level, float tick) {
+        EnemyHealthFrame.begin();
         ready=false;
         if(!CubeonHudConfig.get().showEnemyHealth || level==null) return;
         matrix.set(projection).mul(view);
@@ -26,6 +27,10 @@ public final class WorldHealthProjection {
         ready=true;
     }
     public static void render(DrawContext draw, MinecraftClient client) {
+        // 1.21.11 submits health labels beside the entity itself. Keeping that
+        // work in the world queue prevents a pipelined world frame and the
+        // later GUI extraction from disagreeing during a fast camera turn.
+        if(EnemyHealthFrame.usesWorldLabels()) { ready=false; return; }
         if(!ready) return;
         ready=false;
         if(world.get()!=client.world) return;

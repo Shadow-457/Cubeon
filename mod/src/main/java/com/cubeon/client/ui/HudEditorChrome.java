@@ -21,6 +21,10 @@ public final class HudEditorChrome {
         int panelWidth = Math.min(340, width - 24), left = (width - panelWidth) / 2;
         return x >= left + panelWidth - 80 && x < left + panelWidth - 8 && y >= height - 40 && y < height - 16;
     }
+    public static boolean resizeHandle(int x, int y, int w, int h, double px, double py) {
+        int left=x+w-9,top=y+h-9;
+        return px>=left-2&&px<=x+w+3&&py>=top-2&&py<=y+h+3;
+    }
     public static void render(ClientUi.Canvas canvas, int width, int height, String title,
                               int mouseX, int mouseY, int x, int y, int w, int h, boolean dragging) {
         int panelWidth = Math.min(340, width - 24), left = (width - panelWidth) / 2;
@@ -41,8 +45,12 @@ public final class HudEditorChrome {
         canvas.fill(x0, Math.max(y0, y1 - 1), x1, y1, color);
         canvas.fill(x0, y0, Math.min(x1, x0 + 1), y1, color);
         canvas.fill(Math.max(x0, x1 - 1), y0, x1, y1, color);
-        for (int hx : new int[]{x0, Math.max(x0, x1 - 3)})
-            for (int hy : new int[]{y0, Math.max(y0, y1 - 3)})
-                canvas.fill(hx, hy, Math.min(x1, hx + 3), Math.min(y1, hy + 3), color);
+        int handleX=Math.max(x0,x1-9),handleY=Math.max(y0,y1-9);
+        canvas.fill(handleX,handleY,x1,y1,ClientUi.alpha(MenuUi.SURFACE,1));
+        canvas.fill(handleX,Math.max(handleY,y1-2),x1,y1,color);
+        canvas.fill(Math.max(handleX,x1-2),handleY,x1,y1,color);
+        canvas.fill(Math.max(handleX,x1-4),Math.max(handleY,y1-4),x1-2,y1-2,color);
+        canvas.fill(Math.max(handleX,x1-7),Math.max(handleY,y1-4),x1-5,y1-2,color);
+        canvas.fill(Math.max(handleX,x1-4),Math.max(handleY,y1-7),x1-2,y1-5,color);
     }
 }

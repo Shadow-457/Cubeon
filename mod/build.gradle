@@ -164,6 +164,7 @@ processResources {
     // freelook's sole mouse redirect, while Yarn registers ZoomLookMixin.
     def zoom = bracket.overlays.any { it.toString().startsWith('zoom-') }
     def health = bracket.overlays.contains('health-projection-modern')
+    def healthWorldLabel = bracket.overlays.contains('health-world-label-1.21.11')
     def replacements = [
             version        : project.version,
             minecraft_range: bracket.depends,
@@ -185,9 +186,13 @@ processResources {
                             '      "environment": "client"\n    }' : '',
             health_mixins     : health ? ',\n    {\n      "config": "cubeon-client.health.mixins.json",\n' +
                             '      "environment": "client"\n    }' : '',
+            health_world_mixin: healthWorldLabel ? ', "EnemyHealthWorldLabelMixin"' : '',
     ]
     inputs.properties replacements
     filesMatching('fabric.mod.json') {
+        expand replacements
+    }
+    filesMatching('cubeon-client.health.mixins.json') {
         expand replacements
     }
     def zoomLook = [zoom_look_mixin: obfuscated ? ',\n    "ZoomLookMixin"' : '']

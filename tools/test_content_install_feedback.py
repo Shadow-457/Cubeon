@@ -15,6 +15,7 @@ from cubeon import icons, net, thread_safe_ui
 from cubeon.theme import THEME, section_label
 from ui.install_feedback import InstallFeedback, progress_text
 from ui.project_readme import readme_markdown
+from ui import mods_tab as ui_mods
 from ui.mods_tab import build_mods_tab
 from ui.modpacks_tab import build_modpacks_tab
 from ui.server_tab import build_server_tab
@@ -26,6 +27,24 @@ class QueuedThread:
         self.run = lambda: target(*args, **(kwargs or {}))
     def start(self):
         self.jobs.append(self.run)
+
+
+class ImmediateFuture:
+    def __init__(self, fn):
+        self.value = fn()
+    def result(self):
+        return self.value
+
+
+class ImmediateExecutor:
+    def __init__(self, **_kwargs):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self, *_args):
+        return False
+    def submit(self, fn):
+        return ImmediateFuture(fn)
 
 
 def functions(*roots):
@@ -57,7 +76,9 @@ class ContentInstallTests(unittest.TestCase):
         self.page = DriverPage()
         self.state = {"selected_mc_version": "1.20.1", "mod_loader": "fabric"}
         self.drop = ft.Dropdown(value="1.20.1")
-        self.patches = [patch("threading.Thread", QueuedThread), patch.object(icons, "prefetch"),
+        self.patches = [patch("threading.Thread", QueuedThread),
+                        patch.object(ui_mods, "ThreadPoolExecutor", ImmediateExecutor),
+                        patch.object(icons, "prefetch"),
                         patch.object(thread_safe_ui, "refresh")]
         for p in self.patches:
             p.start()
@@ -181,21 +202,22 @@ class ContentInstallTests(unittest.TestCase):
         QueuedThread.jobs.pop()()
         self.assertEqual(text(button), "Installed")
 
-    def test_detail_recovers_filtered_release_and_html_overview(self):
+    def test_detail_keeps_filtered_empty_release_and_html_overview(self):
         fns = self.build_mods()
         self.core.get_mod_details = lambda ref: {'title': 'Resourceful Config',
             'body': '<center>Readable configuration docs</center><a href="https://example.com">Docs</a>'}
         self.core.get_mod_versions = lambda *args, **kwargs: []
-        self.core.get_mod_download = lambda *args, **kwargs: {
-            'filename': 'config.jar', 'url': 'offline', 'version_number': '1'}
-        fns['build_browse_row']({'project_id': 'config', 'title': 'Resourceful Config'}).on_click(None)
-        QueuedThread.jobs.pop()()
+        with patch.object(self.core, 'get_mod_download') as fallback:
+            fns['build_browse_row']({'project_id': 'config', 'title': 'Resourceful Config'}).on_click(None)
+            QueuedThread.jobs.pop()()
+            fallback.assert_not_called()
         readme = next(control for control in fz.walk(self.mods_root)
                       if getattr(control, 'data', None) == 'mod-detail-readme')
         self.assertIn('Readable configuration docs', readme.value)
         self.assertIn('[Docs](<https://example.com>)', readme.value)
         self.assertNotIn('<center>', readme.value)
-        self.assertIn('Install', [text(control) for control in self.detail_buttons()])
+        labels = [control.value for control in fz.walk(self.mods_root) if isinstance(control, ft.Text)]
+        self.assertIn('No matching build for this Minecraft version and loader.', labels)
 
     def test_failed_release_lookup_is_retryable_not_incompatible(self):
         fns = self.build_mods()
@@ -210,6 +232,19 @@ class ContentInstallTests(unittest.TestCase):
         self.assertFalse(any('No build for' in str(label) for label in labels))
         self.assertTrue(any(isinstance(control, ft.TextButton) and control.content == 'Retry'
                             for control in fz.walk(self.mods_root)))
+
+    def test_successful_incompatible_version_list_does_not_trigger_fallback(self):
+        fns = self.build_mods()
+        self.core.get_mod_versions = lambda *args, **kwargs: [{
+            'filename': 'older.jar', 'url': 'offline', 'compatible': False,
+            'version_number': '1', 'game_versions': ['1.21.1'], 'loaders': ['fabric']}]
+        with patch.object(self.core, 'get_mod_download') as fallback:
+            fns['build_browse_row']({'project_id': 'older', 'title': 'Older'}).on_click(None)
+            QueuedThread.jobs.pop()()
+            fallback.assert_not_called()
+        labels = [control.value for control in fz.walk(self.mods_root) if isinstance(control, ft.Text)]
+        self.assertIn('No matching build for this Minecraft version and loader.', labels)
+        self.assertNotIn("Couldn't check compatible releases.", labels)
 
     def test_html_readme_keeps_images_text_and_safe_links(self):
         body = '<img src="https://example.com/header.png"/><center>Easy config</center>' \

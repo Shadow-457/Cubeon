@@ -8770,6 +8770,89 @@ async def main(page: ft.Page):
     # OS ownership probes and hashes precede the short, atomic UI idle claim.
     from cubeon.auto_update import AutoUpdater
 
+    def _confirm_update(release, cancel):
+        """Offer the verified release without blocking Flet's event loop."""
+        decided = threading.Event()
+        accepted = {"value": False}
+        handoff_text = (
+            "The update has been downloaded and verified. Update now will close "
+            "the launcher and open the separate Cubeon Updater."
+            if sys.platform == "win32" else
+            "The update has been downloaded and verified. Update now will close "
+            "Cubeon, install it safely, and reopen the launcher."
+        )
+
+        def choose(value):
+            accepted["value"] = value
+            decided.set()
+
+        prompt = ft.Container(
+            expand=True,
+            alignment=ft.Alignment.CENTER,
+            bgcolor=ft.Colors.with_opacity(0.72, "#000000"),
+            content=ft.Container(
+                width=460,
+                bgcolor=SURFACE_HI,
+                border=ft.border.Border.all(1, BORDER),
+                border_radius=RADIUS_LG,
+                padding=28,
+                shadow=ft.BoxShadow(
+                    blur_radius=34,
+                    color=ft.Colors.with_opacity(0.55, "#000000"),
+                    offset=ft.Offset(0, 12),
+                ),
+                content=ft.Column([
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Icon(ft.Icons.SYSTEM_UPDATE_ALT_ROUNDED,
+                                            size=28, color=ACCENT),
+                            width=52, height=52, alignment=ft.Alignment.CENTER,
+                            bgcolor=ACCENT_TINT, border_radius=RADIUS,
+                        ),
+                        ft.Column([
+                            ft.Text("Cubeon update ready", size=20, color=TEXT,
+                                    weight=ft.FontWeight.W_700),
+                            ft.Text(f"Version {release.version}", size=12.5,
+                                    color=ACCENT),
+                        ], spacing=4, expand=True),
+                    ], spacing=16),
+                    ft.Text(handoff_text, size=13, color=TEXT_DIM),
+                    ft.Row([
+                        ft.TextButton("Later", on_click=lambda _e: choose(False),
+                                      data="launcher-update-later"),
+                        ft.FilledButton(
+                            "Update now", icon=ft.Icons.UPDATE_ROUNDED,
+                            on_click=lambda _e: choose(True),
+                            data="launcher-update-now",
+                            style=ft.ButtonStyle(
+                                color=BG, bgcolor=ACCENT,
+                                shape=ft.RoundedRectangleBorder(radius=RADIUS)),
+                        ),
+                    ], alignment=ft.MainAxisAlignment.END, spacing=10),
+                ], spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+            ),
+            on_click=lambda _e: None,
+            data="launcher-update-prompt",
+        )
+        mounted = False
+        try:
+            with thread_safe_ui.TREE_LOCK:
+                if cancel.is_set() or _client_closing.is_set():
+                    return False
+                page.overlay.append(prompt)
+                mounted = True
+                thread_safe_ui.refresh(page._overlay)
+            while not decided.wait(0.1):
+                if cancel.is_set() or _client_closing.is_set():
+                    return False
+            return accepted["value"]
+        finally:
+            if mounted:
+                with thread_safe_ui.TREE_LOCK:
+                    if prompt in page.overlay:
+                        page.overlay.remove(prompt)
+                        thread_safe_ui.refresh(page._overlay)
+
     def _resume_after_update():
         instance_storage.release_launcher_update()
         with thread_safe_ui.TREE_LOCK:
@@ -8837,7 +8920,7 @@ async def main(page: ft.Page):
             with thread_safe_ui.TREE_LOCK:
                 _restart_heading.value = f"Updating Cubeon to {release.version}…"
                 _restart_detail.value = ("Cubeon will reopen after the update." if sys.platform.startswith("linux")
-                                         else "Cubeon is closing so Windows can install the update.")
+                                         else "The Cubeon Updater will offer Restart when installation finishes.")
                 thread_safe_ui.refresh(restart_overlay)
             _arm_window_gone_exit("verified launcher update", delay=8.0)
             page.run_task(close_update)
@@ -8858,6 +8941,7 @@ async def main(page: ft.Page):
         messages = {
             "downloading": f"Downloading Cubeon {release.version} update…" if release else "",
             "deferred": "Cubeon update verified. It will install on a startup when no game or downloads are active.",
+            "postponed": "Cubeon update postponed. It will be offered again on the next startup.",
             "previous-failure": "The last Cubeon update failed. Your recovery files are kept; automatic retry is paused for 24 hours.",
             "failed": "Cubeon could not complete the update. Your current installation is kept; see cubeon.log.",
         }
@@ -8865,7 +8949,8 @@ async def main(page: ft.Page):
             _show_snack(messages[phase], duration=6000)
 
     _auto_updates = AutoUpdater(prepare=_prepare_update, request_exit=_close_for_update,
-                               resume=_resume_after_update, notice=_update_notice)
+                               resume=_resume_after_update, notice=_update_notice,
+                               confirm=_confirm_update)
     _auto_updates.start()
 
     # -----------------------------------------------------------------

@@ -622,7 +622,8 @@
         "skin-native-yarn-final",
         "name-tag-yarn-avatar",
         "tab-logo-yarn-modern",
-        "health-projection-modern"
+        "health-projection-modern",
+        "health-world-label-1.21.11"
       ],
       "java": ">=21",
       "min": "1.21.11",

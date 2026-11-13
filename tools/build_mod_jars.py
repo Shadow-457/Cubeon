@@ -299,8 +299,12 @@ def verify(jar_path, bracket=None):
         required.append("com/cubeon/client/hud/HealthCamera.class")
     if "health-projection-modern" in overlays:
         required.extend(["com/cubeon/client/hud/WorldHealthProjection.class",
+                         "com/cubeon/client/hud/EnemyHealthFrame.class",
                          "com/cubeon/client/mixin/EnemyHealthProjectionMixin.class",
                          "cubeon-client.health.mixins.json"])
+    if "health-world-label-1.21.11" in overlays:
+        required.extend(["com/cubeon/client/hud/EnemyHealthWorldLabels.class",
+                         "com/cubeon/client/mixin/EnemyHealthWorldLabelMixin.class"])
     if bracket and bracket.get("mappings") == "none":
         required.extend(REQUIRED_ENTRIES_26X)
         required.extend(["com/cubeon/client/hud/WorldHealthProjection.class",
@@ -324,6 +328,8 @@ def verify(jar_path, bracket=None):
             labels = json.loads(zf.read("assets/cubeon-client/lang/en_us.json"))
             camera_blur = json.loads(zf.read("cubeon-client.camera-blur.mixins.json"))
             client_hooks = json.loads(zf.read("cubeon-client.mixins.json"))
+            health_hooks = (json.loads(zf.read("cubeon-client.health.mixins.json"))
+                            if "health-projection-modern" in overlays else None)
             native_health_hooks = (json.loads(zf.read("cubeon-client-hud.mixins.json"))
                                    if bracket and bracket.get("mappings") == "none" else None)
     except (OSError, zipfile.BadZipFile, KeyError, ValueError) as exc:
@@ -341,6 +347,10 @@ def verify(jar_path, bracket=None):
                for entry in parsed.get("mixins", [])]
     if "health-projection-modern" in overlays and "cubeon-client.health.mixins.json" not in configs:
         return "world health projection hook is not registered"
+    if ("health-world-label-1.21.11" in overlays
+            and (health_hooks is None
+                 or "EnemyHealthWorldLabelMixin" not in health_hooks.get("client", []))):
+        return "1.21.11 world health label hook is not registered"
     if native_health_hooks is not None and ("cubeon-client-hud.mixins.json" not in configs
             or "EnemyHealthGameRendererAccessor" not in native_health_hooks.get("client", [])):
         return "native health projection hook is not registered"

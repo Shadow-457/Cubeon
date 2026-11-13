@@ -17,8 +17,9 @@ import flet as ft
 from app_driver import DriverPage
 from cubeon import icons, thread_safe_ui
 from cubeon.theme import THEME, section_label
+from ui import mods_tab as ui_mods
 from ui.mods_tab import build_mods_tab
-from test_content_install_feedback import QueuedThread, functions, env
+from test_content_install_feedback import ImmediateExecutor, QueuedThread, functions, env
 
 
 class ManagementUI(unittest.TestCase):
@@ -32,7 +33,9 @@ class ManagementUI(unittest.TestCase):
         self.cfg = {}
         self.core.list_mods = lambda *a, **k: []
         self.core.list_content = lambda *a, **k: [dict(m) for m in self.items]
-        self.patches = [patch('threading.Thread', QueuedThread), patch.object(icons, 'prefetch'),
+        self.patches = [patch('threading.Thread', QueuedThread),
+                        patch.object(ui_mods, 'ThreadPoolExecutor', ImmediateExecutor),
+                        patch.object(icons, 'prefetch'),
                         patch.object(thread_safe_ui, 'refresh'),
                         patch('ui.install_feedback._active_feedback', weakref.WeakSet())]
         for p in self.patches: p.start(); self.addCleanup(p.stop)
@@ -236,6 +239,9 @@ class ManagementUI(unittest.TestCase):
         self.assertTrue(any(getattr(c, 'data', None) == 'cubeon-client-browse' for c in view.controls))
         self.assertFalse(view.disabled)
         QueuedThread.jobs.pop(0)()
+        self.assertTrue(any(getattr(c, 'data', None) == 'cubeon-client-browse' for c in view.controls))
+        while QueuedThread.jobs:
+            QueuedThread.jobs.pop(0)()
         self.assertEqual(view.controls[0].data, 'cubeon-client-browse')
         self.assertTrue(view._tile_mode)
         self.assertFalse(view.disabled)
@@ -431,9 +437,10 @@ class ManagementUI(unittest.TestCase):
         calls = []
         self.core.get_recommended_mods = lambda **kw: calls.append(kw) or []
         self.fns['load_recommended_mods']()
-        self.assertEqual(len(QueuedThread.jobs), 1)
-        QueuedThread.jobs.pop()()
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(QueuedThread.jobs), 2)
+        while QueuedThread.jobs:
+            QueuedThread.jobs.pop(0)()
+        self.assertEqual(len(calls), 2)
         self.assertEqual(QueuedThread.jobs, [])
 
     def test_popular_mods_load_one_page_at_a_time_and_reuse_rows_on_switch(self):
@@ -446,23 +453,25 @@ class ManagementUI(unittest.TestCase):
         self.core.get_recommended_mods = popular
         self.fns['load_recommended_mods']()
         self.assertEqual(calls, [])
-        self.assertEqual(len(QueuedThread.jobs), 1)
-        QueuedThread.jobs.pop(0)()
+        self.assertEqual(len(QueuedThread.jobs), 2)
+        while QueuedThread.jobs:
+            QueuedThread.jobs.pop(0)()
         view = env(self.fns['_render_browse_page'])['browse_results_view']
-        self.assertEqual(len(view.controls), 25)  # 24 provider results plus the local client
+        self.assertEqual(len(view.controls), 49)  # 24 provider results plus the local client
         first_rows = tuple(view.controls)
         self.assertTrue(view.build_controls_on_demand)
-        self.assertEqual([(c['limit'], c['offset']) for c in calls], [(24, 0)])
+        self.assertEqual([(c['limit'], c['offset']) for c in calls], [(24, 0), (24, 0)])
         self.assertEqual(QueuedThread.jobs, [])
 
         with patch.object(ft.context, 'disable_auto_update') as disable_auto_update:
             self.fns['_browse_page_next']()
             disable_auto_update.assert_called_once()
         self.assertEqual(tuple(view.controls), first_rows)
-        self.assertEqual(len(QueuedThread.jobs), 1)
-        QueuedThread.jobs.pop(0)()
+        self.assertEqual(len(QueuedThread.jobs), 2)
+        while QueuedThread.jobs:
+            QueuedThread.jobs.pop(0)()
         second_rows = tuple(view.controls)
-        self.assertEqual([(c['limit'], c['offset']) for c in calls], [(24, 0), (24, 24)])
+        self.assertEqual([(c['limit'], c['offset']) for c in calls], [(24, 0), (24, 0), (24, 24), (24, 24)])
         self.assertEqual(QueuedThread.jobs, [])
         with patch.object(ft.context, 'disable_auto_update') as disable_auto_update:
             self.root.select_content_type('resourcepack')
@@ -471,7 +480,7 @@ class ManagementUI(unittest.TestCase):
             self.fns['_browse_page_prev']()
             self.assertEqual(disable_auto_update.call_count, 3)
         self.assertEqual(tuple(view.controls), first_rows)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 4)
         self.assertEqual(self.page.update_calls, 0)
 
     def test_titles_appear_before_installed_file_scan_and_survive_scan_failure(self):

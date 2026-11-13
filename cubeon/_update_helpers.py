@@ -187,7 +187,16 @@ $lock = $null
 $installerStream = $null
 $committed = $false
 $outcome = 'failed'
+$exitCode = 1
+$restartRequested = $false
+$showUi = $false
 $job = $null
+$form = $null
+$progress = $null
+$statusLabel = $null
+$detailLabel = $null
+$actionButton = $null
+$uiState = @{ AllowClose = $false; Mode = 'busy'; Action = $null }
 $directory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($JobPath))
 function Regular([string]$Path) {
     $item = Get-Item -LiteralPath $Path -Force
@@ -240,6 +249,153 @@ function Other-Cubeon {
         }
     }
 }
+function Pump-Ui {
+    if ($script:form) { [Windows.Forms.Application]::DoEvents() }
+}
+function Initialize-Ui {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    [Windows.Forms.Application]::EnableVisualStyles()
+    $script:form = New-Object Windows.Forms.Form
+    $script:form.Text = 'Cubeon Updater'
+    $script:form.StartPosition = 'CenterScreen'
+    $script:form.FormBorderStyle = 'FixedDialog'
+    $script:form.MaximizeBox = $false
+    $script:form.MinimizeBox = $true
+    $script:form.ControlBox = $false
+    $script:form.ClientSize = New-Object Drawing.Size(500, 286)
+    $script:form.BackColor = [Drawing.Color]::FromArgb(18, 22, 20)
+    try { $script:form.Icon = [Drawing.Icon]::ExtractAssociatedIcon($job.target) } catch {}
+
+    $brand = New-Object Windows.Forms.Label
+    $brand.Text = 'CUBEON UPDATER'
+    $brand.Location = New-Object Drawing.Point(30, 25)
+    $brand.Size = New-Object Drawing.Size(440, 28)
+    $brand.Font = New-Object Drawing.Font('Segoe UI', 15, [Drawing.FontStyle]::Bold)
+    $brand.ForeColor = [Drawing.Color]::FromArgb(88, 220, 145)
+
+    $version = New-Object Windows.Forms.Label
+    $version.Text = 'Updating to version ' + $job.version
+    $version.Location = New-Object Drawing.Point(32, 58)
+    $version.Size = New-Object Drawing.Size(436, 22)
+    $version.Font = New-Object Drawing.Font('Segoe UI', 9)
+    $version.ForeColor = [Drawing.Color]::FromArgb(160, 171, 165)
+
+    $script:statusLabel = New-Object Windows.Forms.Label
+    $script:statusLabel.Location = New-Object Drawing.Point(32, 105)
+    $script:statusLabel.Size = New-Object Drawing.Size(436, 28)
+    $script:statusLabel.Font = New-Object Drawing.Font('Segoe UI', 12, [Drawing.FontStyle]::Bold)
+    $script:statusLabel.ForeColor = [Drawing.Color]::White
+
+    $script:detailLabel = New-Object Windows.Forms.Label
+    $script:detailLabel.Location = New-Object Drawing.Point(32, 139)
+    $script:detailLabel.Size = New-Object Drawing.Size(436, 42)
+    $script:detailLabel.Font = New-Object Drawing.Font('Segoe UI', 9)
+    $script:detailLabel.ForeColor = [Drawing.Color]::FromArgb(178, 187, 182)
+
+    $script:progress = New-Object Windows.Forms.ProgressBar
+    $script:progress.Location = New-Object Drawing.Point(32, 192)
+    $script:progress.Size = New-Object Drawing.Size(436, 10)
+    $script:progress.Style = 'Marquee'
+    $script:progress.MarqueeAnimationSpeed = 24
+
+    $script:actionButton = New-Object Windows.Forms.Button
+    $script:actionButton.Location = New-Object Drawing.Point(318, 225)
+    $script:actionButton.Size = New-Object Drawing.Size(150, 36)
+    $script:actionButton.FlatStyle = 'Flat'
+    $script:actionButton.FlatAppearance.BorderSize = 0
+    $script:actionButton.BackColor = [Drawing.Color]::FromArgb(88, 220, 145)
+    $script:actionButton.ForeColor = [Drawing.Color]::FromArgb(15, 25, 20)
+    $script:actionButton.Font = New-Object Drawing.Font('Segoe UI', 9, [Drawing.FontStyle]::Bold)
+    $script:actionButton.Visible = $false
+    $script:actionButton.Add_Click({
+        $script:uiState.Action = if ($script:uiState.Mode -eq 'success') { 'restart' } else { 'close' }
+        $script:uiState.AllowClose = $true
+        $script:form.Close()
+    })
+    $script:form.Add_FormClosing({
+        param($sender, $eventArgs)
+        if (-not $script:uiState.AllowClose) { $eventArgs.Cancel = $true }
+    })
+    $script:form.Controls.AddRange(@($brand, $version, $script:statusLabel, $script:detailLabel,
+                                     $script:progress, $script:actionButton))
+    $script:form.Show()
+    Pump-Ui
+}
+function Set-Phase([string]$Status, [string]$Detail) {
+    if (-not $script:form) { return }
+    $script:statusLabel.Text = $Status
+    $script:detailLabel.Text = $Detail
+    $script:progress.Style = 'Marquee'
+    $script:progress.MarqueeAnimationSpeed = 24
+    Pump-Ui
+}
+function Show-Result([bool]$Success, [string]$Detail) {
+    if (-not $script:form) { return }
+    $script:uiState.Mode = if ($Success) { 'success' } else { 'failed' }
+    $script:statusLabel.Text = if ($Success) { 'Update complete' } else { 'Update could not be completed' }
+    $script:statusLabel.ForeColor = if ($Success) {
+        [Drawing.Color]::FromArgb(88, 220, 145)
+    } else {
+        [Drawing.Color]::FromArgb(245, 105, 105)
+    }
+    $script:detailLabel.Text = $Detail
+    $script:progress.MarqueeAnimationSpeed = 0
+    $script:progress.Style = 'Continuous'
+    $script:progress.Value = if ($Success) { 100 } else { 0 }
+    $script:actionButton.Text = if ($Success) { 'Restart Cubeon' } else { 'Close' }
+    $script:actionButton.Visible = $true
+    $script:form.ControlBox = $true
+    $script:uiState.AllowClose = $true
+    $script:actionButton.Focus()
+    Pump-Ui
+}
+function Wait-For-UiAction {
+    while ($script:form -and $script:form.Visible -and -not $script:uiState.Action) {
+        Pump-Ui
+        Start-Sleep -Milliseconds 50
+    }
+    return $script:uiState.Action
+}
+function Backslashes([int]$Count) {
+    if ($Count -le 0) { return '' }
+    return ((1..$Count | ForEach-Object { '\' }) -join '')
+}
+function Quote-Argument([string]$Value) {
+    if ($null -eq $Value) { $Value = '' }
+    if ($Value.Length -gt 0 -and $Value -notmatch '[\s"]') { return $Value }
+    $builder = New-Object Text.StringBuilder
+    [void]$builder.Append('"')
+    $slashes = 0
+    foreach ($character in $Value.ToCharArray()) {
+        if ($character -eq [char]92) { $slashes += 1; continue }
+        if ($character -eq [char]34) {
+            if ($slashes -gt 0) { [void]$builder.Append((Backslashes ($slashes * 2 + 1))) }
+            else { [void]$builder.Append([char]92) }
+            [void]$builder.Append([char]34)
+            $slashes = 0
+            continue
+        }
+        if ($slashes -gt 0) {
+            [void]$builder.Append((Backslashes $slashes))
+            $slashes = 0
+        }
+        [void]$builder.Append($character)
+    }
+    if ($slashes -gt 0) { [void]$builder.Append((Backslashes ($slashes * 2))) }
+    [void]$builder.Append('"')
+    return $builder.ToString()
+}
+function Start-Cubeon {
+    Regular $job.target
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = $job.target
+    $start.WorkingDirectory = $targetDir
+    $start.UseShellExecute = $false
+    $start.Arguments = (@($job.args | ForEach-Object { Quote-Argument ([string]$_) }) -join ' ')
+    $start.EnvironmentVariables['CUBEON_RELAUNCH'] = '1'
+    [void][Diagnostics.Process]::Start($start)
+}
 try {
     Directory-Safe $directory
     Regular $JobPath
@@ -248,6 +404,7 @@ try {
     if ($job.schema -ne 1 -or $job.kind -ne 'windows' -or $job.sha256 -cnotmatch '^[a-f0-9]{64}$' -or
         $job.old_sha256 -cnotmatch '^[a-f0-9]{64}$' -or $job.token -cnotmatch '^[a-f0-9]{32}$' -or
         $job.size -lt 1024 -or $job.size -gt 1073741824 -or $job.parent_pid -le 0) { throw 'Invalid update job.' }
+    $showUi = ($job.show_ui -eq $true)
     $targetDir = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($job.target))
     if ($targetDir.Contains('"') -or $targetDir.Contains("`r") -or $targetDir.Contains("`n")) { throw 'Unsafe installation path.' }
     Directory-Safe ([IO.Path]::GetDirectoryName($job.lock))
@@ -273,44 +430,74 @@ try {
     $parent = [Diagnostics.Process]::GetProcessById($job.parent_pid)
     $startedMs = [long](($parent.StartTime.ToUniversalTime().Ticks - 621355968000000000) / 10000)
     if ([Math]::Abs($startedMs - [long]$job.parent_started_ms) -gt 2) { throw 'The original launcher process changed.' }
+    if ($showUi) {
+        Initialize-Ui
+        Set-Phase 'Waiting for Cubeon to close' 'The launcher will close before any installed files are changed.'
+    }
     [IO.File]::WriteAllText((Join-Path $directory 'ready.tmp'), $job.token)
     [IO.File]::Move((Join-Path $directory 'ready.tmp'), (Join-Path $directory 'ready'))
     $deadline = [DateTime]::UtcNow.AddSeconds($job.parent_wait)
     while (-not (Signal-Matches 'go')) {
+        Pump-Ui
         if ((Signal-Matches 'cancel') -or $parent.HasExited -or [DateTime]::UtcNow -ge $deadline) {
-            $outcome = 'cancelled'; exit 0
+            $outcome = 'cancelled'; $exitCode = 0; break
         }
-        Start-Sleep -Milliseconds 200
+        Start-Sleep -Milliseconds 100
     }
-    while (-not $parent.WaitForExit(200)) {
-        if (Signal-Matches 'cancel') { $outcome = 'cancelled'; exit 0 }
-        if ([DateTime]::UtcNow -ge $deadline) { throw 'Cubeon did not exit. No installation started.' }
+    if ($outcome -ne 'cancelled') {
+        while (-not $parent.WaitForExit(100)) {
+            Pump-Ui
+            if (Signal-Matches 'cancel') { $outcome = 'cancelled'; $exitCode = 0; break }
+            if ([DateTime]::UtcNow -ge $deadline) { throw 'Cubeon did not exit. No installation started.' }
+        }
     }
-    if (Signal-Matches 'cancel') { $outcome = 'cancelled'; exit 0 }
-    $committed = $true
-    Registered-Target
-    Other-Cubeon
-    if ((Hash-Stream $installerStream) -cne $job.sha256) { throw 'Installer bytes changed.' }
-    $start = New-Object Diagnostics.ProcessStartInfo
-    $start.FileName = $job.download
-    # NSIS /D MUST be the final, unquoted tail, including directories with
-    # spaces. Do not use a shell or C-runtime argv quoting for this string.
-    $start.Arguments = '/S /D=' + $targetDir
-    $start.WorkingDirectory = $directory
-    $start.UseShellExecute = $false
-    $start.CreateNoWindow = $true
-    $setup = [Diagnostics.Process]::Start($start)
-    if (-not $setup.WaitForExit(600000)) {
-        # Never kill a setup in the middle of its transactional swap.
-        throw 'The installer is still running after ten minutes. Check Cubeon-Setup.log.'
+    if ($outcome -ne 'cancelled') {
+        if (Signal-Matches 'cancel') { $outcome = 'cancelled'; $exitCode = 0 }
+        else {
+            $committed = $true
+            Set-Phase ('Installing Cubeon ' + $job.version) 'Your current installation is protected until setup completes.'
+            Registered-Target
+            Other-Cubeon
+            if ((Hash-Stream $installerStream) -cne $job.sha256) { throw 'Installer bytes changed.' }
+            $start = New-Object Diagnostics.ProcessStartInfo
+            $start.FileName = $job.download
+            # NSIS /D MUST be the final, unquoted tail, including directories with
+            # spaces. Do not use a shell or C-runtime argv quoting for this string.
+            $start.Arguments = '/S /D=' + $targetDir
+            $start.WorkingDirectory = $directory
+            $start.UseShellExecute = $false
+            $start.CreateNoWindow = $true
+            $setup = [Diagnostics.Process]::Start($start)
+            $setupDeadline = [DateTime]::UtcNow.AddMinutes(10)
+            while (-not $setup.WaitForExit(100)) {
+                Pump-Ui
+                if ([DateTime]::UtcNow -ge $setupDeadline) {
+                    # Never kill a setup in the middle of its transactional swap.
+                    throw 'The installer is still running after ten minutes. Check Cubeon-Setup.log.'
+                }
+            }
+            if ($setup.ExitCode -ne 0) { throw ('Setup failed with code ' + $setup.ExitCode + '. Check Cubeon-Setup.log.') }
+            $outcome = 'installed'
+            $exitCode = 0
+            if (Test-Path -LiteralPath $job.failed) { Regular $job.failed; Remove-Item -LiteralPath $job.failed }
+            if ($showUi) {
+                Show-Result $true 'Cubeon was updated successfully. Restart to open the new version.'
+                $restartRequested = ((Wait-For-UiAction) -eq 'restart')
+            }
+        }
     }
-    if ($setup.ExitCode -ne 0) { throw ('Setup failed with code ' + $setup.ExitCode + '. Check Cubeon-Setup.log.') }
-    $outcome = 'installed'
-    if (Test-Path -LiteralPath $job.failed) { Regular $job.failed; Remove-Item -LiteralPath $job.failed }
-    exit 0
 } catch {
-    [Console]::Error.WriteLine($_.Exception.Message)
-    exit 1
+    $message = $_.Exception.Message
+    [Console]::Error.WriteLine($message)
+    if ($form) {
+        if ($committed) {
+            Show-Result $false ($message + ' Your existing installation was kept or restored.')
+            [void](Wait-For-UiAction)
+        } else {
+            $uiState.AllowClose = $true
+            $form.Close()
+        }
+    }
 } finally {
     if ($installerStream) { $installerStream.Dispose() }
     if ($job) {
@@ -321,5 +508,15 @@ try {
         [IO.File]::WriteAllText((Join-Path $directory 'result'), $outcome)
     }
     if ($lock) { $lock.Dispose() }
+    if ($form) { $form.Dispose() }
 }
+if ($restartRequested -and $outcome -eq 'installed') {
+    try { Start-Cubeon }
+    catch {
+        [Console]::Error.WriteLine($_.Exception.Message)
+        try { [Windows.Forms.MessageBox]::Show('Cubeon was updated, but it could not be restarted. Open Cubeon from the Start menu.', 'Cubeon Updater') } catch {}
+        $exitCode = 1
+    }
+}
+exit $exitCode
 '''

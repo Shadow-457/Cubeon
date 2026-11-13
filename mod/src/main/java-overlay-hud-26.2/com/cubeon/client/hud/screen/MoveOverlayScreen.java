@@ -22,12 +22,17 @@ public final class MoveOverlayScreen extends Screen {
     private static final Overlay[] OVERLAYS = Overlay.values();
 
 	private final Screen parent;
-	private final Overlay overlay;
+	private Overlay overlay;
 
 	/** Grab offset in pixels from the widget's top-left corner to the click point. */
 	private double grabX;
 	private double grabY;
 	private boolean dragging;
+	private boolean resizing;
+	private int resizeX, resizeY;
+	private float resizeBaseWidth, resizeBaseHeight;
+
+	public MoveOverlayScreen(Screen parent) { this(parent, firstEnabled()); }
 
 	public MoveOverlayScreen(Screen parent, Overlay overlay) {
 		super(Component.translatable(switch (overlay) {
@@ -40,6 +45,11 @@ public final class MoveOverlayScreen extends Screen {
 			}));
 		this.parent = parent;
 		this.overlay = overlay;
+	}
+	private static Overlay firstEnabled() {
+		CubeonHudConfig config=CubeonHudConfig.get();
+		for(Overlay candidate:OVERLAYS) if(CubeonHud.enabled(candidate,config)) return candidate;
+		return Overlay.FPS;
 	}
 
 	@Override
@@ -61,6 +71,7 @@ public final class MoveOverlayScreen extends Screen {
 		}
 
 		CubeonHudConfig config = CubeonHudConfig.get();
+		ClientUi.Canvas ui=canvas(graphics);
 		int x = CubeonHud.posX(overlay, config, this.minecraft, this.width);
 		int y = CubeonHud.posY(overlay, config, this.minecraft, this.height);
 		int w = CubeonHud.widthOf(overlay, this.minecraft);
@@ -69,15 +80,16 @@ public final class MoveOverlayScreen extends Screen {
         for (Overlay other : OVERLAYS) {
             if (other == overlay || !CubeonHud.enabled(other, config)) continue;
             CubeonHud.renderPreview(graphics, this.minecraft, config, other, this.width, this.height);
-            HudEditorChrome.peer(canvas(graphics), this.width, this.height,
+            HudEditorChrome.peer(ui, this.width, this.height,
                     CubeonHud.posX(other, config, this.minecraft, this.width),
                     CubeonHud.posY(other, config, this.minecraft, this.height),
                     CubeonHud.widthOf(other, this.minecraft), CubeonHud.heightOf(other, this.minecraft), x, y, w, h);
         }
         CubeonHud.renderPreview(graphics, this.minecraft, config, overlay, this.width, this.height);
 
-        HudEditorChrome.render(canvas(graphics), this.width, this.height, this.title.getString(),
-                mouseX, mouseY, x, y, w, h, this.dragging);
+        HudEditorChrome.render(ui, this.width, this.height,
+                ui.translate("cubeonclient.hud."+CubeonHud.slotOf(overlay)),
+                mouseX, mouseY, x, y, w, h, this.dragging||this.resizing);
 	}
 
 	@Override
@@ -90,11 +102,22 @@ public final class MoveOverlayScreen extends Screen {
 			return true;
 		}
 
-		if (event.button() == 0 && this.minecraft != null && isOverWidget(event.x(), event.y())) {
+		if (event.button() == 0 && this.minecraft != null) {
+			Overlay hit=hitOverlay(event.x(),event.y());
+			if(hit==null) return false;
+			this.overlay=hit;
 			CubeonHudConfig config = CubeonHudConfig.get();
+			int x=CubeonHud.posX(overlay,config,this.minecraft,this.width),y=CubeonHud.posY(overlay,config,this.minecraft,this.height);
+			int w=CubeonHud.widthOf(overlay,this.minecraft),h=CubeonHud.heightOf(overlay,this.minecraft);
+			if(HudEditorChrome.resizeHandle(x,y,w,h,event.x(),event.y())) {
+				float scale=CubeonHud.scaleOf(overlay);
+				this.resizeX=x;this.resizeY=y;this.resizeBaseWidth=w/scale;this.resizeBaseHeight=h/scale;
+				this.resizing=true;this.dragging=false;return true;
+			}
 			this.grabX = event.x() - CubeonHud.posX(overlay, config, this.minecraft, this.width);
 			this.grabY = event.y() - CubeonHud.posY(overlay, config, this.minecraft, this.height);
 			this.dragging = true;
+			this.resizing = false;
 			return true;
 		}
 
@@ -104,6 +127,15 @@ public final class MoveOverlayScreen extends Screen {
 	@Override
 	public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
 		if (super.mouseDragged(event, dragX, dragY)) {
+			return true;
+		}
+
+		if (this.resizing && this.minecraft != null) {
+			float scale=(float)Math.max((event.x()-this.resizeX)/Math.max(1,this.resizeBaseWidth),
+					(event.y()-this.resizeY)/Math.max(1,this.resizeBaseHeight));
+			CubeonHudConfig config=CubeonHudConfig.get();
+			config.setScaleForLive(CubeonHud.slotOf(overlay),scale);
+			CubeonHud.moveTo(overlay,config,this.minecraft,this.resizeX,this.resizeY,this.width,this.height);
 			return true;
 		}
 
@@ -119,8 +151,9 @@ public final class MoveOverlayScreen extends Screen {
 
 	@Override
 	public boolean mouseReleased(MouseButtonEvent event) {
-		if (this.dragging) {
+		if (this.dragging || this.resizing) {
 			this.dragging = false;
+			this.resizing = false;
 			CubeonHudConfig.save();
 			return true;
 		}
@@ -169,12 +202,21 @@ public final class MoveOverlayScreen extends Screen {
             public String translate(String key) { return Component.translatable(key).getString(); }
         }; }
 
-	private boolean isOverWidget(double mouseX, double mouseY) {
+	private Overlay hitOverlay(double mouseX,double mouseY) {
+		if(isOverWidget(overlay,mouseX,mouseY)) return overlay;
+		CubeonHudConfig config=CubeonHudConfig.get();
+		for(int i=OVERLAYS.length-1;i>=0;i--) {
+			Overlay candidate=OVERLAYS[i];
+			if(candidate!=overlay&&CubeonHud.enabled(candidate,config)&&isOverWidget(candidate,mouseX,mouseY)) return candidate;
+		}
+		return null;
+	}
+	private boolean isOverWidget(Overlay target,double mouseX, double mouseY) {
 		CubeonHudConfig config = CubeonHudConfig.get();
-		int x = CubeonHud.posX(overlay, config, this.minecraft, this.width) - PADDING;
-		int y = CubeonHud.posY(overlay, config, this.minecraft, this.height) - PADDING;
-		int w = CubeonHud.widthOf(overlay, this.minecraft) + 2 * PADDING;
-		int h = CubeonHud.heightOf(overlay, this.minecraft) + 2 * PADDING;
+		int x = CubeonHud.posX(target, config, this.minecraft, this.width) - PADDING;
+		int y = CubeonHud.posY(target, config, this.minecraft, this.height) - PADDING;
+		int w = CubeonHud.widthOf(target, this.minecraft) + 2 * PADDING;
+		int h = CubeonHud.heightOf(target, this.minecraft) + 2 * PADDING;
 
 		return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
 	}

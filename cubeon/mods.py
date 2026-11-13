@@ -60,6 +60,7 @@ from .paths import (
     modrinth_headers,
 )
 from .mod_loaders import MOD_CAPABLE_LOADERS
+from . import mod_catalogue
 from .atomicio import write_json
 from . import local_cache
 from . import global_mod_cache
@@ -668,11 +669,11 @@ def list_profiles() -> list[dict]:
 
 
 def record_mod_source(profile_dir: str, filename: str, slug: str | None = None,
-                      project_id: str | None = None, url: str | None = None) -> None:
+                      project_id: str | None = None, url: str | None = None, **provenance) -> None:
     """Public sidecar writer, for code outside this module that installs jars
     into a profile - chiefly the modpack installer, which had no way to record
     what it had just laid down and so left every pack mod anonymous."""
-    _write_meta(profile_dir, filename, slug, project_id=project_id, url=url)
+    _write_meta(profile_dir, filename, slug, project_id=project_id, url=url, **provenance)
 
 
 def _meta_path(profile_dir: str, filename: str) -> str:
@@ -690,13 +691,16 @@ _META_WRITE_LOCK = threading.RLock()
 
 
 def _write_meta(profile_dir: str, filename: str, slug: str | None,
-                project_id: str | None = None, url: str | None = None) -> None:
+                project_id: str | None = None, url: str | None = None, *,
+                source=None, file_id=None, icon_url=None) -> None:
     with _META_WRITE_LOCK:
-        _write_meta_locked(profile_dir, filename, slug, project_id, url)
+        _write_meta_locked(profile_dir, filename, slug, project_id, url,
+                           source=source, file_id=file_id, icon_url=icon_url)
 
 
 def _write_meta_locked(profile_dir: str, filename: str, slug: str | None,
-                project_id: str | None = None, url: str | None = None) -> None:
+                project_id: str | None = None, url: str | None = None, *,
+                source=None, file_id=None, icon_url=None) -> None:
     """Record what a jar actually IS, next to it.
 
     Three fields, each earning its place:
@@ -729,6 +733,10 @@ def _write_meta_locked(profile_dir: str, filename: str, slug: str | None,
     if url:
         meta["url"] = url
         changed = True
+    for key, value in (("source", source), ("file_id", file_id), ("icon_url", icon_url)):
+        if value is not None:
+            meta[key] = value
+            changed = True
     if not changed:
         return
     path = _meta_path(profile_dir, filename)
@@ -845,6 +853,7 @@ def find_other_copies(profile_dir: str, filename: str,
     if not (want_slug or want_pid):
         want_slug, want_pid, _ = mod_identity(profile_dir, filename)
     want_stem = name_stem(filename)
+    want_source = (_read_meta(profile_dir, filename) or {}).get("source") or "modrinth"
 
     out = []
     try:
@@ -855,6 +864,11 @@ def find_other_copies(profile_dir: str, filename: str,
         if other == filename or not (other.endswith(".jar") or other.endswith(".jar.disabled")):
             continue
         o_slug, o_pid, o_stem = mod_identity(profile_dir, other)
+        other_meta = _read_meta(profile_dir, other) or {}
+        other_source = other_meta.get("source") or "modrinth"
+        if want_source != other_source and (o_slug or o_pid):
+            # Identical names across catalogues can identify different forks.
+            continue
         if (want_slug and o_slug and want_slug == o_slug) or \
            (want_pid and o_pid and want_pid == o_pid):
             out.append({"filename": other, "strong": True})
@@ -865,7 +879,7 @@ def find_other_copies(profile_dir: str, filename: str,
 
 def supersede_older_copies(profile_dir: str, filename: str,
                            slug: str | None = None,
-                           project_id: str | None = None) -> list[str]:
+                           project_id: str | None = None, *, reversible=False) -> list[str]:
     """Make `filename` the only copy of its mod in this profile. Returns the
     human-readable names of what it moved out of the way.
 
@@ -880,7 +894,7 @@ def supersede_older_copies(profile_dir: str, filename: str,
         name = other["filename"]
         src = os.path.join(profile_dir, name)
         try:
-            if other["strong"]:
+            if other["strong"] and not reversible:
                 os.remove(src)
                 meta = _meta_path(profile_dir, name)
                 if os.path.exists(meta):
@@ -984,6 +998,9 @@ def list_mods(mc_version: str | None, loader: str | None,
                 # Modrinth's opaque id. A modpack manifest gives us only this,
                 # so it's often the sole thing identifying a pack-installed mod.
                 "project_id": meta.get("project_id") if isinstance(meta.get('project_id'), str) else None,
+                "source": meta.get("source") or ("modrinth" if meta.get("project_id") or meta.get("slug") else None),
+                "file_id": meta.get("file_id"),
+                "icon_url": meta.get("icon_url"),
                 "stem": name_stem(fname),
                 # Cubeon-managed mods (CustomSkinLoader, Cubeon Friends) -
                 # the Mods UI hides their controls and the core refuses to
@@ -1305,8 +1322,8 @@ def copy_mods_between_profiles(
                              "detail": "unknown mod (no source info), copy manually"})
             continue
         try:
-            file_info = get_mod_download(m["slug"], mc_version=dst_mc_version, loader=dst_loader)
-        except requests.RequestException as ex:
+            file_info = get_mod_download(_mod_ref(m), mc_version=dst_mc_version, loader=dst_loader)
+        except (ValueError, requests.RequestException) as ex:
             results.append({"name": name, "status": "no_match", "detail": str(ex)})
             continue
         if not file_info:
@@ -1318,6 +1335,9 @@ def copy_mods_between_profiles(
                 file_info["url"], file_info["filename"],
                 mc_version=dst_mc_version, loader=dst_loader, slug=m["slug"],
                 hashes=file_info.get("hashes"), version_id=dst_version_id,
+                **({"source": "curseforge", "project_id": file_info["project_id"],
+                    "file_id": file_info.get("id"), "icon_url": file_info.get("icon_url")}
+                   if m.get("source") == "curseforge" else {}),
             )
             results.append({"name": name, "status": "copied", "detail": file_info["version_number"]})
         except (OSError, ValueError, requests.RequestException) as ex:
@@ -1334,7 +1354,7 @@ def copy_mods_between_profiles(
 
 def get_recommended_mods(mc_version: str | None = None, loader: str | None = "fabric",
                           category: str | None = None, limit: int = 100,
-                          offset: int = 0) -> list[dict]:
+                          offset: int = 0, *, source="modrinth", force=False) -> list[dict]:
     """One page of popular mods, scoped to the selected version/loader.
 
     Use the same cached Modrinth search as category browsing, including its
@@ -1342,39 +1362,8 @@ def get_recommended_mods(mc_version: str | None = None, loader: str | None = "fa
     """
     return search_mods("", mc_version=mc_version, loader=loader,
                        categories=[category] if category else None,
-                       limit=limit, offset=offset)
-
-
-def _mod_search_queries(query: str) -> list[str]:
-    words = query.split()
-    candidates = [query]
-    # Loader errors use IDs (cloth_config, yet_another_config_lib_v3), while
-    # players often split single-word titles such as BetterGrassify.
-    spaced = re.sub(r"[_-]+", " ", query).strip()
-    compact = re.sub(r"[^a-z0-9]", "", query.lower())
-    aliases = {
-        "fabricapi": "Fabric API",
-        "fabriclanguagekotlin": "Fabric Language Kotlin",
-        "clothconfig": "Cloth Config",
-        "clothconfigapi": "Cloth Config",
-        "yacl": "YetAnotherConfigLib",
-        "yetanotherconfiglibv3": "YetAnotherConfigLib",
-        "architectury": "Architectury API",
-        "fzzyconfig": "Fzzy Config",
-        "placeholderapi": "Text Placeholder API",
-    }
-    if compact in aliases:
-        candidates.append(aliases[compact])
-    if spaced != query:
-        candidates.append(spaced)
-    if any(word.lower() == "armour" for word in words):
-        candidates.append(" ".join("armor" if word.lower() == "armour" else word for word in words))
-    if compact and (len(words) == 2 or spaced != query):
-        candidates.append(compact)
-    if len(words) > 2:
-        width = min(2, len(words) - 1)
-        candidates.extend((" ".join(words[-width:]), " ".join(words[:width])))
-    return list(dict.fromkeys(candidates))[:5]
+                       limit=limit, offset=offset, **({"source": source} if source != "modrinth" else {}),
+                       **({"force": True} if force else {}))
 
 
 def _mod_project_reference(query: str) -> str | None:
@@ -1392,7 +1381,7 @@ def _mod_project_reference(query: str) -> str | None:
     return parts[1] if re.fullmatch(r"[A-Za-z0-9_-]+", parts[1]) else None
 
 
-def _mod_search_hit(hit: dict, search_query: str) -> dict:
+def _mod_search_hit(hit: dict, search_query: str, *, facet_compatible: bool = False) -> dict:
     loaders = hit.get("loaders")
     if loaders is None and "categories" in hit:
         loaders = [category for category in (hit["categories"] or []) if category in MOD_CAPABLE_LOADERS]
@@ -1407,12 +1396,16 @@ def _mod_search_hit(hit: dict, search_query: str) -> dict:
         "game_versions": hit.get("game_versions", hit.get("versions")),
         "loaders": loaders,
         "search_query": search_query,
+        # Modrinth's facet match is the authority for browse compatibility.
+        # Search-hit summary metadata can be incomplete or lag the release index;
+        # do not second-guess a project returned by the exact version+loader query.
+        "facet_compatible": facet_compatible,
     }
 
 
 def search_mods(query: str, mc_version: str | None = None, loader: str | None = "fabric",
                  categories: list[str] | None = None, limit: int = 100,
-                 offset: int = 0) -> list[dict]:
+                 offset: int = 0, *, source="modrinth", force=False) -> list[dict]:
     """Searches Modrinth for mods, optionally scoped to a specific MC version,
     loader, and one or more categories (e.g. "performance", "worldgen").
     Returns a simplified list of hit dicts ready for display.
@@ -1420,16 +1413,27 @@ def search_mods(query: str, mc_version: str | None = None, loader: str | None = 
     `offset` pages through Modrinth's result set: the Mods tab fetches one
     page at a time (limit = page size, offset = page * page size) so a browse
     never pulls every page up front. Offset is part of the cache key, so each
-    page caches independently. Empty name searches try bounded shorter queries;
-    hits identify the effective query so later pages stay on the same results.
-    Modrinth project links resolve directly; installers still check compatibility.
+    page caches independently. Like Prism Launcher, each page is one exact
+    Modrinth search with the active version/loader facets; it is never silently
+    broadened to incompatible projects. Modrinth project links resolve directly.
     """
     query = " ".join((query or "").split())
+    link = mod_catalogue.reference(query)
+    if link:
+        if offset:
+            return []
+        project = get_mod_details(link["project"], source=link["source"], force=force)
+        if not project or project.get("project_type") != "mod":
+            return []
+        return [dict(_mod_search_hit(project, query), source=link["source"], file_id=link["file_id"])]
+    if source == "curseforge":
+        return mod_catalogue.search(query, mc_version, loader, categories, limit, offset, force=force)
+    mod_catalogue.resolve_ref("", source)
     facets = [["project_type:mod"]]
-    if loader:
-        facets.append([f"categories:{loader}"])
     if mc_version:
         facets.append([f"versions:{mc_version}"])
+    if loader:
+        facets.append([f"categories:{loader}"])
     if categories:
         # Categories are OR'd together within their own facet group (any of
         # the selected categories match), while still being AND'd against
@@ -1439,7 +1443,7 @@ def search_mods(query: str, mc_version: str | None = None, loader: str | None = 
     cache_key = {
         "query": query, "mc_version": mc_version, "loader": loader,
         "categories": categories or [], "limit": limit, "offset": offset,
-        "revision": 3,
+        "revision": 6,
     }
 
     def _fetch() -> list[dict]:
@@ -1452,52 +1456,29 @@ def search_mods(query: str, mc_version: str | None = None, loader: str | None = 
                 return []
             return [_mod_search_hit(project, query)]
 
-        effective_query = query
-        candidates = _mod_search_queries(query)
-        broadened = False
-        if offset and query:
-            first_page = search_mods(query, mc_version=mc_version, loader=loader,
-                                     categories=categories, limit=limit)
-            if not first_page:
-                return []
-            effective_query = first_page[0].get("search_query", query)
-            broadened = bool(first_page[0].get("search_broadened"))
         params = {
-            "query": effective_query, "limit": str(limit), "offset": str(offset),
-            "facets": json.dumps([["project_type:mod"]] if broadened else facets),
+            "query": query, "limit": str(limit), "offset": str(offset),
+            "facets": json.dumps(facets),
             "index": modrinth_search_index(query),
         }
-        for candidate in ([effective_query] if offset else candidates):
-            params["query"] = candidate
-            data = net.get_json(f"{MODRINTH_API}/search", params=params,
-                                headers=modrinth_headers(), timeout=10)
-            if data.get("hits"):
-                return rank_search_hits([
-                    dict(_mod_search_hit(hit, candidate), search_broadened=broadened)
-                    for hit in data["hits"]
-                ], candidate)
-        # A missing compatible/category match must not make a real project
-        # undiscoverable. Show broad matches with their actual support metadata;
-        # the UI and installer still enforce the selected version and loader.
-        if query and not offset and len(facets) > 1:
-            params["query"] = query
-            params["facets"] = json.dumps([["project_type:mod"]])
-            data = net.get_json(f"{MODRINTH_API}/search", params=params,
-                                headers=modrinth_headers(), timeout=10)
-            return rank_search_hits([
-                dict(_mod_search_hit(hit, query), search_broadened=True)
-                for hit in data.get("hits", [])
-            ], query)
-        return []
+        data = net.get_json(f"{MODRINTH_API}/search", params=params,
+                            headers=modrinth_headers(), timeout=(3, 10), attempts=1)
+        return [
+            dict(_mod_search_hit(hit, query, facet_compatible=bool(mc_version and loader)),
+                 source="modrinth", compatibility_target=[mc_version, loader] if mc_version and loader else None)
+            for hit in data.get("hits", [])
+        ]
 
     # Browse/search: 6 hours fresh (long enough that a browsing session never
     # blocks, short enough that "top downloads" stays current), then
     # stale-while-revalidate, then stale forever as the offline fallback.
+    if force:
+        return local_cache.set("search_mods", cache_key, _fetch())
     previous = local_cache.get_stale("search_mods", cache_key)
     return local_cache.cached_call(
         "search_mods", cache_key, _fetch,
         max_age=60 if previous == [] else 6 * 3600,
-        background_refresh=previous != [],
+        background_refresh=previous != [], stale_ok=previous != [],
     )
 
 
@@ -1600,7 +1581,7 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
                       loader: str = "fabric", *,
                       timeout: int | tuple = 10,
                       attempts: int | None = None,
-                      version_predicates=None, cancel_event=None) -> dict | None:
+                      version_predicates=None, cancel_event=None, source="modrinth", file_id=None, force=False) -> dict | None:
     """Finds the best matching version file for a mod, filtered by MC version
     and loader when given. Returns {filename, url, size} or None if no
     matching version exists.
@@ -1611,6 +1592,11 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     `version_predicates` requires ALL requesters' constraints, and uses its own
     cache entry so a pinned dependency cannot get an unconstrained latest jar.
     """
+    source, project_id_or_slug = mod_catalogue.resolve_ref(project_id_or_slug, source)
+    if source == "curseforge":
+        return mod_catalogue.download(project_id_or_slug, mc_version, loader, file_id=file_id,
+                                      force=force, timeout=timeout, cancel_event=cancel_event,
+                                      version_predicates=version_predicates)
     net.check_cancelled(cancel_event)
     if attempts is None:
         attempts = net.DEFAULT_ATTEMPTS
@@ -1620,36 +1606,39 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     if mc_version:
         params["game_versions"] = json.dumps([mc_version])
 
-    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 4}
+    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 4, "file_id": file_id}
     if version_predicates is not None:
         cache_key["predicates"] = list(version_predicates)
 
     def _fetch():
         versions = net.get_json(
-            f"{MODRINTH_API}/project/{project_id_or_slug}/version",
+            f"{MODRINTH_API}/version/{file_id}" if file_id else f"{MODRINTH_API}/project/{project_id_or_slug}/version",
             params=params, headers=modrinth_headers(), timeout=timeout,
             attempts=attempts,
             **({"cancel_check": lambda: net.check_cancelled(cancel_event)}
                if cancel_event is not None else {}),
         )
-        return _select_download(versions, mc_version=mc_version, loader=loader,
+        return _select_download([versions] if file_id else versions, mc_version=mc_version, loader=loader,
                                 predicates=version_predicates)
 
     # File resolution is what runs between the click on "Download" and the
     # download starting - it must feel instant. 24h fresh, then serve stale
     # and revalidate in the background; a re-released mod picks up on the
     # next browse instead of blocking this click.
+    if force:
+        return local_cache.set("mod_download", cache_key, {"file": _fetch()})["file"]
     previous = local_cache.get_stale("mod_download", cache_key)
     cached = local_cache.cached_call(
         "mod_download", cache_key, lambda: {"file": _fetch()},
-        max_age=300 if previous and previous.get("file") is None else 86400,
+        max_age=60 if previous and previous.get("file") is None else 86400,
         background_refresh=not (previous and previous.get("file") is None),
+        stale_ok=not (previous and previous.get("file") is None),
     )
     net.check_cancelled(cancel_event)
     return cached["file"]
 
 
-def get_mod_details(project_id_or_slug: str) -> dict | None:
+def get_mod_details(project_id_or_slug: str, *, source="modrinth", force=False) -> dict | None:
     """Full Modrinth project record, normalized for the mod detail view.
 
     One cached GET /project/{id}: everything the detail dialog shows besides
@@ -1659,7 +1648,9 @@ def get_mod_details(project_id_or_slug: str) -> dict | None:
     a CurseForge-only pack entry), so callers can fall back to the row they
     already had instead of showing an empty dialog.
     """
-    ref = (project_id_or_slug or "").strip()
+    source, ref = mod_catalogue.resolve_ref(project_id_or_slug, source)
+    if source == "curseforge":
+        return mod_catalogue.details(ref, force=force)
     if not ref:
         return None
 
@@ -1708,6 +1699,8 @@ def get_mod_details(project_id_or_slug: str) -> dict | None:
             "published": p.get("published"),
         }
 
+    if force:
+        return local_cache.set("mod_details", {"project": ref, "revision": 2}, _fetch())
     return local_cache.cached_call(
         "mod_details", {"project": ref, "revision": 2}, _fetch,
         max_age=6 * 3600)
@@ -1716,29 +1709,43 @@ def get_mod_details(project_id_or_slug: str) -> dict | None:
 def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
                      loader: str | None = None, *,
                      allow_network: bool = True, timeout=10,
-                     attempts: int | None = None) -> list[dict]:
-    """Every released version of a mod, newest first, normalized for the
-    detail view. Each entry carries its own supported loaders and Minecraft
-    versions, whether it is compatible with the profile the user is browsing
-    (`compatible`), the primary downloadable file, and its dependencies.
+                     attempts: int | None = None, source="modrinth", force=False,
+                     offset=0, file_id=None) -> list[dict]:
+    """Released versions of a mod, newest first, normalized for the detail view.
 
-    ONE GET /project/{id}/version covers the whole list - no per-version
-    requests - and is cached for 6 hours, so opening a mod's menu twice costs
-    nothing and the version picker stays usable offline via the stale tier.
+    Match Prism Launcher's lookup: when a Minecraft version or loader is known,
+    send those filters to Modrinth's project-version endpoint instead of fetching
+    the project's entire history and filtering it afterwards. The smaller exact
+    response is both faster and authoritative for the active instance. Each
+    filtered result set is cached independently for 6 hours.
 
     `allow_network=False` reads ONLY the last cached copy (no request), for
     callers that must never block on the network.
     """
-    ref = (project_id_or_slug or "").strip()
+    source, ref = mod_catalogue.resolve_ref(project_id_or_slug, source)
+    if source == "curseforge":
+        return mod_catalogue.versions(ref, mc_version, loader, offset=offset, file_id=file_id,
+                                      force=force, timeout=timeout, allow_network=allow_network)
     if not ref:
         return []
+    params = {}
+    if mc_version:
+        params["game_versions"] = json.dumps([mc_version])
+    if loader:
+        params["loaders"] = json.dumps([loader])
+    cache_key = {
+        "project": ref, "mc_version": mc_version, "loader": loader,
+        "revision": 2, "file_id": file_id,
+    }
+
     def _fetch() -> list[dict]:
         versions = net.get_json(
-            f"{MODRINTH_API}/project/{ref}/version",
-            headers=modrinth_headers(), timeout=timeout, attempts=attempts,
+            f"{MODRINTH_API}/version/{file_id}" if file_id else f"{MODRINTH_API}/project/{ref}/version",
+            params=params or None, headers=modrinth_headers(),
+            timeout=timeout, attempts=attempts,
         )
         out = []
-        for v in versions:
+        for v in ([versions] if file_id else versions):
             files = v.get("files") or []
             primary = next((f for f in files if f.get("primary")),
                            files[0] if files else None)
@@ -1771,14 +1778,16 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
             })
         return out
 
-    if allow_network:
-        previous = local_cache.get_stale("mod_versions", {"project": ref})
+    if force and allow_network:
+        releases = local_cache.set("mod_versions", cache_key, _fetch())
+    elif allow_network:
+        previous = local_cache.get_stale("mod_versions", cache_key)
         releases = local_cache.cached_call(
-            "mod_versions", {"project": ref}, _fetch,
+            "mod_versions", cache_key, _fetch,
             max_age=60 if previous == [] else 6 * 3600,
-            background_refresh=previous != [])
+            background_refresh=previous != [], stale_ok=previous != [])
     else:
-        releases = local_cache.get_stale("mod_versions", {"project": ref})
+        releases = local_cache.get_stale("mod_versions", cache_key)
     return [dict(v, compatible=(
         (not mc_version or mc_version in v.get("game_versions", []))
         and (not loader or loader in v.get("loaders", []))))
@@ -2220,7 +2229,7 @@ def _read_remote_mod_metadata(download_url: str, loader: str | None = None) -> d
 
 def _mod_ref(mod: dict) -> str | None:
     ref = (mod.get("project_id") or mod.get("slug") or "").strip()
-    return ref or None
+    return (mod_catalogue.identity(mod, ref) if mod.get("source") == "curseforge" else ref) or None
 
 
 @lru_cache(maxsize=1024)
@@ -2445,7 +2454,9 @@ def _doctor_download(candidate: dict, *, mc_version: str, loader: str,
         return False
     download_mod(candidate["url"], filename, mc_version=mc_version, loader=loader,
                  slug=slug, project_id=project_id, hashes=candidate.get("hashes"),
-                 preserve_existing=True, version_id=version_id)
+                 preserve_existing=True, version_id=version_id,
+                 **({"source": "curseforge", "file_id": candidate.get("id"),
+                     "icon_url": candidate.get("icon_url")} if candidate.get("source") == "curseforge" else {}))
     for mod in affected:
         _doctor_disable(mc_version, loader, mod["filename"], version_id=version_id)
     return True
@@ -2782,7 +2793,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                     or m["filename"] in locally_verified
                     or m["filename"] in broken_files):
                 continue
-            ref = m.get("project_id") or m.get("slug")
+            ref = _mod_ref(m)
             if not ref:
                 continue
             lookup = online.get(ref) or {}
@@ -3231,7 +3242,7 @@ def installed_project_ids(mc_version: str | None, loader: str | None,
                 continue
             for key in ("project_id", "slug"):
                 if m.get(key):
-                    out.add(m[key])
+                    out.add(mod_catalogue.identity(m, m[key]) if m.get("source") == "curseforge" else m[key])
     except Exception:
         pass
     return out
@@ -3246,6 +3257,21 @@ def required_dependencies(project_id_or_slug: str, mc_version: str | None,
     Embedded/optional dependencies need no separate download. Resolve before
     publishing files; unavailable dependencies are errors, never a clean graph.
     """
+    source, reference = mod_catalogue.resolve_ref(project_id_or_slug)
+    if source == "curseforge":
+        selected = None
+        offset = 0
+        for _page in range(mod_catalogue.MAX_FILE_PAGES):
+            page = mod_catalogue.versions(reference, mc_version, loader, offset=offset, cancel_event=cancel_event)
+            selected = next((v for v in page if v["compatible"] and v.get("url")
+                             and (not filename or v["filename"] == filename)), None)
+            if selected or page.next_offset is None:
+                break
+            offset = page.next_offset
+        if not selected:
+            raise ValueError("The required CurseForge release has no matching build.")
+        return [dict(dep, project_id=mod_catalogue.identity(dep)) for dep in
+                mod_catalogue.required_dependencies(selected, mc_version, loader, cancel_event=cancel_event)]
     net.check_cancelled(cancel_event)
     cancel_options = ({"cancel_check": lambda: net.check_cancelled(cancel_event)}
                       if cancel_event is not None else {})
@@ -3329,7 +3355,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
                                   progress_cb=None,
                                   status_cb=None,
                                   version_id: str | None = None,
-                                  cancel_event=None) -> dict:
+                                  cancel_event=None, *, source="modrinth", file_id=None) -> dict:
     """Downloads a mod AND every required dependency it needs that the profile
     doesn't already have.
 
@@ -3339,6 +3365,11 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     Required metadata must resolve before publishing the main mod. Transfer
     failures and unresolved actual JAR requirements are returned in failed.
     """
+    source, project = mod_catalogue.resolve_ref(project_id or slug, source)
+    if source == "curseforge":
+        return mod_catalogue.install(project, filename, mc_version, loader, file_id=file_id,
+                                     version_id=version_id, progress_cb=progress_cb,
+                                     status_cb=status_cb, cancel_event=cancel_event)
     require_mod_loader(mc_version, loader, "download a mod")
     net.check_cancelled(cancel_event)
     # Reject a bad name before any network work: the dependency list and the
@@ -3431,6 +3462,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     download_mod(download_url, filename, progress_cb=_batch_progress,
                  slug=slug, mc_version=mc_version, loader=loader,
                  hashes=hashes, project_id=project_id, version_id=version_id,
+                 **({"file_id": file_id} if file_id else {}),
                  **({"cancel_event": cancel_event} if cancel_event is not None else {}))
     _batch["done"] = 1.0
     _batch_progress(0, 1)
@@ -3488,7 +3520,8 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
                   loader: str | None = None, hashes: dict | None = None,
                   project_id: str | None = None,
                   superseded_cb=None, preserve_existing: bool = False,
-                  version_id: str | None = None, cancel_event=None) -> str:
+                  version_id: str | None = None, cancel_event=None, *,
+                  source="modrinth", file_id=None, icon_url=None) -> str:
     """Streams a mod file into the profile folder for (mc_version, loader).
     progress_cb(downloaded, total) is called periodically if provided.
     Returns the final path. slug (when given) is recorded in a sidecar file
@@ -3554,7 +3587,34 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
         except net.DownloadError as ex:
             raise RuntimeError(str(ex)) from ex
 
-    global_mod_cache.get_or_fetch(dest, fetch_fn, hashes, **cancel_options)
+    source, project_id = mod_catalogue.resolve_ref(project_id, source)
+    if source == "curseforge":
+        # Validate cached bytes too, before exposing a file to the instance.
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix=".mod-stage-", dir=profile_dir) as stage:
+            staged = os.path.join(stage, filename)
+            global_mod_cache.get_or_fetch(staged, fetch_fn, hashes, **cancel_options)
+            metadata = read_mod_metadata(staged, loader)
+            if not metadata or _doctor_local_incompatibility(metadata, mc_version, loader):
+                raise ValueError("The downloaded JAR does not support this Minecraft version and loader.")
+            previous_meta = _read_meta(profile_dir, filename) or {}
+            if os.path.lexists(dest) and previous_meta.get("source", "modrinth") != source:
+                raise ValueError("A different source already uses this filename. Review the installed copy first.")
+            if os.path.lexists(dest) and not global_mod_cache._matches_hashes(dest, hashes or {}):
+                if previous_meta.get("project_id") and previous_meta["project_id"] != project_id:
+                    raise ValueError("Another project already uses this filename. Review the installed copy first.")
+                previous_tag = re.sub(r"[^A-Za-z0-9_-]", "_", str(previous_meta.get("file_id") or "build"))[:64]
+                backup = f"previous-{previous_tag}-{filename}.disabled"
+                suffix = 1
+                while os.path.lexists(os.path.join(profile_dir, backup)):
+                    backup = f"previous-{suffix}-{filename}.disabled"
+                    suffix += 1
+                global_mod_cache.put_file(dest, os.path.join(profile_dir, backup))
+                write_json(_meta_path(profile_dir, backup), previous_meta)
+            net.check_cancelled(cancel_event)
+            global_mod_cache.link_into_place(os.path.realpath(staged), dest)
+    else:
+        global_mod_cache.get_or_fetch(dest, fetch_fn, hashes, **cancel_options)
     # A caller usually knows only one of the two Modrinth ids: browse rows and
     # old callers pass the slug, a modpack manifest only the project id (it is
     # in the CDN URL). Record both when the other is one cached lookup away.
@@ -3564,13 +3624,16 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
     # forever (or worse, stayed enabled next to it).
     if (slug or project_id) and not (slug and project_id):
         try:
-            details = get_mod_details(slug or project_id) or {}
+            details = get_mod_details(mod_catalogue.identity({"source": source}, slug or project_id)
+                                      if source == "curseforge" else slug or project_id) or {}
             slug = slug or details.get("slug") or None
             project_id = project_id or details.get("project_id") or None
         except Exception:
             pass
-    _write_meta(profile_dir, filename, slug, project_id=project_id, url=download_url)
-    moved = [] if preserve_existing else supersede_older_copies(profile_dir, filename, slug, project_id)
+    _write_meta(profile_dir, filename, slug, project_id=project_id, url=download_url,
+                source=source, file_id=file_id, icon_url=icon_url)
+    moved = [] if preserve_existing else supersede_older_copies(profile_dir, filename, slug, project_id,
+                                                               **({"reversible": True} if source == "curseforge" else {}))
     if moved and superseded_cb:
         superseded_cb(moved)
     return dest

@@ -186,8 +186,10 @@ the same Settings page.
   dash when unavailable; it does not measure total hardware GPU/VRAM usage. Sizes are independent,
   so making the keystrokes bigger does not enlarge the FPS
   counter. The armour overlay shows only the four worn pieces, not the item in
-  your hand. **Enemy Health** toggles a thin bar beneath nearby enemy names
-  (players and hostile mobs). It starts off and remembers your choice; enemies
+  your hand. **Enemy Health** toggles ten hearts beneath nearby enemy names
+  (players and hostile mobs), with full, half and empty hearts. The row reflects
+  health as a proportion of maximum health; 19 of 20 health shows nine full hearts
+  and one half heart. It starts off and remembers your choice; enemies
   behind walls and teammates are hidden. **Cosmetic motion** starts on;
   switch it off to keep pets, wings and packs still, including individual feather
   movement and the N flare. This skips animation calculations.
@@ -302,16 +304,18 @@ windows show more results at once; paging keeps additional results available.
 
 Mod search shows the selected Minecraft version, loader, and category. Keep
 **Compatible only** enabled to find mods for that instance. If a mod seems
-missing, use **Search all Modrinth** from an empty search, or turn off
-**Compatible only** and select **All** categories. Mods for other versions
-or loaders remain inspectable, but their download button is unavailable.
+missing, use **Search all versions and loaders** from an empty search, or turn off
+**Compatible only** and select **All** categories. Each result shows whether it
+comes from Modrinth or CurseForge. Installation checks the actual release for
+your Minecraft version and loader; a failed check offers Retry.
 
-Use a mod's name or paste its Modrinth project link into the search field.
-When a full name has no matches, Cubeon tries shorter name searches and labels
-them as related matches. A pasted link resolves the project directly, even
-if the current filters would hide it; installation still requires a matching
-Minecraft version and loader. Cubeon's built-in catalog uses Modrinth, so a
-project published only elsewhere will not appear in these results.
+Use a mod's name or paste a Modrinth or CurseForge project/file link into the
+search field. Cubeon searches both catalogues with your text and filters. A
+pasted link resolves directly; installation still requires a matching release.
+Projects with the same name remain separate because they may be different forks.
+If one catalogue is unavailable, the other's results remain usable. Some
+CurseForge files require downloading on the official page; their details offer
+**Open CurseForge** and **Import from file**.
 
 Click a mod, resource pack or shader to open its full-page details. **Back** or
 Escape returns to the same catalogue. **Overview** shows the README and metadata;

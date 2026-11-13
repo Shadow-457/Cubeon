@@ -61,6 +61,8 @@ components, prepares the selected instance's content, and starts Java.
 - `cubeon/launch.py` constructs the game command and starts the process.
 - `cubeon/instances.py` reads installed-instance metadata.
 - `cubeon/mods.py`, `modpacks.py`, and `content.py` manage installed content.
+  Individual Mods discovery combines Modrinth and CurseForge through
+  [the provider catalogue](mod-catalogue.md).
 
 Selecting an installed instance must use that instance's loader, not leave
 an unrelated loader toggle selected. Shared downloads can be reused, but

@@ -74,7 +74,7 @@ def net_routes(routes):
     def fake_get_json(url, **kw):
         for frag, payload in routes.items():
             if frag in url:
-                return payload
+                return payload(url, **kw) if callable(payload) else payload
         raise mods.net.DownloadError("no route for " + url)
     mods.net.get_json = fake_get_json
     mods.requests = FakeRequests(routes)  # any legacy direct use
@@ -159,23 +159,37 @@ VERSIONS = [
      "files": [{"filename": "sodium-0.5.0.jar", "url": "u1",
                 "size": 1024, "primary": True, "hashes": {}}]},
 ]
-net_routes({"/version": VERSIONS})
+_version_requests = []
+def _filtered_versions(_url, **kwargs):
+    params = kwargs.get("params") or {}
+    _version_requests.append(params)
+    versions = json.loads(params.get("game_versions", "[]"))
+    loaders = json.loads(params.get("loaders", "[]"))
+    return [version for version in VERSIONS
+            if (not versions or any(v in version["game_versions"] for v in versions))
+            and (not loaders or any(loader in version["loaders"] for loader in loaders))]
+
+net_routes({"/version": _filtered_versions})
 vs = mods.get_mod_versions("sodium", mc_version="1.20.1", loader="fabric")
-check("both versions returned", len(vs) == 2, f"{vs!r}")
+check("only the filtered version is returned", len(vs) == 1, f"{vs!r}")
 check("matching version marked compatible",
       vs[0]["compatible"] is True, f"{vs[0]!r}")
-check("non-matching version marked incompatible",
-      vs[1]["compatible"] is False, f"{vs[1]!r}")
 check("primary filename parsed",
       vs[0]["filename"] == "sodium-0.6.0.jar", f"{vs[0]!r}")
 
 other = mods.get_mod_versions("sodium", mc_version="1.19.4", loader="forge")
-check("cached releases recompute compatibility for another profile",
-      [v["compatible"] for v in other] == [False, True])
-check("offline releases recompute compatibility without mutating earlier result",
-      [v["compatible"] for v in mods.get_mod_versions(
-          "sodium", mc_version="1.19.4", loader="forge", allow_network=False)] == [False, True]
-      and [v["compatible"] for v in vs] == [True, False])
+check("another profile has its own filtered release cache",
+      len(other) == 1 and other[0]["filename"] == "sodium-0.5.0.jar"
+      and other[0]["compatible"] is True)
+check("version and loader are sent to the Modrinth release endpoint",
+      _version_requests == [
+          {"game_versions": '["1.20.1"]', "loaders": '["fabric"]'},
+          {"game_versions": '["1.19.4"]', "loaders": '["forge"]'},
+      ], f"{_version_requests!r}")
+check("offline release reads use the matching filtered cache",
+      [v["filename"] for v in mods.get_mod_versions(
+          "sodium", mc_version="1.19.4", loader="forge", allow_network=False)]
+      == ["sodium-0.5.0.jar"] and len(_version_requests) == 2)
 
 # ---------------------------------------------------------------------------
 print("\n2b. get_mod_download() skips a release with no downloadable file")
@@ -742,10 +756,29 @@ class QueuedThread:
         self.queue.append(self.run)
 
 
+class ImmediateFuture:
+    def __init__(self, fn):
+        self.value = fn()
+    def result(self):
+        return self.value
+
+
+class ImmediateExecutor:
+    def __init__(self, **_kwargs):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self, *_args):
+        return False
+    def submit(self, fn):
+        return ImmediateFuture(fn)
+
+
 page = _FakePage()
 state = {"selected_mc_version": "1.20.1", "mod_loader": "fabric"}
 drop = ft.Dropdown(value="1.20.1")
-with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons, "prefetch"), \
+with patch.object(ui_mods.threading, "Thread", QueuedThread), \
+        patch.object(ui_mods, "ThreadPoolExecutor", ImmediateExecutor), patch.object(icons, "prefetch"), \
         patch.object(_core, "get_mod_icons", return_value={}), patch.object(_core, "mod_doctor", return_value={"fixed": []}):
     root, refresh, load, reload_browse = build_mods_tab(
         page, {}, state, drop, section_label=_theme.section_label, **_theme.THEME)
@@ -811,16 +844,18 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
     category["value"] = "utility"
     with patch.object(_core, "search_mods", return_value=[]) as searching:
         fns["run_mod_search"]()
-        QueuedThread.queue.pop(0)()
-        check("empty compatible search offers an explicit all-Modrinth action",
-              any(isinstance(control, ft.Text) and control.value == "Search all Modrinth"
+        while QueuedThread.queue:
+            QueuedThread.queue.pop(0)()
+        check("empty compatible search offers an explicit all-catalogue action",
+              any(isinstance(control, ft.Text) and control.value == "Search all versions and loaders"
                   for control in _walk(results_view)))
         check("active version, loader, and category are visible",
               "1.20.1" in scope_label.value and "Fabric" in scope_label.value and "Utility" in scope_label.value)
         old_token = closure_env(fns["_render_browse_page"])["browse_state"]["token"]
         fns["_search_all_modrinth"]()
-        QueuedThread.queue.pop(0)()
-        check("all-Modrinth action removes compatibility and category filters",
+        while QueuedThread.queue:
+            QueuedThread.queue.pop(0)()
+        check("all-catalogue action removes compatibility and category filters",
               searching.call_args.kwargs["mc_version"] is None
               and searching.call_args.kwargs["loader"] is None
               and searching.call_args.kwargs["categories"] is None
@@ -830,31 +865,41 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
               state == {"selected_mc_version": "1.20.1", "mod_loader": "fabric"} and drop.value == "1.20.1")
         check("broader scope is clearly labeled", "all loaders" in scope_label.value)
         fns["_change_search_scope"](True)
-        QueuedThread.queue.pop(0)()
+        while QueuedThread.queue:
+            QueuedThread.queue.pop(0)()
         check("compatible-only can be restored without changing the instance",
               searching.call_args.kwargs["mc_version"] == "1.20.1"
               and searching.call_args.kwargs["loader"] == "fabric" and checkbox.value)
     search.value = "armor durability warner"
     with patch.object(_core, "search_mods", return_value=[{
-            "project_id": "related", "title": "DurabilityWarner", "search_query": "durability warner"}]):
+            "project_id": "exact", "title": "DurabilityWarner", "search_query": "armor durability warner"}]):
         fns["run_mod_search"]()
-        QueuedThread.queue.pop(0)()
+        while QueuedThread.queue:
+            QueuedThread.queue.pop(0)()
         status_label = closure_env(fns["_render_browse_page"])["browse_status_text"]
-        check("shorter-name fallback is disclosed as related matches",
-              status_label.value == 'Related matches for "durability warner"')
+        check("exact search results are reported without fallback labels",
+              status_label.value == "2 result(s)")
     unsupported = rowbuild({"project_id": "unsupported", "title": "Unsupported",
-                            "game_versions": ["1.21.11"], "loaders": ["fabric"]})
+                            "game_versions": ["1.21.11"], "loaders": ["fabric"],
+                            "compatible": False, "compatibility_target": ["1.20.1", "fabric"]})
     unsupported_button = unsupported.content.controls[-1]
-    check("unsupported mods remain inspectable but their direct download is disabled",
+    check("explicit incompatible results remain inspectable but cannot install",
           unsupported.on_click is not None and unsupported_button.disabled
-          and "1.20.1" in unsupported_button.tooltip)
+          and "1.20.1" in unsupported_button.tooltip
+          and unsupported_button.content.controls[1].value == "Incompatible")
     with patch.object(_core, "get_mod_download") as download:
         unsupported_button.on_click(None)
-        check("unsupported download handler cannot bypass the disabled control",
+        check("an incompatible action cannot queue a release lookup",
               not QueuedThread.queue and not download.called)
+    facet_match = rowbuild({"project_id": "facet-match", "title": "Facet match",
+                            "game_versions": [], "loaders": [], "facet_compatible": True})
+    facet_button = facet_match.content.controls[-1]
+    check("Modrinth-filtered hits are not second-guessed by stale summary metadata",
+          not facet_button.disabled and facet_button.content.controls[1].value == "Install")
     with patch.object(_core, "search_mods", side_effect=RuntimeError("offline")):
         fns["_retry_search"]()
-        QueuedThread.queue.pop(0)()
+        while QueuedThread.queue:
+            QueuedThread.queue.pop(0)()
         check("failed searches stop loading and provide a retry action",
               not results_view.disabled
               and not any(isinstance(control, ft.ProgressRing) for control in _walk(results_view))
