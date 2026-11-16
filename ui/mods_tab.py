@@ -49,7 +49,7 @@ from cubeon import instances as instance_info  # the selected instance's real lo
 from ui.install_feedback import InstallRegistry, InstallFeedback, compact_status, progress_text, action_text
 from ui.project_readme import readme_markdown
 from ui.content_states import empty_state
-from ui.content_tiles import tile_grid, layout_tiles, loading_tiles, style_tile, downloads_label, content_header, update_view_action, catalogue_views
+from ui.content_tiles import tile_grid, layout_tiles, loading_tiles, style_tile, downloads_label, update_view_action, catalogue_views
 from cubeon.background_refresh import BackgroundRefresh
 from cubeon.icon_loader import IconLoader
 
@@ -269,24 +269,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 icon_inflight.difference_update(slugs)
             logging.getLogger(__name__).warning('icon lookup could not start', exc_info=True)
 
-    # --- Category filters: collapsed behind a "..." button ------------------
-    # A wrapped strip of a dozen chips ate a lot of vertical space above the
-    # content, so they now live behind one small overflow button and only
-    # unfold on demand. The button tints green while a non-All filter is
-    # applied, so an active filter is never silently hidden.
-    filters_open = {"value": False}
-
-    def on_filters_toggle(e=None):
-        ft.context.disable_auto_update()
-        filters_open["value"] = not filters_open["value"]
-        category_chips_container.visible = filters_open["value"]
-        filters_button.style = ft.ButtonStyle(color=TEXT_DIM)
-        thread_safe_ui.refresh(category_chips_container)
-        thread_safe_ui.refresh(filters_button)
-
-    filters_button = ft.TextButton(i18n.t('Filters'), icon=ft.Icons.TUNE_ROUNDED,
-                                  on_click=on_filters_toggle, data='mods-filters',
-                                  style=ft.ButtonStyle(color=TEXT_DIM))
+    # --- Categories: retired (2026-11-15 user ask) ---------------------------
+    # Browse is a plain search grid now: the category chip strip and the Filters
+    # popover that held it are gone, so results start higher on screen and the
+    # only way to narrow a list is the search field.
 
     # Filter field to search installed mods by name
     # Typing used to rebuild every row per keystroke (~120 ms with 300 mods
@@ -325,12 +311,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         border_color=CARD_BORDER,
         focused_border_color=ACCENT_DIM,
         color=TEXT,
-        hint_style=ft.TextStyle(color=TEXT_DIM),
+        hint_style=ft.TextStyle(color=TEXT_DIM, size=13),
         text_style=ft.TextStyle(size=13),
         bgcolor=CARD_FILL,
         border_radius=RADIUS,
-        height=46,
-        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
+        height=40,
+        dense=True,
+        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
         on_change=_schedule_mods_filter,  # Debounced - see above
         on_submit=_filter_now,            # Enter = filter immediately
@@ -1351,12 +1338,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         border_color=CARD_BORDER,
         focused_border_color=ACCENT_DIM,
         color=TEXT,
-        hint_style=ft.TextStyle(color=TEXT_FAINT),
-        text_style=ft.TextStyle(size=13.5),
+        hint_style=ft.TextStyle(color=TEXT_DIM, size=13),
+        text_style=ft.TextStyle(size=13),
         bgcolor=CARD_FILL,
         border_radius=RADIUS,
-        height=46,
-        content_padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
+        height=40,
+        dense=True,
+        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
         on_submit=lambda e: run_mod_search(),  # Enter = search immediately
         expand=True,
@@ -1427,19 +1415,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
          browse_pager_next, browse_retry],
         alignment=ft.MainAxisAlignment.CENTER, spacing=4, height=40,
     )
-    browse_title_text = ft.Text("Popular", size=12,
+    browse_title_text = ft.Text("Popular", size=12, max_lines=1,
+                                 overflow=ft.TextOverflow.ELLIPSIS,
                                  color=TEXT_DIM, font_family=FONT_MONO)
     search_scope = {"compatible": True}
     browse_scope_text = ft.Text("", size=11.5, color=TEXT_DIM)
-    compatible_only = ft.Checkbox(
-        label="Compatible only", value=True,
-        active_color=ACCENT,
-        label_style=ft.TextStyle(color=TEXT_DIM, size=11.5),
-        on_change=lambda event: _change_search_scope(bool(event.control.value)),
-    )
 
-    # Currently selected category filter ("" = All). Kept as mutable state
-    # so both the chip row and the search/recommend functions can read it.
+    # No category filter any more: every browse query uses "" (All). Kept as
+    # the single place the data calls read the category from.
     active_category = {"value": ""}
 
     # Which kind of content this tab is currently showing. The same browse +
@@ -1511,29 +1494,6 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         """Singular human label for the active non-mod type, e.g. 'resource pack'."""
         return core.CONTENT_TYPES[_ct()]["label"].lower()
 
-    def build_category_chips():
-        """Optional categories occupy one scrolling strip, without a dropdown."""
-        def select_category(key):
-            active_category['value'] = key
-            build_category_chips()
-            run_mod_search() if mod_search_field.value.strip() else load_recommended_mods()
-
-        choices = core.MOD_CATEGORIES if _is_mod() else core.category_choices(_ct())
-        category_chips_container.content = ft.Column([
-            compatible_only,
-            ft.Row([ft.TextButton(i18n.t(label), on_click=lambda e, k=key: select_category(k),
-                                 style=ft.ButtonStyle(color=TEXT if key == active_category['value'] else TEXT_DIM,
-                                                      bgcolor=SURFACE_HI if key == active_category['value'] else None))
-                    for key, label in choices], spacing=4, scroll=ft.ScrollMode.AUTO),
-        ], spacing=4)
-        filters_button.content = i18n.t('Filters') + (' · on' if active_category['value'] or not search_scope['compatible'] else '')
-        filters_button.style = ft.ButtonStyle(color=TEXT_DIM)
-        thread_safe_ui.refresh(category_chips_container)
-        thread_safe_ui.refresh(filters_button)
-
-    category_chips_container = ft.Container(content=ft.Row())
-    category_chips_container.visible = False  # shown by the labeled Filters action
-
     def _apply_type_labels():
         installed_filter_field.hint_text = ('Search installed mods...' if _is_mod()
                                             else 'Search installed resource packs...' if _ct() == 'resourcepack'
@@ -1550,7 +1510,6 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         else:
             header_subtitle.value = "Download shaders - they need Iris, Oculus, or OptiFine to run."
             mod_search_field.hint_text = "Search shaders... e.g. complementary, BSL, sildurs"
-        compatible_only.visible = _is_mod()
         local_install_label.value = i18n.t('Import mods' if _is_mod() else 'Import packs' if _ct() == 'resourcepack' else 'Import shaders')
         _refresh_browse_scope()
 
@@ -1566,7 +1525,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 pending.cancel()
             type_preferences[_ct()] = (mod_search_field.value, active_category['value'],
                                        installed_filter_field.value, active_view['value'],
-                                       installed_limit['value'], filters_open['value'])
+                                       installed_limit['value'])
             selected_content['value'] = new_type
             for kind, button in content_buttons.items():
                 button.style = selector_style(kind == new_type)
@@ -1581,20 +1540,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     on_modpacks_open()
                 return
             active_content['type'] = new_type
-            query, category, installed_query, view, limit, filters = type_preferences.get(
-                new_type, ('', '', '', 'browse', 50, False))
+            query, category, installed_query, view, limit = type_preferences.get(
+                new_type, ('', '', '', 'browse', 50))
             mod_search_field.value = query
             active_category['value'] = category
             installed_filter_field.value = installed_query
             installed_limit['value'] = limit
             installed_show_all['value'] = False
-            filters_open['value'] = filters
-            category_chips_container.visible = filters
             active_view['value'] = view
             browse_pane.visible = view == 'browse'
             installed_pane.visible = view == 'installed'
             _sync_view_hosts()
-            build_category_chips()
             _apply_type_labels()
             _build_view_segment()
             # Never display the previous type's cards while the new type loads.
@@ -1623,16 +1579,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         loader = state.get("mod_loader") or "vanilla"
         return loader if loader != "vanilla" else "fabric"
 
-    def _change_search_scope(compatible):
-        search_scope["compatible"] = compatible
-        compatible_only.value = compatible
-        build_category_chips()
-        run_mod_search() if mod_search_field.value.strip() else load_recommended_mods()
-
     def _search_all_modrinth(event=None):
         active_category["value"] = ""
-        build_category_chips()
-        _change_search_scope(False)
+        search_scope["compatible"] = False
+        run_mod_search() if mod_search_field.value.strip() else load_recommended_mods()
 
     def _refresh_browse_scope():
         if _is_mod() and not search_scope["compatible"]:
@@ -1648,7 +1598,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             label += f" · {dict(choices).get(category, category)}"
         browse_scope_text.value = label
         header_subtitle.value = label
+        header_subtitle.tooltip = label
+        installed_context.value = label
+        installed_context.tooltip = label
         thread_safe_ui.refresh(header_subtitle)
+        thread_safe_ui.refresh(installed_context)
 
     browse_generation = {"value": 0}
     browse_inflight = set()
@@ -1942,7 +1896,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             nonlocal browse_state
             token = _begin_browse()
             browse_state = dict(browse_state, token=token)
-            browse_title_text.value = f'RESULTS FOR "{query.upper()}"'
+            browse_title_text.value = 'SEARCH RESULTS'
+            browse_title_text.tooltip = query
             # Live search repaints only the browse region (title/results), not the
             # whole mounted tree - this fires per debounced keystroke.
             thread_safe_ui.refresh(browse_title_text)
@@ -2108,6 +2063,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
              ft.Text("Loading details...", size=13, color=TEXT_DIM)],
             spacing=12, alignment=ft.MainAxisAlignment.CENTER,
         )
+
+    def _provider_icon(source):
+        label = mod_catalogue.LABELS[source]
+        return ft.Image(src=f'provider-icons/{source}.svg', width=16, height=16,
+                        fit=ft.BoxFit.CONTAIN, tooltip=label, semantics_label=label)
 
     def _detail_badge(text, tone="dim"):
         """A tiny metadata pill. Quiet by default; green only for the one
@@ -2419,7 +2379,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         def _meta_line(details):
             """Only what a player decides on: how popular it is, what loader it
             runs on, and which Minecraft versions it covers."""
-            pills = [_detail_badge(mod_catalogue.LABELS[detail_source])] if content_type == "mod" else []
+            pills = [_provider_icon(detail_source)] if content_type == "mod" else []
             if details.get("downloads"):
                 pills.append(_detail_badge(
                     _human_count(details["downloads"]) + " downloads"))
@@ -3051,40 +3011,36 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         description = (mod.get("description") or "").strip()
         # Cache this row's art for the next render (no-op if already cached).
 
-        # Match the compact catalogue tile used for every content kind.
-        row = style_tile(
-            ft.Container(
-                content=ft.Row(
-                    [
-                        # Mod icon (or placeholder if none) - disk-cached art
-                        (ft.Image(src="icon_64.png", width=44, height=44, fit=ft.BoxFit.CONTAIN)
-                         if builtin else _art_image(mod.get("icon_url"), 44, 44)),
-                        # Title leads; description and metadata support it.
-                        ft.Column(
-                            [
-                                ft.Row([ft.Text(mod["title"], size=13.5, color=TEXT,
-                                                weight=ft.FontWeight.W_700, max_lines=1,
-                                                overflow=ft.TextOverflow.ELLIPSIS, expand=True, expand_loose=True),
-                                        ], spacing=6),
-                                ft.Text(mod.get('author') or mod.get('author_name') or 'Community project',
-                                        size=11.5, color=TEXT_DIM, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                ft.Text("Bundled with Cubeon", size=10.5, color=TEXT_FAINT) if builtin else
-                                ft.Row([ft.Icon(ft.Icons.DOWNLOAD_OUTLINED, size=12, color=TEXT_FAINT),
-                                        ft.Text(downloads_label(mod.get('downloads')), size=10.5, color=TEXT_FAINT),
-                                        _detail_badge(mod_catalogue.LABELS[row_source]) if row_content_type == 'mod' else ft.Container()], spacing=4),
-                            ],
-                            spacing=4, expand=True,
-                        ),
-                        download_btn,
-                    ],
-                    spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=14),
-                tooltip=compatibility_note or description or f"{mod.get('downloads', 0):,} downloads · Open details",
-            ),
-            SURFACE, BORDER, ROW_HOVER,
+        # Compact horizontal tiles keep artwork, identity and the action in
+        # fixed slots. Descriptions stay in the tooltip and project details.
+        download_btn.width, download_btn.height = 96, 30
+        metadata = [ft.Icon(ft.Icons.DOWNLOAD_OUTLINED, size=12, color=TEXT_FAINT),
+                    ft.Text("Bundled" if builtin else downloads_label(mod.get('downloads')),
+                            size=10.5, color=TEXT_DIM)]
+        if not builtin:
+            metadata.append(_provider_icon(row_source))
+        icon = ft.Container(
+            ft.Image(src="icon_64.png", width=44, height=44, fit=ft.BoxFit.CONTAIN)
+            if builtin else _art_image(mod.get("icon_url")),
+            width=44, height=44, border_radius=RADIUS,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         )
+        row = style_tile(ft.Container(
+            content=ft.Row([
+                icon,
+                ft.Column([
+                    ft.Text(mod["title"], size=13.5, color=TEXT,
+                            weight=ft.FontWeight.W_700, max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(mod.get('author') or mod.get('author_name') or 'Community project',
+                            size=11, color=TEXT_DIM, max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Row(metadata, spacing=6, tight=True),
+                ], spacing=3, expand=True, alignment=ft.MainAxisAlignment.CENTER),
+                download_btn,
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            tooltip=compatibility_note or description or f"{mod.get('downloads', 0):,} downloads · Open details",
+        ), SURFACE, BORDER, ROW_HOVER)
         row.on_click = None if builtin else lambda e: open_mod_detail(mod, row_content_type)
         if builtin:
             row.data = 'cubeon-client-browse'
@@ -3100,7 +3056,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             download_btn.visible = True
             icon = download_btn.content.controls[0]
             icon.icon = ft.Icons.CLOSE_ROUNDED if job.busy and job.cancellable else ft.Icons.CHECK_ROUNDED if installed and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
-            download_btn_text.value = action_text(job) if job.busy else (
+            download_btn_text.value = action_text(job, compact=True) if job.busy else (
                 "Try again" if builtin and job.result == "error" else
                 "Reinstall" if builtin and installed else i18n.t("Installed") if installed else "Try again" if job.result == "error"
                 else "Incompatible" if not compatible else "Install")
@@ -3110,7 +3066,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             icon.color = download_btn_text.color
             download_btn.bgcolor = SURFACE_HI if job.busy else ACCENT if can_install and job.result != 'error' else None
             download_btn.disabled = job.cancelling if job.busy and job.cancellable else job.busy or (installed and not builtin) or not compatible or not _can_install(row_content_type)
-            download_btn.tooltip = job.text if job.busy or job.result == "error" else (
+            download_btn.tooltip = (f"Cancel download · {job.text}" if job.busy and job.cancellable and not job.cancelling
+                                    else job.text) if job.busy or job.result == "error" else (
                 job.note if installed else compatibility_note or None)
             download_btn.on_click = None if installed and not builtin and not job.busy else on_download
 
@@ -3269,17 +3226,26 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # re-fetched on toggle.
     active_view = {"value": "browse"}  # "browse" | "installed"
 
+    # Context belongs beside the results, leaving one compact search toolbar.
+    # Each retained pane owns its label; a control cannot have two parents.
+    header_title = ft.Text(i18n.t("Mods"), size=26, weight=ft.FontWeight.W_700, color=TEXT,
+                           font_family=FONT_DISPLAY)
+    header_subtitle = ft.Text("", size=11.5, color=TEXT_DIM, max_lines=1,
+                              overflow=ft.TextOverflow.ELLIPSIS)
+    installed_context = ft.Text("", size=11.5, color=TEXT_DIM, max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS)
+
     browse_pane = ft.Column(
         [
-            ft.Row([mod_search_field, filters_button], spacing=8),
-            category_chips_container,
-            ft.Row([ft.Container(browse_title_text, expand=True),
+            ft.Row([ft.Container(ft.Row([browse_title_text,
+                                        ft.Text('·', color=TEXT_FAINT),
+                                        ft.Container(header_subtitle, expand=True)], spacing=8), expand=3),
                     ft.Container(browse_status_text, expand=True, alignment=ft.Alignment.CENTER_RIGHT)],
-                   height=36, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                   height=32, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             browse_results_view,
             browse_pager_row,
         ],
-        spacing=12,
+        spacing=8,
         visible=True,
         expand=True,
     )
@@ -3305,15 +3271,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     installed_pane = ft.Column(
         [
-            ft.Row([ft.Container(installed_filter_field, expand=True)], height=46),
-            # Match Browse's search / metadata / grid / fixed-footer rhythm.
+            # Match Browse's metadata / grid / fixed-footer rhythm.
             # The row uses an expanding spacer, so it must not set wrap=True
             # (Flutter's wrapped layout cannot host flex children).
             ft.Row(
-                [ft.Container(section_label(i18n.t("Installed")), expand=True),
+                [ft.Container(ft.Row([section_label(i18n.t("Installed")),
+                                      ft.Text('·', color=TEXT_FAINT),
+                                      ft.Container(installed_context, expand=True)], spacing=8), expand=3),
                  check_repair_btn, ft.Container(installed_count_text, expand=True,
                                                 alignment=ft.Alignment.CENTER_RIGHT)],
-                height=36, spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                height=32, spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             mods_list_view,
             ft.Container(ft.Column([
                 ft.Row([ft.Container(installed_status, expand=True),
@@ -3322,7 +3289,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 ft.Container(repair_details, height=18),
             ], spacing=4), height=40, data='mods-feedback'),
         ],
-        spacing=12,
+        spacing=8,
         visible=False,
         expand=True,
     )
@@ -3331,12 +3298,27 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def _sync_view_hosts(animate=False):
         select_view(active_view['value'], animate=animate)
+        for host, view in ((browse_search_host, 'browse'), (installed_search_host, 'installed')):
+            host.visible = active_view['value'] == view
+            host.disabled = not host.visible
+        thread_safe_ui.refresh(search_port)
 
     view_segment_row = ft.Row(spacing=8)
 
     def _build_view_segment():
         update_view_action(view_segment_row, active_view['value'], _installed_display_count(),
                            on_view_change, data='mods-installed-toggle', color=TEXT_DIM)
+        # Scope the compact action styling to Mods; Plugins uses the shared helper.
+        button = view_segment_row.controls[0]
+        button.width, button.height = 132, 36
+        button.style = ft.ButtonStyle(
+            color=TEXT_DIM, bgcolor=CARD_FILL,
+            side=ft.BorderSide(1, CARD_BORDER),
+            shape=ft.RoundedRectangleBorder(radius=RADIUS),
+            padding=ft.padding.Padding.symmetric(horizontal=10),
+            text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_600),
+        )
+        thread_safe_ui.refresh(view_segment_row)
 
     def on_view_change(new_view):
         ft.context.disable_auto_update()
@@ -3348,9 +3330,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             installed_pane.visible = (new_view == "installed")
             _sync_view_hosts(animate=True)
             browse_scope_text.visible = (new_view == "browse")
-            compatible_only.visible = _is_mod()
             thread_safe_ui.refresh(browse_scope_text)
-            thread_safe_ui.refresh(compatible_only)
             _build_view_segment()
             if new_view == "installed":
                 refresh_mods_list(background=True)
@@ -3381,25 +3361,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             else:
                 load_recommended_mods()
 
-    build_category_chips()
     _build_view_segment()
 
-    # Header title/subtitle are refs so _apply_type_labels() can retarget them
-    # when the content-type segment switches (Mods -> Resource Packs -> Shaders).
-    header_title = ft.Text(i18n.t("Mods"), size=26, weight=ft.FontWeight.W_700, color=TEXT,
-                            font_family=FONT_DISPLAY)
-    header_subtitle = ft.Text("Download mods, or manage what's already installed.",
-                              size=13, color=TEXT_DIM, max_lines=1,
-                              overflow=ft.TextOverflow.ELLIPSIS)
     _apply_type_labels()  # sync the refs now that they exist
     selected_content = {'value': 'mod'}
 
     def selector_style(selected):
         return ft.ButtonStyle(
-            color=TEXT if selected else TEXT_DIM, bgcolor=SURFACE_HI if selected else None,
+            color=TEXT if selected else TEXT_DIM, bgcolor=SURFACE_HI if selected else 'transparent',
             shape=ft.RoundedRectangleBorder(radius=6),
             side=ft.BorderSide(1, BORDER if selected else 'transparent'),
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=6),
         )
 
     kinds = [('mod', 'Mods', ft.Icons.VIEW_IN_AR_OUTLINED)]
@@ -3411,11 +3383,18 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         kind: ft.TextButton(
             content=ft.Row([ft.Icon(icon, size=16), ft.Text(i18n.t(label), size=12,
                                                           weight=ft.FontWeight.W_600)], spacing=8, tight=True),
-            style=selector_style(kind == 'mod'), on_click=lambda e, t=kind: on_content_type_change(t),
+            height=32, style=selector_style(kind == 'mod'),
+            on_click=lambda e, t=kind: on_content_type_change(t),
             data='content-' + kind,
         ) for kind, label, icon in kinds
     }
-    content_selector = ft.Row(list(content_buttons.values()), spacing=8, scroll=ft.ScrollMode.AUTO)
+    selector_group = ft.Container(
+        ft.Row(list(content_buttons.values()), spacing=2, tight=True),
+        bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
+        border_radius=RADIUS, padding=4,
+    )
+    content_selector = ft.Row([selector_group], alignment=ft.MainAxisAlignment.CENTER,
+                              scroll=ft.ScrollMode.AUTO, height=42, data='mods-content-selector')
 
     # Now assemble the Mods tab.
     #
@@ -3433,18 +3412,29 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         ),
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
+        height=36, alignment=ft.Alignment.CENTER,
+        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
         tooltip="Install from a file on your computer",
         ink=False, on_click=open_local_mod_picker,
     ), "transparent", ROW_HOVER)
 
-    # hairline divider, and spacing snaps to one consistent scale instead of
-    # alternating huge gaps with dense slabs.
+    # Both search controls remain mounted and retain their query and callbacks.
+    browse_search_host = ft.Container(mod_search_field, expand=True)
+    installed_search_host = ft.Container(installed_filter_field, expand=True,
+                                         visible=False, disabled=True)
+    search_port = ft.Stack([browse_search_host, installed_search_host],
+                           height=40, fit=ft.StackFit.EXPAND, data='mods-search-port')
+    search_toolbar = ft.ResponsiveRow([
+        ft.Container(search_port, col={'xs': 12, 'sm': 8, 'md': 9}),
+        ft.Container(ft.Row([view_segment_row, local_install_btn], spacing=8,
+                            alignment=ft.MainAxisAlignment.END),
+                     col={'xs': 12, 'sm': 4, 'md': 3}),
+    ], breakpoints={'xs': 0, 'sm': 760, 'md': 1050}, spacing=10, run_spacing=6,
+       vertical_alignment=ft.CrossAxisAlignment.CENTER, data='mods-search-toolbar')
+
     mods_body = ft.Column(
         [
-            # Header: just the title + one-line description.
-            content_header(header_subtitle, view_segment_row, local_install_btn),
-            ft.Container(height=16),
+            search_toolbar,
             # Contextual notices disappear without leaving another toolbar.
             ft.Column(
                 [
@@ -3456,7 +3446,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             ),
             view_port,
         ],
-        spacing=0,
+        spacing=8,
         expand=True,
     )
 
@@ -3464,7 +3454,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         modpacks_content.visible = False
     catalogue_host = ft.Column([content_selector, mods_body,
                                *([modpacks_content] if modpacks_content is not None else [])],
-                              spacing=16, expand=True, data="mods-catalogue")
+                              spacing=10, expand=True, data="mods-catalogue")
     mods_tab = ft.Column([catalogue_host, detail_host], spacing=0, expand=True)
     mods_tab.select_content_type = on_content_type_change
     mods_tab.close_detail = close_mod_detail

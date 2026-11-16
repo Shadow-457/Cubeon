@@ -80,5 +80,6 @@ def walk(control):
         yield from walk(child)
 
 
-assert any(getattr(c, "value", None) == "Connected" for c in walk(root)), "connected state stayed stale"
-print("PASS: socket notice finishes, Chat poll resumes, and Connected renders")
+warning = next(c for c in walk(root) if getattr(c, "data", None) == "chat-connection-warning")
+assert not warning.visible, "connected state left the reconnect warning visible"
+print("PASS: socket notice finishes, Chat poll resumes, and reconnect warning clears")

@@ -43,15 +43,13 @@ SEP = ";" if os.name == "nt" else ":"  # PyInstaller path separator
 # BEFORE Analysis adds the repo to sys.path. On the Windows build interpreter
 # (WinPython runs in isolated _pth mode, so the repo is never on sys.path)
 # collect_submodules("templates") returns zero modules, the palette import
-# fails, and the launcher silently falls back to GREEN: seasonal weather and pet
+# fails, and the launcher silently falls back to the built-in tokens: the
 # still show (they do not touch templates) while the colours do not - exactly
 # the Windows bug. Explicit --hidden-import names are resolved by Analysis via
 # --paths ROOT. Adding a palette = add it in cubeon/color_templates.py AND here.
 TEMPLATE_HIDDEN_IMPORTS = (
     "templates",
-    "templates.color_green", "templates.color_autumn",
-    "templates.color_spring", "templates.color_winter",
-    "templates.color_summer",
+    "templates.color_green",
 )
 
 FLET_VERSION = "0.86.5"  # keep in sync with requirements.txt (flet>=0.86,<0.87)

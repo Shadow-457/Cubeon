@@ -65,13 +65,13 @@ from . import motion
 # it is black with only the faintest green cast so the UI reads as "black and
 # green", never grey. Stepped so each level of elevation is distinguishable
 # without shadows.
-BG = "#050505"           # app canvas - true black
+BG = "#0A0D0B"           # app canvas - one flat near-black green
 # Translucent canvas (Max FPS-era look, 2026-10-14): the same colours with an
 # alpha channel, ARGGGAARRGG - wait, ARGB "#AARRGGBB". page.window.bgcolor
 # with alpha makes the NATIVE window translucent; the page then paints
 # BG_GLASS over it. Flutter's convention is #AARRGGBB (alpha first).
-BG_GLASS = "#E6050505"       # ~90% opaque canvas
-SURFACE_GLASS = "#E60B0D0A"  # ~90% panels
+BG_GLASS = "#FF0A0D0B"       # the same flat canvas, opaque
+SURFACE_GLASS = "#FF0B0D0A"  # panels, opaque
 SURFACE = "#0B0D0A"      # panels, cards, containers
 SURFACE_HI = "#131711"   # hovered/elevated panels, inputs - one step up
 SURFACE_MAX = "#1A2015"  # top elevation - dialogs, menus, popovers
@@ -106,9 +106,7 @@ SUCCESS = ACCENT
 
 # Which color template is live, set by cubeon.color_templates.apply_template()
 # while the package is imported. None until then (and for a plain green boot
-# with no template at all). UI that should follow the palette - e.g. main.py
-# choosing the seasonal backdrop - reads this rather than re-deriving the
-# season, so an explicit --color is honoured too.
+# with no template at all). UI that should follow the palette reads this.
 ACTIVE_TEMPLATE = None
 
 # --- Categorical palette ---------------------------------------------------
@@ -509,7 +507,7 @@ def text_tab(label, selected=False, on_click=None):
                 label,
                 size=13,
                 color=TEXT if selected else TEXT_DIM,
-                weight=ft.FontWeight.W_700 if selected else ft.FontWeight.W_500,
+                weight=ft.FontWeight.W_500,
             ),
             padding=ft.padding.Padding.only(bottom=8),
             border=ft.border.Border.only(

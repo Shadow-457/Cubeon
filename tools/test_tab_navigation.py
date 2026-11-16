@@ -210,19 +210,22 @@ nav_h, nav_gap = _move_vars["NAV_BTN_H"], _move_vars["NAV_GAP"]
 expected_offset = top_keys.index("mods") * (nav_h + nav_gap) / blob.height
 check("rapid navigation lands on the latest icon", blob.offset.y == expected_offset)
 check("the selection is a slim, centered accent bar",
-      blob.width == 3 and blob.height == 40 and blob.top == (nav_h - blob.height) / 2
+      blob.width == 3 and blob.height == 22 and blob.top == (nav_h - blob.height) / 2
       and blob.ignore_interactions)
 check("active rail tiles stay clear behind the slider",
       nav_buttons["mods"].bgcolor == "transparent")
-check("highlight uses the same native animation as the icons",
-      blob.animate_offset is nav_buttons["mods"].content.controls[0].animate_scale)
+check("highlight animates while rail icons keep fixed geometry",
+      blob.animate_offset is not None
+      and all(button.content.scale is None and button.content.animate_scale is None
+              for button in nav_buttons.values() if getattr(button, "cubeon_top_icon", False)))
 check("highlight has no timer-delayed settle",
       "Timer" not in inspect.getsource(variables["_move_nav_blob"]))
 motion.set_level("reduced")
 switch("play")
 check("reduced motion disables highlight movement animation", blob.animate_offset is None)
-check("reduced motion disables icon/underline movement animations",
-      all(control.animate_scale is None for control in nav_buttons["play"].content.controls))
+check("reduced motion keeps rail icons stationary",
+      nav_buttons["play"].content.animate_scale is None
+      and nav_buttons["play"].content.scale is None)
 motion.set_level("full")
 switch("mods")
 check("full motion restores native animation without rebuilding",

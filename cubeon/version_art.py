@@ -69,6 +69,11 @@ _DROP_COVERS = {
 _YEAR_COVERS = {1: "tiny-takeover", 2: "chaos-cubed", 3: "wilderness-bound"}
 
 
+def key_art_blurred_src(version: str | None) -> str:
+    """Small pre-blurred counterpart for the retained navigation chrome."""
+    return key_art_src(version).replace("version-art/", "version-art/blurred/", 1)
+
+
 def key_art_src(version: str | None) -> str:
     """Bundled promotional artwork for Play, without patch-note thumbnails.
 

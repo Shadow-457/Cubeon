@@ -100,17 +100,13 @@ async def run(page):
                 await capture('installed-' + kind)
                 toggle = next(c for c in ux.every_control(page) if getattr(c, 'data', '') == 'mods-installed-toggle')
                 toggle.on_click(None)
-        filter_button = next(c for c in ux.every_control(page) if getattr(c, 'data', '') == 'mods-filters')
-        filter_button.on_click(None)
-        await capture('filters')
-        filter_button.on_click(None)
         toggle = next(c for c in ux.every_control(page) if getattr(c, 'data', '') == 'mods-installed-toggle')
         toggle.on_click(None)
         await capture('mods-installed')
         toggle = next(c for c in ux.every_control(page) if getattr(c, 'data', '') == 'mods-installed-toggle')
         toggle.on_click(None)
         if os.environ.get('CUBEON_CONTENT_ONLY') == '1':
-            print('PASS: native unified content, search, switching, filters and installed views', flush=True)
+            print('PASS: native unified content, search, switching and installed views', flush=True)
             return
         trigger = next(c for c in ux.every_control(page)
                        if getattr(getattr(c, 'on_click', None), '__name__', '') == 'open_local_mod_picker')

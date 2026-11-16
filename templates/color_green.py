@@ -13,9 +13,12 @@ NAME = "green"
 DESCRIPTION = "true black / green - green only on main things (default identity)"
 
 PALETTE = {
-    # Neutrals: true black, faint green cast on elevation. Never grey.
-    "BG": "#050505",
+    # Neutrals: one flat near-black green canvas, faint green cast on
+    # elevation. Never grey, never glass.
+    "BG": "#0A0D0B",
+    "BG_GLASS": "#0A0D0B",
     "SURFACE": "#0B0D0A",
+    "SURFACE_GLASS": "#0B0D0A",
     "SURFACE_HI": "#131711",
     "SURFACE_MAX": "#1A2015",
     "BORDER": "#242B1E",

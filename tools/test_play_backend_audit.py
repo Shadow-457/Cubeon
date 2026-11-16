@@ -57,14 +57,19 @@ renamed = Path(versions.version_folder('Survival 2.0'))
 renamed.mkdir(parents=True)
 (renamed / '_cubeon_instance.json').write_text('{"mc_version":"1.21.11"}')
 refresh_banner = callback(controls, '_refresh_hero_banner')
-banner = inspect.getclosurevars(refresh_banner).nonlocals['hero_art']
+# The version art IS the window backdrop now (there is no second picture in
+# Play), so the banner refresh must drive that layer's image instead.
+backdrop = inspect.getclosurevars(callback(controls, '_sync_backdrop')).nonlocals['_backdrop']
 lookups = []
 with patch.object(version_art, 'key_art_src', side_effect=lambda base: lookups.append(base) or 'bundled-art'):
     refresh_banner('Survival 2.0')
+    assert lookups and lookups[-1] == '1.21.11'
+    assert backdrop['src'] == 'bundled-art', backdrop
     refresh_banner('Survival 2.0')
-    assert lookups == ['1.21.11', '1.21.11'] and banner.source == 'bundled-art'
+    assert lookups[-1] == '1.21.11'
     refresh_banner('1.20.1')
     assert lookups[-1] == '1.20.1'
+    assert backdrop['src'] == 'bundled-art', backdrop
 
 
 class HeldThread:
@@ -84,7 +89,7 @@ def reset():
     state.update(installing_version=None, launching_version=None, running_version=None)
     state['mod_loader'] = 'vanilla'
     select('1.20.1', 'vanilla')
-    play_scope['username_field'].value = 'AuditPilot'
+    play_scope['cfg']['username'] = 'AuditPilot'
 
 
 with patch('main.threading.Thread', HeldThread), \
@@ -97,6 +102,7 @@ with patch('main.threading.Thread', HeldThread), \
     assert len(jobs) == 1
     observed = {}
     def failed_setup(*args, **kwargs):
+        assert args[1] == 'AuditPilot', 'Play must launch with the saved Settings username'
         observed.update(launching=state.get('launching_version'), running=state.get('running_version'))
         assert begin('1.21.11', 'AuditPilot') is False
         raise RuntimeError('fixture: setup failed before spawn')

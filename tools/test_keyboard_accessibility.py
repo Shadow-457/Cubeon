@@ -9,7 +9,7 @@ import _sandbox_home
 _sandbox_home.isolate()
 import flet as ft
 import _fuzz_common as fz
-from cubeon import seasonal, theme
+from cubeon import theme
 
 clicks = []
 art = ft.Container(ft.Text('Play'), width=300, height=64,
@@ -27,7 +27,7 @@ assert target.content.content is not None, 'native Semantics requires a visible 
 
 stubs = fz.install_safe_stubs()
 load = stubs.core.load_config
-stubs.core.load_config = lambda: dict(load(), onboarded=True, season_seen=seasonal.current().slug)
+stubs.core.load_config = lambda: dict(load(), onboarded=True)
 page = fz.FakePage()
 stubs.app.run_sync(page)
 key = page.on_keyboard_event
@@ -84,7 +84,7 @@ for section in panes:
     settings.select_section(section)
     assert [name for name, pane in panes.items() if pane.visible] == [section]
 for old, current in {'launcher': 'account', 'system': 'account', 'backups': 'account',
-                     'storage': 'account', 'theme': 'appearance', 'seasonal': 'appearance',
+                     'storage': 'account', 'theme': 'appearance',
                      'performance': 'versions', 'memory': 'versions', 'files': 'versions'}.items():
     settings.select_section(old)
     assert [name for name, pane in panes.items() if pane.visible] == [current]

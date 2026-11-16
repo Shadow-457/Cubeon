@@ -77,7 +77,7 @@ play_scope = inspect.getclosurevars(on_play).nonlocals
 state = scope["state"]
 set_button_mode = scope["set_button_mode"]
 version_dropdown = play_scope["version_dropdown"]
-username_field = play_scope["username_field"]
+launch_config = play_scope["cfg"]
 play_button = next(c for c in controls
                    if getattr(c, "on_click", None) is main_action)
 play_text = next(c for c in fz.walk(play_button)
@@ -85,7 +85,7 @@ play_text = next(c for c in fz.walk(play_button)
                  and getattr(c, "value", None) == "PLAY")
 
 version_dropdown.value = "1.20.1"
-username_field.value = "SmokePilot"
+launch_config["username"] = "SmokePilot"
 state["mod_loader"] = "vanilla"
 
 jobs = []

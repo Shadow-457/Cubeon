@@ -228,7 +228,9 @@ class VersionPicker:
                                      color=TEXT_DIM)],
                 spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            bgcolor=SURFACE_HI,
+            # Transparent fill: the frosted sheet this button is wrapped in on
+            # the Play tab supplies the tint, so only one layer shows.
+            bgcolor=ft.Colors.TRANSPARENT,
             border=ft.border.Border.all(1, BORDER),
             border_radius=RADIUS,
             height=48,
@@ -376,6 +378,8 @@ class VersionPicker:
             "Switch, rename, or remove an installed instance.",
             size=11.5, color=TEXT_DIM,
         )
+        self.instance_actions = ft.Row([], spacing=6, visible=False,
+                                       data="version-instance-actions")
 
         # --- the sheet itself (same choreography as the Account panel) -----
         self.scrim = ft.Container(
@@ -420,6 +424,7 @@ class VersionPicker:
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     self.subtitle,
+                    self.instance_actions,
                     self.step_label,
                     ft.Container(height=8),
                     self.filter_field,
@@ -497,6 +502,7 @@ class VersionPicker:
 
     # -- interaction ---------------------------------------------------
     def _apply_mode(self):
+        self.instance_actions.visible = self._mode == "installed" and bool(self.instance_actions.controls)
         native = self._install_loader == "rust"
         new = self._mode == "new"
         versions = new and self._new_step == 2

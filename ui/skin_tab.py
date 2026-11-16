@@ -53,7 +53,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                         cape_file_picker=None, assets_dir=None):
     """
     Build the retained Cosmetics tab content. Category tabs sit above a
-    responsive preview/library layout; the parent owns vertical scrolling.
+    responsive preview/library layout with an independently scrolling library.
 
     Args:
         page: The Flet page instance for pickers, preview sizing and scoped updates.
@@ -125,6 +125,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                       vertical_alignment=ft.CrossAxisAlignment.START,
                       on_size_change=_grid_resized)
 
+    def _scroll_cards(grid):
+        return ft.Column([grid], expand=True, scroll=ft.ScrollMode.ALWAYS,
+                         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                         data="cosmetics-picker-scroll")
+
     upload_status = ft.Text("", size=12, color=TEXT_DIM, visible=False)
     # Honest, specific status about what will actually be visible in-game, so
     # the user isn't left guessing whether an upload "worked". Three genuinely
@@ -144,7 +149,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         return ("Skin support installs automatically the next time you press "
                 "Play, then your skin shows up in-game.")
 
-    # One parent scroll area; grids wrap and resize without remounting cards.
+    # Grids wrap and resize inside the picker without remounting cards.
     skins_list_col = _card_grid()
     skin_cards = {}
 
@@ -818,11 +823,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     skin_pane = ft.Column(
         [ft.Row([ft.Container(content=skin_preview_name, expand=True),
                  keyboard_target(upload_button, "Upload skin")]),
-         skins_list_col, upload_status], spacing=12)
+         _scroll_cards(skins_list_col), upload_status], spacing=12, expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
     cape_pane = ft.Column(
         [ft.Row([ft.Container(content=cape_preview_name, expand=True),
                  keyboard_target(cape_upload_button, "Upload cape")]),
-         capes_list_col, cape_status], spacing=12)
+         _scroll_cards(capes_list_col), cape_status], spacing=12, expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
     # --- Shoulder / Back cosmetics ----------------------------------------
     # These are not uploads: the art ships with the Cubeon Client, and the
@@ -945,12 +952,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         if slot == "back":
             build_filters()
             controls.append(filter_row)
-        controls.extend([grid, status])
+        controls.extend([_scroll_cards(grid), status])
         if slot == "back":
             equipped.tooltip += "\nSmall wings move gently. Press N in Minecraft for a Giant-wing flare; K → Cosmetic motion turns movement off."
         elif slot == "trail":
             equipped.tooltip += "\nA few short-lived particles while walking. Cosmetic motion turns them off; Minecraft's particle limit still applies."
-        pane = ft.Column(controls, spacing=8)
+        pane = ft.Column(controls, spacing=8, expand=True,
+                         horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
         pane.load_items = refresh
         return pane
 
@@ -973,7 +981,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ("cape", "Cape", cape_pane),
         *cosmetic_panes,
     ]
-    pane_holder = ft.Container(content=skin_pane)
+    pane_holder = ft.Container(content=skin_pane, expand=True)
     tab_row = ft.Row(spacing=12, wrap=True, run_spacing=8)
 
     def build_pane_tabs():
@@ -1015,7 +1023,28 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     build_pane_tabs()
 
-    layout_size = {"compact": True}
+    layout_size = {"compact": True, "height": getattr(page, "height", None) or 660}
+    picker = ft.Container(
+        content=pane_holder,
+        bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
+        border_radius=RADIUS, padding=12,
+        col={"xs": 12, "md": 8}, data="cosmetics-picker")
+
+    def _fit_picker():
+        compact = layout_size["compact"]
+        height = max(132 if compact else 200, min(360 if compact else 560,
+                             layout_size["height"] - (400 if compact else 100)))
+        if picker.height != height:
+            picker.height = height
+            thread_safe_ui.refresh(picker)
+
+    def set_viewport_height(height):
+        if height and math.isfinite(height) and height > 0:
+            with thread_safe_ui.TREE_LOCK:
+                layout_size["height"] = height
+                _fit_picker()
+
+    _fit_picker()
 
     def _preview_resized(event):
         ft.context.disable_auto_update()
@@ -1035,13 +1064,12 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             layout_size["compact"] = width < 760
             preview_width = min(176, width) if width < 760 else min(320, (width - 16) / 3)
             appearance.resize(preview_width)
+            with thread_safe_ui.TREE_LOCK:
+                _fit_picker()
 
     layout = ft.ResponsiveRow([
         ft.Container(content=appearance.control, col={"xs": 12, "md": 4}),
-        ft.Container(content=pane_holder,
-                     bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
-                     border_radius=RADIUS, padding=12,
-                     col={"xs": 12, "md": 8}, data="cosmetics-picker"),
+        picker,
     ], breakpoints={"xs": 0, "md": 760}, spacing=16, run_spacing=16,
        on_size_change=_layout_resized, data="cosmetics-layout")
     skin_section = ft.Column([
@@ -1051,6 +1079,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         tab_row,
         layout,
     ], spacing=12)
+    skin_section.set_viewport_height = set_viewport_height
 
     appearance.refresh()
     return skin_section

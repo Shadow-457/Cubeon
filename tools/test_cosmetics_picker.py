@@ -173,8 +173,10 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertEqual(self.raster.call_count, 0)
         self.assertEqual(self.page.update_calls, 0)
 
-    def test_compact_layout_keeps_preview_small_and_uses_parent_scroll(self):
+    def test_compact_layout_keeps_preview_small_and_picker_scroll_bounded(self):
         layout = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-layout')
+        picker = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-picker')
+        scroll = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-picker-scroll')
         model = next(c for c in fz.walk(self.root) if c.data == 'appearance-model')
         viewport = next(c for c in fz.walk(self.root) if isinstance(c, ft.Container)
                         and isinstance(c.content, ft.GestureDetector))
@@ -184,8 +186,13 @@ class CosmeticsPicker(unittest.TestCase):
             viewport.on_size_change(SimpleNamespace(width=width if width < 760 else 300))
             self.assertIs(model.controls[1], image)
             self.assertLessEqual(model.width, 176 if width < 760 else 320)
-        self.assertFalse(any(getattr(c, 'scroll', None) == ft.ScrollMode.AUTO
-                             for c in fz.walk(self.root)))
+            self.root.set_viewport_height(600)
+            self.assertEqual(picker.height, 200 if width < 760 else 500)
+            self.root.set_viewport_height(900)
+            self.assertEqual(picker.height, 360 if width < 760 else 560)
+            self.assertIn(scroll, list(fz.walk(picker)))
+        self.assertEqual(scroll.scroll, ft.ScrollMode.ALWAYS)
+        self.assertTrue(scroll.expand)
         self.assertEqual(self.page.update_calls, 0)
 
 

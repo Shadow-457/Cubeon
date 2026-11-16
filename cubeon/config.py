@@ -239,30 +239,6 @@ DEFAULT_CONFIG = {
     "discord_large_image": "1a92fe8fac941f333d508efe568a88ffccfc8af1b7ccb66ff62bf93822a9b47a",
     "discord_large_text": "Cubeon",
 
-    # --- Seasonal look (see cubeon/seasonal.py) ---------------------------
-    # Wear the palette of the season the user is actually in, detected from the
-    # timezone at startup (autumn/spring/winter/summer templates). The palette
-    # is bound at import time, so changing this needs a relaunch - the Settings
-    # pane says so, and offers to do it. Turning it off just keeps the normal
-    # green identity. New installs start with this off; onboarding lets the
-    # user opt in. Saved choices override this default in load_config.
-    "seasonal_theme": False,
-    # "auto" = follow the detected season. A season name overrides the guess,
-    # for the two cases detection can't win: a user who disagrees with it, and
-    # the tropics/equator, where "autumn" is a fiction either way. The Settings
-    # override ALWAYS outranks the timezone tables.
-    "season_override": "auto",
-    # The roaming companion (assets/pets/<season>.gif). Pure
-    # decoration - its route shares the seasonal ticker; idle poses are static.
-    # On with the seasonal look by default.
-    "season_pet": True,
-    # Independent from the palette and buddy; off removes all Play scenery.
-    "season_overlay": True,
-    # "2026-autumn" - the last season the greeting card was shown for, so the
-    # once-a-season hello happens once, including across the Dec->Jan boundary
-    # (see seasonal.season_year).
-    "season_seen": None,
-
     # --- Disk hygiene (see cubeon/maintenance.py) -------------------------
     # Let Cubeon tidy its own folders at startup: merge stray Minecraft asset
     # objects back into assets/objects/, drop superseded duplicates from the

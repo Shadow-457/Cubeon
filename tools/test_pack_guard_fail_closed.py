@@ -68,7 +68,7 @@ play = function_from_controls(controls, "on_play_click")
 begin = function_from_controls(controls, "_begin_install_and_launch")
 scope = inspect.getclosurevars(play).nonlocals
 state = scope["state"]
-scope["username_field"].value = "Tester"
+scope["cfg"]["username"] = "Tester"
 scope["version_dropdown"].value = "1.20.1"
 for key in ("installing_version", "launching_version", "running_version"):
     state[key] = None

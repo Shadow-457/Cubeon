@@ -45,13 +45,15 @@ m = re.search(r"    play_button = ft\.Container\(.*?\n    \)\n", src, re.S)
 ok(m is not None, "play_button block found")
 button_block = m.group(0) if m else ""
 
-# The pixel frame must live inside the button alongside its label.
+# Frame and label are both descendants of the click owner.
 m2 = re.search(
-    r'    play_button\.content = ft\.Stack\(\s*\[.*?src="pixel_button_frame\.svg"',
+    r"    play_button = ft\.Container\(\s*content=ft\.Stack\(\[.*?"
+    r"\[play_button_icon, play_button_text\]",
     src, re.S)
 ok(m2 is not None,
-   "play_button.content is a Stack that CONTAINS the pixel frame "
-   "(a descendant, so taps reach on_click)")
+   "play_button.content contains its frame and icon+label (taps reach on_click)")
+ok('src="pixel_button_frame.svg"' in button_block and 'border_radius=0' in button_block,
+   "the reference pixel frame belongs to the original click owner")
 
 # ...and decorative chrome must NOT be a sibling painted after the button.
 # The Play tab mounts the button directly in a footer Row (next to the
@@ -61,7 +63,8 @@ mount_match = re.search(r"play_action_host = ft\.Container\(\s*content=theme\.ke
 mount_at = mount_match.start() if mount_match else -1
 ok(mount_at != -1,
    "the footer mounts the button with its native keyboard target")
-ok(bool(re.search(r"play_fields\.controls = \[.*?play_action_host", src, re.S)),
+home_src = open(os.path.join(ROOT, "ui", "play_home.py"), encoding="utf-8").read()
+ok('action=play_action_host' in src and '[self.fields, action]' in home_src,
    "the action host belongs to the responsive Play footer")
 footer_block = src[max(0, mount_at - 1200):mount_at + 200]
 ok("play_sheen" not in footer_block and "pixel_button_frame.svg" not in footer_block,

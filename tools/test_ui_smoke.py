@@ -237,7 +237,7 @@ for label in nav_labels:
 check("legacy toggle not on the play tab", "show snapshots" not in text)
 
 print("\n3. the Play tab is wired")
-check("username field present", "username" in text)
+check("Play has no username editor", "username" not in text)
 check("version selector present", "version" in text)
 # The loader is chosen when an instance is DOWNLOADED and fixed afterwards
 # (2026-10-26 user ask). The Play card therefore shows a read-only instance
@@ -439,9 +439,12 @@ try:
     for _root in list(page.controls) + list(page.overlay):
         for _c in walk(_root):
             if callable(getattr(_c, "on_click", None)) \
-                    and "restart to apply" in all_text(_c):
+                    and (getattr(_c, "data", None) == "language-restart"
+                         or "restart to apply" in all_text(_c)):
                 _btn = _c if _btn is None else _btn
-    check("the seasonal Restart button exists in the built Settings pane",
+    # The seasonal Restart row is gone; the launcher still relaunches from the
+    # language picker's Restart action, so that is what must be armed.
+    check("a Restart action exists in the built Settings pane",
           _btn is not None)
     if _btn is not None:
         _btn.on_click(None)
@@ -542,7 +545,7 @@ check("the old process's client sweep is skipped after a relaunch",
       "sweeping every flet client after a detached relaunch kills the new one")
 _restart_click_src = _main_src[
     _main_src.index("def _on_restart_click"):
-    _main_src.index("seasonal_restart_btn = ft.Container")]
+    _main_src.index("restart_btn = ft.Container")]
 check("a close that raises never clears the relaunch request",
       '_relaunch["request"].clear()' not in _restart_click_src,
       "clearing it turns a successful close into 'never reopens'")
@@ -1758,15 +1761,15 @@ try:
           and _rpc_mod.SITE_BUTTONS[0]["url"] == _rpc_mod.SITE_URL)
 
     _names = {"username": "Initial"}
-    _left, _right = ft.TextField(value="Alice"), ft.TextField(value="Initial")
+    _name_field = ft.TextField(value="Alice")
     _saved, _refreshed = [], []
     _name_core = types.SimpleNamespace(
         validate_username=lambda value: (len(value) >= 3, "Too short"),
         save_config=lambda value: _saved.append(dict(value)),
         sync_local_skin_to_csl=lambda value: None,
         sync_local_cape_to_csl=lambda value: None, name_contested=lambda: False)
-    _name_scope = dict(core=_name_core, cfg=_names, username_field=_left,
-                       profile_username_field=_right, friends_service=None,
+    _name_scope = dict(core=_name_core, cfg=_names,
+                       profile_username_field=_name_field, friends_service=None,
                        refresh_avatars=lambda: None, set_status=lambda value: None,
                        time=time, logging=app.logging,
                        thread_safe_ui=types.SimpleNamespace(refresh=_refreshed.append,
@@ -1774,30 +1777,30 @@ try:
                        threading=types.SimpleNamespace(Timer=_ManualTimer, Thread=_QueuedThread,
                                                        Lock=threading.Lock, RLock=threading.RLock))
     _name_probe = _ui_functions(_main_src, ["_name_validate_into", "_publish_username",
-        "_commit_launch_username",
         "_cancel_pending_name", "_fire_pending_name", "on_name_keystroke"], _name_scope,
         '_name_state = {"timer": None, "pending": None, "field": None, "generation": 0}\n'
         '_name_lock = threading.RLock()\n_name_sync_lock = threading.Lock()')
-    _name_probe["on_name_keystroke"](_left)
+    _name_probe["on_name_keystroke"](_name_field)
     _old_timer = _name_probe["_name_state"]["timer"]
     _name_probe["_fire_pending_name"]()
     check("blur cancels the pending username timer", _old_timer.cancelled and _names["username"] == "Alice")
-    _right.value = "Bobby"
-    _name_probe["on_name_keystroke"](_right)
+    _name_field.value = "Bobby"
+    _name_probe["on_name_keystroke"](_name_field)
     _new_timer = _name_probe["_name_state"]["timer"]
     _old_timer.fire()
     check("cancelled timer cannot flush a newer edit", _names["username"] == "Alice"
           and _name_probe["_name_state"]["timer"] is _new_timer)
     _new_timer.fire()
-    check("newest username timer commits and mirrors", _names["username"] == _left.value == "Bobby")
-    _right.value = "pnl"
-    _name_probe["on_name_keystroke"](_right)
+    check("newest Settings username timer commits", _names["username"] == _name_field.value == "Bobby")
+    _name_field.value = "pnl"
+    _name_probe["on_name_keystroke"](_name_field)
     _stale_name_timer = _name_probe["_name_state"]["timer"]
-    _name_probe["_commit_launch_username"]("Shadoww__")
+    _name_field.value = "Shadoww__"
+    _name_probe["on_name_keystroke"](_name_field)
     _stale_name_timer.fire()
-    check("Play retires a stale Account username timer",
-          _names["username"] == _left.value == _right.value == "Shadoww__"
-          and _name_probe["_name_state"]["field"] is None)
+    check("stale Settings timer leaves the saved launch name unchanged",
+          _names["username"] == "Bobby" and _name_field.value == "Shadoww__")
+    _name_probe["_fire_pending_name"]()
     _entered, _release, _committed = threading.Event(), threading.Event(), threading.Event()
     def _slow_sync(value):
         if value["username"] == "Carol":
@@ -1810,21 +1813,21 @@ try:
             _committed.set()
     _name_core.sync_local_skin_to_csl = _slow_sync
     _name_core.save_config = _record_name
-    _left.value = "Carol"
-    _name_probe["on_name_keystroke"](_left)
+    _name_field.value = "Carol"
+    _name_probe["on_name_keystroke"](_name_field)
     _older = threading.Thread(target=_name_probe["_fire_pending_name"])
     _older.start()
     check("older username publish reaches blocked CSL work", _entered.wait(2))
-    _right.value = "David"
-    _name_probe["on_name_keystroke"](_right)
+    _name_field.value = "David"
+    _name_probe["on_name_keystroke"](_name_field)
     _newer = threading.Thread(target=_name_probe["_fire_pending_name"])
     _newer.start()
     check("new config commits while old CSL publish is blocked", _committed.wait(2))
     _release.set()
     _older.join(3)
     _newer.join(3)
-    check("stale username worker cannot overwrite sibling or config", not _older.is_alive()
-          and not _newer.is_alive() and _left.value == _right.value == _names["username"] == "David"
+    check("stale username worker cannot overwrite Settings or config", not _older.is_alive()
+          and not _newer.is_alive() and _name_field.value == _names["username"] == "David"
           and _names.get("csl_synced_name") == "David")
     check("username hot paths use control refresh only", all("page.update()" not in _fn_src(_main_src, name)
           for name in ("_publish_username", "on_name_keystroke")))
@@ -1866,42 +1869,6 @@ try:
     check("preview keeps a native scene mounted rather than swapping frames",
           isinstance(_orbit.scene, ft.Stack) and _orbit.gesture.content is _orbit.scene)
 
-    from ui.seasonal_ui import SeasonalAnimator
-    _anim = SeasonalAnimator()
-    _anim.add_pet(ft.Container())
-    _frame_entered, _frame_release, _stop_called = threading.Event(), threading.Event(), threading.Event()
-    _active_frames = {"current": 0, "max": 0}
-    def _busy_frame():
-        _active_frames["current"] += 1
-        _active_frames["max"] = max(_active_frames["max"], _active_frames["current"])
-        _frame_entered.set()
-        _frame_release.wait(3)
-        _active_frames["current"] -= 1
-    _anim._frame = _busy_frame
-    _anim.start()
-    check("animator enters a running frame", _frame_entered.wait(2))
-    _first_thread, _first_stop = _anim._thread, _anim._stop
-    def _stop_animator():
-        _stop_called.set()
-        _anim.stop()
-    _stopper = threading.Thread(target=_stop_animator)
-    _stopper.start()
-    _stop_called.wait(2)
-    _first_stop.wait(2)
-    _restarters = [threading.Thread(target=_anim.start) for _ in range(3)]
-    for _thread in _restarters:
-        _thread.start()
-    check("animator stop flags and retains busy ticker", _first_stop.is_set() and _first_thread.is_alive()
-          and _anim._thread is _first_thread)
-    _frame_release.set()
-    _stopper.join(3)
-    for _thread in _restarters:
-        _thread.join(3)
-    check("concurrent animator restarts create one replacement ticker", not _first_thread.is_alive()
-          and _anim.running and _anim._thread is not _first_thread and _active_frames["max"] == 1)
-    _anim.stop()
-    _anim.stop()
-    check("animator stop joins and is idempotent", not _anim.running)
 except Exception:
     import traceback
     check("focused UI regressions complete", False, traceback.format_exc())
@@ -2143,7 +2110,7 @@ check("loader installs patch mll's fabric module before running it",
       "patch_mll()" in _modloaders_src,
       "cubeon/mod_loaders.py must call winproc.patch_mll() (fabric cmd flash)")
 
-for _f in ("cubeon/jre.py", "cubeon/seasonal.py", "cubeon/server.py"):
+for _f in ("cubeon/jre.py", "cubeon/server.py"):
     _s = open(os.path.join(_app_root, _f), encoding="utf-8").read()
     check(f"{_f} uses winproc.hidden",
           "winproc import hidden" in _s.replace("from", "winproc import")
@@ -2320,25 +2287,12 @@ check("an empty launcher keeps neutral PLAY, not a phantom DOWNLOAD",
       and "set_button_mode(\"play\")" in _ovs_src,
       "with no instance there is nothing to download - keep the neutral PLAY")
 
-# --- seasonal backdrop: the image must follow the live palette ---------------
-# tools/make_background.py generates glass.jpg (green) plus glass_<season>.jpg;
-# main.background_image_name() is the picker the Play root uses.
-_bg_dir = os.path.join(app.resolve_assets_dir(), "bg")
-check("the seasonal backdrop picker resolves each season",
-      all(app.background_image_name(s, _bg_dir) == f"glass_{s}.jpg"
-          for s in ("spring", "summer", "autumn", "winter")),
-      "every seasonal palette has a matching backdrop file")
-check("the backdrop falls back to green for non-seasonal palettes",
-      app.background_image_name("green", _bg_dir) == "glass.jpg"
-      and app.background_image_name("obsidian", _bg_dir) == "glass.jpg"
-      and app.background_image_name(None, _bg_dir) == "glass.jpg")
-check("a missing seasonal file falls back to green, never a broken src",
-      app.background_image_name("spring", os.path.join(_bg_dir, "nope"))
-      == "glass.jpg",
-      "a seasonal palette with no art must still render glass.jpg")
-check("the Play root builds its background through the picker",
-      "background_image_name(getattr(theme, \"ACTIVE_TEMPLATE\", None)"
-      in _main_src)
+# The window backdrop is now the selected version's OWN cover art, painted as
+# a dedicated layer under the shell; Play no longer mounts a second copy.
+check("the window backdrop uses the selected version's artwork",
+      "version_art.key_art_src(" in _main_src and "_backdrop_layer" in _main_src)
+check("Play no longer mounts a duplicate version picture",
+      "hero_art_layer" not in _main_src)
 
 # --- custom title bar (Windows + Linux, 2026-10-17 / 2026-10-26) -----------
 # User report with a screenshot from the Windows VM: the OS title bar is a

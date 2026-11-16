@@ -3,16 +3,16 @@
 The first version of this screen was a generic left-rail wizard - numbered
 steps in a sidebar, four rows of feature copy, a card inside a card. It read
 like a SaaS signup: the launcher's own character (the blocky display type, the
-grass block, the seasonal companion, the glass backdrop) was nowhere in it.
+grass block) was nowhere in it.
 
 This one is deliberately the opposite shape:
 
 * NO sidebar. The whole window is the stage; the only chrome is a small brand
   mark, four progress ticks, and the two footer buttons.
-* The app's real backdrop (the same glass_<season>.jpg the window wears) sits
+* The app's real backdrop (the selected version's cover art) sits
   behind a dark scrim, so the tour looks like Cubeon, not like a web form.
 * Each beat has ONE strong prop - the rotating grass block, a Minecraft-style
-  nametag, four feature tiles, the season's companion - and as little copy as
+  nametag and four feature tiles - and as little copy as
   the point needs.
 * Motion is layered but cheap: the overlay fades and scales up once, the step
   body cross-fades while drifting up 1.2% of its own height, and the progress
@@ -31,13 +31,8 @@ from cubeon.theme import (
     ACCENT, ACCENT_TINT, BG, BORDER, FONT_DISPLAY, FONT_MONO,
     ON_ACCENT, RADIUS, RADIUS_LG, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT,
 )
-from ui.seasonal_ui import (
-    pet_line as season_pet_line,
-    pet_name as season_pet_name,
-    pet_src as season_pet_src,
-)
 
-STEP_COUNT = 4
+STEP_COUNT = 3  # welcome, name, features
 FADE_MS = 220
 DRIFT_MS = 320
 RETIRE_MS = 340
@@ -136,16 +131,14 @@ def _feature_tile(icon, title: str, detail: str) -> ft.Container:
 # The flow
 # ---------------------------------------------------------------------------
 
-def build_onboarding(page, *, initial_name: str, info, friends_on: bool,
-                     season_on: bool, backdrop=None, validate_name,
-                     on_season_toggle, on_finish) -> ft.Container:
+def build_onboarding(page, *, initial_name: str, friends_on: bool,
+                     backdrop=None, validate_name, on_finish) -> ft.Container:
     """Build the overlay. The caller appends it to `page.overlay`, then fades it
     in by setting `opacity = 1` (and `scale = 1`) after the window reveal.
 
     Callbacks
     ---------
     validate_name(name) -> (ok, error)
-    on_season_toggle(on: bool)           - saves the seasonal switch immediately
     on_finish(name) -> (ok, error)       - saves cfg + publishes the username;
                                            the overlay only retires on (True, "")
     """
@@ -162,7 +155,7 @@ def build_onboarding(page, *, initial_name: str, info, friends_on: bool,
         )
         tick_bars.append(bar)
 
-    step_counter = ft.Text("01 / 04", size=10.5, color=TEXT_FAINT,
+    step_counter = ft.Text("01 / 03", size=10.5, color=TEXT_FAINT,
                            font_family=FONT_MONO)
 
     top_bar = ft.Row(
@@ -334,134 +327,7 @@ def build_onboarding(page, *, initial_name: str, info, friends_on: bool,
         alignment=ft.MainAxisAlignment.CENTER,
     )
 
-    # --- beat 4: seasonal --------------------------------------------------
-    season_name = season_pet_name(info)
-    season_line = season_pet_line(info)
-    season_switch = ft.Switch(value=bool(season_on), active_color=ACCENT)
-    season_note = ft.Text(
-        (f"On - the {info.label.lower()} palette starts with the next launch."
-         if season_on else
-         "Off - the normal green look. Turn it on to try the seasonal one."),
-        size=10.5, color=TEXT_FAINT,
-    )
-
-    def _season_changed(e=None):
-        on = bool(season_switch.value)
-        try:
-            on_season_toggle(on)
-        except Exception:
-            pass
-        season_note.value = (
-            f"On - the {info.label.lower()} palette starts with the next "
-            f"launch."
-            if on else
-            "Off - the normal green look. Turn it on to try the seasonal one.")
-        thread_safe_ui.refresh(season_note)
-
-    season_switch.on_change = _season_changed
-
-    season_prop = ft.Stack(
-        [
-            ft.Container(content=_prop_glow(), alignment=ft.Alignment.CENTER),
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Image(src=season_pet_src(info), width=112,
-                                 height=112, fit=ft.BoxFit.CONTAIN),
-                        ft.Text(season_name, size=12.5, color=TEXT,
-                                weight=ft.FontWeight.W_600),
-                        ft.Text(season_line, size=10.5, color=TEXT_FAINT,
-                                font_family=FONT_MONO),
-                    ],
-                    spacing=8, tight=True,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                alignment=ft.Alignment.CENTER,
-            ),
-        ],
-        width=260, height=260,
-    )
-    season_chips = ft.Row(
-        [
-            ft.Container(
-                content=ft.Text("New palette", size=10.5, color=TEXT_DIM,
-                                font_family=FONT_MONO),
-                bgcolor=ft.Colors.with_opacity(0.30, SURFACE_HI),
-                border=ft.border.Border.all(1, BORDER),
-                border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-            ),
-            ft.Container(
-                content=ft.Text("New companion", size=10.5, color=TEXT_DIM,
-                                font_family=FONT_MONO),
-                bgcolor=ft.Colors.with_opacity(0.30, SURFACE_HI),
-                border=ft.border.Border.all(1, BORDER),
-                border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-            ),
-            ft.Container(
-                content=ft.Text("4× a year", size=10.5, color=TEXT_DIM,
-                                font_family=FONT_MONO),
-                bgcolor=ft.Colors.with_opacity(0.30, SURFACE_HI),
-                border=ft.border.Border.all(1, BORDER),
-                border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-            ),
-        ],
-        spacing=8, wrap=True,
-    )
-    season_switch_row = ft.Container(
-        content=ft.Row(
-            [
-                ft.Column(
-                    [
-                        ft.Text(f"Wear the {info.label.lower()} look",
-                                size=13, color=TEXT,
-                                weight=ft.FontWeight.W_600),
-                        season_note,
-                    ],
-                    spacing=4, tight=True, expand=True,
-                ),
-                season_switch,
-            ],
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-        bgcolor=ft.Colors.with_opacity(0.34, SURFACE_HI),
-        border=ft.border.Border.all(1, BORDER),
-        border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
-        width=520,
-    )
-    seasonal_step = ft.Row(
-        [
-            ft.Column(
-                [
-                    _eyebrow("Seasonal look"),
-                    ft.Container(height=12),
-                    _headline(f"{info.label} is here.", 46),
-                    ft.Container(height=12),
-                    ft.Container(
-                        width=480,
-                        content=_body(
-                            f"Cubeon is dressed for {info.place} - palette, "
-                            "companion and weather, all read from your clock. "
-                            "No location permission."),
-                    ),
-                    ft.Container(height=16),
-                    season_chips,
-                    ft.Container(height=16),
-                    season_switch_row,
-                ],
-                spacing=0, tight=True, expand=True,
-                alignment=ft.MainAxisAlignment.CENTER,
-            ),
-            ft.Container(width=24),
-            season_prop,
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-    )
-
-    step_views = [welcome, name_step, features_step, seasonal_step]
+    step_views = [welcome, name_step, features_step]
     for view in step_views:
         view.offset = ft.Offset(0, 0)
         view.animate_offset = ft.Animation(DRIFT_MS,

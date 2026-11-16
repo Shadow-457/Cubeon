@@ -147,7 +147,7 @@ class ModpackPerformance(unittest.TestCase):
         self.assertFalse(view.disabled,'Flet must not dim a placeholder')
         self.assertTrue(view.expand and view.build_controls_on_demand)
 
-    def test_installer_flag_forces_green_before_seasonal_modules_load(self):
+    def test_installer_flag_forces_green_before_the_palette_import(self):
         env=dict(os.environ,CUBEON_SEASON='autumn')
         script="import sys; from cubeon import theme; assert theme.ACTIVE_TEMPLATE=='green'; assert 'cubeon.seasonal' not in sys.modules"
         subprocess.run([sys.executable,'-c',script,'--cubeon-installer','--color8'],env=env,check=True,

@@ -5,7 +5,10 @@ from cubeon import thread_safe_ui, motion
 from cubeon.theme import RADIUS, attach_hover, BORDER, SURFACE
 
 
-def tile_grid(*, rows=False):
+CARD_HEIGHT = 268  # browse cover cards (name, author, blurb, install)
+
+
+def tile_grid(*, rows=False, cards=False):
     grid = ft.GridView(runs_count=3, child_aspect_ratio=3.6, spacing=12,
                        run_spacing=12, expand=True, cache_extent=384,
                        build_controls_on_demand=True, padding=0)
@@ -13,6 +16,7 @@ def tile_grid(*, rows=False):
     grid._tile_height = 432
     grid._tile_mode = True
     grid._row_mode = rows
+    grid._cards = cards
     grid.on_capacity_change = None
 
     def resized(event):
@@ -41,6 +45,14 @@ def layout_tiles(grid, compact=True):
     """Keep catalogue tiles 96 px and installed rows 76 px; notices span the viewport."""
     grid._tile_mode = compact
     width = grid._tile_width
+    if getattr(grid, "_cards", False):
+        # Cover cards: wide enough for a name + one line of blurb, three or
+        # four to a row depending on the window.
+        columns = max(2, int((width + 14) // 320))
+        grid.runs_count = columns
+        card_width = max(1.0, (width - 14 * (columns - 1)) / columns)
+        grid.child_aspect_ratio = card_width / CARD_HEIGHT
+        return
     columns = max(1, int((width + 12) // 352)) if compact and not grid._row_mode else 1
     grid.runs_count = columns
     height = (76 if grid._row_mode else 96) if compact else 400
@@ -48,6 +60,10 @@ def layout_tiles(grid, compact=True):
 
 
 def tile_capacity(grid):
+    if getattr(grid, "_cards", False):
+        columns = max(2, int((grid._tile_width + 14) // 320))
+        rows = max(1, int((grid._tile_height + 14) // (CARD_HEIGHT + 14)))
+        return min(100, columns * rows)
     columns = 1 if grid._row_mode else max(1, int((grid._tile_width + 12) // 352))
     rows = max(1, int((grid._tile_height + 12) // (88 if grid._row_mode else 108)))
     return min(100, columns * rows)
@@ -57,6 +73,17 @@ def loading_tiles(grid):
     """Reserve the same cells as real content, without a loading-only layout."""
     tiles = []
     for _ in range(tile_capacity(grid)):
+        if getattr(grid, "_cards", False):
+            tiles.append(ft.Container(
+                content=ft.Column([
+                    ft.Container(height=96, bgcolor=BORDER, border_radius=RADIUS),
+                    ft.Container(height=12, bgcolor=BORDER, border_radius=RADIUS),
+                    ft.Container(height=8, width=96, bgcolor=BORDER, border_radius=RADIUS),
+                ], spacing=8),
+                bgcolor=SURFACE, border_radius=RADIUS, padding=10,
+                data='content-loading', ignore_interactions=True,
+            ))
+            continue
         tile = ft.Container(
             ft.Row([
                 ft.Container(width=44, height=44, bgcolor=BORDER, border_radius=RADIUS),

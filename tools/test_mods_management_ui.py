@@ -151,7 +151,7 @@ class ManagementUI(unittest.TestCase):
         row, button = self.client_browse_tile()
         self.assertEqual(button.content.controls[1].value, 'Install')
         self.assertIsNone(row.on_click)
-        self.assertEqual(row.content.controls[0].src, 'icon_64.png')
+        self.assertEqual(row.content.controls[0].content.src, 'icon_64.png')
         with patch('ui.mods_tab.resolve_profile_dir', return_value='/profile-A') as resolve, \
                 patch('cubeon.cubeonfriends.ensure_installed', return_value=True) as install, \
                 patch.object(self.core, 'save_config'):
@@ -299,11 +299,11 @@ class ManagementUI(unittest.TestCase):
         self.assertFalse(any(isinstance(c, ft.PopupMenuButton) for c in fz.walk(self.root)))
         self.assertIn('resource packs', header['mod_search_field'].hint_text)
 
-    def test_filters_are_closed_by_default_and_installed_is_one_action(self):
-        filters = env(self.fns['on_filters_toggle'])
-        self.assertFalse(filters['category_chips_container'].visible)
-        self.fns['on_filters_toggle']()
-        self.assertTrue(filters['category_chips_container'].visible)
+    def test_categories_are_gone_and_installed_is_one_action(self):
+        # Categories and the Filters popover that held them were removed; the
+        # Installed action is still the one way into the installed list.
+        self.assertFalse(any(getattr(c, 'data', None) == 'mods-filters'
+                             for c in fz.walk(self.root)))
         toggle = next(c for c in fz.walk(self.root) if getattr(c, 'data', None) == 'mods-installed-toggle')
         toggle.on_click(None)
         view = env(self.fns['on_view_change'])
@@ -543,18 +543,20 @@ class ManagementUI(unittest.TestCase):
         row = self.row()
         installed = self.scope['mods_list_view']
         browse = env(self.fns['_render_browse_page'])['browse_results_view']
+        # Browse and Installed keep the same compact grid geometry.
         self.assertEqual(row.height, 96)
         for width in (320, 800, 1280, 1600):
             installed._tile_width = browse._tile_width = width
             layout_tiles(installed)
             layout_tiles(browse)
-            self.assertEqual(installed.runs_count, browse.runs_count)
-            self.assertEqual(installed.child_aspect_ratio, browse.child_aspect_ratio)
+            self.assertEqual(browse.runs_count, installed.runs_count)
+            self.assertEqual(browse.child_aspect_ratio, installed.child_aspect_ratio)
         panes = env(self.fns['on_view_change'])
-        self.assertIs(panes['installed_pane'].controls[0].controls[0].content,
+        search = env(self.fns['_sync_view_hosts'])
+        self.assertIs(search['installed_search_host'].content,
                       self.scope['installed_filter_field'])
-        self.assertEqual(panes['installed_pane'].controls[1].height,
-                         panes['browse_pane'].controls[2].height)
+        self.assertEqual(panes['installed_pane'].controls[0].height,
+                         panes['browse_pane'].controls[0].height)
         footer = panes['installed_pane'].controls[-1]
         children = tuple(panes['installed_pane'].controls)
         self.fns['_set_installed_status']('Long action feedback ' * 40)
@@ -578,7 +580,9 @@ class ManagementUI(unittest.TestCase):
         self.refresh(background=True)
         installed = self.scope['mods_list_view']
         self.assertTrue(all(c.data == 'content-loading' for c in installed.controls))
-        self.assertEqual((installed.runs_count, installed.child_aspect_ratio), geometry)
+        # Loading cells reserve the same compact slots in both views.
+        self.assertEqual((browse.runs_count, browse.child_aspect_ratio), geometry)
+        self.assertEqual(installed.child_aspect_ratio, geometry[1])
 
     def test_installed_snapshot_and_match_index_cache_expire_and_invalidate(self):
         self.active['type'] = 'resourcepack'

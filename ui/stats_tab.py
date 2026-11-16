@@ -31,7 +31,7 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
                     BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                     TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO):
     selected = {"weekly": False}
-    layout = {"width": 1000, "height": 600, "overview": 112, "server_count": 0}
+    layout = {"width": 1000, "height": 600, "overview": 112}
     cached = {"stats": {}, "ready": False}
     rim = ft.Colors.with_opacity(.65, BORDER)
 
@@ -107,17 +107,21 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
     root = ft.Container(content=body, expand=True, data="stats-dashboard")
 
     def apply_layout():
-        stacked = layout["width"] < 900 or not layout["server_count"]
-        server_height = max(92, 64 + min(5, layout["server_count"]) * 28) if stacked else None
+        # Geometry follows the viewport alone. The first snapshot used to arrive
+        # with a server count, flipping the panels from a full-width chart to
+        # two columns and resizing the chart - the dashboard jumped under the
+        # pointer on the first visit. Stacked layouts leave the server panel on
+        # auto height so its list grows below the chart instead of shrinking it.
+        stacked = layout["width"] < 900
         available = layout["height"] - layout["overview"] - 14
-        timeline_height = max(280, available - (server_height + 14 if stacked else 0))
+        timeline_height = max(280, min(available, 420) if stacked else available)
         # The toolbar wraps below 576px of chart width, independent of window width.
         chart_width = layout["width"] if stacked else (layout["width"] - 14) * .75
         toolbar_height = 60 if chart_width - 32 < 576 else 32
         timeline.width = layout["width"] if stacked else (layout["width"] - 14) * .75
         server_panel.width = layout["width"] if stacked else (layout["width"] - 14) * .25
         timeline.height = timeline_height
-        server_panel.height = server_height if stacked else timeline_height
+        server_panel.height = None if stacked else timeline_height
         chart.set_height(timeline_height - 32 - toolbar_height - 8)
         chart_host.height = chart.height
         thread_safe_ui.refresh(body)
@@ -188,7 +192,6 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
                                  expand=True, tooltip=server),
                     text(f"{count} session{'s' if count != 1 else ''}", size=10, muted=True)], spacing=8)
             for server, count in counts.most_common(5)]
-        layout["server_count"] = len(counts)
         finish_loading()
         apply_layout()
         draw_chart()

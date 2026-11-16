@@ -616,12 +616,6 @@ def reach_plugin_installed(page, nav):
     return _subtab(page, "installed")
 
 
-def reach_filters_open(page, nav):
-    """Mods tab -> expand the category filter chips behind the tune icon."""
-    reach_tab(page, nav, "mods")
-    return _click_first(page, "filters") or _click_first(page, "filter")
-
-
 def reach_fix_problems(page, nav):
     """Play tab -> the 'Fix crash' doctor line next to PLAY. The doctor is
     fast on an empty profile, and whatever it reports (all-clear or a repaired
@@ -709,8 +703,6 @@ STATE_PLAN = [
     ("mods_search_typed", "Mods tab",
      "Search field with a real query: contrast of hint vs. value, clear button.",
      None),
-    ("mods_filters_open", "Mods tab",
-     "Expanded category chips: wrapping, tap targets, selected state.", None),
     ("mods_fix_problems", "Play tab",
      "'Fix crash' result line: is the doctor's outcome legible and calm?",
      None),
@@ -761,7 +753,6 @@ _DEEP = {
                                      ("resourcepack", "installed")),
     "mods_installed_shaders": (reach_content_page, ("shader", "installed")),
     "mods_search_typed": (reach_search_typed, ()),
-    "mods_filters_open": (reach_filters_open, ()),
     "mods_fix_problems": (reach_fix_problems, ()),
     "modpacks_installed": (reach_modpacks_installed, ()),
     "server_plugins_browse": (reach_plugin_browse, ()),
@@ -864,9 +855,8 @@ def _prepare(page, empty):
     stubs namespace. Shared by both entry points below."""
     stubs = fz.install_safe_stubs()
     load_config = stubs.core.load_config
-    from cubeon import seasonal
     stubs.core.load_config = lambda: dict(
-        load_config(), onboarded=True, ui_language="en", season_seen=seasonal.current().slug)
+        load_config(), onboarded=True, ui_language="en")
     # Capture at its final size from the hidden start, with no live resize.
     stubs.core.load_window_geometry = lambda: {
         "width": CAPTURE_WIDTH, "height": CAPTURE_HEIGHT, "left": 100, "top": 100}

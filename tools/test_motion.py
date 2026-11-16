@@ -493,11 +493,11 @@ check("the startup pass applies the saved level before any widget is built",
       in _main_src)
 check("the Play/QUIT aura is gone (2026-10-23 user ask: no glow behind it)",
       "hero_glow" not in _main_src and "hero_ambient" not in _main_src)
-check("the Play pixel frame lives inside the button's own Stack",
-      "play_button.content = ft.Stack(" in _main_src
-      and 'src="pixel_button_frame.svg"' in _main_src)
-check("the pixel button keeps its fixed square corners",
-      "border_radius=0," in _main_src)
+check("the reference frame is a retained descendant of the Play button",
+      'ft.Image(src="pixel_button_frame.svg"' in _main_src
+      and "play_button.content = ft.Stack(" not in _main_src)
+check("the Play button follows the pixel frame corners",
+      "bgcolor=ACCENT,\n        border_radius=0," in _main_src)
 check("Play feedback brightens the semantic fill without a glass sweep",
       "ACCENT_HI if hovering else ACCENT" in _main_src and "play_sheen" not in _main_src)
 check("the Play button gets the fill callback, not a bgcolor pair",

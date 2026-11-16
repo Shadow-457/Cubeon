@@ -367,6 +367,9 @@ def polish(container, base_bg=None, hover_bg=None, *,
         _refresh(container)
 
     def _on_hover(e):
+        # _paint() already sends the changed control. Flet otherwise walks
+        # the entire page again after each pointer enter/leave event.
+        ft.context.disable_auto_update()
         hovering = getattr(e, "data", None) == "true"
         # `hot` is the premium state (lift, dip, glass); `hovering` is the raw
         # pointer. They differ for a disabled control, which still gets the
@@ -392,6 +395,7 @@ def polish(container, base_bg=None, hover_bg=None, *,
 
     if _HAS_TAP_DOWN and press != 1.0:
         def _on_tap_down(e):
+            ft.context.disable_auto_update()
             if not transforms() or not _allowed():
                 return
             st["down"] = True

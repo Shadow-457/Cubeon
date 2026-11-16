@@ -5,27 +5,7 @@ at startup, before any UI module binds the design tokens.
 This is the entire mechanism - there is no other colour plumbing:
 
     python main.py --color1        # green    (true black + green, the default)
-    python main.py --color8        # autumn   (the seasonal palette, Sep-Nov)
-    python main.py --color9        # spring   (the seasonal palette, Mar-May)
-    python main.py --color=list    # every palette, with its accent
 
-Seasons (autumn/spring/winter/summer, aliases 8-11) are ordinary templates that
-cubeon/seasonal.py picks automatically from the user's timezone + today's date;
-passing --color explicitly PINS one and switches the seasonal look off for that
-launch. See cubeon/seasonal.py for the detection and the precedence rules.
-
-`--color=<name>` / `--color <name>` work too, as does `--color list`.
-The hook that calls apply_template() lives at the bottom of cubeon/__init__.py,
-which runs before main.py's `from cubeon.theme import ...` executes - so the
-patched values are what every tab builder receives. Nothing in main.py, the
-tab modules, or theme.py knows templates exist.
-
-How patching works: cubeon.theme is imported once, then every palette key is
-setattr()-ed onto the module and the THEME dict (consumed by tab builders via
-**THEME) is updated in place. Functions inside theme.py (apply_page_theme,
-section_label, ...) read module globals at call time, so they pick the patch
-up automatically. The translucent derivatives (CARD_FILL, ACCENT_TINT, ...) are
-derived here from the palette's bases so a template only declares raw colours.
 """
 import importlib
 
@@ -39,22 +19,12 @@ from cubeon import theme as _theme
 # register it here. That's it.
 TEMPLATE_MODULES = {
     "green": "templates.color_green",
-    # Seasonal palettes (8-11). These are picked automatically by
-    # cubeon/seasonal.py from the user's timezone + the date, but they are
-    # ordinary templates: --color autumn works, and so does pinning one for a
-    # screenshot (CUBEON_SEASON=autumn). See templates/color_autumn.py.
-    "autumn": "templates.color_autumn",
-    "spring": "templates.color_spring",
-    "winter": "templates.color_winter",
-    "summer": "templates.color_summer",
 }
 ALIASES = {
     "1": "green",
-    "8": "autumn", "9": "spring", "10": "winter", "11": "summer",
 }
 ALIAS_OF = {
     "green": "1",
-    "autumn": "8", "spring": "9", "winter": "10", "summer": "11",
 }
 
 # Keys a palette must define (everything else is derived).
@@ -153,9 +123,8 @@ def apply_template(name: str) -> str:
     if avatars:
         _theme.AVATAR_COLORS[:] = list(avatars)
 
-    # 4) Record which template is live. UI that needs to follow the palette
-    #    (e.g. main.py picking the seasonal backdrop) reads this instead of
-    #    re-deriving the season, so a pinned --color is honoured too.
+    # 4) Record which template is live, so UI that follows the palette reads
+    #    one answer instead of re-deriving it.
     _theme.ACTIVE_TEMPLATE = key
 
     return key

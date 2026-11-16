@@ -335,7 +335,7 @@ def section_contracts():
         header("  skip Cubeon.spec checks (gitignored PyInstaller byproduct, "
                "absent in a fresh checkout)")
 
-    # 3f-bis. The seasonal palettes are loaded by a DYNAMIC import, so every
+    # 3f-bis. Palettes are loaded by a DYNAMIC import, so every
     # PyInstaller FRONT-END must name templates.* explicitly. `--collect-
     # submodules templates` silently collects NOTHING on the Windows build
     # interpreter (isolated WinPython sys.path) - the palette then falls back
@@ -344,7 +344,7 @@ def section_contracts():
     win_builders = ["packaging/build_windows.py"]
     palette_bad = [p for p in win_builders
                    if not os.path.exists(p)
-                   or "templates.color_autumn" not in open(p, encoding="utf-8").read()
+                   or "templates.color_green" not in open(p, encoding="utf-8").read()
                    or "--collect-submodules" + '", "templates"' in open(p, encoding="utf-8").read()]
     check("Windows builders name every palette template explicitly",
           not palette_bad, "; ".join(palette_bad))
@@ -598,7 +598,7 @@ SUITES = [
     "test_ui_sounds.py", "test_milestones.py", "test_play_backend_audit.py",
     "test_winproc.py", "test_authme_config.py", "test_cosmetics_picker.py",
     "test_version_path_safety.py", "test_mod_install_cancel.py",
-    "test_scrolling.py", "test_play_seasons.py", "test_launcher_pet.py",
+    "test_scrolling.py",
     "test_appearance_preview.py", "test_loader_content_rules.py",
     "test_cosmetics.py", "test_cosmetic_renderers.py", "test_cosmetic_elytra.py", "test_cosmetic_animation.py", "test_wing_action.py", "test_zoom.py", "test_freelook.py", "test_camera_blur.py", "test_camera_blur_lifecycle.py", "test_enemy_health.py", "test_emotes.py", "test_emote_models.py", "test_emote_wheel.py", "test_client_ui.py", "test_skin_models.py", "test_local_api_emotes.py", "test_window_close.py",
     "test_mod_ui_stability.py",

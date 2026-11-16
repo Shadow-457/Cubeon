@@ -11,7 +11,7 @@ from cubeon import motion
 from cubeon import osnotify
 from cubeon import thread_safe_ui, scrolling
 from cubeon.theme import (
-    RADIUS, RADIUS_LG, ROW_HOVER, ACCENT_TINT, TEXT_FAINT, keyboard_target,
+    BORDER, RADIUS, RADIUS_LG, ROW_HOVER, ACCENT_TINT, TEXT_FAINT, keyboard_target,
 )
 from ui.about_settings import build_about_section
 
@@ -37,7 +37,6 @@ def _apply_rail_state(item, active, *, ACCENT, ACCENT_TINT, TEXT, TEXT_DIM):
     icon, label = item.content.controls[0], item.content.controls[1]
     icon.color = ACCENT if active else TEXT_DIM
     label.color = TEXT if active else TEXT_DIM
-    label.weight = ft.FontWeight.W_600 if active else ft.FontWeight.W_500
 
 
 def _rail_item(key, icon, label, active, on_click, *, ACCENT, ACCENT_TINT,
@@ -49,7 +48,7 @@ def _rail_item(key, icon, label, active, on_click, *, ACCENT, ACCENT_TINT,
                 ft.Text(label, size=13.5, expand=True, max_lines=2,
                         overflow=ft.TextOverflow.ELLIPSIS,
                         color=TEXT if active else TEXT_DIM,
-                        weight=ft.FontWeight.W_600 if active else ft.FontWeight.W_500),
+                        weight=ft.FontWeight.W_500),
             ],
             spacing=10, tight=True,
         ),
@@ -100,6 +99,14 @@ def _save_preference(cfg, key, value, *, set_status, error):
 
 def _row(title, subtitle, control, *, TEXT, TEXT_DIM):
     """Keep switches beside their label; wide actions stack in narrow forms."""
+    if isinstance(control, ft.Switch):
+        # Both halves of the off state come from the ColorScheme, where the
+        # palette's outline and top surface are the same tone - the knob
+        # disappeared into the track and the switch read as an empty pill.
+        if control.inactive_thumb_color is None:
+            control.inactive_thumb_color = TEXT_DIM
+        if control.inactive_track_color is None:
+            control.inactive_track_color = BORDER
     labels = ft.Column([
         ft.Text(i18n.t(title), size=14, color=TEXT, weight=ft.FontWeight.W_600),
         *([ft.Text(i18n.t(subtitle), size=12, color=TEXT_DIM)] if subtitle else []),
@@ -513,7 +520,7 @@ def _group(rows, *, SURFACE_HI, BORDER):
 def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        set_status, save_width_height_java,
                        browse_online_row, legacy_btn, legacy_note,
-                       client_mod_cb, csl_cb, glass_cb, tidy_btn, ram_slider, ram_range_row, ram_label,
+                       client_mod_cb, csl_cb, tidy_btn, ram_slider, ram_range_row, ram_label,
                        custom_chrome_cb,
                        ram_warning, width_field, height_field,
                        java_path_field, custom_jvm_field, detected_java,
@@ -523,11 +530,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        backup_status_text, backup_now_btn, open_folder_btn,
                        minecraft_files_pane,
                        restore_btn, minekube_badge, cubeon_web_link,
-                       seasonal_switch, season_dropdown, seasonal_status_icon,
-                       seasonal_status_text, seasonal_source_text,
-                       seasonal_restart_btn, seasonal_restart_note,
-                       season_pin_note,
-                       season_pet_switch, season_overlay_switch,
+                       restart_btn,
                        BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                        TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
                        on_open_screenshots=None,
@@ -548,9 +551,9 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     """
 
-    # Labels are translated at build time; the KEYS are not - deep links (the
-    # seasonal badge uses "seasonal") key off them. A language change lands on
-    # the next start, like the rest of the chrome.
+    # Labels are translated at build time; the KEYS are not - deep links key
+    # off them (e.g. "settings" opens a notification's section). A language
+    # change lands on the next start, like the rest of the chrome.
     sections = [(key, icon, i18n.t(label)) for key, icon, label in SECTIONS]
     active_section = {"value": sections[0][0]}
 
@@ -779,15 +782,12 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # APPEARANCE
     # ======================================================================
     language_picker = _language_picker(
-        cfg, on_restart=seasonal_restart_btn.on_click, set_status=set_status,
+        cfg, on_restart=restart_btn.on_click, set_status=set_status,
         BG=BG, BORDER=BORDER, ACCENT=ACCENT, TEXT=TEXT, TEXT_DIM=TEXT_DIM,
     )
 
     launcher_rows = [
         _body(language_picker),
-        row(i18n.t("Glass background"),
-            "Restart to apply",
-            glass_cb),
     ]
     if custom_chrome_cb is not None:
         launcher_rows.append(row(
@@ -799,45 +799,10 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "Off reduces movement",
         motion_switch))
 
-    # Theme and launcher appearance share one retained section.
-    seasonal_status_text.expand = True
-    seasonal_restart_note.expand = True
-    season_dropdown.width = None
+    # The seasonal look is retired: Appearance is the launcher's own options
+    # only (language, flat background, title bar, motion), no Theme section.
     appearance_pane = pane(
         "Appearance", group(launcher_rows),
-        block("Theme", group([
-            row("Seasonal look",
-                "Use colours for the current season",
-                seasonal_switch),
-            _body(ft.Column(
-                [
-                    ft.Row([seasonal_status_icon, seasonal_status_text],
-                           spacing=8,
-                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    seasonal_source_text,
-                ],
-                spacing=4,
-            ), pad_v=10),
-            row("Season", "Auto follows your timezone", season_dropdown),
-            _body(ft.Column(
-                [
-                    season_pin_note,
-                    ft.ResponsiveRow([
-                        ft.Container(keyboard_target(seasonal_restart_btn, i18n.t("Restart")),
-                                     col={"xs": 12, "wide": 4}),
-                        ft.Container(seasonal_restart_note, col={"xs": 12, "wide": 8}),
-                    ], breakpoints={"xs": 0, "wide": 500}, spacing=12, run_spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ],
-                spacing=8,
-            ), pad_v=10),
-        ])),
-        block(i18n.t("Extras"), group([
-            row("Play scenery", "Trees and seasonal effects on Play",
-                season_overlay_switch),
-            row("Seasonal buddy", "A companion around the launcher",
-                season_pet_switch),
-        ])),
     )
 
     # ======================================================================
@@ -970,7 +935,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     panes = {'account': account_section, 'versions': versions_pane,
              'appearance': appearance_pane,
              'notifications': notifications_pane, 'import': imports_pane, 'about': about_pane}
-    aliases = {'display': 'appearance', 'theme': 'appearance', 'seasonal': 'appearance',
+    aliases = {'display': 'appearance', 'theme': 'appearance',
                'backups': 'account', 'storage': 'account',
                'launcher': 'account', 'system': 'account',
                'game': 'versions', 'performance': 'versions', 'memory': 'versions',
@@ -997,7 +962,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             if key != active_section["value"]:
                 active_section["value"] = key
                 for k, p in panes.items():
-                    p.visible = (k == key)
+                    p.opacity = 1.0
+                    p.visible = k == key
                 _rebuild_rail()
                 thread_safe_ui.refresh(compact_rail if layout["compact"] else rail)
                 thread_safe_ui.refresh(pane_host)
@@ -1148,8 +1114,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
             setattr(field, event_name, saved)
 
-    # Exposed so another surface can deep-link a section (the seasonal badge
-    # uses it; a notification or a milestone card would too).
+    # Exposed so another surface can deep-link a section (a notification or a
+    # milestone card, for instance).
     host.select_section = _select_section
 
     return host

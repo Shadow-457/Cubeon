@@ -42,12 +42,15 @@ def compact_status(text):
 _active_feedback = weakref.WeakSet()
 
 
-def action_text(job):
+def action_text(job, *, compact=False):
+    """Narrow actions use the cancel icon so the progress label fits."""
     if job.cancelling:
-        return "Cancelling…"
+        return "Stopping" if compact else "Cancelling…"
     progress = compact_status(job.text)
     if job.busy and job.cancellable:
-        return f"Cancel · {progress}" if re.search(r'%|\b(?:KB|MB|GB)\b', progress) else "Cancel"
+        if re.search(r'%|\b(?:KB|MB|GB)\b', progress):
+            return progress if compact else f"Cancel · {progress}"
+        return "Cancel"
     return progress
 
 

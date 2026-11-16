@@ -77,10 +77,10 @@ class SettingsPolish(unittest.TestCase):
         advanced_java = self.control(data='settings-java-advanced')
         self.assertNotIn(java_pane, list(walk(advanced_java)))
         self.assertTrue(java_pane.visible)
-        self.assertTrue({'animations','theme','seasonal look'} <= texts('appearance'))
+        self.assertTrue({'animations'} <= texts('appearance'))
         original=tuple(id(c) for c in walk(self.root))
         for alias,target in {'launcher':'account','system':'account','backups':'account',
-                             'storage':'account','theme':'appearance','seasonal':'appearance',
+                             'storage':'account','theme':'appearance',
                              'performance':'versions','memory':'versions','files':'versions'}.items():
             self.root.select_section(alias)
             self.assertEqual([key for key,pane in panes.items() if pane.visible],[target])
@@ -103,6 +103,10 @@ class SettingsPolish(unittest.TestCase):
 
     def test_account_username_error_is_visible_and_failed_publish_can_retry(self):
         field=next(c for c in self.controls if isinstance(c,ft.TextField) and c.label=='Username')
+        switch=scope(self.driver.tabs()['settings'].on_click)['switch_tab']
+        play=scope(switch)['_tab_views']['play']
+        self.assertFalse(any(isinstance(c,ft.TextField) and
+                             (c.label=='Username' or c.hint_text=='Username') for c in walk(play)))
         keystroke=scope(field.on_change)['on_name_keystroke']
         values=scope(keystroke)
         publish=values['_publish_username'];cfg=scope(publish)['cfg'];old=dict(cfg)
@@ -163,7 +167,7 @@ class SettingsPolish(unittest.TestCase):
         self.assertFalse(upload.disabled or values['_pfp_busy']['value'])
 
     def test_appearance_saves_restore_value_and_key_presence(self):
-        for handler in ('on_glass_change','on_custom_chrome_change'):
+        for handler in ('on_custom_chrome_change',):
             control=self.control(handler=handler)
             helper=scope(control.on_change)['_save_launcher_preferences']
             cfg=scope(helper)['cfg']
@@ -180,27 +184,6 @@ class SettingsPolish(unittest.TestCase):
             control.value=display
             with patch.object(self.core,'save_config'):
                 control.on_change(None)
-
-    def test_season_failure_cannot_apply_runtime_or_claim_success(self):
-        for data,handler in (('settings-seasonal-enabled','_on_seasonal_toggle'),
-                             ('settings-buddy-enabled','_on_season_pet_toggle'),
-                             ('settings-scenery-enabled','_on_season_overlay_toggle')):
-            control=self.control(data=data)
-            values=scope(control.on_change)
-            cfg=values['cfg'];old=dict(cfg);display=control.value
-            with patch.object(self.core,'save_config',side_effect=OSError('fixture')):
-                control.value=not display
-                control.on_change(None)
-            self.assertEqual(cfg,old)
-            self.assertEqual(control.value,display)
-        dropdown=self.control(handler='_on_season_change')
-        values=scope(dropdown.on_select);cfg=values['cfg'];old=dict(cfg)
-        before=dropdown.value
-        dropdown.value='winter' if before!='winter' else 'summer'
-        with patch.object(self.core,'save_config',side_effect=OSError('fixture')):
-            dropdown.on_select(None)
-        self.assertEqual(dropdown.value,before)
-        self.assertEqual(cfg,old)
 
     def test_dimensions_save_is_atomic_and_failed_edit_is_retryable(self):
         width=next(c for c in self.controls if isinstance(c,ft.TextField) and c.label=='Width')

@@ -131,7 +131,11 @@ class ContentInstallTests(unittest.TestCase):
         self.assertEqual(QueuedThread.jobs, [])
         def install(*a, **kw):
             kw["progress_cb"](.42, 1)
-            self.assertTrue(all(text(c) == "Cancel · 42%" and not c.disabled for c in [button, *details]))
+            self.assertEqual(text(button), "42%")
+            self.assertTrue(all(text(c) == "Cancel · 42%" and not c.disabled for c in details))
+            self.assertFalse(button.disabled)
+            self.assertEqual(button.content.controls[0].icon, ft.Icons.CLOSE_ROUNDED)
+            self.assertIn("Cancel download", button.tooltip)
             self.assertTrue(all("42%" in c.tooltip for c in [button, *details]))
             self.assertEqual(kw["mc_version"], "1.20.1")
             return {"installed": ["demo.jar"], "failed": []}
@@ -166,9 +170,9 @@ class ContentInstallTests(unittest.TestCase):
             self.core.get_content_download = lambda *a, **kw: {"filename": "demo.zip", "url": "offline"}
             def install(*a, **kw):
                 kw["progress_cb"](128 * 1024, 0)
-                self.assertEqual(text(button), "Cancel · 128 KB")
+                self.assertEqual(text(button), "128 KB")
                 kw["progress_cb"](120, 100)
-                self.assertEqual(text(button), "Cancel · 100%")
+                self.assertEqual(text(button), "100%")
                 kw["fix_cb"]({"reason": "Pack format widened for this Minecraft version."})
             self.core.download_content = install
             button.on_click(None)
@@ -267,8 +271,9 @@ class ContentInstallTests(unittest.TestCase):
         QueuedThread.jobs.pop()()
         details = self.detail_buttons()
         details[0].on_click(None)
+        self.assertTrue(button.disabled and text(button) == 'Stopping')
         self.assertTrue(all(control.disabled and text(control) == 'Cancelling…'
-                            for control in [button, *details]))
+                            for control in details))
         with patch.object(self.core, 'get_mod_download') as lookup:
             installer()
             lookup.assert_not_called()

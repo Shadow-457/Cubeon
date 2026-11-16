@@ -14,7 +14,7 @@ from cubeon import thread_safe_ui
 from cubeon.background_refresh import BackgroundRefresh
 from cubeon.theme import (
     ACCENT, ACCENT_TINT, CARD_BORDER, CARD_FILL, DANGER,
-    FONT_DISPLAY, FONT_MONO, INFO, RADIUS, ROW_HOVER, SURFACE, SURFACE_HI, SURFACE_MAX,
+    FONT_MONO, RADIUS, ROW_HOVER, SURFACE, SURFACE_MAX,
     TEXT, TEXT_DIM, TEXT_FAINT, attach_hover,
 )
 
@@ -27,7 +27,7 @@ from cubeon.theme import (
 _DECODE_POOL = threading.Semaphore(3)
 
 
-def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
+def build_screenshot_gallery_tab(page: ft.Page, *, on_back=None) -> tuple[ft.Control, callable]:
     """Build the full-canvas screenshots tab and return its refresh callback."""
     state = {"items": [], "selected": None, "generation": 0,
              "thumb_generation": 0, "scanned": False}
@@ -37,24 +37,26 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
         src="icon.svg", width=620, height=430, fit=ft.BoxFit.CONTAIN,
         visible=False,
     )
+    selected_image.width = selected_image.height = None
     selected_empty = ft.Column(
         [
-            ft.Icon(ft.Icons.IMAGE_OUTLINED, size=46, color=TEXT_FAINT),
+            ft.Icon(ft.Icons.IMAGE_OUTLINED, size=32, color=TEXT_FAINT),
             ft.Text("Select a screenshot", size=14, color=TEXT_DIM),
             ft.Text("Your Minecraft captures appear here", size=11,
                     color=TEXT_FAINT),
         ], spacing=8, tight=True,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
     )
-    selected_name = ft.Text("No screenshot selected", size=18, color=TEXT,
-                            font_family=FONT_DISPLAY, max_lines=1,
+    selected_name = ft.Text("No screenshot selected", size=13, color=TEXT,
+                            weight=ft.FontWeight.W_600, max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS)
-    selected_meta = ft.Text("", size=11, color=TEXT_DIM)
+    selected_meta = ft.Text("", size=11, color=TEXT_DIM, max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS)
     status = ft.Text("", size=11, color=TEXT_DIM, expand=True,
-                     max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
+                     max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
     capture_count = ft.Text("0 captures", size=11, color=TEXT_DIM,
                             font_family=FONT_MONO)
-    thumb_column = ft.ListView(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
+    thumb_column = ft.ListView(spacing=6, scroll=ft.ScrollMode.AUTO, expand=True,
                               cache_extent=320)
 
     async def _copy_file_to_clipboard(filename):
@@ -93,11 +95,15 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
             thread_safe_ui.refresh(status)
 
     copy_button = ft.TextButton(
-        "Copy image",
+        "Copy",
         icon=ft.Icons.CONTENT_COPY_ROUNDED,
         icon_color=ACCENT,
         tooltip="Copy the selected screenshot",
         disabled=True,
+        width=104, height=34,
+        style=ft.ButtonStyle(color=TEXT_DIM,
+                            shape=ft.RoundedRectangleBorder(radius=RADIUS),
+                            side=ft.BorderSide(1, CARD_BORDER)),
         on_click=_copy_selected,
         data="screenshot-copy",
     )
@@ -134,10 +140,12 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
         state["generation"] += 1
         generation = state["generation"]
         selected_name.value = item["name"]
+        selected_name.tooltip = item["name"]
         selected_meta.value = (
             f"{item['date']}  ·  {item['width']}×{item['height']}  ·  "
             f"{item['bytes'] / 1024:.0f} KB"
         )
+        selected_meta.tooltip = selected_meta.value
         status.value = "Loading preview…"
         selected_image.visible = False
         selected_empty.visible = True
@@ -207,26 +215,31 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
 
         for item in items:
             filename = item["filename"]
-            image = preview_image(src="icon.svg", width=148, height=92,
+            image = preview_image(src="icon.svg", width=84, height=52,
                              fit=ft.BoxFit.CONTAIN, visible=False)
             loading = ft.ProgressRing(width=18, height=18, stroke_width=2,
                                       color=ACCENT)
             card = attach_hover(ft.Container(
-                content=ft.Column([
+                content=ft.Row([
                     ft.Container(
                         content=ft.Stack([image, loading],
                                          alignment=ft.Alignment.CENTER),
-                        width=154, height=98, bgcolor=SURFACE_MAX,
+                        width=84, height=52, bgcolor=SURFACE_MAX,
+                        border_radius=6, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         alignment=ft.Alignment.CENTER,
                     ),
-                    ft.Text(item["name"], size=10, color=TEXT,
-                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.Text(item["date"], size=9, color=TEXT_FAINT,
-                            max_lines=1),
-                ], spacing=4, tight=True),
-                width=170, padding=8, bgcolor=CARD_FILL,
+                    ft.Column([
+                        ft.Text(item["name"], size=11.5, color=TEXT,
+                                weight=ft.FontWeight.W_600, max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Text(item["date"], size=10, color=TEXT_DIM,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                    ], spacing=3, expand=True, alignment=ft.MainAxisAlignment.CENTER),
+                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                width=224, height=68, padding=8, bgcolor=CARD_FILL,
                 border=ft.border.Border.all(1, CARD_BORDER),
                 border_radius=RADIUS, ink=False,
+                tooltip=item['name'],
                 on_click=lambda e, data=item: _select(data),
             ), CARD_FILL, ROW_HOVER)
             thumb_refs[filename] = (card, image, loading)
@@ -345,116 +358,68 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
         data="screenshot-folder",
     )
 
+    folder_button.width = folder_button.height = 34
+    header_title = ft.Text(i18n.t("Screenshots"), size=16, color=TEXT,
+                           weight=ft.FontWeight.W_600, expand=True,
+                           max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+    back = [ft.IconButton(
+        icon=ft.Icons.ARROW_BACK_ROUNDED, icon_color=TEXT_DIM,
+        width=34, height=34, tooltip=i18n.t("Back"), on_click=on_back,
+        data="screenshots-back",
+    )] if on_back is not None else [ft.Icon(ft.Icons.PHOTO_LIBRARY_OUTLINED,
+                                          color=TEXT_DIM, size=20)]
     gallery_header = ft.Row([
-        ft.Container(
-            content=ft.Row([
-                ft.Container(
-                    content=ft.Icon(ft.Icons.PHOTO_LIBRARY_OUTLINED,
-                                    color=INFO, size=24),
-                    width=42, height=42, bgcolor=SURFACE_HI,
-                    border=ft.border.Border.all(1, CARD_BORDER),
-                    border_radius=RADIUS, alignment=ft.Alignment.CENTER,
-                ),
-                ft.Column([
-                    ft.Text("Minecraft screenshots", size=21, color=TEXT,
-                            font_family=FONT_DISPLAY, max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.Text("Your in-game captures, ready to browse.", size=11,
-                            color=TEXT_DIM),
-                ], spacing=4, expand=True),
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.FILTER_NONE_ROUNDED, size=14,
-                                color=ACCENT),
-                        capture_count,
-                    ], spacing=8, tight=True),
-                    bgcolor=CARD_FILL,
-                    border=ft.border.Border.all(1, CARD_BORDER),
-                    border_radius=RADIUS,
-                    padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-                ),
-            ], spacing=12),
-            bgcolor=SURFACE,
-            border=ft.border.Border.all(1, CARD_BORDER),
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
-            expand=True,
-        ),
+        *back, header_title, capture_count,
         ft.IconButton(icon=ft.Icons.REFRESH_ROUNDED, icon_color=TEXT_DIM,
-                      tooltip=i18n.t("Refresh"), on_click=_refresh),
+                      width=34, height=34, tooltip=i18n.t("Refresh"), on_click=_refresh),
         folder_button,
-    ])
+    ], spacing=8, height=36, data="screenshots-toolbar")
 
+    delete_button = ft.IconButton(
+        icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=DANGER,
+        tooltip=i18n.t("Delete screenshot"), width=34, height=34,
+        on_click=_delete_selected, data="screenshot-delete",
+    )
     gallery_body = ft.Container(
         expand=True,
         content=ft.Row([
             ft.Container(
-                width=215,
-                content=ft.Column([
-                    ft.Text("CAPTURES", size=10, color=ACCENT,
-                            weight=ft.FontWeight.W_700,
-                            style=ft.TextStyle(letter_spacing=1.0)),
-                    thumb_column,
-                ], spacing=8, expand=True),
-                bgcolor=SURFACE,
-                border=ft.border.Border.all(1, CARD_BORDER),
-                border_radius=RADIUS,
-                padding=ft.padding.Padding.all(12),
+                width=240, content=thumb_column,
+                bgcolor=SURFACE, border=ft.border.Border.all(1, CARD_BORDER),
+                border_radius=RADIUS, padding=8,
             ),
             ft.Container(
                 expand=True,
                 content=ft.Column([
                     ft.Container(
-                        content=ft.Stack([selected_image, selected_empty],
-                                         alignment=ft.Alignment.CENTER),
+                        content=ft.Stack([
+                            selected_image,
+                            ft.Container(selected_empty, alignment=ft.Alignment.CENTER),
+                        ], fit=ft.StackFit.EXPAND),
                         bgcolor=SURFACE_MAX,
                         border=ft.border.Border.all(1, CARD_BORDER),
-                        border_radius=RADIUS,
+                        border_radius=RADIUS, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         expand=True,
-                        alignment=ft.Alignment.CENTER,
                     ),
-                    ft.Container(
-                        content=ft.Column([
-                            selected_name,
-                            selected_meta,
-                            ft.Row([
-                                copy_button,
-                                ft.Container(
-                                    content=ft.Row([
-                                        ft.Icon(ft.Icons.DELETE_OUTLINE_ROUNDED,
-                                                size=15, color=DANGER),
-                                        ft.Text(i18n.t("Delete"), size=11, color=DANGER),
-                                    ], spacing=4, tight=True),
-                                    border=ft.border.Border.all(1, DANGER),
-                                    border_radius=RADIUS,
-                                    padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-                                    ink=False, on_click=_delete_selected,
-                                ),
-                                status,
-                            ], spacing=8),
-                        ], spacing=4),
-                        bgcolor=SURFACE,
-                        border=ft.border.Border.all(1, CARD_BORDER),
-                        border_radius=RADIUS,
-                        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
-                    ),
-                ], spacing=8, expand=True),
+                    ft.Row([
+                        ft.Column([selected_name, selected_meta], spacing=3,
+                                  expand=True, alignment=ft.MainAxisAlignment.CENTER),
+                        copy_button, delete_button,
+                    ], spacing=8, height=42),
+                ], spacing=6, expand=True),
             ),
-        ], spacing=16, expand=True),
+        ], spacing=10, expand=True),
     )
 
     gallery_tab = ft.Column(
-        [gallery_header, ft.Container(height=12), gallery_body],
-        spacing=0, expand=True,
+        [gallery_header, gallery_body, ft.Row([status], height=18)],
+        spacing=8, expand=True, data="screenshot-gallery",
     )
     wide_body = gallery_body.content
     wide_body.vertical_alignment = ft.CrossAxisAlignment.STRETCH
     thumbnails, preview = wide_body.controls
-    compact_body = ft.Column(spacing=12, expand=True,
+    compact_body = ft.Column(spacing=8, expand=True,
                              horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
-    title_row = gallery_header.controls[0].content
-    header_title = title_row.controls[1].controls[0]
-    capture_badge = title_row.controls[2]
     layout = {"compact": False}
 
     def layout_changed(event):
@@ -472,11 +437,9 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
                 compact_body.controls.extend([preview, thumbnails])
             else:
                 wide_body.controls.extend([thumbnails, preview])
-            thumbnails.width = None if compact else 215
-            thumbnails.height = 200 if compact else None
+            thumbnails.width = None if compact else 240
+            thumbnails.height = 88 if compact else None
             thumb_column.horizontal = compact
-            capture_badge.visible = not compact
-            header_title.size = 16 if compact else 21
             gallery_body.content = compact_body if compact else wide_body
             thread_safe_ui.refresh(gallery_tab)
 

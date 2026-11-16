@@ -298,9 +298,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             thread_safe_ui.refresh(control)
 
     you_avatar = ft.Container(width=34, height=34, border_radius=RADIUS)
-    conn_dot = ft.Container(width=8, height=8, border_radius=4,
-                            bgcolor=TEXT_FAINT)
-    conn_text = ft.Text("", size=11, color=TEXT_DIM)
 
     you_text = ft.Text("", size=14, color=TEXT,
                        weight=ft.FontWeight.W_700, max_lines=1,
@@ -654,6 +651,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         visible=False,
+        data="chat-connection-warning",
     )
 
     # --- small builders --------------------------------------------------
@@ -1001,11 +999,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         copy_id_btn.visible = bool(uid)
         you_avatar.tooltip = _uid_line(uid)
         _paint_avatar(you_avatar, shown, 34, source=you_source)
-        conn_dot.bgcolor = (ACCENT if connected
-                            else (WARNING if available else DANGER))
-        conn_text.value = ("Connected" if connected else
-                           ("Reconnecting…" if connection.get("state") == "retrying" else
-                            "Connecting…" if available else "Chat unavailable"))
         if not connected:
             conn_banner_text.value = (connection.get("message") or
                 ("Connecting to chat. Your draft will stay here until you're connected."
@@ -1019,8 +1012,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             conn_banner.visible = False
         _sync_composer(connected)
         _sync_empty_state()
-        for ctrl in (you_text, your_id_text, copy_id_btn, you_avatar, conn_dot,
-                     conn_text, conn_banner, empty_sub):
+        for ctrl in (you_text, your_id_text, copy_id_btn, you_avatar,
+                     conn_banner, empty_sub):
             thread_safe_ui.refresh(ctrl)
 
     def _rebuild_requests(roster):
@@ -1915,7 +1908,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     padding=ft.padding.Padding.symmetric(horizontal=12,
                                                          vertical=8),
                 ),
-                ft.Row([conn_dot, conn_text], spacing=6),
             ],
             spacing=12,
             expand=True,
