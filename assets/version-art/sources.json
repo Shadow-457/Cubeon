@@ -1,270 +1,375 @@
 {
   "armored-paws": {
     "title": "Armored Paws",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/MC-Updates_Carousel-N-0_2024_Armored-Paws_01_1000x563.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/screenshots/1.20.5-1.jpg",
     "source_size": [
-      1000,
-      563
+      2560,
+      1440
     ],
     "size": [
-      1000,
-      563
-    ]
+      2560,
+      1440
+    ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official release screenshots",
+    "source_page": "https://www.minecraft.net/en-us/article/minecraft-java-edition-1-20-5"
   },
   "bats-and-pots": {
     "title": "Bats and Pots",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/MC-Updates_Carousel-N-0_2023_Bats-and-Pots_01_1000x563.jpg",
+    "source": "https://images.ctfassets.net/8y6ykjruobr4/2f3p4D8rAUyJmREhvXNcWs/ca4e7e3e5f1c8d544b03d9feea456864/1.20.3_image_1.jpg",
     "source_size": [
-      1000,
-      563
+      3840,
+      2160
     ],
     "size": [
-      1000,
-      563
-    ]
+      3840,
+      2160
+    ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official release screenshots",
+    "source_page": "https://www.minecraft.net/en-us/article/minecraft-java-edition-1-20-3"
   },
   "bundles-of-bravery": {
     "title": "Bundles of Bravery",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/MC-Updates_Carousel-N-0_2024_Bundles-of-Bravery_01_1000x563.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/screenshots/1.21.2_bundles1.jpg",
     "source_size": [
-      1000,
-      563
+      1920,
+      1080
     ],
     "size": [
-      1000,
-      563
-    ]
+      1920,
+      1080
+    ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official release screenshots",
+    "source_page": "https://www.minecraft.net/en-us/article/minecraft-java-edition-1-21-2"
   },
   "buzzy-bees": {
     "title": "Buzzy Bees",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Buzzy-Bees_1280x768.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_buzzybees.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "25984cb20f6e43522d8cda8f2cd3fec4723a60d70a2c3bbeccac8cedcf41854a",
+    "archive_member": "wallpaper_minecraft_buzzybees_2560x1440.png",
     "source_size": [
-      1280,
-      768
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      768
+      2560,
+      1440
     ]
   },
   "caves-and-cliffs-1": {
     "title": "Caves & Cliffs Part I",
     "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_caves_cliffs%28part1%29.zip",
     "source_size": [
-      1920,
-      1080
+      2560,
+      1440
     ],
     "size": [
-      1920,
-      1080
+      2560,
+      1440
     ],
-    "archive_member": "wallpaper_minecraft_caves_cliffs(part1)_1920x1080.png"
+    "archive_member": "wallpaper_minecraft_caves_cliffs(part1)_2560x1440.png",
+    "text_free": true,
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "attribution": "Mojang/Microsoft; official wallpaper bundle"
   },
   "caves-and-cliffs-2": {
     "title": "Caves & Cliffs Part II",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_caves_cliffs%28part2%29.zip",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_caves_cliffs(part2).zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "4eb81a2a9a2659626ce900307f99cfb92a1c6413ed7ef03c7ef6003b949dbe67",
+    "archive_member": "wallpaper_minecraft_caves_cliffs(part2)_2560x1440.png",
     "source_size": [
-      1920,
-      1080
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1920,
-      1080
-    ],
-    "archive_member": "wallpaper_minecraft_caves_cliffs(part2)_1920x1080.png"
+      2560,
+      1440
+    ]
   },
   "chaos-cubed": {
     "title": "Chaos Cubed",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Carousel-Card_SGD-26_1280x720.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_chaos_cubed_drop.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "30f1c69a8a3539ace1faf4b6de74fa01c7ea1a3af38a6c079edd89a81792bac8",
+    "archive_member": "MCV_SummerDropKeyArt_NetDownloadableWallpaper_2560x1440.png",
     "source_size": [
-      1280,
-      720
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      720
+      2560,
+      1440
     ]
   },
   "chase-the-skies": {
     "title": "Chase the Skies",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/MCV_SummerDrop_Hero_DotNet_Blog_Editorial_1280x768.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_chase_the_skies_update.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "6454c7860203d32aa13492ffb7fc2699444eb7e13db354afb76394792434b8de",
+    "archive_member": "MCV_SummerDrop_Hero_DotNet_Downloadable_Wallpaper_r2560x1440.png",
     "source_size": [
-      1280,
-      768
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      768
+      2560,
+      1440
     ]
   },
   "java-edition": {
     "title": "Java Edition (shared cover for legacy/unknown versions)",
     "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_pc_bundle.zip",
     "source_size": [
-      1920,
-      1080
+      2560,
+      1440
     ],
     "size": [
-      1920,
-      1080
+      2560,
+      1440
     ],
-    "archive_member": "wallpaper_minecraft_pc_bundle_1920x1080.png"
+    "archive_member": "wallpaper_minecraft_pc_bundle_2560x1440.png",
+    "text_free": true,
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "attribution": "Mojang/Microsoft; official wallpaper bundle"
   },
   "mounts-of-mayhem": {
     "title": "Mounts of Mayhem",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Minecraft%20_Holiday_Game_Drop_2025_OV-PMP_1280x720.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_mounts_of_mayhem_drop.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "64c898e4fd006c055abab2d0924f4b631f69c05140311dc8d3b1afc716bd1137",
+    "archive_member": "MCV_HOL25Drop_MoM_DotNet_Wallpaper_2560x1440.png",
     "source_size": [
-      1280,
-      720
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      720
+      2560,
+      1440
     ]
   },
   "nether-update": {
     "title": "Nether Update",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Nether-Update_1280x768.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_nether_update.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "d963067c264ed2eb332cf6f943d1a9568fbbd97a26ca5de868cb6decd5198775",
+    "archive_member": "wallpaper_minecraft_nether_update_2560x1440.png",
     "source_size": [
-      1280,
-      768
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      768
+      2560,
+      1440
     ]
   },
   "spring-to-life": {
     "title": "Spring to Life",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/game-updates/MCV_SpringDrop_DotNet_Blog_Editorial_1280x720.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_spring_to_life_update.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "306800e8c2ec1a3f52fff1639ffcf29fc4c218c7616bd9904f72891187cbd04a",
+    "archive_member": "MCV_SpringDrop_DotNet_Downloadable_Wallpaper_2560x1440.png",
     "source_size": [
-      1280,
-      720
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      720
+      2560,
+      1440
     ]
   },
   "the-copper-age": {
     "title": "The Copper Age",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Minecraft_Fall_Drop_Campaign_Key_Art_DotNet_Blog_Editorial_1280x768.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_the_copper_age_drop-1.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "936ccd37c6601982c0f8267c3613e99ee7a5f56350b27522aaaafae80da78b79",
+    "archive_member": "Minecraft_Fall_Drop_Campaign_Key_Art_DotNet_Downloadable_Wallpaper_2560x1440.png",
     "source_size": [
-      1280,
-      768
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      768
+      2560,
+      1440
     ]
   },
   "the-garden-awakens": {
     "title": "The Garden Awakens",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Minecraft_TheGardenAwakens_DotNet_1280x768.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_the_garden_awakens_update.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "11cfa2f9a380813b81fbc1947140d67adc5b9b92b0cf17b7929b80eb0d36809f",
+    "archive_member": "Minecraft_TheGardenAwakens_DotNet_2560x1440.png",
     "source_size": [
-      1280,
-      768
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      768
+      2560,
+      1440
     ]
   },
   "the-wild-update": {
     "title": "The Wild Update",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_The-Wild-Update_1280x768.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpaper_minecraft_wild_update.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "853713c99b2f14a2f761928f27b0da07c216f799cba183da48910a3523f15242",
+    "archive_member": "wallpaper_minecraft_wild_update_2560x1440.png",
     "source_size": [
-      1280,
-      768
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
+    "nested_archive": "wallpaper_minecraft_wild_update.zip",
     "size": [
-      1280,
-      768
+      2560,
+      1440
     ]
   },
   "tiny-takeover": {
     "title": "Tiny Takeover",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Spring-Game-Drop-2026-OV-PMP-1280x720.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_tiny_takeover_drop.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "c3c3c28065ef868e70cfeec16343b81449757518f70e8238079945b545087526",
+    "archive_member": "wallpaper_tiny_takeover_drop/wallpaper_tiny_takeover_drop/MCV_SPR26Drop_TT_DotNet_Wallpaper_2560x1440.png",
     "source_size": [
-      1280,
-      720
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      720
+      2560,
+      1440
     ]
   },
   "trails-and-tales": {
     "title": "Trails & Tales",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Trails-and-Tales_1280x768.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/Minecraft_Trails_and_Tales_.Net.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "aaf762a8c5ca31e3d9c862f1a86cb2d4923a28b68471ce39c702ddb555220857",
+    "archive_member": "Minecraft_Trails&Tales_.Net_2058x1440.png",
     "source_size": [
-      1280,
-      768
+      2058,
+      1440
+    ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; cropped official wallpaper to omit the title",
+    "crop": [
+      0,
+      420,
+      2058,
+      1440
     ],
     "size": [
-      1280,
-      768
+      2058,
+      1020
     ]
   },
   "tricky-trials": {
     "title": "Tricky Trials",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Tricky-Trials_Full-Bleed-A-768_Key-art_1488x992.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_tricky_trials_update2.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "45b9ebcad3ee4784f6a198116ccf20c76bfe49afa1030bf393fad8c285695003",
+    "archive_member": "wallpaper_minecraft_trickytrials_2560x1440.png",
     "source_size": [
-      1488,
-      992
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1488,
-      992
+      2560,
+      1440
     ]
   },
   "update-aquatic": {
     "title": "Update Aquatic",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Update-Aquatic_1280x768.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_update_aquatic.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "1f0c4e67a9b08b256162bb6ba3a3cc744b9a013fcda7e37908584a8436f7638a",
+    "archive_member": "wallpaper_minecraft_update_aquatic_2560x1440.png",
     "source_size": [
-      1280,
-      768
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      768
+      2560,
+      1440
     ]
   },
   "village-and-pillage": {
     "title": "Village & Pillage",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Vanilla-PMP_Collection-Carousel-0_Village-and-Pillage_1280x768.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_village_pillage.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "dde07233945ffea62f598e5cf848a5cb519dfbd295977ba7927b40cb3cc82502",
+    "archive_member": "wallpaper_minecraft_village_pillage_2560x1440.png",
     "source_size": [
-      1280,
-      768
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1280,
-      768
+      2560,
+      1440
     ]
   },
   "wilderness-bound": {
     "title": "Wilderness Bound",
-    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Minecraft_WildernessBound.Net_1170x500.jpg",
+    "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_wilderness_bound_drop.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "d484af3ed282424d3e7ff62c2e744623d91a1fef69d67065ead55d4d1cd84ee8",
+    "archive_member": "Minecraft_WildernessBound_.Net_2560x1440.png",
     "source_size": [
-      1170,
-      500
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1170,
-      500
+      2560,
+      1440
     ]
   },
   "world-of-color": {
     "title": "World of Color",
     "source": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/software/wallpapers_minecraft_world_color.zip",
+    "source_page": "https://www.minecraft.net/en-us/collectibles",
+    "source_sha256": "f921ccfe4aad615f8385cb960b286b78e2ce34990e23e05e705c82343fa171c5",
+    "archive_member": "wallpaper_minecraft_world_color_2560x1440.png",
     "source_size": [
-      1920,
-      1080
+      2560,
+      1440
     ],
+    "text_free": true,
+    "attribution": "Mojang/Microsoft; official wallpaper bundle",
     "size": [
-      1920,
-      1080
-    ],
-    "archive_member": "wallpaper_minecraft_world_color_1920x1080.png"
+      2560,
+      1440
+    ]
   }
 }

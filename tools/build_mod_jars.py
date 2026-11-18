@@ -51,6 +51,7 @@ ASSETS_JARS = os.path.join(ROOT, "assets", "jars")
 LOGO_ASSETS = {
     "assets/cubeon-client/icon.png": Path(ROOT, "assets/icon_128.png"),
     "assets/cubeon-client/textures/font/cubeon_client.png": Path(ROOT, "assets/icon_16.png"),
+    "assets/cubeon-client/textures/gui/startup-logo.png": Path(ROOT, "assets/icon_32.png"),
 }
 
 # What a healthy jar must contain. The two resources are the whole reason the mod
@@ -91,7 +92,6 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/TabLogo.class",
                     "assets/cubeon-client/font/cubeon_client.json",
                     "assets/cubeon-client/textures/font/cubeon_client.png",
-                    "com/cubeon/client/hud/TemporalBlur.class",
                     "com/cubeon/client/emotes/EmoteState.class",
                     "com/cubeon/client/emotes/EmotePose.class",
                     "com/cubeon/client/emotes/EmoteWheel.class",
@@ -191,8 +191,14 @@ REQUIRED_ENTRIES_CAMERA_BLUR = (
     "com/cubeon/client/hud/blur/mixin/CameraBlurReloadMixin.class",
 )
 REQUIRED_ENTRIES += REQUIRED_ENTRIES_CAMERA_BLUR
+REQUIRED_ENTRIES += ("com/cubeon/client/ui/StartupUi.class",
+                     "com/cubeon/client/MenuKeyMigration.class",
+                     "com/cubeon/client/mixin/GuiScaleDefaultMixin.class",
+                     "com/cubeon/client/mixin/StartupLoadingMixin.class",
+                     "assets/cubeon-client/textures/gui/startup-logo.png")
 
 REMOVED_FEATURE_MARKERS = (b"/motionblur", b"motionblurmixin", b"motionblurstrength",
+                           b"temporalmotionblur", b"temporalblurstrength", b"motion_plus", b"temporalblur.class",
                            b'"motionblur"', b"\x00\x0amotionblur", b'"cubeonclient.hud.motion_blur"', b"dynamiccrosshair",
                            b"dynamic_crosshair", b"crosshairscale", b"crosshairmixin",
                            b"cubeon-client-crosshair", b"rendertargethighlight",
@@ -356,7 +362,8 @@ def verify(jar_path, bracket=None):
         return "native health projection hook is not registered"
     if "cubeon-client.mixins.json" not in configs or any(
             hook not in client_hooks.get("client", [])
-            for hook in ("CosmeticLayersAccessor", "CosmeticElytraMixin", "SkinTitleMenuMixin", "OwnNameTagMixin")):
+            for hook in ("CosmeticLayersAccessor", "CosmeticElytraMixin", "SkinTitleMenuMixin", "OwnNameTagMixin",
+                         "GuiScaleDefaultMixin", "StartupLoadingMixin")):
         return "cosmetic elytra hooks are not registered"
     if "cubeon-client.freelook.mixins.json" not in configs:
         return "freelook mixin config is not registered"
@@ -405,14 +412,9 @@ def verify(jar_path, bracket=None):
             return "camera blur setting is missing"
         if b"cameraBlurIntensity" not in jar.read("com/cubeon/client/hud/CubeonHudConfig.class"):
             return "camera blur intensity setting is missing"
-        for field in (b"temporalMotionBlur", b"temporalBlurStrength"):
-            if field not in jar.read("com/cubeon/client/hud/CubeonHudConfig.class"):
-                return "Motion blur+ setting is missing: " + field.decode()
-        for key in ("motion_blur_plus", "motion_blur_plus_hint", "motion_blur_plus_strength"):
-            if not labels.get("cubeonclient.hud." + key):
-                return "Motion blur+ label is missing: " + key
         for entry in ("assets/cubeon-client/icon.png", "assets/cubeon-client/font/cubeon_client.json",
-                      "assets/cubeon-client/textures/font/cubeon_client.png"):
+                      "assets/cubeon-client/textures/font/cubeon_client.png",
+                      "assets/cubeon-client/textures/gui/startup-logo.png"):
             source = LOGO_ASSETS.get(entry, Path(MOD_DIR, "src/main/resources", entry))
             if jar.read(entry) != source.read_bytes():
                 return "Cubeon logo resource is stale: " + entry

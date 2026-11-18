@@ -60,6 +60,25 @@ public final class MenuUi {
                 ClientUi.alpha(primary ? TEXT : ClientUi.mix(DIM, TEXT, hover), fade));
     }
 
+    /** Solid pixel edges and a two-pixel bevel for the client catalogue. */
+    public static void pixelPanel(ClientUi.Canvas canvas, int x, int y, int w, int h, int radius,
+                                  int fill, int border, float fade) {
+        if (w < 4 || h < 4) return;
+        int rim=ClientUi.alpha(border,fade);
+        canvas.fill(x,y,x+w,y+h,rim);
+        canvas.fill(x+2,y+2,x+w-2,y+h-2,ClientUi.alpha(fill,fade));
+        canvas.fill(x+2,y+2,x+w-2,y+4,ClientUi.alpha(ClientUi.mix(fill,TEXT,.16f),fade));
+        canvas.fill(x+2,y+h-4,x+w-2,y+h-2,ClientUi.alpha(ClientUi.mix(fill,0xFF000000,.35f),fade));
+    }
+
+    public static void pixelButton(ClientUi.Canvas canvas,int x,int y,int w,int h,String label,
+                                   float hover,boolean primary,float fade) {
+        int fill=ClientUi.mix(primary?SELECTED:SURFACE_HI,SELECTED,hover);
+        pixelPanel(canvas,x,y,w,h,0,fill,primary?ACCENT:ClientUi.mix(BORDER,ACCENT,hover),fade);
+        canvas.text(ClientUi.fit(canvas,label,w-12),x+w/2,y+(h-9)/2,
+                ClientUi.alpha(primary?TEXT:ClientUi.mix(DIM,TEXT,hover),fade));
+    }
+
     public static void toggle(ClientUi.Canvas canvas, int x, int y, boolean on, float fade) {
         toggle(canvas, x, y, on ? 1 : 0, fade);
     }

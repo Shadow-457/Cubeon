@@ -39,6 +39,10 @@ from cubeon import instance_icons
 from cubeon.cubeonfriends import client_support_status
 
 BANNER_FADE_MS = 180
+LOADER_ICON_SOURCES = {
+    loader: f"loader-icons/{loader}.png"
+    for loader in ("vanilla", "fabric", "quilt", "forge", "neoforge", "rust")
+}
 
 
 class VersionBanner:
@@ -304,6 +308,7 @@ class VersionPicker:
         # Install-time loader choice (2026-10-26): shown only in "New
         # instance" mode, because an installed instance's loader is fixed.
         self._loader_chips: dict[str, ft.Container] = {}
+        self._loader_labels: dict[str, ft.Text] = {}
         loader_chip_row = ft.Column(spacing=8, tight=True,
                                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
         loader_descriptions = {
@@ -315,12 +320,18 @@ class VersionPicker:
             "rust": "26.3 only · Local profiles · Experimental engine",
         }
         for lid, label in self.loaders:
+            title = ft.Text(label, size=14, color=TEXT, weight=ft.FontWeight.W_600)
             chip = ft.Container(
-                content=ft.Column([
-                    ft.Text(label, size=14, color=TEXT, weight=ft.FontWeight.W_600),
-                    ft.Text(loader_descriptions.get(lid, "Use mods made for this loader."),
-                            size=11.5, color=TEXT_DIM),
-                ], spacing=4, tight=True),
+                content=ft.Row([
+                    preview_image(LOADER_ICON_SOURCES.get(lid, LOADER_ICON_SOURCES["vanilla"]),
+                                  width=36, height=36, fit=ft.BoxFit.CONTAIN,
+                                  gapless_playback=True),
+                    ft.Column([
+                        title,
+                        ft.Text(loader_descriptions.get(lid, "Use mods made for this loader."),
+                                size=11.5, color=TEXT_DIM),
+                    ], spacing=4, tight=True, expand=True),
+                ], spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 data=f"install-loader-{lid}",
                 bgcolor=ACCENT_TINT if lid == self._install_loader else SURFACE_HI,
                 border=ft.border.Border.all(
@@ -331,6 +342,7 @@ class VersionPicker:
                 on_click=lambda e, k=lid: self._set_install_loader(k),
             )
             self._loader_chips[lid] = chip
+            self._loader_labels[lid] = title
             loader_chip_row.controls.append(chip)
         self.loader_row = ft.Column(
             [
@@ -569,9 +581,9 @@ class VersionPicker:
             active = lid == loader_id
             chip.bgcolor = ACCENT_TINT if active else SURFACE_HI
             chip.border = ft.border.Border.all(1, ACCENT if active else BORDER)
-            chip.content.controls[0].color = ACCENT if active else TEXT
-            chip.content.controls[0].weight = (ft.FontWeight.W_700 if active
-                                               else ft.FontWeight.W_600)
+            self._loader_labels[lid].color = ACCENT if active else TEXT
+            self._loader_labels[lid].weight = (ft.FontWeight.W_700 if active
+                                              else ft.FontWeight.W_600)
         thread_safe_ui.refresh(self.loader_row)
         if self._mode == "new":
             if self._new_step == 2:

@@ -28,7 +28,7 @@ from cubeon.theme import (
     ROW_HOVER,     # quiet hover lift for borderless rows/cards
 )
 from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
-from cubeon import cosmetics
+from cubeon import cosmetics, cosmetics_store
 from ui.appearance_preview import AppearancePreview
 from ui.image_memory import preview_image
 from ui.content_states import skeleton_block
@@ -204,7 +204,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # Clicking the artwork applies an item; the check and rim show selection.
     def _owned_card(*, label, sublabel, active, on_use, on_delete,
                     src=None, lazy_thumb=None, preview_w=76, preview_h=112,
-                    icon=None, model_label=None, on_model=None):
+                    icon=None, model_label=None, on_model=None, action_label="Apply"):
         """Click the artwork/name to apply. Keep management actions separate;
         selection updates retain the image and its keyboard target.
 
@@ -236,6 +236,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         name = ft.Text(label, size=12, color=TEXT, weight=ft.FontWeight.W_600,
                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                        text_align=ft.TextAlign.CENTER)
+        subtitle = ft.Text(sublabel, size=10, color=TEXT_DIM,
+                           max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                           text_align=ft.TextAlign.CENTER, visible=bool(sublabel))
         check = ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ACCENT, size=18,
                         right=2, top=2, visible=active)
         artwork = ft.Stack([
@@ -252,12 +255,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
         primary = ft.Container(
             content=ft.Column([artwork, name,
-                ft.Text(sublabel, size=10, color=TEXT_DIM,
-                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                        text_align=ft.TextAlign.CENTER) if sublabel else ft.Container()],
+                subtitle],
                 spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             padding=8, border_radius=RADIUS, ink=False,
-            tooltip=f"Apply {label}" + (f" ({sublabel})" if sublabel else ""),
+            tooltip=f"{action_label} {label}" + (f" ({sublabel})" if sublabel else ""),
             on_click=apply_item,
             on_hover=lambda e: card.on_hover(e),
         )
@@ -303,6 +304,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             attach_hover(card, card.bgcolor, ACCENT_TINT_HI if value else ROW_HOVER)
 
         card.set_selected = set_selected
+        def set_sublabel(value):
+            subtitle.value = value
+            subtitle.visible = bool(value)
+        card.set_sublabel = set_sublabel
         set_selected(active)
         return card
 
@@ -831,6 +836,128 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
          _scroll_cards(capes_list_col), cape_status], spacing=12, expand=True,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
+    # --- Public cape store -------------------------------------------------
+    # Fetch only on first opening or Refresh. Downloads import into the existing
+    # Cape library; they never change the player's active cape or publish skin state.
+    store_grid = _card_grid()
+    store_status = ft.Text("", size=12, color=TEXT_DIM, visible=False)
+    store_page = ft.Text("Page 1", size=12, color=TEXT_DIM)
+    store_state = {"loaded": False, "loading": False, "offset": 0, "more": False,
+                   "signature": None, "downloads": set(), "cards": {}}
+
+    def sync_store_buttons():
+        busy = store_state["loading"] or bool(store_state["downloads"])
+        store_refresh.disabled = busy
+        store_previous.disabled = busy or store_state["offset"] == 0
+        store_next.disabled = busy or not store_state["more"]
+        store_page.value = f"Page {store_state['offset'] // cosmetics_store.PAGE_SIZE + 1}"
+
+    def download_store_cape(item):
+        with thread_safe_ui.TREE_LOCK:
+            if store_state["loading"] or item["id"] in store_state["downloads"]:
+                return
+            store_state["downloads"].add(item["id"])
+            card = store_state["cards"][item["id"]]
+            card.disabled = True
+            card.set_sublabel("Downloading…")
+            store_status.value = f"Downloading {item['name']}…"
+            sync_store_buttons()
+        thread_safe_ui.refresh(card)
+        thread_safe_ui.refresh(store_toolbar)
+        _refresh_status(store_status)
+
+        def work():
+            try:
+                cosmetics_store.download(item)
+                message = f"Downloaded {item['name']}. Open Cape to equip it."
+                success = True
+            except Exception as error:
+                message = f"Couldn't download this cape: {error}"
+                success = False
+            with thread_safe_ui.TREE_LOCK:
+                store_state["downloads"].discard(item["id"])
+                card.disabled = False
+                card.set_selected(success)
+                card.set_sublabel("Downloaded" if success else "Free cape")
+                store_status.value = message
+                if success:
+                    refresh_capes_list()
+                sync_store_buttons()
+            thread_safe_ui.refresh(card)
+            thread_safe_ui.refresh(store_toolbar)
+            if success:
+                thread_safe_ui.refresh(capes_list_col)
+            _refresh_status(store_status)
+
+        threading.Thread(target=work, daemon=True, name="cubeon-store-download").start()
+
+    def load_store(offset=None, *, force=False):
+        with thread_safe_ui.TREE_LOCK:
+            if store_state["loading"] or store_state["downloads"]:
+                return
+            if store_state["loaded"] and offset is None and not force:
+                return
+            requested = store_state["offset"] if offset is None else offset
+            store_state["loading"] = True
+            store_status.value = "Loading capes…"
+            sync_store_buttons()
+        thread_safe_ui.refresh(store_toolbar)
+        _refresh_status(store_status)
+
+        def work():
+            try:
+                data = cosmetics_store.fetch_page(requested)
+                owned = {item["id"]: cosmetics_store.installed(item) for item in data["items"]}
+            except Exception:
+                data, owned = None, {}
+            with thread_safe_ui.TREE_LOCK:
+                store_state["loading"] = False
+                if data is not None:
+                    signature = (requested, tuple((item["id"], item["sha256"], item["name"],
+                        item["description"], item["preview_png"]) for item in data["items"]))
+                    if signature != store_state["signature"]:
+                        store_grid.controls.clear()
+                        store_state["cards"].clear()
+                        for item in data["items"]:
+                            card = _owned_card(src=item["preview_png"], label=item["name"],
+                                sublabel="Downloaded" if owned[item["id"]] else "Free cape",
+                                active=bool(owned[item["id"]]),
+                                on_use=lambda e, value=item: download_store_cape(value),
+                                on_delete=None, preview_w=64, preview_h=84, action_label="Download")
+                            card.tooltip = item["description"]
+                            store_state["cards"][item["id"]] = card
+                            store_grid.controls.append(card)
+                        _fit_grid(store_grid)
+                        store_state["signature"] = signature
+                    else:
+                        for item_id, card in store_state["cards"].items():
+                            card.set_selected(bool(owned[item_id]))
+                            card.set_sublabel("Downloaded" if owned[item_id] else "Free cape")
+                    store_state.update(loaded=True, offset=requested, more=data["has_more"])
+                    store_status.value = "" if data["items"] else "No capes are available yet."
+                else:
+                    store_status.value = "The cape store is unavailable. Try Refresh."
+                sync_store_buttons()
+            thread_safe_ui.refresh(store_grid)
+            thread_safe_ui.refresh(store_toolbar)
+            _refresh_status(store_status)
+
+        threading.Thread(target=work, daemon=True, name="cubeon-store-catalog").start()
+
+    store_refresh = ft.TextButton("Refresh", icon=ft.Icons.REFRESH_ROUNDED,
+                                 on_click=lambda e: load_store(force=True))
+    store_previous = ft.IconButton(ft.Icons.CHEVRON_LEFT_ROUNDED, tooltip="Previous store page",
+        disabled=True, on_click=lambda e: load_store(store_state["offset"] - cosmetics_store.PAGE_SIZE))
+    store_next = ft.IconButton(ft.Icons.CHEVRON_RIGHT_ROUNDED, tooltip="Next store page",
+        disabled=True, on_click=lambda e: load_store(store_state["offset"] + cosmetics_store.PAGE_SIZE))
+    store_toolbar = ft.Row([store_refresh, ft.Container(expand=True), store_previous,
+                            store_page, store_next], spacing=4)
+    store_pane = ft.Column([store_toolbar,
+        ft.Text("Download a free cape, then choose it in Cape.", size=12, color=TEXT_DIM),
+        _scroll_cards(store_grid), store_status], spacing=8, expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH, data="cosmetics-store")
+    store_pane.load_items = load_store
+
     # --- Shoulder / Back cosmetics ----------------------------------------
     # These are not uploads: the art ships with the Cubeon Client, and the
     # launcher only records which id is worn. The cards therefore have no
@@ -979,6 +1106,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     PANES = [
         ("skin", "Skin", skin_pane),
         ("cape", "Cape", cape_pane),
+        ("store", "Store", store_pane),
         *cosmetic_panes,
     ]
     pane_holder = ft.Container(content=skin_pane, expand=True)

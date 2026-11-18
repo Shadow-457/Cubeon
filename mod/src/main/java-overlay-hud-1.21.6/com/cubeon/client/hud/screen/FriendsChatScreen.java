@@ -62,6 +62,9 @@ public final class FriendsChatScreen extends Screen {
         
     }
     private boolean choose(int action) {
+        if (action == FriendsPanel.NONE) return false;
+        panel.press(action);
+        net.minecraft.client.gui.widget.ButtonWidget.builder(net.minecraft.text.Text.empty(), button -> { }).build().playDownSound(client.getSoundManager());
         if (action == FriendsPanel.CLOSE) { close(); return true; }
         if (action == FriendsPanel.SEND) { panel.send(input.getText()); return true; }
         if (action >= 0) {

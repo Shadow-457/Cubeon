@@ -67,6 +67,75 @@ class ModSettings(unittest.TestCase):
         self.sync(False)
         self.assertEqual(json.loads(path.read_text())['performance']['chunk_builder_threads'], 3)
 
+    def test_animation_preferences_are_preserved_by_new_syncs(self):
+        for name in ('sodium-options.json', 'embeddium-options.json', 'rubidium-options.json'):
+            for value in (True, False):
+                path = self.write_json(name, {'performance': {'animate_only_visible_textures': value}})
+                before = path.read_bytes()
+                self.sync()
+                self.sync(False)
+                self.assertEqual(path.read_bytes(), before)
+
+    def legacy_animation(self, name='sodium-options.json', before=False, current=True):
+        key = 'performance.animate_only_visible_textures'
+        path = self.write_json(name, {'performance': {'animate_only_visible_textures': current}})
+        self.write_json(fps.BACKUP, {'schema': 1, 'files': {name: {
+            'before': {key: before}, 'applied': {key: True}}}})
+        return path
+
+    def test_old_sync_restores_animation_preference_and_retires_journal(self):
+        for name in ('sodium-options.json', 'embeddium-options.json', 'rubidium-options.json'):
+            with self.subTest(name=name):
+                path = self.legacy_animation(name)
+                report = self.sync()
+                self.assertEqual(report['errors'], [])
+                self.assertEqual(report['changed'], [name])
+                self.assertFalse(json.loads(path.read_text())['performance']['animate_only_visible_textures'])
+                self.assertEqual(json.loads((self.directory / fps.BACKUP).read_text())['files'], {})
+                self.assertEqual(self.sync()['changed'], [])
+                self.assertEqual(self.sync(False)['changed'], [])
+
+    def test_animation_migration_preserves_later_edits_and_sync_off(self):
+        path = self.legacy_animation(before=True, current=False)
+        original = path.read_bytes()
+        self.assertEqual(self.sync(sync=False), {'changed': [], 'errors': []})
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(self.sync()['errors'], [])
+        self.assertEqual(path.read_bytes(), original)
+
+    def test_animation_migration_keeps_other_settings_reversible(self):
+        path = self.legacy_animation()
+        key = 'performance.animate_only_visible_textures'
+        self.write_json(path.name, {'performance': {'animate_only_visible_textures': True,
+                                                   'chunk_builder_threads': 2}})
+        self.write_json(fps.BACKUP, {'schema': 1, 'files': {path.name: {
+            'before': {key: False, 'performance.chunk_builder_threads': 8},
+            'applied': {key: True, 'performance.chunk_builder_threads': 2}}}})
+        self.assertEqual(self.sync()['errors'], [])
+        saved = json.loads((self.directory / fps.BACKUP).read_text())['files'][path.name]
+        self.assertEqual(saved['before'], {'performance.chunk_builder_threads': 8})
+        self.assertEqual(self.sync(False)['errors'], [])
+        self.assertEqual(json.loads(path.read_text())['performance'],
+                         {'animate_only_visible_textures': False, 'chunk_builder_threads': 8})
+
+    def test_animation_restore_failure_keeps_old_journal_for_retry(self):
+        path = self.legacy_animation()
+        marker = self.directory / fps.BACKUP
+        journal = marker.read_bytes()
+        real_write = fps.write_json
+
+        def fail_config(target, data):
+            if Path(target) == path:
+                raise OSError('locked')
+            real_write(target, data)
+
+        with patch.object(fps, 'write_json', side_effect=fail_config):
+            self.assertTrue(self.sync()['errors'])
+        self.assertEqual(marker.read_bytes(), journal)
+        self.assertTrue(json.loads(path.read_text())['performance']['animate_only_visible_textures'])
+        self.assertEqual(self.sync()['errors'], [])
+        self.assertFalse(json.loads(path.read_text())['performance']['animate_only_visible_textures'])
+
     def test_sync_off_is_a_true_noop_even_with_a_bad_backup(self):
         path = self.write_json('sodium-options.json', {'performance': {'chunk_builder_threads': 8}})
         original = path.read_bytes()

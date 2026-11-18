@@ -18,7 +18,7 @@ public final class CubeonHudKeybinds {
 			KeyMapping.Category.register(Identifier.fromNamespaceAndPath(CubeonHudClient.MOD_ID, "main"));
 
 	// 26.3 uses native keyboard scan codes, not the older GLFW key symbols.
-	private static final int KEY_OPEN_MENU = InputConstants.KEY_K;
+	private static final int KEY_OPEN_MENU = InputConstants.KEY_RSHIFT;
 
 	private static KeyMapping openMenu;
 	private static KeyMapping emotes;

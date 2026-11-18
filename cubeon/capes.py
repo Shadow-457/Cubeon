@@ -277,7 +277,8 @@ def get_cape_path(filename: str) -> str:
     return os.path.join(BUILTIN_CAPES_DIR, filename) if is_builtin_cape(filename) else custom
 
 
-def add_custom_cape(src_path: str, display_name: str) -> dict:
+def add_custom_cape(src_path: str, display_name: str, *, store_id: str | None = None,
+                    store_sha256: str | None = None) -> dict:
     """Copies a validated image into CAPES_DIR as a real cape layout.
 
     Returns the new cape's metadata entry ({"filename", "name"}).
@@ -288,6 +289,11 @@ def add_custom_cape(src_path: str, display_name: str) -> dict:
     os.makedirs(CAPES_DIR, exist_ok=True)
     dest = os.path.join(CAPES_DIR, filename)
     entry = {"filename": filename, "name": display_name.strip()[:80] or safe_name}
+    if store_id is not None:
+        if (not re.fullmatch(r"[a-z][a-z0-9_-]{2,63}", store_id) or
+                not isinstance(store_sha256, str) or not re.fullmatch(r"[a-f0-9]{64}", store_sha256)):
+            raise ValueError("Invalid store cape identity.")
+        entry.update(store_id=store_id, store_sha256=store_sha256)
     files = {dest: _png_bytes(frames[0])}
     if len(frames) > 1:
         width, height = frames[0].size

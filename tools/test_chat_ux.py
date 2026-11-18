@@ -15,7 +15,7 @@ _sandbox_home.isolate()
 import flet as ft
 from cubeon import thread_safe_ui
 from cubeon.theme import THEME, section_label
-from test_chat_optimistic import FakePage, FakeService
+from test_chat_optimistic import FakePage, FakeService, walk
 from ui import chat_tab as chat
 
 
@@ -124,7 +124,7 @@ class ChatUXTests(unittest.TestCase):
         field.on_change(None)
         self.assertIs(self.friends['_friend_rows']['alice']['row'], row)
 
-    def test_latest_follow_reader_pause_jump_and_resize(self):
+    def test_latest_follow_and_resize_without_jump_button(self):
         for i in range(60):
             self.service.echo(f'message {i} ' + 'long text ' * 10)
         transcript = self.controls['transcript']
@@ -133,18 +133,12 @@ class ChatUXTests(unittest.TestCase):
         self.assertTrue(transcript.reverse)
         newest = transcript.controls[0].content.controls[0].content.controls[0].value
         self.assertTrue(newest.startswith('message 59 '))
-        transcript.on_scroll(SimpleNamespace(extent_before=200, event_type=ft.ScrollType.UPDATE))
-        self.assertTrue(scope(self.controls['_stick_bottom'])['_stick']['at_end'])
-        transcript.on_scroll(SimpleNamespace(extent_before=600, event_type=ft.ScrollType.USER,
-                                            direction=ft.ScrollDirection.REVERSE))
         self.service.echo('new incoming line')
         self.refresh()
         self.assertFalse(transcript.auto_scroll)
-        self.assertTrue(self.controls['jump_row'].visible)
-        button = scope(self.controls['_stick_bottom'])['jump_row'].content.controls[1]
-        button.on_click(None)
-        self.assertTrue(scope(self.controls['_stick_bottom'])['_stick']['at_end'])
-        self.assertFalse(self.controls['jump_row'].visible)
+        self.assertIsNone(transcript.on_scroll)
+        self.assertFalse(any(getattr(control, 'content', None) == 'Jump to latest'
+                             for control in walk(self.root)))
         body = transcript.controls[1].content.controls[0].content.controls[0]
         previous_width = body.width
         self.root.controls[-1].on_size_change(SimpleNamespace(width=260))
@@ -221,6 +215,13 @@ class ChatUXTests(unittest.TestCase):
         asyncio.run(page.scroll_tasks.pop(0)())
         self.assertEqual(len(commands), 1)
         state['active_tab'] = 'chat'
+        jump(force=True)
+        stale = page.scroll_tasks.pop(0)
+        self.select('bob')
+        self.select('alice')
+        asyncio.run(stale())
+        self.assertEqual(len(commands), 1)
+        page.scroll_tasks.clear()
         listener = f'{type(transcript).__qualname__}({transcript._i})'
         for message in ('Session closed', f'{listener} Control must be added to the page first',
                         f'TimeoutException after 0:00:10.000000: Timeout waiting for invoke method listener for {listener}.scroll_to'):

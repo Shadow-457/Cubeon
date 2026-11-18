@@ -53,6 +53,30 @@ class ManagementUI(unittest.TestCase):
         self.refresh()
         return self.scope['mods_list_view'].controls[0]
 
+    def test_views_keep_pending_actions_and_cached_rows_independent(self):
+        first = self.refresh.__self__
+        second = ui_mods.ModsView(
+            self.page, {}, dict(self.state), ft.Dropdown(value=self.dropdown.value),
+            section_label=section_label, **THEME)
+        item = {'filename': 'demo.jar', 'display_name': 'Demo', 'size_kb': 1, 'enabled': True}
+        row = first.build_installed_row(dict(item))
+        other = second.build_installed_row(dict(item))
+        self.assertIs(first.build_installed_row(dict(item)), row)
+        self.assertIs(second.build_installed_row(dict(item)), other)
+        self.assertIsNot(row, other)
+        switch, other_switch = row.content.controls[2], other.content.controls[2]
+        switch.value = False
+        switch.on_change(None)
+        self.assertTrue(switch.disabled)
+        self.assertFalse(other_switch.disabled)
+        self.assertTrue(other_switch.value)
+        self.assertTrue(first.row_actions)
+        self.assertFalse(second.row_actions)
+        first.mod_search_field.value = 'demo'
+        first.type_preferences['mod'] = ('demo', '', '', 'browse', 50)
+        self.assertEqual(second.mod_search_field.value, '')
+        self.assertFalse(second.type_preferences)
+
     def client_row(self, name='cubeon-client-1.jar'):
         self.active['type'] = 'mod'
         self.core.list_mods = lambda *a, **k: [{'filename': name, 'display_name': 'Cubeon Client',
@@ -431,7 +455,7 @@ class ManagementUI(unittest.TestCase):
         QueuedThread.jobs.pop()()
         self.assertEqual(installed[0][0], ('resourcepack', 'test.zip', '1.21.11', 'instance-A', 'fabric'))
         self.assertEqual(status.value, 'current surface')
-        self.assertFalse(env(self.fns['handle_local_mod_files'])['local_install_busy']['value'])
+        self.assertFalse(env(self.fns['handle_local_mod_files'])['local_install_busy'])
 
     def test_browse_completion_does_not_start_duplicate_fetch(self):
         calls = []
@@ -513,6 +537,16 @@ class ManagementUI(unittest.TestCase):
                                 section_label=section_label, modpacks_content=pack_host,
                                 on_modpacks_open=lambda: opened.append(True), **THEME)
         before = tuple(root.controls)
+        buttons = {kind: next(c for c in fz.walk(root) if c.data == 'content-' + kind)
+                   for kind in ('mod', 'modpack', 'resourcepack', 'shader')}
+        images = {kind: button.content.controls[0] for kind, button in buttons.items()}
+        for kind, filename in {'mod': 'mods.svg', 'modpack': 'modpacks.svg',
+                               'resourcepack': 'resource-packs.svg', 'shader': 'shaders.svg'}.items():
+            image = images[kind]
+            self.assertIsInstance(image, ft.Image)
+            self.assertEqual(image.src, 'icons/' + filename)
+            self.assertTrue((Path(__file__).resolve().parents[1] / 'assets' / image.src).is_file())
+            self.assertIsNone(image.color)
         root.select_content_type('modpack')
         self.assertTrue(pack_host.visible)
         self.assertEqual(opened, [True])
@@ -520,6 +554,8 @@ class ManagementUI(unittest.TestCase):
         root.select_content_type('resourcepack')
         self.assertFalse(pack_host.visible)
         self.assertEqual(tuple(root.controls), before)
+        self.assertTrue(all(buttons[kind].content.controls[0] is image
+                            and image.color is None for kind, image in images.items()))
 
     def test_large_installed_list_expands_in_batches(self):
         self.active['type'] = 'resourcepack'

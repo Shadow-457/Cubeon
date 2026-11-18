@@ -1,6 +1,6 @@
-<h1 align="center">Cubeon Launcher</h1>
+<h1 align="center">Cubeon Launcher!</h1>
 
-<p align="center">A free Minecraft Java Edition launcher.</p>
+<p align="center">A free & trusted Minecraft Java Edition launcher.</p>
 
 <p align="center">
   <a href="https://github.com/Shadow-457/Cubeon/releases"><img src="https://img.shields.io/github/v/release/Shadow-457/Cubeon?include_prereleases&amp;style=flat-square&amp;label=VERSION&amp;color=8a2be2&amp;labelColor=555555" alt="Latest Cubeon release" height="28"></a>
@@ -21,8 +21,9 @@
   <img src="web/assets/cubeon-play.webp" width="1100" alt="Cubeon's Play screen, using the screenshot published on the website.">
 </p>
 
-**Cubeon Launcher** (also called **Cubeon Minecraft Launcher**) is a free,
+**Cubeon Launcher** (also called **Cubion Minecraft Launcher**) is a free & trusted,
 GPL-3.0 open-source desktop launcher for **Minecraft Java Edition**.
+It comes with 6 types of modloader including Fabric, Quilt, Vannila, Neoforge, Forge and lastly horizon rust.
 The official website is **https://www.ylet.online/** and this is its official
 source repository. Cubeon manages game installations, modded instances,
 cosmetics, and local servers. It is built with Python and Flet for Linux and Windows. macOS downloads are

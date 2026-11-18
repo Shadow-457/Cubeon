@@ -48,21 +48,11 @@ class ImmediateExecutor:
 
 
 def functions(*roots):
-    found, seen = {}, set()
-    def visit(fn):
-        if not inspect.isfunction(fn) or id(fn) in seen:
-            return
-        seen.add(id(fn))
-        found[fn.__name__] = fn
-        for value in inspect.getclosurevars(fn).nonlocals.values():
-            visit(value)
-    for fn in roots:
-        visit(fn)
-    return found
+    return fz.callback_functions(*roots)
 
 
 def env(fn):
-    return inspect.getclosurevars(fn).nonlocals
+    return fz.callback_scope(fn)
 
 
 def text(control):

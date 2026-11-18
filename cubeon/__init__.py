@@ -27,7 +27,7 @@ skin_tab.py don't need to change their imports.
 # every UI module simply receives the patched values.
 #
 # TEMPLATES: --color<name> picks a palette for this launch; without it the
-# default green identity boots. A palette can only be chosen while the package
+# saved Color Studio palette or default green identity boots. Tokens are chosen while the package
 # is being imported (see the module map: tokens are bound at import time).
 #
 # DEFAULT_COLOR_TEMPLATE is the fallback when --color is absent or its template
@@ -80,12 +80,8 @@ def _load_color_template():
         apply_template('green')
         return
 
-    name = _color_arg(sys.argv[1:])
-    if not name:
-        # No explicit flag: the one default palette. Seasonal palettes were
-        # retired (the launcher keeps the flat green identity all year), so no
-        # season is resolved at startup and no config can switch the look.
-        name = None
+    explicit = _color_arg(sys.argv[1:])
+    name = explicit
 
     if not name:
         name = DEFAULT_COLOR_TEMPLATE
@@ -94,6 +90,14 @@ def _load_color_template():
     try:
         from cubeon.color_templates import apply_template
         apply_template(name)
+        if not explicit:
+            from cubeon.config import load_config
+            from cubeon.color_templates import (CUSTOM_PALETTE_KEY,
+                                                normalize_custom_palette,
+                                                apply_custom_palette)
+            recipe = normalize_custom_palette(load_config().get(CUSTOM_PALETTE_KEY))
+            if recipe is not None:
+                apply_custom_palette(recipe)
     except SystemExit:
         raise
     except Exception as ex:

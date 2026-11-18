@@ -19,7 +19,7 @@ public final class CubeonHudKeybinds {
 	public static final KeyBinding.Category CATEGORY =
 			KeyBinding.Category.create(Identifier.of(CubeonHudClient.MOD_ID, "main"));
 
-	/** Vanilla 1.21.11 leaves K unbound; users can rebind it in the controls screen. */
+	/** Right Shift opens the menu; users can rebind it in the controls screen. */
 	private static KeyBinding openMenu;
 	private static KeyBinding emotes;
     private static KeyBinding friendsChat;
@@ -34,7 +34,7 @@ public final class CubeonHudKeybinds {
 		openMenu = new KeyBinding(
 				"key." + CubeonHudClient.MOD_ID + ".open_menu",
 				InputUtil.Type.KEYSYM,
-				GLFW.GLFW_KEY_K,
+				GLFW.GLFW_KEY_RIGHT_SHIFT,
 				CATEGORY);
 		KeyBindingHelper.registerKeyBinding(openMenu);
 

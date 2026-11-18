@@ -21,6 +21,10 @@ public final class FriendsPanel {
     private final LinkedHashMap<Bridge.ChatMessage, Bubble> wrapCache = new LinkedHashMap<>();
     private final long opened = System.nanoTime();
     private String localError = "";
+    private int pressed = NONE;
+    private long pressedUntil;
+    public void press(int action) { pressed = action; pressedUntil = System.nanoTime() + 120_000_000L; }
+    private int pressOffset(int action) { return pressed == action && System.nanoTime() < pressedUntil ? 2 : 0; }
 
     public FriendsPanel(Bridge bridge) { this.bridge = bridge; bridge.start(); bridge.wake(); }
     public void layout(int width, int height) {
@@ -115,10 +119,10 @@ public final class FriendsPanel {
         } else scroll = Math.max(0, Math.min(Math.max(0, transcriptHeight - (h - 144)), scroll + (int)Math.signum(amount) * 36));
     }
     private void avatar(ClientUi.Canvas c, String name, int left, int top, int size, boolean online, float fade) {
-        ClientUi.rounded(c, left, top, size, size, 5, ClientUi.alpha(MenuUi.SELECTED, fade));
+        MenuUi.pixelPanel(c, left, top, size, size, 0, MenuUi.SELECTED, MenuUi.BORDER, fade);
         String initial = name.isEmpty() ? "?" : name.substring(0, Character.charCount(name.codePointAt(0))).toUpperCase(java.util.Locale.ROOT);
         c.text(initial, left + size / 2, top + (size - 9) / 2, ClientUi.alpha(MenuUi.TEXT, fade));
-        ClientUi.rounded(c, left + size - 5, top + size - 5, 6, 6, 3, ClientUi.alpha(online ? 0xFF8DBA83 : MenuUi.FAINT, fade));
+        c.fill(left + size - 6, top + size - 6, left + size - 2, top + size - 2, ClientUi.alpha(online ? MenuUi.ACCENT : MenuUi.FAINT, fade));
     }
     public void render(ClientUi.Canvas canvas, int width, int height, int mx, int my) {
         render(canvas, width, height, mx, my, true);
@@ -126,10 +130,10 @@ public final class FriendsPanel {
     public void render(ClientUi.Canvas canvas, int width, int height, int mx, int my, boolean animate) {
         layout(width, height);
         float fade = animate ? Math.min(1, (System.nanoTime() - opened) / 160_000_000f) : 1;
-        MenuUi.panel(canvas, x, y, w, h, 10, MenuUi.SURFACE, MenuUi.BORDER_HI, fade);
+        MenuUi.pixelPanel(canvas, x, y, w, h, 10, MenuUi.SURFACE, MenuUi.BORDER_HI, fade);
         MenuUi.mark(canvas, x + 12, y + 16, fade);
         ClientUi.left(canvas, ClientUi.fit(canvas, canvas.translate("cubeonclient.friends.chat_title"), rail - 46), x + 40, y + 21, ClientUi.alpha(MenuUi.TEXT, fade));
-        MenuUi.button(canvas, x + w - 36, y + 12, 24, 24, "×", hit(mx, my) == CLOSE ? 1 : 0, false, fade);
+        MenuUi.pixelButton(canvas, x + w - 36, y + 12 + pressOffset(CLOSE), 24, 24, "×", hit(mx, my) == CLOSE ? 1 : 0, false, fade);
         canvas.fill(x + rail, y + 12, x + rail + 1, y + h - 12, ClientUi.alpha(MenuUi.BORDER, fade));
         int left = x + rail + 16, bodyWidth = w - rail - 32;
         var view = bridge.chat();
@@ -148,10 +152,10 @@ public final class FriendsPanel {
         int visible = Math.max(1, (h - 80) / 36);
         friendOffset = Math.max(0, Math.min(friendOffset, Math.max(0, friends.size() - visible)));
         for (int i = friendOffset; i < Math.min(friends.size(), friendOffset + visible); i++) {
-            var friend = friends.get(i); int top = y + 64 + (i - friendOffset) * 36;
+            var friend = friends.get(i); int top = y + 64 + (i - friendOffset) * 36 + pressOffset(i);
             boolean active = friend.name().equals(peer);
-            MenuUi.panel(canvas, x + 8, top, rail - 12, 32, 0, active ? MenuUi.SELECTED : hit(mx, my) == i ? MenuUi.SURFACE_HI : MenuUi.SURFACE, active ? MenuUi.BORDER_HI : MenuUi.BORDER, fade);
-            if (active) ClientUi.rounded(canvas, x + 8, top + 8, 2, 16, 1, ClientUi.alpha(MenuUi.ACCENT, fade));
+            MenuUi.pixelPanel(canvas, x + 8, top, rail - 12, 32, 0, active ? ClientUi.mix(MenuUi.SURFACE_HI,MenuUi.ACCENT,.3f) : hit(mx, my) == i ? MenuUi.SURFACE_HI : MenuUi.SURFACE, active ? MenuUi.ACCENT : MenuUi.BORDER, fade);
+
             avatar(canvas, friend.displayName(), x + 16, top + 6, 20, friend.online(), fade);
             ClientUi.left(canvas, ClientUi.fit(canvas, friend.displayName(), rail - 52), x + 42, top + 5, ClientUi.alpha(MenuUi.TEXT, fade));
             ClientUi.left(canvas, ClientUi.fit(canvas, canvas.translate(friend.online() ? "cubeonclient.friends.online" : "cubeonclient.friends.offline"), rail - 52), x + 42, top + 18, ClientUi.alpha(MenuUi.FAINT, fade));
@@ -161,7 +165,7 @@ public final class FriendsPanel {
             ClientUi.left(canvas, ClientUi.fit(canvas, canvas.translate("cubeonclient.friends.empty"), bodyWidth), left, top + 16, ClientUi.alpha(MenuUi.DIM, fade));
             ClientUi.left(canvas, ClientUi.fit(canvas, canvas.translate("cubeonclient.friends.add_hint"), bodyWidth), left, top + 32, ClientUi.alpha(MenuUi.FAINT, fade));
         } else if (view.loading()) {
-            for (int i = 0; i < 3 && top + i * 28 + 20 <= bottom; i++) ClientUi.rounded(canvas, left + (i % 2) * 24, top + i * 28, Math.max(16, bodyWidth - 32 - i * 12), 20, 6, ClientUi.alpha(MenuUi.SURFACE_HI, fade));
+            for (int i = 0; i < 3 && top + i * 28 + 20 <= bottom; i++) MenuUi.pixelPanel(canvas, left + (i % 2) * 24, top + i * 28, Math.max(16, bodyWidth - 32 - i * 12), 20, 0, MenuUi.SURFACE_HI, MenuUi.BORDER, fade);
         } else {
             wrap(canvas, view.peer().equals(peer) ? view.messages() : List.of(), Math.max(16, bodyWidth - 16));
             int viewport = Math.max(1, bottom - top);
@@ -173,7 +177,19 @@ public final class FriendsPanel {
                 if (by >= bottom || by + bubble.height <= top) continue;
                 int bx = bubble.outgoing ? left + bodyWidth - bubble.width : left;
                 int clipTop = Math.max(top, by), clipBottom = Math.min(bottom, by + bubble.height);
-                canvas.fill(bx, clipTop, bx + bubble.width, clipBottom, ClientUi.alpha(bubble.outgoing ? MenuUi.SELECTED : MenuUi.SURFACE_HI, fade));
+                // Clip borders along with the bubble; partial rows never draw over the composer.
+                ClientUi.Canvas clipped = new ClientUi.Canvas() {
+                    public void fill(int x0,int y0,int x1,int y1,int color) {
+                        y0=Math.max(clipTop,y0); y1=Math.min(clipBottom,y1);
+                        if(y1>y0) canvas.fill(x0,y0,x1,y1,color);
+                    }
+                    public void text(String text,int x,int y,int color) { canvas.text(text,x,y,color); }
+                    public int width(String text) { return canvas.width(text); }
+                    public String translate(String key) { return canvas.translate(key); }
+                };
+                MenuUi.pixelPanel(clipped,bx,by,bubble.width,bubble.height,0,
+                        bubble.outgoing ? MenuUi.SELECTED : MenuUi.SURFACE_HI,
+                        bubble.outgoing ? MenuUi.BORDER_HI : MenuUi.BORDER,fade);
                 for (int i = 0; i < bubble.lines.size(); i++) {
                     int lineY = by + 8 + i * 12;
                     if (lineY >= top && lineY + 9 <= bottom) ClientUi.left(canvas, bubble.lines.get(i), bx + 10, lineY, ClientUi.alpha(MenuUi.TEXT, fade));
@@ -188,13 +204,17 @@ public final class FriendsPanel {
             for (int i = 0; i < Math.min(2, feedbackLines.size()); i++) ClientUi.left(canvas, feedbackLines.get(i), left, y + h - 76 + i * 11,
                     ClientUi.alpha(error.isEmpty() ? MenuUi.DIM : 0xFFFF9C89, fade));
         }
-        MenuUi.panel(canvas, left - 4, y + h - 44, inputWidth() + 8, 28, 6, MenuUi.SURFACE_HI, MenuUi.BORDER_HI, fade);
+        MenuUi.pixelPanel(canvas, left - 4, y + h - 44, inputWidth() + 8, 28, 6, MenuUi.SURFACE_HI, MenuUi.BORDER_HI, fade);
         boolean ready = !peer.isEmpty() && bridge.snapshot().connected() && !view.sending();
-        MenuUi.button(canvas, x + w - 44, y + h - 44, 32, 28, "", ready && hit(mx, my) == SEND ? 1 : 0, false, fade);
-        int ax = x + w - 34, ay = y + h - 34, color = ClientUi.alpha(ready ? MenuUi.ACCENT_HI : MenuUi.FAINT, fade);
-        // Small custom send arrow, not a Minecraft widget or emoji.
-        canvas.fill(ax, ay + 3, ax + 10, ay + 5, color);
-        for (int i = 0; i < 4; i++) canvas.fill(ax + 7 + i, ay + i, ax + 8 + i, ay + 8 - i, color);
+        MenuUi.pixelButton(canvas, x + w - 44, y + h - 44 + pressOffset(SEND), 32, 28, "", ready && hit(mx, my) == SEND ? 1 : 0, ready, fade);
+        int ax = x + w - 36, ay = y + h - 38 + pressOffset(SEND);
+        int color = ClientUi.alpha(ready ? MenuUi.ACCENT_HI : MenuUi.FAINT, fade);
+        // Sixteen-pixel send arrow, with the same two-pixel strokes as the client menu.
+        canvas.fill(ax + 2, ay + 7, ax + 14, ay + 9, color);
+        for (int i = 0; i < 3; i++) {
+            canvas.fill(ax + 8 + i * 2, ay + 1 + i * 2, ax + 10 + i * 2, ay + 3 + i * 2, color);
+            canvas.fill(ax + 8 + i * 2, ay + 13 - i * 2, ax + 10 + i * 2, ay + 15 - i * 2, color);
+        }
         ClientUi.left(canvas, ClientUi.fit(canvas, canvas.translate("cubeonclient.friends.keyboard_hint"), bodyWidth), left, y + h - 11, ClientUi.alpha(MenuUi.FAINT, fade));
     }
     private static List<String> split(ClientUi.Canvas canvas, String text, int width) {

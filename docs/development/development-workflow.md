@@ -18,6 +18,23 @@ Avoid unrelated refactors, generated build output, and new dependencies
 unless the change needs them. The repository does not currently include a
 shared Ruff, mypy, or Pyright configuration.
 
+## Reuse existing work
+
+This rule applies across the entire repository. Before adding code, assets,
+UI components, dependencies or tooling, search for an existing implementation
+or resource that meets the need. Reuse or extend suitable existing work and
+keep shared behavior in its established module.
+
+Use the branding, bundled fonts, theme tokens and interaction patterns already
+used by the surface being changed. Launcher visuals use `assets/cube.svg`,
+the fonts defined in `cubeon/theme.py`, and matching supplied artwork in
+`assets/icons/`. Preserve artwork colors, accessibility, behavior and retained
+control identity when integrating it.
+
+Add something new when existing work cannot reasonably meet the requirement
+or the user explicitly requests a replacement. Briefly explain the reason
+in the change description or completion note.
+
 ## Boundaries to preserve
 
 - UI builders live in `ui/`; application wiring lives in `main.py`.

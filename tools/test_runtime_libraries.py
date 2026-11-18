@@ -5,6 +5,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import _sandbox_home
 _sandbox_home.isolate()
-from cubeon import paths, storage, runtime_libraries as libraries
+from cubeon import paths, storage, launch, versions, runtime_libraries as libraries
 
 
 def jar_bytes(content=b"runtime class"):
@@ -133,6 +134,113 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(libraries.ensure(self.version, ["java", "-cp", str(external), "Custom"]), 0)
         fetch.assert_not_called()
         self.assertEqual(external.read_bytes(), b"user content")
+
+
+class InheritedClient(unittest.TestCase):
+    def setUp(self):
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        self.runtime = Path(work.name)
+        for module in (launch, versions):
+            context = patch.object(module, "runtime_dir", return_value=str(self.runtime))
+            context.start()
+            self.addCleanup(context.stop)
+        for name, value in (("find_java_for_version", "java"), ("java_major_version", 21),
+                            ("required_java_major", 21), ("exact_java_major", None)):
+            context = patch.object(launch, name, return_value=value)
+            context.start()
+            self.addCleanup(context.stop)
+        self.base = self.profile("1.21.11", jar=True)
+        self.ident = "fabric-loader-0.20.1-1.21.11"
+        self.child = self.profile(self.ident, parent="1.21.11")
+
+    def profile(self, ident, *, parent=None, jar=False, reference=None):
+        directory = self.runtime / "versions" / ident
+        directory.mkdir(parents=True)
+        data = {"id": ident, "type": "release", "libraries": [],
+                "mainClass": "net.fabricmc.loader.impl.launch.knot.KnotClient" if parent
+                             else "net.minecraft.client.main.Main",
+                "arguments": {"jvm": [] if parent else ["-cp", "${classpath}"],
+                              "game": [] if parent else ["--version", "${version_name}"]}}
+        if parent:
+            data["inheritsFrom"] = parent
+            data["libraries"] = [{"name": "net.fabricmc:fabric-loader:0.20.1"}]
+        if reference is not None:
+            data["jar"] = reference
+        metadata = directory / (ident + ".json")
+        metadata.write_text(json.dumps(data))
+        if jar:
+            with zipfile.ZipFile(directory / (ident + ".jar"), "w") as archive:
+                archive.writestr("net/minecraft/client/main/Main.class", b"fixture")
+        return metadata
+
+    def command(self, ident=None):
+        return launch.build_launch_command(ident or self.ident, "Fixture", 2048, 854, 480,
+                                           game_dir=str(self.runtime / "game"))
+
+    def entries(self, command):
+        return command[command.index("-cp") + 1].split(os.pathsep)
+
+    def test_real_fabric_command_uses_base_jar_and_preserves_loader_and_identity(self):
+        before = self.child.read_bytes()
+        command = self.command()
+        entries = self.entries(command)
+        self.assertEqual(entries[-1], str(self.base.with_suffix(".jar")))
+        self.assertTrue(entries[0].endswith("fabric-loader-0.20.1.jar"))
+        self.assertIn("net.fabricmc.loader.impl.launch.knot.KnotClient", command)
+        self.assertEqual(command[command.index("--version") + 1], self.ident)
+        self.assertEqual(self.child.read_bytes(), before)
+
+    def test_quilt_and_nested_instance_without_own_jar(self):
+        for ident, parent in (("quilt-loader-0.29-1.21.11", "1.21.11"),
+                              ("1.21.11-fabric-private", self.ident)):
+            with self.subTest(ident=ident):
+                self.profile(ident, parent=parent)
+                if parent == self.ident:
+                    # mll's one-level merge uses these inherited JVM arguments.
+                    data = json.loads(self.child.read_text())
+                    data["arguments"]["jvm"] = ["-cp", "${classpath}"]
+                    self.child.write_text(json.dumps(data))
+                self.assertEqual(self.entries(self.command(ident))[-1], str(self.base.with_suffix(".jar")))
+
+    def test_vanilla_and_dedicated_child_jar_are_preserved(self):
+        self.assertEqual(self.entries(self.command("1.21.11"))[-1], str(self.base.with_suffix(".jar")))
+        self.child.with_suffix(".jar").write_bytes(self.base.with_suffix(".jar").read_bytes())
+        self.assertEqual(self.entries(self.command())[-1], str(self.child.with_suffix(".jar")))
+
+    def test_explicit_jar_reference_is_preserved(self):
+        alternate = self.profile("custom-client", jar=True)
+        data = json.loads(self.child.read_text())
+        data["jar"] = "custom-client"
+        self.child.write_text(json.dumps(data))
+        self.assertEqual(self.entries(self.command())[-1], str(alternate.with_suffix(".jar")))
+        data["jar"] = self.ident  # Explicit missing dedicated jar is not a fallback request.
+        self.child.write_text(json.dumps(data))
+        self.assertEqual(self.entries(self.command())[-1], str(self.child.with_suffix(".jar")))
+
+    def test_missing_base_fails_before_java(self):
+        self.base.with_suffix(".jar").unlink()
+        with self.assertRaisesRegex(RuntimeError, "inherited Minecraft client JAR is missing"):
+            self.command()
+
+    def test_paths_and_cycles_are_still_rejected(self):
+        for parent in ("../outside", self.ident):
+            data = json.loads(self.child.read_text())
+            data["inheritsFrom"] = parent
+            self.child.write_text(json.dumps(data))
+            with self.assertRaises(ValueError):
+                self.command()
+
+    def test_only_jvm_classpath_entries_are_changed(self):
+        profile = str(self.child.with_suffix(".jar"))
+        base = str(self.base.with_suffix(".jar"))
+        for flag in ("-cp", "-classpath", "--class-path"):
+            command = ["java", flag, os.pathsep.join(["custom.jar", profile]), "Main",
+                       "--class-path", profile]
+            result = launch._normalize_inherited_client_jar(command, self.ident)
+            self.assertEqual(result[2], os.pathsep.join(["custom.jar", base]))
+            self.assertEqual(result[-1], profile)
+            self.assertEqual(command[2], os.pathsep.join(["custom.jar", profile]))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,9 @@ This is the entire mechanism - there is no other colour plumbing:
 
 """
 import importlib
+import colorsys
+import math
+import re
 
 # Imported lazily inside functions where possible; cubeon.theme itself is
 # imported at module scope because patching it is this module's whole job.
@@ -37,6 +40,80 @@ REQUIRED_KEYS = (
     "DANGER", "DANGER_HI", "ON_DANGER",
     "CARD_FILL_HERO",
 )
+
+CUSTOM_PALETTE_KEY = "launcher_palette"
+
+
+def normalize_custom_palette(value):
+    """Validate the small saved recipe; image paths/bytes never enter config."""
+    if not isinstance(value, dict) or not re.fullmatch(r"#[0-9a-fA-F]{6}", str(value.get("seed", ""))):
+        return None
+    result = {"seed": value["seed"].upper()}
+    for key, default in (("depth", .5), ("vividness", .5)):
+        try:
+            number = float(value.get(key, default))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number):
+            return None
+        result[key] = round(max(0., min(1., number)), 4)
+    return result
+
+
+def _hls(hue, lightness, saturation):
+    rgb = colorsys.hls_to_rgb(hue, lightness, saturation)
+    return "#" + "".join(f"{round(channel * 255):02X}" for channel in rgb)
+
+
+def contrast_ratio(a, b):
+    def luminance(color):
+        channels = [int(color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        linear = [v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4 for v in channels]
+        return sum(v * weight for v, weight in zip(linear, (.2126, .7152, .0722)))
+    lighter, darker = sorted((luminance(a), luminance(b)), reverse=True)
+    return (lighter + .05) / (darker + .05)
+
+
+def custom_palette(recipe):
+    """Turn a sampled world color into a readable dark launcher palette."""
+    recipe = normalize_custom_palette(recipe)
+    if recipe is None:
+        raise ValueError("Invalid launcher palette")
+    from templates.color_green import PALETTE
+    palette = dict(PALETTE)
+    rgb = [int(recipe['seed'][i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    hue, _, saturation = colorsys.rgb_to_hls(*rgb)
+    vividness, depth = recipe['vividness'], recipe['depth']
+    saturation = min(.9, saturation * (.65 + .7 * vividness))
+    # Deep stays dark even with a very bright photograph. Only the quiet
+    # surface cast changes; information, warning and error colors stay semantic.
+    tint = .05 + .23 * depth
+    for key, lightness in (("BG", .035), ("SURFACE", .048), ("SURFACE_HI", .082),
+                           ("SURFACE_MAX", .115), ("BORDER", .17), ("BORDER_HI", .25)):
+        palette[key] = _hls(hue, lightness * (1.12 - .25 * depth), tint)
+    palette['BG_GLASS'] = palette['BG']
+    palette['SURFACE_GLASS'] = palette['SURFACE']
+    palette['TEXT'] = _hls(hue, .94, .12)
+    palette['TEXT_DIM'] = _hls(hue, .72, .10)
+    palette['TEXT_FAINT'] = _hls(hue, .49, .08)
+    lightness = .56
+    accent = _hls(hue, lightness, saturation)
+    while contrast_ratio(accent, '#050505') < 7 or contrast_ratio(accent, palette['SURFACE_MAX']) < 4.5:
+        lightness += .01
+        accent = _hls(hue, min(.92, lightness), saturation)
+    palette.update(ACCENT=accent, ACCENT_HI=_hls(hue, min(.94, lightness + .08), saturation),
+                   ACCENT_DIM=_hls(hue, max(.4, lightness - .06), saturation),
+                   ACCENT_DEEP=_hls(hue, .10, saturation), ON_ACCENT='#050505',
+                   CARD_FILL_HERO=_hls(hue, .055, tint))
+    palette['GLASS_HALO'] = _with_alpha(accent, .30)
+    return _derive(palette)
+
+
+def apply_custom_palette(recipe):
+    palette = custom_palette(recipe)
+    _apply_palette(palette, "custom")
+    _theme.AVATAR_COLORS[0] = palette['ACCENT']
+    return "custom"
 
 
 def resolve(name: str) -> str:
@@ -75,6 +152,7 @@ def _derive(palette: dict) -> dict:
     palette.setdefault("ROW_HOVER", ft.Colors.with_opacity(0.65, palette["SURFACE_HI"]))
     palette.setdefault("ACCENT_TINT", ft.Colors.with_opacity(0.12, palette["ACCENT"]))
     palette.setdefault("ACCENT_TINT_HI", ft.Colors.with_opacity(0.20, palette["ACCENT"]))
+    palette.setdefault("GLASS_HALO", ft.Colors.with_opacity(0.30, palette["ACCENT"]))
     # Translucent canvas tokens (glass look): the template's own BG/SURFACE with
     # an alpha channel prepended, ARGB. 0xE6 = ~90% opaque - enough depth for
     # text contrast, enough transparency for the desktop to show through.
@@ -104,6 +182,14 @@ def apply_template(name: str) -> str:
     if missing:
         raise ValueError(f"template {key!r} is missing tokens: {', '.join(missing)}")
 
+    _apply_palette(palette, key)
+    avatars = getattr(mod, "AVATAR_COLORS", None)
+    if avatars:
+        _theme.AVATAR_COLORS[:] = list(avatars)
+    return key
+
+
+def _apply_palette(palette, key):
     # 1) Module attributes - everything that reads cubeon.theme.<TOKEN> at
     #    call time (apply_page_theme, the glass helpers, main.py's imports).
     for attr, value in palette.items():
@@ -117,17 +203,9 @@ def apply_template(name: str) -> str:
         if k in palette:
             _theme.THEME[k] = palette[k]
 
-    # 3) Optional per-template avatar palette (first entry should be the
-    #    template's accent so a lone friend still reads as this theme).
-    avatars = getattr(mod, "AVATAR_COLORS", None)
-    if avatars:
-        _theme.AVATAR_COLORS[:] = list(avatars)
-
-    # 4) Record which template is live, so UI that follows the palette reads
+    # 3) Record which template is live, so UI that follows the palette reads
     #    one answer instead of re-deriving it.
     _theme.ACTIVE_TEMPLATE = key
-
-    return key
 
 
 def print_templates():

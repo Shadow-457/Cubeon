@@ -11,8 +11,8 @@ Locked-in behaviour:
   3. Enter (on_submit) filters immediately and cancels the pending timer
   4. clearing the field restores the unfiltered list, debounced like typing
 
-A "rebuild" is counted by the tab-label refresh at the end of
-`refresh_mods_list()` (only `_build_view_segment` repaints that row).
+A "rebuild" is counted by the installed grid's scoped refresh. Header styling
+can repaint separately without rebuilding the installed results.
 
 Run: python tools/test_mods_filter_debounce.py
 """
@@ -44,27 +44,9 @@ def check(label, condition, extra=""):
 
 
 def function_from_controls(controls, name):
-    """Find a helper reachable from the controls (all tab helpers live in the
-    builder's closure; same walk the other headless suites use)."""
-    seen = set()
-
-    def visit(fn):
-        if not inspect.isfunction(fn) or id(fn) in seen:
-            return None
-        seen.add(id(fn))
-        if fn.__name__ == name:
-            return fn
-        for value in inspect.getclosurevars(fn).nonlocals.values():
-            found = visit(value)
-            if found:
-                return found
-
-    for control in controls:
-        for attr in ("on_click", "on_change", "on_submit", "on_select"):
-            found = visit(getattr(control, attr, None))
-            if found:
-                return found
-    raise AssertionError(f"Missing helper {name}")
+    callbacks = (getattr(control, attr, None)
+                 for control in controls for attr in ('on_click', 'on_change', 'on_submit', 'on_select'))
+    return fz.callback_functions(*callbacks)[name]
 
 
 NAMES = ["Sodium", "Sodium Extra", "Iris Shaders", "JEI", "Mod Menu",
@@ -102,11 +84,8 @@ time.sleep(0.3)          # let the tab's own refresh settle
 controls = list(fz.every_control(page))
 field = next(c for c in controls
              if (getattr(c, "hint_text", "") or "") == "Search installed mods...")
-scope = inspect.getclosurevars(
-    function_from_controls(controls, "_render_installed_snapshot")).nonlocals
+scope = fz.callback_scope(function_from_controls(controls, "_render_installed_snapshot"))
 list_view = scope["mods_list_view"]
-tab_label_row = inspect.getclosurevars(
-    scope["_build_view_segment"]).nonlocals["view_segment_row"]
 
 refreshed = []
 
@@ -117,7 +96,7 @@ def record(fn):
     with patch.object(thread_safe_ui, "refresh",
                       side_effect=lambda c: refreshed.append(c)):
         fn()
-    return refreshed.count(tab_label_row)
+    return refreshed.count(list_view)
 
 
 check("the field is debounced (no immediate rebuild handler)",
@@ -132,10 +111,10 @@ with patch.object(thread_safe_ui, "refresh",
     for text in ("s", "so", "sod", "sodi", "sodiu", "sodium"):
         field.value = text
         field.on_change(None)
-    during_burst = refreshed.count(tab_label_row)
+    during_burst = refreshed.count(list_view)
     rows_during_burst = len(list_view.controls)
     time.sleep(DEBOUNCE_WAIT)
-    after_settle = refreshed.count(tab_label_row)
+    after_settle = refreshed.count(list_view)
 
 check("typing does not rebuild the list", during_burst == 0,
       f"{during_burst} rebuild(s) during the burst")
@@ -155,10 +134,10 @@ with patch.object(thread_safe_ui, "refresh",
                   side_effect=lambda c: refreshed.append(c)):
     field.value = "iris"
     field.on_submit(None)
-    immediate = refreshed.count(tab_label_row)
+    immediate = refreshed.count(list_view)
     rows_after_enter = len(list_view.controls)
     time.sleep(DEBOUNCE_WAIT)
-    after_window = refreshed.count(tab_label_row)
+    after_window = refreshed.count(list_view)
 
 check("Enter filters without waiting", immediate == 1,
       f"{immediate} rebuild(s)")
@@ -173,9 +152,9 @@ with patch.object(thread_safe_ui, "refresh",
                   side_effect=lambda c: refreshed.append(c)):
     field.value = ""
     field.on_change(None)
-    immediate = refreshed.count(tab_label_row)
+    immediate = refreshed.count(list_view)
     time.sleep(DEBOUNCE_WAIT)
-    after_window = refreshed.count(tab_label_row)
+    after_window = refreshed.count(list_view)
 
 check("clearing does not rebuild instantly", immediate == 0,
       f"{immediate} rebuild(s)")

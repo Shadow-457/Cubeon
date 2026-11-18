@@ -28,8 +28,8 @@ public final class CameraBlur {
 
     public void update(long now, double yaw, double pitch, double fov, double aspect,
                        Object world, boolean enabled, double intensity) {
-        intensity = Double.isFinite(intensity) ? Math.max(.25, Math.min(2, intensity)) : 1;
-        if (!enabled || world == null || !Double.isFinite(yaw) || !Double.isFinite(pitch)
+        intensity = Double.isFinite(intensity) ? Math.max(0, Math.min(1, intensity)) : 1;
+        if (intensity <= 0 || !enabled || world == null || !Double.isFinite(yaw) || !Double.isFinite(pitch)
                 || !Double.isFinite(fov) || !Double.isFinite(aspect) || aspect <= 0) {
             reset(); return;
         }

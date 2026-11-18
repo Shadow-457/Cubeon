@@ -174,6 +174,9 @@ DEFAULT_CONFIG = {
     # so flipping it takes effect on the rows that are already on screen. The
     # default is "full".
     "motion_level": "full",
+    # Color Studio's sampled color and two atmosphere dials. Applied before
+    # UI imports on the next start; None retains the original green palette.
+    "launcher_palette": None,
     # Translucent ("glass") launcher window: the native window AND the page
     # canvas are painted with an alpha channel so the desktop shows through
     # faintly behind the UI. Only the BACKGROUND goes translucent - panels and

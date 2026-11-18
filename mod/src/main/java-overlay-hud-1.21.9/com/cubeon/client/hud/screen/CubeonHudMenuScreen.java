@@ -30,9 +30,6 @@ public final class CubeonHudMenuScreen extends Screen {
         public void setScale(int index, float value) { CubeonHudConfig.get().setScaleForLive(CubeonHud.slotOf(OVERLAYS[index]), value); }
         public void save() { CubeonHudConfig.save(); }
         public boolean menuAnimations() { return CubeonHudConfig.get().menuAnimations; }
-        public boolean blurPlus() { return CubeonHudConfig.get().temporalMotionBlur; }
-        public float blurPlusStrength() { return CubeonHudConfig.get().temporalBlurStrength; }
-        public void setBlurPlusStrength(float value) { CubeonHudConfig.get().temporalBlurStrength=value; com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); }
         public boolean ownNameTag() { return CubeonHudConfig.get().showOwnNameTag; }
         public boolean health() { return CubeonHudConfig.get().showEnemyHealth; }
         public boolean animations() { return CubeonHudConfig.get().cosmeticAnimations; }
@@ -40,6 +37,7 @@ public final class CubeonHudMenuScreen extends Screen {
         public boolean otherCosmetics() { return CubeonHudConfig.get().showOtherCosmetics; }
         public boolean cameraBlur() { return CubeonHudConfig.get().cameraMotionBlur; }
         public float blurIntensity() { return CubeonHudConfig.get().cameraBlurIntensity; }
+        public void setBlurIntensity(float value) { CubeonHudConfig.get().cameraBlurIntensity=value; com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); }
         public boolean sprint() { return CubeonHudConfig.get().autoSprint; }
         public boolean worldClock() { return CubeonHudConfig.get().worldClock; }
     };
@@ -105,12 +103,14 @@ public final class CubeonHudMenuScreen extends Screen {
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_SPACE) return choose(menu.selection());
         if (key == GLFW.GLFW_KEY_G) return choose(HudMenu.FRIENDS);
         if (key == GLFW.GLFW_KEY_E) return choose(HudMenu.EMOTES);
-        if (key == GLFW.GLFW_KEY_K) { close(); return true; }
+        if (key == GLFW.GLFW_KEY_RIGHT_SHIFT) { close(); return true; }
         return false;
     }
 
     private boolean choose(int action) {
         if (action < 0 || action >= HudMenu.ACTION_COUNT) return false;
+        menu.press(action);
+        net.minecraft.client.gui.widget.ButtonWidget.builder(Text.empty(), button -> { }).build().playDownSound(client.getSoundManager());
         if (menu.activate(action)) return true;
         CubeonHudConfig config = CubeonHudConfig.get();
         int overlayIndex = HudMenu.overlayIndex(action);
@@ -144,13 +144,7 @@ public final class CubeonHudMenuScreen extends Screen {
             case HudMenu.ANIMATIONS -> { config.cosmeticAnimations = !config.cosmeticAnimations; CubeonHudConfig.save(); }
             case HudMenu.WING_DEPTH -> { config.wingDepth = !config.wingDepth; CubeonHudConfig.save(); }
             case HudMenu.OTHER_COSMETICS -> { config.showOtherCosmetics = !config.showOtherCosmetics; CubeonHudConfig.save(); }
-            case HudMenu.BLUR_PLUS -> { config.temporalMotionBlur = !config.temporalMotionBlur;
-                if(config.temporalMotionBlur) config.cameraMotionBlur=false;
-                com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
             case HudMenu.CAMERA_BLUR -> { config.cameraMotionBlur = !config.cameraMotionBlur;
-                if(config.cameraMotionBlur) config.temporalMotionBlur=false;
-                com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
-            case HudMenu.BLUR_INTENSITY -> { config.cameraBlurIntensity = HudMenu.nextBlurIntensity(config.cameraBlurIntensity);
                 com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
             case HudMenu.SPRINT -> { config.autoSprint = !config.autoSprint; CubeonHudConfig.save(); }
             case HudMenu.CLOCK_MODE -> { config.worldClock = !config.worldClock; CubeonHudConfig.save(); }

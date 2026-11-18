@@ -229,7 +229,8 @@ from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab build
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
 from ui.stats_tab import build_stats_tab  # Stats tab: playtime overview and server activity
 from ui.play_home import PlayHome
-from ui.chrome import ChromeBackdrop
+from ui.chrome import ChromeBackdrop, NavSlider, TabPane, TabEntryQueue
+from ui.content_states import loading_rows
 from ui.activity_widgets import build_badges
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
 from ui.java_runtime import build_java_runtime_pane
@@ -1392,7 +1393,7 @@ async def main(page: ft.Page):
     # -----------------------------------------------------------------
 
     # -----------------------------------------------------------------
-    # LEFT NAVIGATION - fixed icon rail with a sliding accent indicator.
+    # LEFT NAVIGATION - fixed rail with accent-colored active icons.
     # Account stays in the brand strip; Settings is pinned below the rail.
     # -----------------------------------------------------------------
 
@@ -1410,14 +1411,14 @@ async def main(page: ft.Page):
     top_nav_items = [
         ("play", ft.Icons.PLAY_ARROW_ROUNDED, i18n.t("Play")),
         ("mods", ft.Icons.EXTENSION_ROUNDED, i18n.t("Mods")),
-        ("profile", ft.Icons.CHECKROOM_ROUNDED, i18n.t("Cosmetics")),
-        ("stats", ft.Icons.QUERY_STATS_ROUNDED, i18n.t("Stats")),
+        ("profile", ft.Icons.PALETTE_ROUNDED, i18n.t("Cosmetics")),
+        ("stats", ft.Icons.BAR_CHART_ROUNDED, i18n.t("Stats")),
         ("server", ft.Icons.DNS_ROUNDED, i18n.t("Servers")),
     ]
     # The Chat tab only exists in builds that ship the social layer; a public
     # no-Friends build stays a plain launcher with no dead nav entry.
     if friends_enabled():
-        top_nav_items.insert(2, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED,
+        top_nav_items.insert(2, ("chat", ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                                  i18n.t("Chat")))
     server_group_items = [
         ("server_settings", ft.Icons.TUNE_ROUNDED, i18n.t("Settings")),
@@ -1435,30 +1436,19 @@ async def main(page: ft.Page):
     state["active_tab"] = active_tab["value"]
     nav_buttons = {}  # Will hold references to each navigation button container
 
-    # The marker slide and icon/tint changes share one native animation.
-    # Pane content appears in the same repaint, without a blank fade frame.
+    # Icon color changes keep the rail geometry fixed.
+    # Native first visits paint a loading pane before preparing its content.
     NAV_ANIM = ft.Animation(180, ft.AnimationCurve.EASE_OUT_CUBIC)
     tab_switcher = ft.Stack(expand=True, fit=ft.StackFit.EXPAND)
     content_area = ft.Container(content=tab_switcher, expand=True)
 
     def _style_nav_button(btn, is_active):
-        """Restyles a nav button for the active/inactive state.
-
-        Two shapes live in nav_buttons: top-bar ICON buttons (marker
-        `cubeon_top_icon`: an icon over a label) and the server
-        sub-tab CHIPS (icon + label rows, the old sidebar style). The marker
-        attribute is set at build time; Flet controls are plain Python
-        objects, so a private attribute survives page.update() just fine.
-        """
+        """Style icon-only rail buttons and labeled Server sub-tab chips."""
         if getattr(btn, "cubeon_top_icon", False):
-            # Icon-only rail: the active destination gets the accent colour and
-            # a quiet wash; its name is the tooltip, not a line under the icon.
-            # Only the left slide marks the active tab: no green wash over the
-            # tile itself (2026-11-15 user ask).
             btn.data = is_active
             btn.bgcolor = "transparent"
-            icon_ctrl = btn.content
-            icon_ctrl.color = ACCENT if is_active else TEXT_DIM
+            btn.border = None
+            btn.content.color = ACCENT if is_active else TEXT_DIM
             return
         # The active state is a *quiet* one: a faint green wash and a small
         # accent bar on the left edge - not a solid green slab.
@@ -1470,15 +1460,14 @@ async def main(page: ft.Page):
         row.controls[2].bgcolor = ACCENT if is_active else "transparent"  # indicator bar
 
     def _on_nav_hover(e):
-        """Affordance: an inactive nav item lifts to a faint wash so the bar
-        feels responsive instead of dead. The active item is left alone - it
-        already reads as selected and shouldn't flicker under the cursor."""
+        """Brighten inactive rail icons; retain the selected icon's accent."""
+        ft.context.disable_auto_update()
         btn = e.control
         if btn.data:  # active tab - leave it as-is
             return
         hovering = e.data == "true"
         if getattr(btn, "cubeon_top_icon", False):
-            btn.bgcolor = ROW_HOVER if hovering else "transparent"
+            btn.bgcolor = "transparent"
             btn.content.color = TEXT if hovering else TEXT_DIM
             btn.update()
             return
@@ -1495,7 +1484,7 @@ async def main(page: ft.Page):
         discoverable, and tests/tools still navigate by that same string.
         """
         is_active = key == active_tab["value"]
-        icon_ctrl = ft.Icon(icon, size=22, color=TEXT if is_active else TEXT_DIM)
+        icon_ctrl = ft.Icon(icon, size=22, color=ACCENT if is_active else TEXT_DIM)
         btn = ft.Container(
             content=icon_ctrl,
             bgcolor="transparent",
@@ -1512,52 +1501,22 @@ async def main(page: ft.Page):
             tooltip=label,
         )
         btn.cubeon_top_icon = True
+        _style_nav_button(btn, is_active)
         nav_buttons[key] = btn
-        return theme.keyboard_target(btn, label)
+        target = theme.keyboard_target(btn, label)
+        # Keep keyboard focus discoverable with a neutral rim; selection lives
+        # on the icon and marker, including when a mouse click gives focus.
+        btn.cubeon_keyboard_button.style.overlay_color = 'transparent'
+        btn.cubeon_keyboard_button.style.side = {
+            ft.ControlState.FOCUSED: ft.BorderSide(1, TEXT_DIM),
+            ft.ControlState.DEFAULT: ft.BorderSide(1, 'transparent'),
+        }
+        return target
 
     # ------------------------------------------------------------------
-    # Fixed tile pitch keeps the accent bar aligned without layout probes.
+    # Fixed tile pitch preserves rail geometry across selection.
     NAV_BTN_W, NAV_BTN_H, NAV_GAP = 48, 44, 6
-    NAV_INDICATOR_W, NAV_INDICATOR_H = 3, 22
     NAV_COL_HEIGHT = (len(top_nav_items) * (NAV_BTN_H + NAV_GAP)) - NAV_GAP
-    nav_blob = ft.Container(
-        width=NAV_INDICATOR_W,
-        height=NAV_INDICATOR_H,
-        left=2,
-        top=(NAV_BTN_H - NAV_INDICATOR_H) / 2,
-        bgcolor=ACCENT,
-        border_radius=NAV_INDICATOR_W / 2,
-        ignore_interactions=True,
-        offset=ft.Offset(0, 0),
-        animate_offset=NAV_ANIM,
-        animate_opacity=NAV_ANIM,
-    )
-
-    def _nav_key_for(key):
-        """The top-bar entry a tab belongs to (server sub-tabs share one)."""
-        return SERVER_TOP_KEY if key in SERVER_GROUP_KEYS else key
-
-    def _nav_index(key):
-        keys = [k for k, _icon, _label in top_nav_items]
-        try:
-            return keys.index(_nav_key_for(key))
-        except ValueError:
-            return None
-
-    def _move_nav_blob(old_key, new_key):
-        """Slide the retained accent bar on the fixed tile pitch."""
-        old_idx, new_idx = _nav_index(old_key), _nav_index(new_key)
-        if new_idx is None:
-            nav_blob.opacity = 0
-            return True
-        if old_idx == new_idx:
-            return False
-        nav_blob.opacity = 1
-        nav_blob.animate_offset = NAV_ANIM if motion.transforms() else None
-        # Flet offsets are fractions of the indicator's own size.
-        nav_blob.offset = ft.Offset(
-            0, new_idx * (NAV_BTN_H + NAV_GAP) / NAV_INDICATOR_H)
-        return True
 
     def build_nav_button(key, icon, label, *, icon_size=18, indent=0):
         """A labeled chip button - used for the server sub-tabs (Console /
@@ -1828,6 +1787,9 @@ async def main(page: ft.Page):
     # and Settings; the account chip lives in the top bar.
     SIDEBAR_W = 64
     sidebar_ui = {"width": SIDEBAR_W}
+    nav_slider = NavSlider(
+        [key for key, _icon, _label in top_nav_items], _gh - 44, ACCENT,
+        tile_height=NAV_BTN_H, gap=NAV_GAP, footer_extra=38 if _inspector_enabled else 0)
     chrome_backdrop = ChromeBackdrop(
         core.resolve_mc_version(cfg.get("last_version")) or cfg.get("last_version"), _gw, _gh)
 
@@ -1843,12 +1805,13 @@ async def main(page: ft.Page):
         if native and active_tab["value"] in {"server_console", "server_plugins", "server_settings"}:
             switch_tab("play")
 
-    def _build_sidebar():
-        """The left rail: nav tiles in the middle, Settings pinned at the foot.
+    def _on_nav_scroll(e):
+        ft.context.disable_auto_update()
+        if nav_slider.scroll(e.pixels):
+            thread_safe_ui.refresh(nav_slider.marker)
 
-        Every tile is a fixed-size box on a fixed pitch, so the sliding
-        highlight blob is positioned by arithmetic alone.
-        """
+    def _build_sidebar():
+        """Fixed-size navigation targets above pinned Settings."""
         inner = SIDEBAR_W - 16
         nav_column = ft.Column(
             [build_top_nav_button(key, icon, label)
@@ -1856,9 +1819,8 @@ async def main(page: ft.Page):
             spacing=NAV_GAP,
             tight=True,
         )
-        # The marker paints through the clear tiles without changing layout.
-        nav_stack = ft.Stack(
-            [nav_blob, nav_column],
+        nav_stack = ft.Container(
+            nav_column,
             width=inner,
             height=NAV_COL_HEIGHT,
         )
@@ -1869,7 +1831,7 @@ async def main(page: ft.Page):
 
         # Settings is a retained destination, with the same active/focus
         # treatment as the other tabs, pinned below the scrolling rail.
-        settings_tile = build_top_nav_button("settings", ft.Icons.TUNE_ROUNDED,
+        settings_tile = build_top_nav_button("settings", ft.Icons.SETTINGS_ROUNDED,
                                              i18n.t("Settings"))
         settings_tile.width = inner
         nav_buttons["settings"].width = inner
@@ -1896,6 +1858,7 @@ async def main(page: ft.Page):
                         spacing=0,
                         expand=True,
                         scroll=ft.ScrollMode.AUTO,
+                        on_scroll=_on_nav_scroll,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     *foot,
@@ -1908,7 +1871,9 @@ async def main(page: ft.Page):
             padding=ft.padding.Padding.only(left=8, right=8, top=8, bottom=12),
         )
         sidebar_ui.update({"box": box, "stack": nav_stack})
-        return chrome_backdrop.panel(box, width=SIDEBAR_W, top=44)
+        return chrome_backdrop.panel(
+            ft.Stack([box, nav_slider.layer], fit=ft.StackFit.EXPAND),
+            width=SIDEBAR_W, top=44)
 
     def _build_top_bar():
         """The slim bar above the content: brand on the left, account chip and
@@ -2371,7 +2336,7 @@ async def main(page: ft.Page):
     # repaint their lists in place, so nothing on it goes stale in
     # between visits. ---
 
-    skin_section_container = ft.Container()
+    skin_section_container = ft.Container(loading_rows('Loading cosmetics…'))
 
     _skin_section_key = {"built": False, "version": None, "loader": None}
 
@@ -2382,18 +2347,24 @@ async def main(page: ft.Page):
                 and _skin_section_key["version"] == mc_version
                 and _skin_section_key["loader"] == mc_loader):
             return
-        _skin_section_key.update(built=True, version=mc_version,
-                                 loader=mc_loader)
-        skin_section_container.content = build_skin_section(
+        section = build_skin_section(
             page, cfg,
             section_label=section_label, pixel_divider=pixel_divider,
             **THEME,
-            mc_version=version_dropdown.value or cfg.get("last_version"),
-            mc_loader=state.get("mod_loader"),
+            mc_version=mc_version,
+            mc_loader=mc_loader,
             file_picker=skin_file_picker,
             cape_file_picker=cape_file_picker,
             assets_dir=resolve_assets_dir(),
         )
+        with thread_safe_ui.TREE_LOCK:
+            if (mc_version != (version_dropdown.value or cfg.get('last_version'))
+                    or mc_loader != state.get('mod_loader')):
+                return
+            skin_section_container._pending_mount = True
+            skin_section_container.content = section
+            _skin_section_key.update(built=True, version=mc_version, loader=mc_loader)
+        return True
 
     # Profile tab content - a plain scrollable column like every other tab,
     # using the full content width instead of a fixed centered column.
@@ -2444,8 +2415,9 @@ async def main(page: ft.Page):
     def _resize_cosmetics_picker(event):
         ft.context.disable_auto_update()
         section = skin_section_container.content
-        if section is not None:
-            section.set_viewport_height(event.height)
+        resize = getattr(section, 'set_viewport_height', None)
+        if callable(resize):
+            resize(event.height)
 
     profile_tab.on_size_change = _resize_cosmetics_picker
 
@@ -2667,6 +2639,8 @@ async def main(page: ft.Page):
         ft.context.disable_auto_update()
         try:
             chrome_backdrop.resize(float(page.width), float(page.height))
+            if nav_slider.resize(float(page.height) - 44):
+                thread_safe_ui.refresh(nav_slider.layer)
             _fit_play(max(1, float(page.width) - SIDEBAR_W),
                       max(1, float(page.height) - 44))
         except (NameError, TypeError, AttributeError):
@@ -2692,10 +2666,16 @@ async def main(page: ft.Page):
         """Called whenever the Profile tab becomes active, so its fields
         and the embedded skin section reflect current state (username,
         selected version/loader) rather than whatever was last built."""
-        profile_pfp_status.value = ""
-        profile_username_field.value = cfg["username"]
-        profile_username_field.error = None
+        with thread_safe_ui.TREE_LOCK:
+            profile_pfp_status.value = ""
+            profile_username_field.value = cfg["username"]
+            profile_username_field.error = None
         rebuild_skin_section()
+        with thread_safe_ui.TREE_LOCK:
+            if (state.get('active_tab') == 'profile'
+                    and getattr(skin_section_container, '_pending_mount', False)):
+                skin_section_container._pending_mount = False
+                thread_safe_ui.refresh(skin_section_container)
 
     # Brand mark - the cube icon and wordmark, mounted at the top bar above the
     # content (2026-10-26: it used to sit in the sidebar, which is a compact
@@ -5571,18 +5551,21 @@ async def main(page: ft.Page):
             running = bool(version_id) and core.is_server_running(version_id)
         except Exception:
             running = False
-        if not version_id:
-            server_status_dot.bgcolor = TEXT_DIM
-            server_status_text.value = "Pick a version to see server status"
-            server_status_open_console.visible = False
-        elif running:
-            server_status_dot.bgcolor = ACCENT
-            server_status_text.value = "Server running for this version"
-            server_status_open_console.visible = True
-        else:
-            server_status_dot.bgcolor = TEXT_DIM
-            server_status_text.value = "Server not running"
-            server_status_open_console.visible = True
+        with thread_safe_ui.TREE_LOCK:
+            if version_id != state.get('selected_version'):
+                return
+            if not version_id:
+                server_status_dot.bgcolor = TEXT_DIM
+                server_status_text.value = "Pick a version to see server status"
+                server_status_open_console.visible = False
+            elif running:
+                server_status_dot.bgcolor = ACCENT
+                server_status_text.value = "Server running for this version"
+                server_status_open_console.visible = True
+            else:
+                server_status_dot.bgcolor = TEXT_DIM
+                server_status_text.value = "Server not running"
+                server_status_open_console.visible = True
         # Three tiny controls changed - a whole-page diff here ran on every
         # version selection / instance-row click for no reason.
         thread_safe_ui.refresh(server_status_panel)
@@ -6345,13 +6328,13 @@ async def main(page: ft.Page):
     # could add.
     # -----------------------------------------------------------------
     _tab_cbs: dict = {}   # tab key -> the builder's callbacks, once built
-    mods_tab = ft.Container(expand=True)
+    mods_tab = ft.Container(loading_rows('Loading mods…'), expand=True)
     modpacks_tab = ft.Container(expand=True)
-    server_console_tab = ft.Container(expand=True)
-    server_plugins_tab = ft.Container(expand=True)
-    server_settings_tab = ft.Container(expand=True)
-    stats_tab_host = ft.Container(expand=True)
-    chat_tab_host = ft.Container(expand=True)
+    server_console_tab = ft.Container(loading_rows('Loading console…'), expand=True)
+    server_plugins_tab = ft.Container(loading_rows('Loading plugins…'), expand=True)
+    server_settings_tab = ft.Container(loading_rows('Loading server…'), expand=True)
+    stats_tab_host = ft.Container(loading_rows('Loading stats…'), expand=True)
+    chat_tab_host = ft.Container(loading_rows('Loading chat…'), expand=True)
 
     def _cb(key, name):
         """A builder callback that stays a no-op until its tab is built."""
@@ -6385,8 +6368,8 @@ async def main(page: ft.Page):
         return False
 
     def _build_mods_tab():
-        _ensure_tab('modpacks')
         def open_modpacks():
+            _ensure_tab('modpacks')
             refresh_installed_packs(background=True)
             if not state.get('modpacks_loaded'):
                 state['modpacks_loaded'] = True
@@ -6400,9 +6383,11 @@ async def main(page: ft.Page):
             on_client_mod_change=_set_client_mod_enabled,
             **THEME,
         )
-        mods_tab.content = content
-        _tab_cbs["mods"] = {"refresh": lambda: refresh(background=True), "recommend": recommend,
-                            "browse": browse}
+        with thread_safe_ui.TREE_LOCK:
+            mods_tab._pending_mount = True
+            mods_tab.content = content
+            _tab_cbs["mods"] = {"refresh": lambda: refresh(background=True, navigation=True), "recommend": recommend,
+                                "browse": browse}
 
     # -----------------------------------------------------------------
     # STATS TAB - responsive playtime overview, timeline and server activity.
@@ -6415,8 +6400,10 @@ async def main(page: ft.Page):
             go_to_tab=switch_tab,
             **THEME,
         )
-        stats_tab_host.content = content
-        _tab_cbs["stats"] = {"refresh": refresh}
+        with thread_safe_ui.TREE_LOCK:
+            stats_tab_host._pending_mount = True
+            stats_tab_host.content = content
+            _tab_cbs["stats"] = {"refresh": refresh}
 
     # -----------------------------------------------------------------
     # CHAT TAB - the launcher's social surface: automatic Cubeon identity,
@@ -6431,8 +6418,10 @@ async def main(page: ft.Page):
             section_label=section_label,
             **THEME,
         )
-        chat_tab_host.content = content
-        _tab_cbs["chat"] = {"refresh": refresh}
+        with thread_safe_ui.TREE_LOCK:
+            chat_tab_host._pending_mount = True
+            chat_tab_host.content = content
+            _tab_cbs["chat"] = {"refresh": refresh}
         # Startup owns the connection. connect() is idempotent while it is
         # connecting/retrying, so opening Chat can also recover a stopped loop.
         if (friends_client is not None and friends_client.is_available
@@ -6495,8 +6484,10 @@ async def main(page: ft.Page):
             section_label=section_label, go_to_pack=go_to_pack, embedded=True,
             **THEME,
         )
-        modpacks_tab.content = content
-        _tab_cbs["modpacks"] = {"installed": installed, "popular": popular}
+        with thread_safe_ui.TREE_LOCK:
+            modpacks_tab._pending_mount = True
+            modpacks_tab.content = content
+            _tab_cbs["modpacks"] = {"installed": installed, "popular": popular}
 
     # -----------------------------------------------------------------
     # SERVERS GROUP - host a local server for the selected version.
@@ -6509,10 +6500,14 @@ async def main(page: ft.Page):
             **THEME,
         )
 
-        server_console_tab.content = console
-        server_settings_tab.content = settings
-        server_plugins_tab.content = plugins
-        _tab_cbs["server"] = {"refresh": refresh}
+        with thread_safe_ui.TREE_LOCK:
+            server_console_tab._pending_mount = True
+            server_console_tab.content = console
+            server_settings_tab._pending_mount = True
+            server_settings_tab.content = settings
+            server_plugins_tab._pending_mount = True
+            server_plugins_tab.content = plugins
+            _tab_cbs["server"] = {"refresh": refresh}
 
     _TAB_BUILDERS = {
         "mods": _build_mods_tab,
@@ -6530,6 +6525,7 @@ async def main(page: ft.Page):
             return
         try:
             _TAB_BUILDERS[key]()
+            return key in _tab_cbs
         except Exception:
             traceback.print_exc()
 
@@ -7577,6 +7573,7 @@ async def main(page: ft.Page):
     # saves instantly on blur/submit; there is no Save button anymore.
     settings_tab = build_settings_tab(
         page, cfg,
+        assets_dir=resolve_assets_dir(), artwork_version=state.get('selected_mc_version'),
         on_replay_onboarding=lambda: _show_onboarding(replay=True),
         account_pane=account_pane,
         section_label=section_label, pixel_divider=pixel_divider,
@@ -7628,6 +7625,7 @@ async def main(page: ft.Page):
     }
     SERVER_GROUP_KEYS = {"server_console", "server_plugins", "server_settings"}
     _tab_views = {}
+    tab_switcher._shell_only = True
 
     def _reconcile_running_button():
         with thread_safe_ui.TREE_LOCK:
@@ -7673,6 +7671,66 @@ async def main(page: ft.Page):
             # the game instead of starting one (reported 2026-10-16).
             set_button_mode("running")
 
+    def _prepare_tab_entry(key, generation):
+        canonical = 'server' if key in SERVER_GROUP_KEYS else key
+        _ensure_tab(canonical)
+        with thread_safe_ui.TREE_LOCK:
+            if not entry_queue.is_current(generation) or active_tab['value'] != key:
+                return
+            target = tabs[key]
+            pane = _tab_views[key]
+            if not getattr(pane, '_content_ready', True):
+                pane.content = target
+                pane._content_ready = True
+                target._pending_mount = False
+                thread_safe_ui.refresh(pane)
+            elif getattr(target, '_pending_mount', False):
+                target._pending_mount = False
+                thread_safe_ui.refresh(target)
+            if key == 'mods' and requested_mods_content['value']:
+                kind, requested_mods_content['value'] = requested_mods_content['value'], None
+                if mods_tab.content is not None:
+                    mods_tab.content.select_content_type(kind)
+
+        try:
+            # If switching to Mods, refresh the list and load recommendations
+            # if not yet loaded
+            if key == "mods":
+                state["mods_recommendations_loaded"] = True
+                load_recommended_mods()
+            elif key == "modpacks":
+                refresh_installed_packs(background=True)
+                if not state.get("modpacks_loaded"):
+                    state["modpacks_loaded"] = True
+                    load_popular_modpacks()
+            elif key == "profile":
+                refresh_profile_tab()
+            elif key in SERVER_GROUP_KEYS:
+                refresh_server_tab(background=True)
+            elif key == "stats":
+                _cb("stats", "refresh")(background=True)
+            elif key == "chat":
+                _cb("chat", "refresh")()
+            elif key == "screenshots":
+                refresh_screenshot_gallery()
+            elif key == "play":
+                refresh_server_status_panel()
+                _reconcile_running_button()
+                # Also re-derive the big button on every entry: a pack install
+                # elsewhere (Modpacks tab) can have claimed or released this
+                # instance while the Play tab was hidden, and the button must
+                # never be the stale one.
+                with thread_safe_ui.TREE_LOCK:
+                    _sync_play_button()
+        except Exception:
+            # A refresh failure must never take navigation down (the old code
+            # could leave the pane swap half-applied). The empty/previous
+            # content is still better than a dead sidebar.
+            traceback.print_exc()
+
+    requested_mods_content = {'value': None}
+    entry_queue = TabEntryQueue(page, _prepare_tab_entry)
+
     def switch_tab(key):
         """
         Switches the active tab. Updates the navigation buttons' appearance
@@ -7701,9 +7759,12 @@ async def main(page: ft.Page):
         # inside the one content destination; never mount its host twice.
         if key == 'modpacks':
             with thread_safe_ui.TREE_LOCK:
-                _ensure_tab('mods')
-                if mods_tab.content is not None:
-                    mods_tab.content.select_content_type('modpack')
+                if entry_queue.deferred and 'mods' not in _tab_cbs:
+                    requested_mods_content['value'] = 'modpack'
+                else:
+                    _ensure_tab('mods')
+                    if mods_tab.content is not None:
+                        mods_tab.content.select_content_type('modpack')
             key = 'mods'
         if (key in {"server", "server_console", "server_plugins", "server_settings"}
                 and not rust_engine.hosting_available(version_dropdown.value)):
@@ -7720,6 +7781,9 @@ async def main(page: ft.Page):
         with thread_safe_ui.TREE_LOCK:
             previous_tab = active_tab["value"]
             if key == previous_tab:
+                canonical = 'server' if key in SERVER_GROUP_KEYS else key
+                if entry_queue.deferred and canonical in _TAB_BUILDERS and canonical not in _tab_cbs:
+                    entry_queue.request(key)
                 return
             if key == "screenshots":
                 screenshots_return_tab["value"] = previous_tab
@@ -7732,8 +7796,8 @@ async def main(page: ft.Page):
                 if btn.data != is_active:
                     _style_nav_button(btn, is_active)
                     switch_controls.append(btn)
-            if _move_nav_blob(previous_tab, key):
-                switch_controls.append(nav_blob)
+            if nav_slider.select(SERVER_TOP_KEY if key in SERVER_GROUP_KEYS else key):
+                switch_controls.append(nav_slider.marker)
             # The server chip row lives under the top bar and is visible only
             # while a server tab is active. The top-bar "Servers" icon itself
             # is just an entry point - it opens Settings.
@@ -7741,19 +7805,22 @@ async def main(page: ft.Page):
             if subnav_bar.visible != show_subnav:
                 subnav_bar.visible = show_subnav
                 switch_controls.append(subnav_bar)
-            # Build a lazy tab BEFORE it is mounted, so the first paint already
-            # carries its content. (Building after the pane swap left the host
-            # container empty on screen - a scoped refresh of an inner list
-            # does not re-send the parent's new content.)
-            _ensure_tab("server" if key in SERVER_GROUP_KEYS else key)
+            # Headless callers prepare inline. Native entry mounts a lightweight
+            # loading pane first; the worker publishes the finished host once.
+            if not entry_queue.deferred:
+                _ensure_tab("server" if key in SERVER_GROUP_KEYS else key)
             view = _tab_views.get(key)
             if view is None:
-                view = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
+                label = next((label for nav_key, icon, label in top_nav_items
+                              if nav_key == key or (nav_key == SERVER_TOP_KEY and key in SERVER_GROUP_KEYS)), key.title())
+                initial = loading_rows(f'Loading {label.lower()}…') if entry_queue.deferred else tabs[key]
+                view = TabPane(initial, padding=ft.padding.Padding.symmetric(
                     horizontal=32, vertical=24), expand=True,
                     opacity=1.0)
+                view._content_ready = not entry_queue.deferred
                 _tab_views[key] = view
                 tab_switcher.controls.append(view)
-                switch_controls.append(tab_switcher)
+                tabs[key]._pending_mount = False
             # Hide every other pane and show exactly this one, in a single
             # patch. No opacity crossfade: the switch is instant, and this is
             # still the repair for any pane a previous interrupted switch left
@@ -7763,11 +7830,12 @@ async def main(page: ft.Page):
                 want = k == key
                 if pane is not _incoming and pane.opacity != 1.0:
                     pane.opacity = 1.0
-                    switch_controls.append(pane)
                 if pane.visible != want:
                     pane.visible = want
-                    switch_controls.append(pane)
             _incoming.opacity = 1.0
+            # Update the Stack, not individual panes: their isolation boundary
+            # then sends visibility without diffing retained tab descendants.
+            switch_controls.append(tab_switcher)
             # The nearly opaque content tint needs no live GPU blur. Update
             # it in the same patch as the pane swap.
             _fill = None if key == "play" else ft.Colors.with_opacity(0.9, SURFACE)
@@ -7782,48 +7850,12 @@ async def main(page: ft.Page):
             # change entirely.
             page.update(*switch_controls)
 
-        # Per-tab refreshes run after the shell is on screen. Each one repaints
-        # only its own region (thread_safe_ui.refresh), so none of them needs
-        # the full tree lock for the whole scan.
-        try:
-            # If switching to Mods, refresh the list and load recommendations
-            # if not yet loaded
-            if key == "mods":
-                refresh_mods_list()
-                if not state.get("mods_recommendations_loaded"):
-                    state["mods_recommendations_loaded"] = True
-                    load_recommended_mods()
-            elif key == "modpacks":
-                refresh_installed_packs(background=True)
-                if not state.get("modpacks_loaded"):
-                    state["modpacks_loaded"] = True
-                    load_popular_modpacks()
-            elif key == "profile":
-                refresh_profile_tab()
-            elif key in SERVER_GROUP_KEYS:
-                refresh_server_tab(background=True)
-            elif key == "stats":
-                _cb("stats", "refresh")(background=True)
-            elif key == "chat":
-                _cb("chat", "refresh")()
-            elif key == "screenshots":
-                refresh_screenshot_gallery()
-            elif key == "play":
-                refresh_server_status_panel()
-                _reconcile_running_button()
-                # Also re-derive the big button on every entry: a pack install
-                # elsewhere (Modpacks tab) can have claimed or released this
-                # instance while the Play tab was hidden, and the button must
-                # never be the stale one.
-                _sync_play_button()
-        except Exception:
-            # A refresh failure must never take navigation down (the old code
-            # could leave the pane swap half-applied). The empty/previous
-            # content is still better than a dead sidebar.
-            traceback.print_exc()
+        # The shell responds before preparation. Native Flet runs builders and
+        # backend refreshes on one page-context worker; quick clicks coalesce.
+        entry_queue.request(key)
 
     # Initialize content area with the Play tab
-    _tab_views["play"] = ft.Container(play_tab, padding=0, expand=True)
+    _tab_views["play"] = TabPane(play_tab, padding=0, expand=True)
     tab_switcher.controls.append(_tab_views["play"])
 
     # -----------------------------------------------------------------
@@ -8128,16 +8160,6 @@ async def main(page: ft.Page):
         except Exception:
             pass
 
-    async def _prewarm_content_tabs():
-        # Prepare the two frequent destinations after the first paint. Their
-        # builders create controls only; catalogue requests remain on demand.
-        await asyncio.sleep(0.25)
-        for key in ("mods", "modpacks", "server"):
-            with thread_safe_ui.TREE_LOCK:
-                _ensure_tab(key)
-            await asyncio.sleep(0)
-
-    page.run_task(_prewarm_content_tabs)
     from cubeon import storage_layout as instance_layout
     if _onboard_overlay is None and (instance_storage.needs_migration() or instance_layout.needed(cfg.get("version_labels"))):
         _show_storage_migration()

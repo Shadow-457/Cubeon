@@ -17,6 +17,17 @@ signalling - all over one WebSocket.
   `python3 tools/test_friends_service.py` - the service and the bridge, plus a
   contract check that the launcher serves every endpoint the mod calls.
 
+## Local bridge response failures
+
+The authenticated loopback bridge returns JSON errors with HTTP 500 when a
+provider fails. If Minecraft disconnects while response headers or the body
+are being written, the bridge closes that connection and logs at debug level.
+Broken pipes, connection resets and connection aborts during response writes
+do not trigger a second reply or a provider-failure warning. Provider errors,
+JSON serialization errors and unrelated I/O failures retain their error handling.
+`python3 tools/test_local_api_disconnect.py` covers response disconnects,
+completed POST actions and a real client disconnect followed by a healthy request.
+
 ## Why It's a Durable Object, Not KV
 
 Presence is a heartbeat: every online friend's status changes several times a

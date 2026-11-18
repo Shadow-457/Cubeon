@@ -71,11 +71,8 @@ public final class CubeonHudConfig {
 	public boolean showOtherCosmetics = false;
 	/** Fixed-exposure camera blur, opt-in; independent of frame rate. */
 	public boolean cameraMotionBlur = false;
-	/** Exposure multiplier: 1 preserves the original blur, 0.25–2 adjusts intensity. */
+	/** Exposure multiplier from 0 (none) to 1 (100%). */
 	public float cameraBlurIntensity = 1.0F;
-	/** Smooth temporal world exposure, separate from the lightweight camera blur. */
-	public boolean temporalMotionBlur = false;
-	public float temporalBlurStrength = 1.0F;
 	/** Receive and display player emotes, independent of decorative items. */
 	public boolean showEmotes = true;
 	/** Up to eight favorite names, ordered clockwise from the top of the wheel. */
@@ -277,11 +274,8 @@ public final class CubeonHudConfig {
 			value.x = clamp01(value.x); value.y = clamp01(value.y);
 			if (value.scale != null) value.scale = clampScale(value.scale);
 		}
-		if (!Float.isFinite(temporalBlurStrength)) temporalBlurStrength = 1.0F;
-		temporalBlurStrength = Math.max(.25F, Math.min(2.0F, temporalBlurStrength));
-		if (temporalMotionBlur) cameraMotionBlur = false;
 		if (!Float.isFinite(cameraBlurIntensity)) cameraBlurIntensity = 1.0F;
-		cameraBlurIntensity = Math.max(.25F, Math.min(2.0F, cameraBlurIntensity));
+		cameraBlurIntensity = Math.max(0F, Math.min(1.0F, cameraBlurIntensity));
 		emoteFavorites = com.cubeon.client.emotes.EmoteFavorites.normalize(emoteFavorites);
 		fpsX = clamp01(fpsX);
 		fpsY = clamp01(fpsY);

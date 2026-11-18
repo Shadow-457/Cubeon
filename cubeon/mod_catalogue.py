@@ -4,6 +4,7 @@ Modrinth's established public functions remain in mods.py. Neither a provider
 failure nor missing credentials is a successful empty compatibility lookup.
 """
 import re
+from dataclasses import dataclass, field
 from itertools import zip_longest
 from urllib.parse import urlsplit
 
@@ -32,6 +33,38 @@ class ReleasePage(list):
     def __init__(self, values=(), *, next_offset=None):
         super().__init__(values)
         self.next_offset = next_offset
+
+
+@dataclass
+class ProviderPage:
+    """Accumulate independent provider outcomes for one catalogue page.
+
+    A failed provider stays distinct from an empty result. Successful results
+    can be shown while the other provider is pending, in either arrival order.
+    The caller serializes writes and owns fetching and UI publication.
+    """
+
+    sources: tuple[str, ...]
+    pending: set[str] = field(init=False)
+    results: dict[str, list] = field(default_factory=dict, init=False)
+    errors: dict[str, str] = field(default_factory=dict, init=False)
+
+    def __post_init__(self):
+        self.pending = set(self.sources)
+
+    @property
+    def complete(self):
+        return not self.pending
+
+    def record(self, source, hits, error=None):
+        self.pending.discard(source)
+        if error is not None:
+            self.errors[source] = str(error)
+        else:
+            self.results[source] = [dict(hit, source=source) for hit in hits or []]
+
+    def merged(self):
+        return interleave(self.results.get("modrinth", []), self.results.get("curseforge", []))
 
 
 def source_of(item):

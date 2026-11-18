@@ -65,8 +65,11 @@ public final class FriendsChatScreen extends Screen {
         
     }
     private boolean choose(int action) {
+        if (action == FriendsPanel.NONE) return false;
+        panel.press(action);
+        minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK, 1.0F));
         if (action == FriendsPanel.CLOSE) { onClose(); return true; }
-        if (action == FriendsPanel.SEND) { panel.send(input.getValue()); return true; }
+        if (action == FriendsPanel.SEND) { return choose(FriendsPanel.SEND); }
         if (action >= 0) {
             panel.saveDraft(input.getValue()); panel.select(action); input.setValue(panel.draft());
             setInitialFocus(input); return true;
@@ -74,7 +77,7 @@ public final class FriendsChatScreen extends Screen {
         return false;
     }
     private boolean key(int key, int modifiers) {
-        if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) { panel.send(input.getValue()); return true; }
+        if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) { return choose(FriendsPanel.SEND); }
         if (key == GLFW.GLFW_KEY_PAGE_UP || key == GLFW.GLFW_KEY_PAGE_DOWN) {
             panel.scroll(panel.inputX(), key == GLFW.GLFW_KEY_PAGE_UP ? 1 : -1); return true;
         }

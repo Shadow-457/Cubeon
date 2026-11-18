@@ -151,8 +151,9 @@ class Driver:
 
     def open_tab(self, key):
         if key == 'modpacks':
-            if not self.open_tab('mods'):
-                return False
+            # The sweep deduplicates fired handlers; Mods may already be open.
+            # Its content selector still needs the separate Modpacks click.
+            self.open_tab('mods')
             for control in every_control(self.page):
                 if getattr(control, 'data', None) == 'content-modpack':
                     return self._fire_named(control, 'on_click', 'open_tab:modpacks')

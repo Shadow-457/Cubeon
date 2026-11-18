@@ -48,7 +48,11 @@ If you are running the source rather than a release, follow
 
 ## First game launch
 
-1. Set a player name in Account. Cubeon uses local/offline profiles rather
+First-time setup walks through **Welcome → Player name → Start**. Your name
+is saved when you select **Open launcher**; **Back** keeps your draft. **Skip**
+uses your existing valid name, or Steve. You can replay setup from Settings.
+
+1. Set a player name during setup or in Settings → Account. Cubeon uses local/offline profiles rather
    than Microsoft account sign-in.
 2. Open **Instances** in Play and select **New instance**.
 3. Fabric is selected by default. Choose another loader if needed, then choose
@@ -103,10 +107,11 @@ Microsoft/Mojang account.
 
 ## Importing a FastClient instance
 
-Open **Settings → Import**, select **Find profiles**, and choose an installed
-FastClient profile. For a custom installation, choose its settings folder
-containing `profiles.json`. Review the profile, enter a Cubeon instance name,
-then select **Import as new instance**.
+Open **Settings → Import**, select **Find instances**, and choose the FastClient
+instance you'd like to bring over. For a custom installation, select **Choose
+folder** and locate its FastClient folder. Check the world and mod summary,
+choose its **Name in Cubeon**, then select **Import to Cubeon**. **What gets
+copied** shows the source folder and additional details.
 
 Import copies your mods, configs, worlds, packs, options, servers and screenshots
 into a separate instance. It uses FastClient's local game, loader, libraries and
@@ -454,6 +459,11 @@ Settings has separate **Account**, **Game**, **Performance**, **Appearance**, **
 **Notifications**, **Files**, **Launcher**, and **Screenshots** sections. Advanced Java,
 version options, maintenance and backup scheduling stay collapsed until opened.
 
+**Settings → About** includes acknowledgements and source links for Horizon Client,
+the foundation of Cubeon's Rust Edition, and Minekube Connect, the server connector.
+Its brand card uses Cubeon's cube mark and bundled Minecraftia and Inter fonts;
+the block illustration hides on narrow windows while the links remain accessible.
+
 **Settings → Game → In game** has separate **Cubeon Client** and
 **CustomSkinLoader (CSL)** switches. Turn either off to stop its in-game features
 on the next launch. CSL controls skins and capes; Cubeon Client controls the
@@ -474,17 +484,16 @@ Arabic, Urdu, Persian, and Pashto use a right-to-left layout.
 **Custom title bar** defaults on for Windows (including Windows 10) and Linux. An
 explicit saved choice to switch it off is preserved. Restart after changing it.
 
-**Settings → Theme → Seasonal look** enables the seasonal palette and extras.
-Switch off **Play scenery** in that section to hide the trees, grass and particles
-while keeping the seasonal colors and buddy. Spring has blossoms and petals; summer has green trees,
-butterflies and fireflies; autumn has falling leaves; winter has snow. The tilted
-tree appears in every season. A season selection updates the artwork immediately;
-the launcher's color palette applies after a restart. Turn off **Full motion** in
-Appearance to retain static artwork without moving particles. The **Seasonal buddy**
-wanders the launcher edges, climbs borders and rests above Play; changing tabs
-returns it to the bottom edge. Turning off Full motion also keeps the buddy static.
-Particles stop while Play is hidden. All seasonal animation pauses when the window
-is minimized or loses focus. There is no separate Weather effects option.
+**Settings → Appearance → Launcher color** has a color wheel. Drag around it to
+choose a hue and toward the center for a softer color. Adjust **Brightness** or
+enter six hex digits in **Color** for an exact choice. A miniature launcher
+previews the palette immediately. The accent adapts for readable buttons, while
+warning and error colors retain their meaning.
+
+Changes stay in the preview until you choose **Save color**. Then choose
+**Restart to apply**. **Original green** previews Cubeon's default palette;
+save and restart to restore it. Existing saved palettes stay compatible.
+An explicit `--color1` launch overrides the saved palette for that run.
 
 Install checks that Java exists, can run, and meets the selected game's requirement.
 It uses suitable installed Java first, otherwise downloads or repairs a verified

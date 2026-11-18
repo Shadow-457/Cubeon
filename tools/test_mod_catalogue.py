@@ -274,6 +274,10 @@ class CatalogueUITests(unittest.TestCase):
             self.assertEqual(len(jobs), 2)
             for index in order:
                 jobs[index]()
+            # Successful page publication now schedules its installation-badge
+            # snapshot. Complete that work before another provider-order probe.
+            while QueuedThread.jobs:
+                QueuedThread.jobs.pop(0)()
         return self.env(self.fns["_render_browse_page"])["browse_state"]
 
     def test_both_completion_orders_keep_reported_cf_result(self):

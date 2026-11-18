@@ -14,6 +14,7 @@ from cubeon.theme import (
     BORDER, RADIUS, RADIUS_LG, ROW_HOVER, ACCENT_TINT, TEXT_FAINT, keyboard_target,
 )
 from ui.about_settings import build_about_section
+from ui.color_studio import ColorStudio
 
 # Labels stay short; keys also serve existing links from the launcher.
 SECTIONS = [
@@ -536,7 +537,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        on_open_screenshots=None,
                        account_pane=None, on_replay_onboarding=None,
                        on_motion_change=None, detected_java_label=None,
-                       java_runtime_pane=None):
+                       java_runtime_pane=None, assets_dir=None, artwork_version=None):
     """Assemble Settings from the existing controls and callbacks.
 
     `save_width_height_java` is main.py's save_settings() minus the button
@@ -799,10 +800,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "Off reduces movement",
         motion_switch))
 
-    # The seasonal look is retired: Appearance is the launcher's own options
-    # only (language, flat background, title bar, motion), no Theme section.
+    color_studio = ColorStudio(page, cfg, on_restart=restart_btn.on_click,
+                               set_status=set_status, assets_dir=assets_dir,
+                               version=artwork_version)
     appearance_pane = pane(
-        "Appearance", group(launcher_rows),
+        "Appearance", color_studio.control, group(launcher_rows),
     )
 
     # ======================================================================

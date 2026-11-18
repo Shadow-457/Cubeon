@@ -483,7 +483,7 @@ with tempfile.TemporaryDirectory() as tmp:
         "performance": {
             "chunk_builder_threads": 8,           # wrong (Cubeon asks for 2)
             "chunk_build_defer_mode": "ZERO_FRAMES",   # wrong
-            "animate_only_visible_textures": False,    # wrong
+            "animate_only_visible_textures": False,    # pack compatibility -> keep
             "use_entity_culling": False,               # wrong
             "use_fog_occlusion": False,                # wrong
             "use_block_face_culling": True,            # already fast
@@ -509,7 +509,6 @@ with tempfile.TemporaryDirectory() as tmp:
               "quality.hidden_fluid_culling", "quality.improved_fluid_shaping",
               "performance.chunk_builder_threads",
               "performance.chunk_build_defer_mode",
-              "performance.animate_only_visible_textures",
               "performance.use_entity_culling",
               "performance.use_fog_occlusion",
               "performance.quad_splitting_mode",
@@ -519,7 +518,6 @@ with tempfile.TemporaryDirectory() as tmp:
     check("the renderer switches are back at the fast values",
           fixed["performance"]["use_fog_occlusion"] is True
           and fixed["performance"]["use_entity_culling"] is True
-          and fixed["performance"]["animate_only_visible_textures"] is True
           and fixed["performance"]["chunk_build_defer_mode"] == "ALWAYS"
           and fixed["performance"]["quad_splitting_mode"] == "SAFE"
           and fixed["performance"]["chunk_builder_threads"] == perf.chunk_builder_threads()
@@ -529,6 +527,7 @@ with tempfile.TemporaryDirectory() as tmp:
           repr(fixed))
     check("the player's own taste is left alone",
           fixed["quality"]["pixel_filtering_mode"] == "LINEAR"
+          and fixed["performance"]["animate_only_visible_textures"] is False
           and fixed["quality"]["use_closest_point_entity_sort"] is True,
           repr(fixed["quality"]))
     check("Sodium's own UI state and unknown sections survive",

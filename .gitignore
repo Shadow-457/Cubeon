@@ -31,7 +31,12 @@ instructions.txt
 /agents/
 # Keep existing CI/build scripts tracked; new local tooling stays out of Git.
 /tools/*
+!/tools/test_onboarding.py
+!/tools/test_client_startup.py
+!/tools/test_local_api_disconnect.py
 !/tools/test_mod_catalogue.py
+!/tools/test_color_studio.py
+!/tools/test_cosmetics_store.py
 # Minekube Connect is downloaded and cached on demand, outside source releases.
 /assets/jars/connect-spigot.jar
 

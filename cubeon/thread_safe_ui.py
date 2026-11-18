@@ -69,6 +69,8 @@ import os
 import sys
 import threading
 import time
+import weakref
+from contextlib import contextmanager
 
 log = logging.getLogger(__name__)
 
@@ -154,6 +156,14 @@ _mounted_pages = set()
 # control-level repaints from background threads to the right loop. Flet
 # does not expose the loop on the page object, hence the side table.
 _loops = {}
+_refresh_lock = threading.Lock()
+_refresh_pending = weakref.WeakKeyDictionary()
+
+
+def has_ui_loop(page):
+    """Whether this page has a live loop registered by install()."""
+    loop = _loops.get(id(page))
+    return loop is not None and not loop.is_closed()
 
 # THE THIRD BUG - concurrent tree mutation vs. Flet's diff walk (fixed 2026-08-25)
 #
@@ -181,6 +191,26 @@ _loops = {}
 # was never sent, so the next attempt diffs cleanly against the same snapshot.
 TREE_LOCK = threading.RLock()
 _UPDATE_MAX_RETRIES = 3
+_update_scope = threading.local()
+
+
+@contextmanager
+def update_scope(*controls):
+    """Apply shell isolation only during the actual diff, including retries.
+
+    A tagged navigation Stack requests visibility-only pane traversal. Other
+    updates retain normal Flet traversal, including legacy full-page handlers.
+    """
+    previous = getattr(_update_scope, 'shell', False)
+    _update_scope.shell = any(getattr(control, '_shell_only', False) for control in controls)
+    try:
+        yield
+    finally:
+        _update_scope.shell = previous
+
+
+def shell_update_active():
+    return getattr(_update_scope, 'shell', False)
 
 # THROTTLED page.update() for progress floods (fourth bug, 2026-09-05).
 #
@@ -278,16 +308,38 @@ def refresh(control) -> None:
     if running is loop:
         _refresh_now(control)
         return
+    key = id(control)
+    with _refresh_lock:
+        pending = _refresh_pending.setdefault(loop, set())
+        if key in pending:
+            return
+        pending.add(key)
     try:
-        loop.call_soon_threadsafe(_refresh_now, control)
+        loop.call_soon_threadsafe(_flush_refresh, loop, control)
     except RuntimeError:
-        pass  # loop gone (window closed mid-flight) - nothing left to paint
+        _clear_refresh(loop, key)
+
+
+def _clear_refresh(loop, key):
+    with _refresh_lock:
+        pending = _refresh_pending.get(loop)
+        if pending is not None:
+            pending.discard(key)
+            if not pending:
+                _refresh_pending.pop(loop, None)
+
+
+def _flush_refresh(loop, control):
+    # Clear before painting: a mutation arriving during the diff may queue the
+    # next paint. The current callback always reads the latest control state.
+    _clear_refresh(loop, id(control))
+    _refresh_now(control)
 
 
 def _refresh_now(control) -> None:
     site = _perf_site() if _PERF else ""
     try:
-        with TREE_LOCK:
+        with TREE_LOCK, update_scope(control):
             if not _PERF:
                 control.update()
             else:
@@ -385,7 +437,7 @@ def install(page) -> bool:
             # TREE_LOCK: event handlers mutate trees too, and a background
             # worker's append must not land mid-diff of this very call.
             try:
-                with TREE_LOCK:
+                with TREE_LOCK, update_scope(*controls):
                     if not _PERF:
                         return original(self, *controls)
                     _t0 = time.perf_counter()
@@ -445,7 +497,7 @@ def install(page) -> bool:
 
     def _safe_update(fn, page_obj, controls, site=""):
         try:
-            with TREE_LOCK:
+            with TREE_LOCK, update_scope(*controls):
                 if not _PERF:
                     fn(page_obj, *controls)
                 else:

@@ -1,538 +1,274 @@
-"""First-run onboarding: a full-bleed, three-beat welcome.
-
-The first version of this screen was a generic left-rail wizard - numbered
-steps in a sidebar, four rows of feature copy, a card inside a card. It read
-like a SaaS signup: the launcher's own character (the blocky display type, the
-grass block) was nowhere in it.
-
-This one is deliberately the opposite shape:
-
-* NO sidebar. The whole window is the stage; the only chrome is a small brand
-  mark, four progress ticks, and the two footer buttons.
-* The app's real backdrop (the selected version's cover art) sits
-  behind a dark scrim, so the tour looks like Cubeon, not like a web form.
-* Each beat has ONE strong prop - the rotating grass block, a Minecraft-style
-  nametag and four feature tiles - and as little copy as
-  the point needs.
-* Motion is layered but cheap: the overlay fades and scales up once, the step
-  body cross-fades while drifting up 1.2% of its own height, and the progress
-  ticks stretch in place. The only timers are one 30ms settle per step and the
-  fade-out retire, both generation-guarded.
-"""
+"""Artwork-led setup with a validated player name and a guarded save."""
 from __future__ import annotations
 
 import threading
 
 import flet as ft
-from cubeon import i18n
 
 from cubeon import thread_safe_ui
-from cubeon.theme import (
-    ACCENT, ACCENT_TINT, BG, BORDER, FONT_DISPLAY, FONT_MONO,
-    ON_ACCENT, RADIUS, RADIUS_LG, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT,
-)
+from cubeon.theme import ACCENT, BG, FONT_DISPLAY, ON_ACCENT, RADIUS, TEXT, TEXT_DIM
 
-STEP_COUNT = 3  # welcome, name, features
-FADE_MS = 220
-DRIFT_MS = 320
-RETIRE_MS = 340
-MAX_CONTENT_W = 880
-# Every beat gets the same stage height so switching steps never re-centers the
-# headline/footer (that vertical jump was the "not seamless" part, 2026-10-23).
-# Tall enough for the four feature tiles, short enough for the 640px minimum
-# window (top bar + stage + footer + padding fits).
-STAGE_H = 372
+STEP_COUNT = 3
+FADE_MS = 180
+RETIRE_MS = 220
 
-
-# ---------------------------------------------------------------------------
-# Small pieces
-# ---------------------------------------------------------------------------
 
 def _field_error(field, message):
-    """Set/clear a TextField error across both Flet spellings.
-
-    The project pins Flet 0.86 (where the attribute is `error_text`) while
-    newer Flet renamed it to `error`; assigning the wrong one raises
-    AttributeError from inside an on_change handler, which is exactly how the
-    mega-smoke caught this. Prefer the modern name, fall back to the pinned
-    one.
-    """
-    if hasattr(field, "error"):
+    if hasattr(field, 'error'):
         field.error = message
     else:
         field.error_text = message
 
 
 def _has_field_error(field) -> bool:
-    return bool(getattr(field, "error", None)
-                or getattr(field, "error_text", None))
+    return bool(getattr(field, 'error', None) or getattr(field, 'error_text', None))
 
 
-def _eyebrow(text: str) -> ft.Text:
-    return ft.Text(
-        text.upper(), size=10.5, color=ACCENT, font_family=FONT_MONO,
-        weight=ft.FontWeight.W_700,
-        style=ft.TextStyle(letter_spacing=1.8),
-    )
+def _title(text, size=40):
+    return ft.Text(text, size=size, color='#F4F5EF', font_family=FONT_DISPLAY,
+                   style=ft.TextStyle(height=1.3))
 
 
-def _headline(text: str, size: int = 46) -> ft.Text:
-    return ft.Text(text, size=size, color=TEXT, font_family=FONT_DISPLAY,
-                   weight=ft.FontWeight.W_600)
+def _caption(text):
+    return ft.Text(text, size=9, color=TEXT_DIM, font_family=FONT_DISPLAY)
 
-
-def _body(text: str) -> ft.Text:
-    return ft.Text(text, size=14, color=TEXT_DIM, style=ft.TextStyle(height=1.45))
-
-
-def _prop_glow() -> ft.Container:
-    """The soft green halo behind a hero prop (the grass block, a pet).
-
-    A radial gradient is cheaper than a shadow and fades all the way to
-    transparent, so it reads as light on the backdrop rather than as a disc.
-    """
-    return ft.Container(
-        width=300, height=300, border_radius=150,
-        gradient=ft.RadialGradient(
-            colors=[ft.Colors.with_opacity(0.30, ACCENT),
-                    ft.Colors.with_opacity(0.0, ACCENT)],
-            radius=0.55,
-        ),
-    )
-
-
-def _feature_tile(icon, title: str, detail: str) -> ft.Container:
-    # Fixed height + no cross-axis STRETCH: a Row that STRETCHes inside an
-    # unbounded-height Column demands infinite height, and Flutter then lays
-    # the whole beat out off-screen (the "empty features page" report,
-    # 2026-10-23). A fixed height keeps the four tiles even without it.
-    return ft.Container(
-        expand=True,
-        height=116,
-        content=ft.Column(
-            [
-                ft.Icon(icon, size=22, color=ACCENT),
-                ft.Container(height=12),
-                ft.Text(title, size=13.5, color=TEXT,
-                        weight=ft.FontWeight.W_600),
-                ft.Text(detail, size=11.5, color=TEXT_DIM,
-                        max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-            ],
-            spacing=4, tight=True,
-        ),
-        bgcolor=ft.Colors.with_opacity(0.34, SURFACE_HI),
-        border=ft.border.Border.all(1, BORDER),
-        border_radius=RADIUS_LG,
-        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=16),
-    )
-
-
-# ---------------------------------------------------------------------------
-# The flow
-# ---------------------------------------------------------------------------
 
 def build_onboarding(page, *, initial_name: str, friends_on: bool,
                      backdrop=None, validate_name, on_finish) -> ft.Container:
-    """Build the overlay. The caller appends it to `page.overlay`, then fades it
-    in by setting `opacity = 1` (and `scale = 1`) after the window reveal.
+    """The caller mounts/reveals the overlay and owns saving the valid name.
 
-    Callbacks
-    ---------
-    validate_name(name) -> (ok, error)
-    on_finish(name) -> (ok, error)       - saves cfg + publishes the username;
-                                           the overlay only retires on (True, "")
+    Both callbacks return (ok, error). Only a successful on_finish dismisses
+    setup. The reference's Java Edition artwork stays fixed across steps.
+    friends_on/backdrop remain accepted for existing startup/replay callers.
     """
-    state = {"index": 0, "done": False, "gen": 0}
-    name_value = (initial_name or "").strip()
-
-    # --- top bar: brand, ticks, counter -----------------------------------
-    tick_bars = []
-    for _ in range(STEP_COUNT):
-        bar = ft.Container(
-            width=44, height=4, border_radius=2,
-            bgcolor=ft.Colors.with_opacity(0.18, TEXT),
-            animate=ft.Animation(260, ft.AnimationCurve.EASE_OUT),
-        )
-        tick_bars.append(bar)
-
-    step_counter = ft.Text("01 / 03", size=10.5, color=TEXT_FAINT,
-                           font_family=FONT_MONO)
-
-    top_bar = ft.Row(
-        [
-            ft.Row(
-                [
-                    ft.Image(src="cube.svg", width=28, height=28,
-                             fit=ft.BoxFit.CONTAIN),
-                    ft.Text("Cubeon", size=18, color=TEXT,
-                            font_family=FONT_DISPLAY,
-                            weight=ft.FontWeight.W_600),
-                ],
-                spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            ft.Container(expand=True),
-            ft.Row(tick_bars, spacing=8),
-            ft.Container(width=12),
-            step_counter,
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-    )
-
-    # --- beat 1: welcome ---------------------------------------------------
-    welcome_visual = ft.Stack(
-        [
-            ft.Container(
-                content=_prop_glow(),
-                alignment=ft.Alignment.CENTER,
-            ),
-            ft.Container(
-                content=ft.Image(src="cubeon-rotating.gif", width=200,
-                                 height=200, fit=ft.BoxFit.CONTAIN),
-                alignment=ft.Alignment.CENTER,
-            ),
-        ],
-        width=300, height=300,
-    )
-    welcome = ft.Row(
-        [
-            ft.Column(
-                [
-                    _eyebrow("Welcome"),
-                    ft.Container(height=12),
-                    _headline("Minecraft.\nOne click.", 54),
-                    ft.Container(height=16),
-                    ft.Container(
-                        width=520,
-                        content=_body(
-                            "Cubeon picks the version, fixes the folder, and "
-                            "launches the game. You just press play."),
-                    ),
-                    ft.Container(height=16),
-                    ft.Text("Free · No account needed", size=11.5,
-                            color=TEXT_FAINT, font_family=FONT_MONO),
-                ],
-                spacing=0, tight=True, expand=True,
-                alignment=ft.MainAxisAlignment.CENTER,
-            ),
-            ft.Container(width=32),
-            welcome_visual,
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-    )
-
-    # --- beat 2: the name --------------------------------------------------
+    state = {'index': 0, 'busy': False, 'done': False}
     name_field = ft.TextField(
-        value=name_value,
-        hint_text="Steve",
-        prefix_icon=ft.Icons.PERSON_ROUNDED,
-        border=ft.InputBorder.NONE,
-        bgcolor=ft.Colors.with_opacity(0.40, SURFACE_HI),
-        color=TEXT,
-        text_style=ft.TextStyle(size=15),
-        content_padding=ft.padding.Padding.symmetric(horizontal=16, vertical=16),
-        border_radius=RADIUS,
-        height=56,
-        width=400,
-        autocorrect=False,
-        enable_suggestions=False,
-        on_submit=lambda e: _next(),
+        value=(initial_name or '').strip(), label='Player name', hint_text='Steve',
+        helper='3–16 letters, numbers, or underscores.',
+        border_color=ft.Colors.with_opacity(.3, TEXT_DIM), focused_border_color=ACCENT,
+        bgcolor=ft.Colors.with_opacity(.86, BG), color=TEXT,
+        text_style=ft.TextStyle(size=13, font_family=FONT_DISPLAY),
+        label_style=ft.TextStyle(size=11, font_family=FONT_DISPLAY),
+        helper_style=ft.TextStyle(size=9, font_family=FONT_DISPLAY),
+        content_padding=ft.Padding(14, 16, 14, 16), border_radius=RADIUS,
+        autocorrect=False, enable_suggestions=False,
+        on_submit=lambda e: _next(), data='onboarding-name',
     )
-    preview_name = ft.Text(name_value or "Player", size=26, color=TEXT,
-                           font_family=FONT_DISPLAY,
-                           weight=ft.FontWeight.W_600, max_lines=1,
+    summary_name = ft.Text(name_field.value or 'Steve', size=14, color=TEXT,
+                           font_family=FONT_DISPLAY, max_lines=1,
                            overflow=ft.TextOverflow.ELLIPSIS)
-    name_preview = ft.Container(
-        content=ft.Column(
-            [
-                ft.Text("IN-GAME", size=9, color=ACCENT, font_family=FONT_MONO,
-                        weight=ft.FontWeight.W_700,
-                        style=ft.TextStyle(letter_spacing=1.6)),
-                preview_name,
-            ],
-            spacing=4, tight=True,
-        ),
-        bgcolor=ft.Colors.with_opacity(0.52, "#000000"),
-        border=ft.border.Border.all(1, ft.Colors.with_opacity(0.35, ACCENT)),
-        border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=24, vertical=12),
-        width=400,
+    welcome = ft.Column([
+        _caption('WELCOME'),
+        _title('Welcome\nto Cubeon.'),
+        ft.Text('Set your player name, then choose a Minecraft version.',
+                size=11, color=TEXT_DIM, width=380, font_family=FONT_DISPLAY),
+    ], spacing=20, tight=True, alignment=ft.MainAxisAlignment.CENTER)
+    player = ft.Column([
+        _caption('PLAYER NAME'),
+        _title('Your name\nin Minecraft.', 30),
+        ft.Text('This is the name other players will see.', size=11, color=TEXT_DIM,
+                font_family=FONT_DISPLAY),
+        name_field,
+        ft.Text('You can change it later in Settings → Account.', size=10, color=TEXT_DIM,
+                font_family=FONT_DISPLAY),
+    ], spacing=18, tight=True, alignment=ft.MainAxisAlignment.CENTER,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+    ready = ft.Column([
+        _caption('START'),
+        _title('Ready to play.', 32),
+        ft.Text('Open New instance on the Play tab to choose a version.',
+                size=11, color=TEXT_DIM, width=380, font_family=FONT_DISPLAY),
+        ft.Row([
+            summary_name,
+            ft.TextButton('Edit name', on_click=lambda e: _go(1),
+                          style=ft.ButtonStyle(color=TEXT_DIM,
+                                              text_style=ft.TextStyle(font_family=FONT_DISPLAY, size=10))),
+        ], spacing=14),
+    ], spacing=22, tight=True, alignment=ft.MainAxisAlignment.CENTER)
+    views = [welcome, player, ready]
+    switcher = ft.AnimatedSwitcher(
+        content=views[0], transition=ft.AnimatedSwitcherTransition.FADE,
+        duration=FADE_MS, reverse_duration=FADE_MS,
+        switch_in_curve=ft.AnimationCurve.EASE_OUT,
+        switch_out_curve=ft.AnimationCurve.EASE_IN, data='onboarding-step',
     )
+    numbers, labels, dots = [], [], []
+    progress = []
+    for i, title in enumerate(('Welcome', 'Player name', 'Start')):
+        number = ft.Container(ft.Text(str(i + 1), size=9, color=TEXT_DIM, font_family=FONT_DISPLAY),
+                              width=24, height=24, border_radius=7,
+                              alignment=ft.Alignment.CENTER,
+                              bgcolor=ft.Colors.with_opacity(.55, BG))
+        label = ft.Text(title, size=10, color=TEXT_DIM, font_family=FONT_DISPLAY)
+        numbers.append(number)
+        labels.append(label)
+        progress.append(ft.Row([number, label], spacing=8, tight=True))
+        dots.append(ft.Container(width=6, height=6, border_radius=3,
+                                 bgcolor=ft.Colors.with_opacity(.35, TEXT_DIM),
+                                 animate=ft.Animation(FADE_MS)))
+    skip_btn = ft.TextButton('Skip', data='onboarding-skip',
+                             style=ft.ButtonStyle(color=TEXT_DIM, text_style=ft.TextStyle(font_family=FONT_DISPLAY, size=10)))
+    back_btn = ft.TextButton('Back', visible=False, data='onboarding-back',
+                             style=ft.ButtonStyle(color=TEXT_DIM, text_style=ft.TextStyle(font_family=FONT_DISPLAY, size=10)))
+    next_btn = ft.FilledButton(
+        'Continue', icon=ft.Icons.ARROW_FORWARD_ROUNDED, width=178, height=46,
+        data='onboarding-next',
+        style=ft.ButtonStyle(color=ON_ACCENT, bgcolor=ACCENT,
+                             shape=ft.RoundedRectangleBorder(radius=RADIUS),
+                             text_style=ft.TextStyle(size=11, font_family=FONT_DISPLAY)),
+    )
+    footer = ft.Row([
+        ft.Container(back_btn, width=178, alignment=ft.Alignment.BOTTOM_LEFT),
+        ft.Container(ft.Row(dots, spacing=7, tight=True), expand=True,
+                     alignment=ft.Alignment.BOTTOM_CENTER, padding=ft.Padding(0, 0, 0, 18)),
+        next_btn,
+    ], vertical_alignment=ft.CrossAxisAlignment.END)
+    layout = ft.Container(
+        left=0, top=0, right=0, bottom=0, padding=ft.Padding(40, 12, 40, 40),
+        content=ft.Column([
+            ft.Row([ft.Row(progress, spacing=20, tight=True),
+                    ft.Container(expand=True), skip_btn],
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Column([
+                ft.Container(switcher, width=420, height=340,
+                             alignment=ft.Alignment.CENTER_LEFT),
+            ], expand=True, scroll=ft.ScrollMode.AUTO,
+                alignment=ft.MainAxisAlignment.CENTER),
+            footer,
+        ], spacing=8, expand=True),
+    )
+    overlay = ft.Container(
+        left=0, top=0, right=0, bottom=0, bgcolor=BG,
+        visible=True, opacity=0, ink=False,
+        on_click=lambda e: None,
+        animate_opacity=ft.Animation(FADE_MS, ft.AnimationCurve.EASE_OUT),
+        content=ft.Stack([
+            ft.Container(left=0, top=0, right=0, bottom=0,
+                         image=ft.DecorationImage(src='version-art/java-edition.webp',
+                                                  fit=ft.BoxFit.COVER)),
+            ft.Container(left=0, top=0, right=0, bottom=0,
+                         gradient=ft.LinearGradient(
+                             begin=ft.Alignment.CENTER_LEFT, end=ft.Alignment.CENTER_RIGHT,
+                             colors=[ft.Colors.with_opacity(.86, BG),
+                                     ft.Colors.with_opacity(.65, BG),
+                                     ft.Colors.with_opacity(.10, BG),
+                                     ft.Colors.with_opacity(.24, BG)],
+                             stops=[0, .24, .62, 1])),
+            layout,
+        ], expand=True), data='onboarding',
+    )
+
+    def _sync():
+        current = state['index']
+        for i, (number, label, dot) in enumerate(zip(numbers, labels, dots)):
+            active = i == current
+            number.bgcolor = ACCENT if active else ft.Colors.with_opacity(.55, BG)
+            number.content.color = ON_ACCENT if active else TEXT_DIM
+            label.color = TEXT if active else TEXT_DIM
+            dot.width = 24 if active else 6
+            dot.bgcolor = ACCENT if active else ft.Colors.with_opacity(.35, TEXT_DIM)
+            for control in (number, label, dot):
+                thread_safe_ui.refresh(control)
+        back_btn.visible = current > 0
+        skip_btn.visible = current < STEP_COUNT - 1
+        next_btn.content = 'Open launcher' if current == STEP_COUNT - 1 else 'Continue'
+        for control in (back_btn, skip_btn, next_btn):
+            thread_safe_ui.refresh(control)
+
+    def _go(index):
+        with thread_safe_ui.TREE_LOCK:
+            if state['busy'] or state['done']:
+                return
+            state['index'] = max(0, min(index, STEP_COUNT - 1))
+            summary_name.value = (name_field.value or '').strip() or 'Steve'
+            switcher.content = views[state['index']]
+            thread_safe_ui.refresh(switcher)
+            _sync()
+        if state['index'] == 1:
+            try:
+                page.run_task(name_field.focus)
+            except Exception:
+                pass
 
     def _name_changed(e=None):
-        value = (name_field.value or "").strip()
-        preview_name.value = value or "Player"
-        if _has_field_error(name_field):
-            _field_error(name_field, None)
-            thread_safe_ui.refresh(name_field)
-        thread_safe_ui.refresh(preview_name)
-
+        with thread_safe_ui.TREE_LOCK:
+            if _has_field_error(name_field):
+                _field_error(name_field, None)
+                thread_safe_ui.refresh(name_field)
     name_field.on_change = _name_changed
 
-    name_step = ft.Row(
-        [
-            ft.Column(
-                [
-                    _eyebrow("Your name"),
-                    ft.Container(height=12),
-                    _headline("Pick a name.", 46),
-                    ft.Container(height=12),
-                    ft.Container(
-                        width=480,
-                        content=_body("It's what other players see. Three to "
-                                      "sixteen characters."),
-                    ),
-                    ft.Container(height=24),
-                    name_field,
-                    ft.Container(height=16),
-                    name_preview,
-                ],
-                spacing=0, tight=True, expand=True,
-                alignment=ft.MainAxisAlignment.CENTER,
-            ),
-            ft.Container(expand=True),
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-    )
-
-    # --- beat 3: features --------------------------------------------------
-    if friends_on:
-        fourth = (ft.Icons.FORUM_ROUNDED, "Friends", "Chat and worlds")
-    else:
-        fourth = (ft.Icons.PALETTE_ROUNDED, "Skins & capes", "Plus a companion")
-    tiles = [
-        _feature_tile(ft.Icons.DOWNLOAD_ROUNDED, "Any version",
-                      "Vanilla to snapshots"),
-        _feature_tile(ft.Icons.EXTENSION_ROUNDED, "Mods & packs",
-                      "Fabric, Forge, Modrinth"),
-        _feature_tile(ft.Icons.DNS_ROUNDED, "Live servers",
-                      "Counts before you join"),
-        _feature_tile(*fourth),
-    ]
-    features_step = ft.Column(
-        [
-            _eyebrow("What's inside"),
-            ft.Container(height=12),
-            _headline("Four things, done.", 46),
-            ft.Container(height=12),
-            ft.Container(
-                width=560,
-                content=_body("The parts you'd normally stitch together from "
-                              "four different tools - one tab away."),
-            ),
-            ft.Container(height=24),
-            ft.Row(tiles, spacing=12,
-                   vertical_alignment=ft.CrossAxisAlignment.START),
-        ],
-        spacing=0, tight=True,
-        alignment=ft.MainAxisAlignment.CENTER,
-    )
-
-    step_views = [welcome, name_step, features_step]
-    for view in step_views:
-        view.offset = ft.Offset(0, 0)
-        view.animate_offset = ft.Animation(DRIFT_MS,
-                                           ft.AnimationCurve.EASE_OUT_CUBIC)
-
-    # --- footer + switching ------------------------------------------------
-    back_btn = ft.TextButton(
-        i18n.t("Back"), icon=ft.Icons.ARROW_BACK_ROUNDED,
-        visible=False,
-        style=ft.ButtonStyle(color=TEXT_DIM, icon_color=TEXT_DIM),
-    )
-    next_btn = ft.FilledButton(
-        "Let's go", icon=ft.Icons.ARROW_FORWARD_ROUNDED,
-        style=ft.ButtonStyle(
-            color=ON_ACCENT, bgcolor=ACCENT,
-            shape=ft.RoundedRectangleBorder(radius=RADIUS),
-            padding=ft.padding.Padding.symmetric(horizontal=24, vertical=16),
-            text_style=ft.TextStyle(size=13,
-                                    weight=ft.FontWeight.W_600),
-        ),
-    )
-    footer = ft.Row(
-        [
-            back_btn,
-            ft.Container(expand=True),
-            next_btn,
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-    )
-
-    switcher = ft.AnimatedSwitcher(
-        content=step_views[0],
-        transition=ft.AnimatedSwitcherTransition.FADE,
-        duration=FADE_MS,
-        reverse_duration=FADE_MS,
-        switch_in_curve=ft.AnimationCurve.EASE_OUT,
-        switch_out_curve=ft.AnimationCurve.EASE_IN,
-    )
-
-    layout = ft.Container(
-        left=0, top=0, right=0, bottom=0,
-        padding=ft.padding.Padding.symmetric(horizontal=48, vertical=32),
-        content=ft.Column(
-            [
-                top_bar,
-                ft.Container(
-                    expand=True,
-                    alignment=ft.Alignment.CENTER,
-                    content=ft.Container(
-                        width=MAX_CONTENT_W, height=STAGE_H,
-                        alignment=ft.Alignment.CENTER,
-                        content=switcher,
-                    ),
-                ),
-                footer,
-            ],
-            spacing=0, expand=True,
-        ),
-    )
-
-    # Backdrop layers: the real window backdrop, a scrim, and one green bloom.
-    bg_layer = ft.Container(
-        left=0, top=0, right=0, bottom=0,
-        bgcolor=BG,
-        image=(ft.DecorationImage(src=backdrop, fit=ft.BoxFit.COVER,
-                                  opacity=0.40,
-                                  filter_quality=ft.FilterQuality.MEDIUM)
-               if backdrop else None),
-    )
-    scrim = ft.Container(
-        left=0, top=0, right=0, bottom=0,
-        gradient=ft.LinearGradient(
-            begin=ft.Alignment.TOP_LEFT,
-            end=ft.Alignment.BOTTOM_RIGHT,
-            colors=[
-                ft.Colors.with_opacity(0.58, BG),
-                ft.Colors.with_opacity(0.84, BG),
-                ft.Colors.with_opacity(0.97, BG),
-            ],
-            stops=[0.0, 0.52, 1.0],
-        ),
-    )
-    bloom = ft.Container(
-        right=-140, top=-160, width=620, height=620, border_radius=310,
-        gradient=ft.RadialGradient(
-            colors=[ft.Colors.with_opacity(0.22, ACCENT),
-                    ft.Colors.with_opacity(0.0, ACCENT)],
-            radius=0.55,
-        ),
-    )
-
-    overlay = ft.Container(
-        left=0, top=0, right=0, bottom=0,
-        visible=True,
-        opacity=0.0,
-        scale=ft.Scale(scale_x=0.985, scale_y=0.985),
-        ink=False,
-        # Catch taps on empty space so the Play tab behind the tour can't be
-        # clicked through. Children still win their own hits.
-        on_click=lambda e: None,
-        animate_opacity=ft.Animation(320, ft.AnimationCurve.EASE_OUT),
-        animate_scale=ft.Animation(420, ft.AnimationCurve.EASE_OUT_CUBIC),
-        content=ft.Stack(
-            [bg_layer, scrim, bloom, layout],
-            expand=True,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        ),
-    )
-
-    # --- behaviour ---------------------------------------------------------
-    def _sync_chrome():
-        current = state["index"]
-        for i, bar in enumerate(tick_bars):
-            if i == current:
-                bar.width = 72
-                bar.bgcolor = ACCENT
-            elif i < current:
-                bar.width = 44
-                bar.bgcolor = ft.Colors.with_opacity(0.55, ACCENT)
-            else:
-                bar.width = 44
-                bar.bgcolor = ft.Colors.with_opacity(0.18, TEXT)
-            thread_safe_ui.refresh(bar)
-        step_counter.value = f"0{current + 1} / 0{STEP_COUNT}"
-        thread_safe_ui.refresh(step_counter)
-        back_btn.visible = current > 0
-        next_btn.content = ("Start playing" if current == STEP_COUNT - 1
-                            else ("Let's go" if current == 0 else "Continue"))
-        next_btn.icon = (ft.Icons.PLAY_ARROW_ROUNDED
-                         if current == STEP_COUNT - 1
-                         else ft.Icons.ARROW_FORWARD_ROUNDED)
-        thread_safe_ui.refresh(back_btn)
-        thread_safe_ui.refresh(next_btn)
-
-    def _go(index: int):
-        index = max(0, min(index, STEP_COUNT - 1))
-        state["index"] = index
-        state["gen"] += 1
-        gen = state["gen"]
-        view = step_views[index]
-        # Mount it a hair low, then let its own animate_offset lift it into
-        # place while the switcher cross-fades. The 30ms settle gives Flet one
-        # flush to record the start value; without it the drift is skipped.
-        view.offset = ft.Offset(0, 0.012)
-        switcher.content = view
-        thread_safe_ui.refresh(switcher)
-        _sync_chrome()
-
-        def _settle():
-            if state["gen"] != gen or state["done"]:
-                return
-            view.offset = ft.Offset(0, 0)
-            thread_safe_ui.refresh(view)
-
-        threading.Timer(0.03, _settle).start()
-
-        if index == 1:
-            try:
-                run_task = getattr(page, "run_task", None)
-                if callable(run_task):
-                    run_task(name_field.focus)
-            except Exception:
-                pass
-
     def _finish():
-        if state["done"]:
-            return
-        ok, err = on_finish((name_field.value or "").strip())
-        if not ok:
-            if state["index"] != 1:
-                _go(1)
-            _field_error(name_field, err or "Please check that name")
-            thread_safe_ui.refresh(name_field)
-            return
-        state["done"] = True
-        overlay.opacity = 0
-        overlay.scale = ft.Scale(scale_x=0.99, scale_y=0.99)
-        thread_safe_ui.refresh(overlay)
-
-        def _retire():
-            if not state["done"] or overlay.opacity != 0:
+        with thread_safe_ui.TREE_LOCK:
+            if state['busy'] or state['done']:
                 return
-            try:
-                overlay.visible = False
-                thread_safe_ui.refresh(overlay)
-            except Exception:
-                pass
-
-        threading.Timer(RETIRE_MS / 1000.0, _retire).start()
+            name = (name_field.value or '').strip()
+        ok, err = validate_name(name)
+        if not ok:
+            _go(1)
+            with thread_safe_ui.TREE_LOCK:
+                _field_error(name_field, err or 'Please check your player name.')
+                thread_safe_ui.refresh(name_field)
+            return
+        with thread_safe_ui.TREE_LOCK:
+            if state['busy'] or state['done']:
+                return
+            state['busy'] = True
+            next_btn.disabled = skip_btn.disabled = back_btn.disabled = True
+            next_btn.content = 'Saving…'
+            thread_safe_ui.refresh(next_btn)
+        try:
+            ok, err = on_finish(name)
+        finally:
+            with thread_safe_ui.TREE_LOCK:
+                state['busy'] = False
+                next_btn.disabled = skip_btn.disabled = back_btn.disabled = False
+                _sync()
+        if not ok:
+            _go(1)
+            with thread_safe_ui.TREE_LOCK:
+                _field_error(name_field, err or "Couldn't save setup. Try again.")
+                thread_safe_ui.refresh(name_field)
+            return
+        with thread_safe_ui.TREE_LOCK:
+            state['done'] = True
+            overlay.opacity = 0
+            thread_safe_ui.refresh(overlay)
+        def retire():
+            with thread_safe_ui.TREE_LOCK:
+                if state['done'] and overlay.opacity == 0:
+                    overlay.visible = False
+                    thread_safe_ui.refresh(overlay)
+        timer = threading.Timer(RETIRE_MS / 1000, retire)
+        timer.daemon = True
+        timer.start()
 
     def _next(e=None):
-        index = state["index"]
-        if index == 1:
-            name = (name_field.value or "").strip()
-            ok, err = validate_name(name)
-            if not ok:
-                _field_error(name_field, err)
-                thread_safe_ui.refresh(name_field)
-                return
-        if index == STEP_COUNT - 1:
-            _finish()
+        if state['busy'] or state['done']:
             return
-        _go(index + 1)
+        if state['index'] == 1:
+            ok, err = validate_name((name_field.value or '').strip())
+            if not ok:
+                with thread_safe_ui.TREE_LOCK:
+                    _field_error(name_field, err)
+                    thread_safe_ui.refresh(name_field)
+                return
+        if state['index'] == STEP_COUNT - 1:
+            _finish()
+        else:
+            _go(state['index'] + 1)
 
-    back_btn.on_click = lambda e: _go(state["index"] - 1)
+    def _skip(e=None):
+        value = (name_field.value or '').strip()
+        if not validate_name(value)[0]:
+            value = (initial_name or '').strip()
+            if not validate_name(value)[0]:
+                value = 'Steve'
+            with thread_safe_ui.TREE_LOCK:
+                name_field.value = value
+        _finish()
+
     next_btn.on_click = _next
-    _sync_chrome()
+    back_btn.on_click = lambda e: _go(state['index'] - 1)
+    skip_btn.on_click = _skip
+    _sync()
     return overlay

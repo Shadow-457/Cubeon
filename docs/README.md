@@ -35,6 +35,7 @@ Protocol references describe the client/Worker boundary. Check the linked
 source and contract tests when changing a route or message format.
 
 - [Skins and capes](protocols/skins-api.md)
+- [Neon cosmetics store](development/cosmetics-store.md): sample, owner uploads and public downloads.
 - [Invite codes](protocols/invites-api.md)
 - [Friends WebSocket](protocols/friends-api.md)
 - [Worker deployment](../worker/README.md)

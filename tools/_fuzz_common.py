@@ -163,6 +163,41 @@ class FakePage:
 
 
 # ------------------------------------------------------------- tree walking ----
+def callback_scope(callback):
+    """Inspect a real callback's captured values or its owning view instance."""
+    if inspect.ismethod(callback):
+        owner, captured = callback.__self__, {}
+    else:
+        captured = inspect.getclosurevars(callback).nonlocals
+        owner = captured.get('self')
+    if owner is None:
+        return captured
+    methods = {name: getattr(owner, name) for name, value in vars(type(owner)).items()
+               if inspect.isfunction(value)}
+    return {**vars(owner), **methods, 'self': owner, **captured}
+
+
+def callback_functions(*roots):
+    """Find retained handlers in closures and view methods without UI mutation."""
+    found, seen = {}, set()
+
+    def visit(callback):
+        if not (inspect.isfunction(callback) or inspect.ismethod(callback)):
+            return
+        key = ((id(callback.__self__), id(callback.__func__))
+               if inspect.ismethod(callback) else id(callback))
+        if key in seen:
+            return
+        seen.add(key)
+        found[callback.__name__] = callback
+        for value in callback_scope(callback).values():
+            visit(value)
+
+    for callback in roots:
+        visit(callback)
+    return found
+
+
 def walk(control, depth=0, seen=None):
     """Yields every control in a Flet tree, defensively."""
     if seen is None:

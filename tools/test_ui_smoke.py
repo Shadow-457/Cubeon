@@ -1253,8 +1253,7 @@ if _client_installed is None:
     _mods_card = next((c for c in walk(page.controls[0])
                        if callable(getattr(c, 'refresh_client_preference', None))), None)
     if _mods_card is not None:
-        _client_render = _inspect.getclosurevars(_mods_card.refresh_client_preference).nonlocals['_render_installed_snapshot']
-        _client_installed = _inspect.getclosurevars(_client_render).nonlocals['client_preference_switch']
+        _client_installed = _mods_card.refresh_client_preference.__self__.client_preference_switch
 check("Mods Installed retains the client preference", _client_installed is not None)
 if _client_settings is not None and _client_installed is not None:
     _client_cfg = _inspect.getclosurevars(_client_settings.on_change).nonlocals['cfg']

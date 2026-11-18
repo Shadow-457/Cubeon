@@ -121,9 +121,9 @@ check("server log follows with client-side animation", console.auto_scroll_anima
 check("server scrolling adds no Python wheel callback", console.on_scroll is None)
 driver.open_tab("chat")
 transcripts = [control for control in every_control(driver.page)
-               if isinstance(control, ft.ListView) and control.on_scroll is not None]
-check("chat keeps follow conditional on the reader's scroll position", bool(transcripts) and all(not control.auto_scroll for control in transcripts))
-check("chat scroll notifications are throttled without changing native input", bool(transcripts) and all(control.scroll_interval == 50 for control in transcripts))
+               if isinstance(control, ft.ListView) and control.reverse]
+check("chat anchors latest at zero without scrolling through history", bool(transcripts) and all(not control.auto_scroll for control in transcripts))
+check("chat manual scrolling needs no Python callback", bool(transcripts) and all(control.on_scroll is None for control in transcripts))
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

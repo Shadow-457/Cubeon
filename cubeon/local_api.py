@@ -284,11 +284,19 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _json(self, obj, code=200):
         body = json.dumps(obj).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # The mod can time out or close while a provider is still working.
+            # There is no client left to receive a reply, including a 500.
+            # Keep this guard around response I/O only: provider and JSON
+            # serialization failures must retain their normal error handling.
+            self.close_connection = True
+            log.debug("local API %s %s client disconnected", self.command, self.path)
 
     def _authorized(self) -> bool:
         provided = self.headers.get("X-Cubeon-Token") or ""

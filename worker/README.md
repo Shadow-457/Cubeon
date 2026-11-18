@@ -7,6 +7,11 @@ own source and deployment configuration in this directory. Repository
 configuration is not proof of deployment health; verify the intended
 environment after deploying.
 
+New downloadable capes use a Neon catalog behind the existing website's
+read-only `/api/cosmetics` endpoint. Owner publishing uses
+`worker/manage-cosmetics.py`; see [Neon cosmetics store](../docs/development/cosmetics-store.md)
+for schema, the single sample, later uploads, hosting and verification.
+
 | Worker | Responsibility | Configuration |
 |---|---|---|
 | `cubeon-skins.js` | Skin identity, username pointers, textures, and the Cubeon cape | `wrangler-skins.toml` |

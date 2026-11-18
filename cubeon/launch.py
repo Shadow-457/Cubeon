@@ -1116,6 +1116,55 @@ def _normalize_game_directory(command: list[str], game_dir: str) -> list[str]:
     return cleaned
 
 
+def _normalize_inherited_client_jar(command: list[str], version_id: str) -> list[str]:
+    """Replace mll's absent profile JAR with the inherited Minecraft client.
+
+    mll 8 merges the child's id over its parent's id, then uses that id for
+    the client JAR when no explicit `jar` is declared. Fabric/Quilt profiles
+    normally have no JAR of their own. Keep dedicated/custom JARs and explicit
+    `jar` references; change only the default profile entry in JVM classpaths.
+    """
+    from . import versions
+
+    folder = versions.version_folder(version_id)
+    profile_jar = os.path.join(folder, version_id + ".jar")
+    positions = [index + 1 for index in _jvm_option_positions(command, 1)
+                 if command[index] in {"-cp", "-classpath", "--class-path"}
+                 and index + 1 < len(command)]
+    if os.path.isfile(profile_jar) or not any(
+            profile_jar in command[index].split(os.pathsep) for index in positions):
+        return command
+
+    data = versions._load_version_json(folder, version_id + ".json")
+    if not data or not data.get("inheritsFrom") or "jar" in data:
+        return command
+    # Recheck the bound in case metadata changes after validate_launch_profile.
+    seen = {version_id}
+    client_jar = profile_jar
+    while data.get("inheritsFrom") and "jar" not in data:
+        current = data["inheritsFrom"]
+        if current in seen or len(seen) > versions._MAX_INHERITS_DEPTH:
+            raise ValueError("This instance has a cyclic or overly deep version reference.")
+        seen.add(current)
+        folder = versions.version_folder(current)
+        client_jar = os.path.join(folder, current + ".jar")
+        data = versions._load_version_json(folder, current + ".json")
+        if data is None:
+            raise RuntimeError(f"Minecraft {current} is missing its version metadata. Reinstall this instance.")
+        if "jar" in data:
+            reference = data["jar"]
+            client_jar = os.path.join(versions.version_folder(reference), reference + ".jar")
+        if os.path.isfile(client_jar):
+            break
+    if not os.path.isfile(client_jar):
+        raise RuntimeError("The inherited Minecraft client JAR is missing. Reinstall this instance.")
+    cleaned = list(command)
+    for index in positions:
+        cleaned[index] = os.pathsep.join(client_jar if entry == profile_jar else entry
+                                        for entry in command[index].split(os.pathsep))
+    return cleaned
+
+
 def build_launch_command(version_id: str, username: str, ram_mb: int,
                           width: int, height: int, java_path: str | None = None,
                           custom_jvm_flags: str | None = None,
@@ -1187,6 +1236,7 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
             f"try reinstalling this version, or downloading the vanilla version instead."
         ) from e
 
+    command = _normalize_inherited_client_jar(command, version_id)
     command = _normalize_heap_arguments(command, ram_mb, user_flags,
                                         default_jvm_flags_enabled)
 

@@ -17,10 +17,8 @@ public final class CubeonHudKeybinds {
 	public static final KeyMapping.Category CATEGORY =
 			KeyMapping.Category.register(Identifier.fromNamespaceAndPath(CubeonHudClient.MOD_ID, "main"));
 
-	// Raw keyboard scan code for K, the same values vanilla uses for its own default
-	// bindings (75 = K). Vanilla 26.3 leaves this key completely unbound; users can
-	// rebind it in Settings -> Controls -> Key Binds -> Cubeon Client.
-	private static final int KEY_OPEN_MENU = 75;
+	// Right Shift is the default; Minecraft retains saved custom bindings.
+	private static final int KEY_OPEN_MENU = InputConstants.KEY_RSHIFT;
 
 	private static KeyMapping openMenu;
 	private static KeyMapping emotes;

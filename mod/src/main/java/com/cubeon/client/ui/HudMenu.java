@@ -10,7 +10,7 @@ public final class HudMenu {
     // Existing action IDs are retained for the original five overlays and tools.
     public static final int EMOTES=15, HEALTH=16, ANIMATIONS=17, WING_DEPTH=18,
             OTHER_COSMETICS=19, CAMERA_BLUR=20, BLUR_INTENSITY=21, RESET=22,
-            FRIENDS=23, DONE=24, SPRINT=53, CLOCK_MODE=54, SKINS=55, MENU_ANIMATIONS=56, OWN_NAME_TAG=57, BLUR_PLUS=58, BLUR_PLUS_STRENGTH=59,
+            FRIENDS=23, DONE=24, SPRINT=53, CLOCK_MODE=54, SKINS=55, MENU_ANIMATIONS=56, OWN_NAME_TAG=57,
             HUD_EDITOR=61, DETAIL=70, SEARCH=100, CATEGORY=101, PREVIOUS=107, NEXT=108, BACK=109,
             THEMES=60, ACTION_COUNT=124, NONE=-1;
     private static final String[] CATEGORIES={"All", "HUD", "Player", "Render", "Movement", "Cosmetics"};
@@ -19,11 +19,9 @@ public final class HudMenu {
         boolean visible(int overlay); float scale(int overlay);
         boolean health(); boolean animations(); boolean wingDepth(); boolean otherCosmetics();
         boolean cameraBlur(); float blurIntensity();
+        default void setBlurIntensity(float value) { }
         default boolean sprint() { return false; }
         default boolean worldClock() { return false; }
-        default boolean blurPlus() { return false; }
-        default float blurPlusStrength() { return 1; }
-        default void setBlurPlusStrength(float value) { }
         default boolean ownNameTag() { return false; }
         default boolean menuAnimations() { return true; }
         default void setScale(int overlay, float value) { }
@@ -45,7 +43,6 @@ public final class HudMenu {
         features.add(new Feature("other_cosmetics","Cosmetics",OTHER_COSMETICS,-1));
         features.add(new Feature("menu_animations","Render",MENU_ANIMATIONS,-1));
         features.add(new Feature("own_name_tag","Player",OWN_NAME_TAG,-1));
-        features.add(new Feature("motion_blur_plus","Render",BLUR_PLUS,-1));
         FEATURES=features.toArray(Feature[]::new);
     }
     public static int toggleAction(int overlay) { return overlay<5?overlay*3:25+(overlay-5)*3; }
@@ -59,7 +56,10 @@ public final class HudMenu {
     private final float[] glow=new float[ACTION_COUNT];
     private final float[] toggleMotion=new float[FEATURES.length];
     private boolean initializedToggles;
-    private int draggingScale=-1, drawOffset;
+    private int draggingScale=-1, drawOffset, pressedAction=NONE;
+    private long pressedUntil;
+    public void press(int action) { pressedAction=action; pressedUntil=System.nanoTime()+120_000_000L; }
+    private boolean pressed(int action) { return pressedAction==action && System.nanoTime()<pressedUntil; }
     private boolean scaleChanged;
     private int width,height,x,y,panelWidth,panelHeight,selection=NONE,category,page,pages=1,detail=-1;
     private boolean searchFocused,ignoreNextSlash,dirty=true,compact;
@@ -136,23 +136,23 @@ public final class HudMenu {
         if(themes!=null) return false;
         int action=hit(px,py), index=scaleOverlay(action);
         if(latest==null) return false;
-        if(action==BLUR_PLUS_STRENGTH) index=-2;
+        if(action==BLUR_INTENSITY) index=-2;
         else if(index<0) return false;
         searchFocused=false; selection=action; draggingScale=index; scaleChanged=false;
         return dragScale(px);
     }
     public boolean dragScale(double px) {
         if(draggingScale==-1||latest==null) return false;
-        Rect r=controls[draggingScale==-2?BLUR_PLUS_STRENGTH:toggleAction(draggingScale)+2];
+        Rect r=controls[draggingScale==-2?BLUR_INTENSITY:toggleAction(draggingScale)+2];
         if(r==null) { finishScale(); return false; }
         float fraction=(float)Math.max(0,Math.min(1,(px-r.x-10)/Math.max(1,r.w-20)));
-        float value=Math.round(((draggingScale==-2?.25f:.5f)+fraction*(draggingScale==-2?1.75f:1.5f))*100)/100f;
+        float value=Math.round(((draggingScale==-2?0f:.5f)+fraction*(draggingScale==-2?1f:1.5f))*100)/100f;
         setScale(draggingScale,value);
         return true;
     }
     private void setScale(int overlay,float value) {
-        if(Math.abs((overlay==-2?latest.blurPlusStrength():latest.scale(overlay))-value)>.0001f) {
-            if(overlay==-2) latest.setBlurPlusStrength(value); else latest.setScale(overlay,value); scaleChanged=true;
+        if(Math.abs((overlay==-2?latest.blurIntensity():latest.scale(overlay))-value)>.0001f) {
+            if(overlay==-2) latest.setBlurIntensity(value); else latest.setScale(overlay,value); scaleChanged=true;
         }
     }
     public boolean finishScale() {
@@ -162,10 +162,10 @@ public final class HudMenu {
         scaleChanged=false; return true;
     }
     public boolean adjustScale(float amount) {
-        int index=selection==BLUR_PLUS_STRENGTH?-2:scaleOverlay(selection);
+        int index=selection==BLUR_INTENSITY?-2:scaleOverlay(selection);
         if(index==-1||latest==null) return false;
-        float current=index==-2?latest.blurPlusStrength():latest.scale(index);
-        float value=Math.max(index==-2?.25f:.5f,Math.min(2,Math.round((current+amount)*100)/100f));
+        float current=index==-2?latest.blurIntensity():latest.scale(index);
+        float value=Math.max(index==-2?0f:.5f,Math.min(index==-2?1f:2f,Math.round((current+amount)*100)/100f));
         setScale(index,value);
         if(scaleChanged) latest.save();
         scaleChanged=false; return true;
@@ -192,9 +192,8 @@ public final class HudMenu {
             controls[BACK]=new Rect(x+12,y+40,72,22);
             Feature f=FEATURES[detail]; int top=y+100, row=28, cell=(panelWidth-30)/2;
             controls[f.action]=new Rect(x+12,top,cell,24);
-            if(f.action==BLUR_PLUS) controls[BLUR_PLUS_STRENGTH]=new Rect(x+12,top+row,cell,36);
             if(f.slot.equals("clock")) controls[CLOCK_MODE]=new Rect(x+18+cell,top+row,cell,24);
-            if(f.slot.equals("camera_blur")) controls[BLUR_INTENSITY]=new Rect(x+18+cell,top,cell,24);
+            if(f.slot.equals("camera_blur")) controls[BLUR_INTENSITY]=new Rect(x+12,top+row,panelWidth-24,36);
         } else {
             controls[SEARCH]=new Rect(x+12,y+36,panelWidth-24,22);
             int categoryTop=y+64;
@@ -203,7 +202,7 @@ public final class HudMenu {
                 controls[CATEGORY+i]=new Rect(x+12+i*(cw+4),categoryTop,cw,20);
             }
             int left=x+12, top=y+90, availableW=panelWidth-24;
-            int cols=availableW>=480?3:2;
+            int cols=availableW<320?1:2;
             int pager=y+panelHeight-28, room=Math.max(42,pager-top-6);
             int rows=Math.max(1,Math.min(4,(room+6)/48)), capacity=cols*rows;
             var matches=new ArrayList<Integer>(); String needle=query.toLowerCase(Locale.ROOT).trim();
@@ -238,7 +237,7 @@ public final class HudMenu {
         if(f.overlay>=0) return s.visible(f.overlay);
         return switch(f.action) { case SPRINT->s.sprint(); case HEALTH->s.health();
             case ANIMATIONS->s.animations(); case WING_DEPTH->s.wingDepth(); case OTHER_COSMETICS->s.otherCosmetics();
-            case CAMERA_BLUR->s.cameraBlur(); case MENU_ANIMATIONS->s.menuAnimations(); case OWN_NAME_TAG->s.ownNameTag(); case BLUR_PLUS->s.blurPlus(); default->false; };
+            case CAMERA_BLUR->s.cameraBlur(); case MENU_ANIMATIONS->s.menuAnimations(); case OWN_NAME_TAG->s.ownNameTag(); default->false; };
     }
     public void render(ClientUi.Canvas canvas,int w,int h,int mx,int my,Settings s) {
         if(featureLabels[0]==null) { for(int i=0;i<FEATURES.length;i++) featureLabels[i]=canvas.translate("cubeonclient.hud."+FEATURES[i].slot); dirty=true; } latest=s; layout(w,h);
@@ -260,7 +259,7 @@ public final class HudMenu {
             toggleMotion[i]=initializedToggles?toggleMotion[i]+(target-toggleMotion[i])*ease:target;
         }
         initializedToggles=true;
-        MenuUi.panel(canvas,x,y,panelWidth,panelHeight,10,MenuUi.SURFACE,MenuUi.BORDER_HI,fade);
+        MenuUi.pixelPanel(canvas,x,y,panelWidth,panelHeight,10,MenuUi.SURFACE,MenuUi.BORDER_HI,fade);
         Rect firstTool=controls[THEMES];
         ClientUi.left(canvas,ClientUi.fit(canvas,canvas.translate("cubeonclient.menu.title"),
                 Math.max(40,firstTool.x-(x+38)-5)),x+38,y+14,ClientUi.alpha(MenuUi.TEXT,fade));
@@ -273,37 +272,34 @@ public final class HudMenu {
             String hint=canvas.translate("cubeonclient.hud."+f.slot+"_hint");
             ClientUi.left(canvas,ClientUi.fit(canvas,hint,panelWidth-24),x+12,y+77,ClientUi.alpha(MenuUi.DIM,fade));
             action(canvas,f.action,canvas.translate(enabled(f,s)?"cubeonclient.menu.enabled":"cubeonclient.menu.disabled"),enabled(f,s),fade);
-            if(f.action==BLUR_PLUS) slider(canvas,BLUR_PLUS_STRENGTH,s.blurPlusStrength(),fade);
             action(canvas,CLOCK_MODE,canvas.translate(s.worldClock()?"cubeonclient.menu.world_time":"cubeonclient.menu.system_time"),false,fade);
-            action(canvas,BLUR_INTENSITY,canvas.translate("cubeonclient.hud.blur_intensity")+": "+Math.round(s.blurIntensity()*100)+"%",false,fade);
+            slider(canvas,BLUR_INTENSITY,s.blurIntensity(),fade);
         } else {
             Rect search=controls[SEARCH];
-            MenuUi.panel(canvas,search.x,search.y,search.w,search.h,6,MenuUi.SURFACE_HI,searchFocused?MenuUi.ACCENT:MenuUi.BORDER,fade);
+            MenuUi.pixelPanel(canvas,search.x,search.y,search.w,search.h,6,MenuUi.SURFACE_HI,searchFocused?MenuUi.ACCENT:MenuUi.BORDER,fade);
             String text=query.isEmpty()?canvas.translate("cubeonclient.menu.search"):query;
             ClientUi.left(canvas,ClientUi.fit(canvas,text+(searchFocused?" |":""),search.w-16),search.x+8,search.y+8,ClientUi.alpha(query.isEmpty()?MenuUi.FAINT:MenuUi.TEXT,fade));
             for(int i=0;i<CATEGORIES.length;i++) {
                 Rect r=controls[CATEGORY+i];
-                MenuUi.panel(canvas,r.x,r.y,r.w,r.h,5,category==i?MenuUi.SELECTED:MenuUi.SURFACE,
+                MenuUi.pixelPanel(canvas,r.x,r.y,r.w,r.h,5,category==i?MenuUi.SELECTED:MenuUi.SURFACE,
                         category==i?MenuUi.BORDER_HI:ClientUi.mix(MenuUi.SURFACE,MenuUi.BORDER,glow[CATEGORY+i]),fade);
-                canvas.text(ClientUi.fit(canvas,canvas.translate("cubeonclient.menu.category_"+CATEGORIES[i].toLowerCase(Locale.ROOT)),r.w-8),r.x+r.w/2,r.y+6,
+                canvas.text(ClientUi.fit(canvas,canvas.translate("cubeonclient.menu.category_"+CATEGORIES[i].toLowerCase(Locale.ROOT)+(panelWidth<420&&i>=3?"_compact":"")),r.w-8),r.x+r.w/2,r.y+6,
                         ClientUi.alpha(category==i?MenuUi.ACCENT_HI:MenuUi.DIM,fade));
             }
             for(int i=0;i<FEATURES.length;i++) {
                 Rect card=cards[i]; if(card==null) continue; Feature f=FEATURES[i];
-                float hover=glow[f.action], on=toggleMotion[i];
-                int fill=ClientUi.mix(MenuUi.SURFACE_HI,MenuUi.SELECTED,.72f*on);
-                int border=ClientUi.mix(MenuUi.BORDER,on>.5f?MenuUi.BORDER_HI:MenuUi.DIM,.35f+.45f*hover);
-                MenuUi.panel(canvas,card.x,card.y,card.w,card.h,6,fill,border,fade);
-                int icon=Math.min(22,card.h-10);
-                HudIcon.draw(canvas,i,card.x+7,card.y+(card.h-icon)/2,icon,on>.5f,fade);
-                int textX=card.x+icon+14;
+                float hover=glow[f.action]; boolean on=enabled(f,s);
+                int shift=pressed(f.action)?2:0;
+                int fill=on?ClientUi.mix(MenuUi.SURFACE_HI,MenuUi.ACCENT,.32f):MenuUi.SURFACE;
+                int border=on?MenuUi.ACCENT:ClientUi.mix(MenuUi.BORDER,MenuUi.DIM,hover);
+                MenuUi.pixelPanel(canvas,card.x,card.y+shift,card.w,card.h-shift,0,fill,border,fade);
+                int icon=20;
+                HudIcon.draw(canvas,i,card.x+8,card.y+(card.h-icon)/2+shift,icon,on,fade);
+                int textX=card.x+icon+16;
                 Rect settings=controls[DETAIL+i];
-                int trailing=settings==null?20:card.x+card.w-textX-settings.w-10;
-                ClientUi.left(canvas,ClientUi.fit(canvas,latestLabel(f),card.w-icon-trailing),textX,
-                        card.y+(card.h-9)/2,ClientUi.alpha(ClientUi.mix(MenuUi.FAINT,MenuUi.TEXT,.28f+.72f*on),fade));
-                int dot=on>.5f?MenuUi.ACCENT_HI:MenuUi.FAINT;
-                int dotX=settings==null?card.x+card.w-10:settings.x-7;
-                ClientUi.rounded(canvas,dotX,card.y+card.h/2-2,4,4,2,ClientUi.alpha(dot,fade));
+                int textRight=settings==null?card.x+card.w-8:settings.x-6;
+                ClientUi.left(canvas,ClientUi.fit(canvas,latestLabel(f),textRight-textX),textX,
+                        card.y+(card.h-9)/2+shift,ClientUi.alpha(on?MenuUi.TEXT:MenuUi.DIM,fade));
                 if(settings!=null) HudIcon.settings(canvas,settings.x,settings.y,settings.w,glow[DETAIL+i],fade);
             }
             if(filtered.length==0) canvas.text(canvas.translate("cubeonclient.menu.no_matches"),x+panelWidth/2,y+panelHeight/2,ClientUi.alpha(MenuUi.DIM,fade));
@@ -321,22 +317,18 @@ public final class HudMenu {
     }
     private void slider(ClientUi.Canvas canvas,int action,float value,float fade) {
         Rect r=controls[action]; if(r==null) return;
-        MenuUi.panel(canvas,r.x,r.y,r.w,r.h,6,MenuUi.SURFACE_HI,
+        MenuUi.pixelPanel(canvas,r.x,r.y,r.w,r.h,6,MenuUi.SURFACE_HI,
                 selection==action?MenuUi.BORDER_HI:MenuUi.BORDER,fade);
-        ClientUi.left(canvas,canvas.translate(action==BLUR_PLUS_STRENGTH?"cubeonclient.hud.motion_blur_plus_strength":"cubeonclient.menu.size")+"  "+(action==BLUR_PLUS_STRENGTH?Math.round(value*100)+"%":String.format(Locale.ROOT,"%.2f×",value)),
+        ClientUi.left(canvas,canvas.translate(action==BLUR_INTENSITY?"cubeonclient.hud.blur_intensity":"cubeonclient.menu.size")+"  "+(action==BLUR_INTENSITY?Math.round(value*100)+"%":String.format(Locale.ROOT,"%.2f×",value)),
                 r.x+10,r.y+3,ClientUi.alpha(MenuUi.TEXT,fade));
         int left=r.x+10,track=r.w-20,cy=r.y+25;
-        float fraction=Math.max(0,Math.min(1,(value-(action==BLUR_PLUS_STRENGTH?.25f:.5f))/(action==BLUR_PLUS_STRENGTH?1.75f:1.5f)));
-        ClientUi.rounded(canvas,left,cy-2,track,4,2,ClientUi.alpha(MenuUi.BORDER,fade));
-        ClientUi.rounded(canvas,left,cy-2,Math.round(track*fraction),4,2,ClientUi.alpha(MenuUi.ACCENT,fade));
-        ClientUi.rounded(canvas,left+Math.round(track*fraction)-5,cy-5,10,10,5,
+        float fraction=Math.max(0,Math.min(1,(value-(action==BLUR_INTENSITY?0f:.5f))/(action==BLUR_INTENSITY?1f:1.5f)));
+        canvas.fill(left,cy-2,left+track,cy+2,ClientUi.alpha(MenuUi.BORDER,fade));
+        canvas.fill(left,cy-2,left+Math.round(track*fraction),cy+2,ClientUi.alpha(MenuUi.ACCENT,fade));
+        canvas.fill(left+Math.round(track*fraction)-4,cy-5,left+Math.round(track*fraction)+4,cy+5,
                 ClientUi.alpha(selection==action?MenuUi.TEXT:MenuUi.DIM,fade));
     }
-    public static float nextBlurIntensity(float value) {
-        int step=Float.isFinite(value)?Math.round(value*4):4;
-        return (Math.floorMod(Math.max(1,Math.min(8,step)),8)+1)/4f;
-    }
     private void action(ClientUi.Canvas canvas,int id,String text,boolean primary,float fade) {
-        Rect r=controls[id]; if(r!=null) MenuUi.button(canvas,r.x,r.y,r.w,r.h,text,glow[id],primary,fade);
+        Rect r=controls[id]; if(r!=null) MenuUi.pixelButton(canvas,r.x,r.y+(pressed(id)?2:0),r.w,r.h-(pressed(id)?2:0),text,glow[id],primary,fade);
     }
 }

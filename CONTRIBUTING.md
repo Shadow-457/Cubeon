@@ -41,6 +41,9 @@ The [development workflow](docs/development/development-workflow.md) describes
 storage, UI-thread, protocol, and mod-version boundaries. Do not include
 build output, downloaded game files, or unrelated cleanup in a pull request.
 
+Follow the repository-wide [reuse rule](docs/development/development-workflow.md#reuse-existing-work):
+search for and reuse suitable existing code, assets and UI patterns before adding new ones.
+
 ## Verify a change
 
 Run the relevant regression script first, then:

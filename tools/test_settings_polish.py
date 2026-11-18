@@ -96,10 +96,32 @@ class SettingsPolish(unittest.TestCase):
         for key,url in {'website':'https://www.ylet.online/',
                         'source':'https://github.com/Shadow-457/Cubeon',
                         'releases':'https://github.com/Shadow-457/Cubeon/releases',
-                        'license':'https://github.com/Shadow-457/Cubeon/blob/main/LICENSE'}.items():
+                        'license':'https://github.com/Shadow-457/Cubeon/blob/main/LICENSE',
+                        'horizon':'https://github.com/horizon-rust/horizon',
+                        'minekube':'https://github.com/minekube/connect-java'}.items():
             control=self.control(data='about-link-'+key)
             self.assertEqual(control.tooltip,url)
             self.assertIsNotNone(control.cubeon_keyboard_button)
+
+    def test_about_hero_resizes_without_replacing_brand_or_links(self):
+        from cubeon.theme import FONT_DISPLAY, FONT_MONO
+        hero = self.control(data='about-hero')
+        artwork = self.control(data='about-hero-art')
+        wordmark = self.control(data='about-wordmark')
+        logo = self.control(data='about-logo')
+        self.assertEqual(logo.src, 'cube.svg')
+        self.assertEqual(wordmark.font_family, FONT_DISPLAY)
+        self.assertEqual(self.control(data='about-version').font_family, FONT_MONO)
+        retained = tuple(id(control) for control in walk(hero))
+        for width, visible, size in ((1040, True, 52), (630, False, 52),
+                                     (340, False, 40), (1040, True, 52)):
+            hero.on_size_change(SimpleNamespace(width=width))
+            self.assertEqual(artwork.visible, visible)
+            self.assertEqual((logo.width, logo.height), (size, size))
+            self.assertEqual(retained, tuple(id(control) for control in walk(hero)))
+            self.repaint.reset_mock()
+            hero.on_size_change(SimpleNamespace(width=width))
+            self.repaint.assert_not_called()
 
     def test_account_username_error_is_visible_and_failed_publish_can_retry(self):
         field=next(c for c in self.controls if isinstance(c,ft.TextField) and c.label=='Username')

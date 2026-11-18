@@ -41,26 +41,9 @@ def check(label, condition, extra=""):
 
 
 def function_from_controls(controls, name):
-    """Find a callback or a function reachable from one (same walk the other
-    headless suites use; all tab helpers live in the builder's closure)."""
-    seen = set()
-
-    def visit(fn):
-        if not inspect.isfunction(fn) or id(fn) in seen:
-            return None
-        seen.add(id(fn))
-        if fn.__name__ == name:
-            return fn
-        for value in inspect.getclosurevars(fn).nonlocals.values():
-            found = visit(value)
-            if found:
-                return found
-
-    for control in controls:
-        found = visit(getattr(control, "on_click", None))
-        if found:
-            return found
-    raise AssertionError(f"Missing callback {name}")
+    callbacks = (getattr(control, attr, None)
+                 for control in controls for attr in ('on_click',))
+    return fz.callback_functions(*callbacks)[name]
 
 
 stubs = fz.install_safe_stubs()
@@ -78,11 +61,10 @@ segment = next(
     if isinstance(getattr(getattr(c, "on_click", None), "__defaults__", None), tuple)
     and getattr(c.on_click, "__defaults__")[0] == "resourcepack")
 show_loading = function_from_controls(controls, "_show_browse_loading")
-loading_scope = inspect.getclosurevars(show_loading).nonlocals
+loading_scope = fz.callback_scope(show_loading)
 browse_results_view = loading_scope["browse_results_view"]
 browse_pager_row = loading_scope["browse_pager_row"]
-header_title = inspect.getclosurevars(
-    function_from_controls(controls, "_apply_type_labels")).nonlocals["header_title"]
+header_title = fz.callback_scope(function_from_controls(controls, "_apply_type_labels"))["header_title"]
 
 refreshed, updates = [], []
 with patch.object(thread_safe_ui, "refresh",
@@ -115,7 +97,7 @@ check("it repaints the results view it just rewrote",
 driver.open_tab("modpacks")
 controls = list(fz.every_control(page))
 render_page = function_from_controls(controls, "_render_page")
-rscope = inspect.getclosurevars(render_page).nonlocals
+rscope = fz.callback_scope(render_page)
 browse_state = rscope["browse_state"]
 results_view = rscope["results_view"]
 browse_status = rscope["browse_status"]

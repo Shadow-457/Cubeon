@@ -209,6 +209,22 @@ This is what makes per-profile mods work: the game only sees `.minecraft/mods/`,
 
 Both run before every launch and are idempotent (no-ops on healthy installs).
 
+**Inherited client JAR:** Fabric and Quilt profiles usually declare
+`inheritsFrom` without supplying a JAR. After command generation, Cubeon
+replaces the missing default profile JAR in the JVM classpath with the
+inherited client JAR. Dedicated profile JARs, explicit `jar` references,
+loader libraries and the selected instance's version argument remain intact.
+This corrects minecraft-launcher-lib 8's merged child ID being used as the
+client filename. Missing inherited clients stop launch with a repair message.
+
+**Texture animations and FPS sync:** Renderer presets preserve
+`performance.animate_only_visible_textures` in Sodium, Embeddium and Rubidium.
+Older FPS sync journals restore that setting's original value only while the
+current value still matches Cubeon's applied value, then retire the key.
+Settings sync OFF remains a no-op. Packs using OptiFine's custom animation
+format still need a mod supporting that format; vanilla `.png.mcmeta`
+animations do not need that extension.
+
 ---
 
 ## skins.py

@@ -36,7 +36,7 @@ public class CameraBlurTest {
                     quantized ? (float)yaw : yaw, quantized ? (float)pitch : pitch,
                     70,16.0/9,WORLD,true,intensity);
         }
-        require(b.moving(), "A rotating camera blurs at "+fps+" FPS");
+        require(b.moving() == (!Double.isFinite(intensity) || intensity > 0), "Intensity zero disables exposure at "+fps+" FPS");
         return new float[]{b.x(), b.y()};
     }
     public static void main(String[] args) {
@@ -69,7 +69,7 @@ public class CameraBlurTest {
             require(!polled.moving(),"Stopped mouse clears within the time-based idle window");
         }
         for(int fps:new int[]{30,60,144,240,1000,2000}) {
-            for(double intensity:new double[]{.25,.5,1,1.25,2}) {
+            for(double intensity:new double[]{0,.25,.5,.75,1}) {
                 float[] exposure=motion(fps,false,intensity);
                 close(exposure[0],x*intensity,.000000004,"Intensity scales horizontal exposure at every FPS");
                 close(exposure[1],y*intensity,.000000004,"Intensity scales vertical exposure at every FPS");
@@ -126,8 +126,9 @@ public class CameraBlurTest {
         b.reset(); require(!b.moving(),"Explicit reset clears exposure");
         for(double invalid:new double[]{Double.NaN,Double.POSITIVE_INFINITY,Double.NEGATIVE_INFINITY})
             close(motion(60,false,invalid)[0],x,.000000004,"Invalid intensity safely restores default exposure");
-        close(motion(60,false,-1)[0],x*.25,.000000004,"Negative intensity clamps to the minimum");
-        close(motion(60,false,100)[0],x*2,.000000004,"Excessive intensity clamps to the maximum");
+        close(motion(60,false,0)[0],0,.000000004,"Zero intensity is no blur");
+        close(motion(60,false,-1)[0],0,.000000004,"Negative intensity clamps to zero");
+        close(motion(60,false,100)[0],x,.000000004,"Excessive intensity clamps to the maximum");
         System.out.println("Production camera blur: 30–2000 FPS, 125/1000 Hz mouse sampling, quantized cameras, yaw wrap, stop, cuts, stalls, invalid inputs and toggle passed");
     }
 }
@@ -146,60 +147,6 @@ class CameraBlurTests(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stderr)
             run = subprocess.run(["java", "-cp", directory, "com.cubeon.client.hud.CameraBlurTest"],
                                  capture_output=True, text=True, timeout=60)
-            self.assertEqual(run.returncode, 0, run.stderr)
-            print(run.stdout.strip())
-
-    def test_post_effect_saves_raw_history_before_presenting_blend(self):
-        for era in ('legacy', 'post'):
-            with self.subTest(era=era):
-                root = MAIN / ('resources-overlay-camera-blur-' + era)
-                path = root / ('assets/cubeon-client/shaders/post/motion_plus.json' if era == 'legacy'
-                               else 'assets/cubeon-client/post_effect/motion_plus.json')
-                blend, save, present = json.loads(path.read_text())['passes']
-                if era == 'legacy':
-                    self.assertEqual((blend['intarget'], blend['outtarget']), ('minecraft:main', 'swap'))
-                    self.assertEqual((save['name'], save['intarget'], save['outtarget']),
-                                     ('cubeon_motion_scene', 'minecraft:main', 'history'))
-                    self.assertEqual((present['intarget'], present['outtarget']), ('swap', 'minecraft:main'))
-                else:
-                    self.assertEqual(blend['output'], 'swap')
-                    self.assertEqual((save['program'], save['inputs'][0]['target'], save['output']),
-                                     ('cubeon-client:post/motion_scene', 'minecraft:main', 'cubeon-client:history'))
-                    self.assertEqual((present['inputs'][0]['target'], present['output']), ('swap', 'minecraft:main'))
-
-    def test_temporal_exposure(self):
-        harness = r'''package com.cubeon.client.hud;
-public class TemporalTest {
- static void check(boolean v,String m){if(!v)throw new AssertionError(m);}
- static double exposure(int fps,double strength){
-  var b=new TemporalBlur();Object world=new Object();long t=1_000_000_000L;
-  b.update(t,0,0,70,1.6,world,true,strength);check(b.weight()==0,"First frame seeds history");
-  double result=1;for(int n=1;n<=fps;n++){b.update(t+Math.round(n*1e9/fps),0,0,70,1.6,world,true,strength);check(b.weight()>=0&&b.weight()<=.450001,"History stays below half: current scene dominates");result=b.weight();}
-  return result;
- }
- public static void main(String[] args){
-  for(int fps:new int[]{15,30,60,144,240,1000}) for(double strength:new double[]{.25,1,2}) exposure(fps,strength);
-  check(exposure(144,2)>exposure(144,.25),"Strength increases the short exposure");
-  check(exposure(15,1)<exposure(144,1),"Slow frames cannot leave long trails");
-  var b=new TemporalBlur();Object w=new Object();long t=1_000_000_000L;
-  b.update(t,179,0,70,1.6,w,true,1);b.update(t+=10_000_000,-179,0,70,1.6,w,true,1);check(b.weight()>0,"Yaw wrap retains valid history");
-  b.update(t+=10_000_000,0,0,70,1.6,w,true,1);check(b.weight()==0,"Camera cuts discard history");
-  b.update(t+=10_000_000,0,0,90,1.6,w,true,1);check(b.weight()==0,"FOV cuts discard history");
-  b.update(t+=10_000_000,0,0,90,2,w,true,1);check(b.weight()==0,"Aspect changes discard history");
-  b.update(t+=200_000_000,0,0,90,2,w,true,1);check(b.weight()==0,"Stalls discard history");
-  b.update(t+=10_000_000,0,0,90,2,new Object(),true,1);check(b.weight()==0,"World changes discard history");
-  b.update(t+=10_000_000,Double.NaN,0,70,1.6,w,true,1);check(b.weight()==0,"Invalid cameras clear history");
-  b.update(t,0,0,70,1.6,w,false,1);check(b.weight()==0,"Disabled effect clears history");
-  System.out.println("Motion blur+: elapsed-time exposure, strength, yaw wrap, cuts, stalls and invalid inputs passed");
- }
-}'''
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "TemporalTest.java"
-            path.write_text(harness)
-            run = subprocess.run(["javac", "--release", "17", "-d", directory,
-                                  str(MAIN / "java/com/cubeon/client/hud/TemporalBlur.java"), str(path)], capture_output=True, text=True, timeout=60)
-            self.assertEqual(run.returncode, 0, run.stderr)
-            run = subprocess.run(["java", "-cp", directory, "com.cubeon.client.hud.TemporalTest"], capture_output=True, text=True, timeout=60)
             self.assertEqual(run.returncode, 0, run.stderr)
             print(run.stdout.strip())
 

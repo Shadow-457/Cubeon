@@ -130,6 +130,231 @@ class NavigationBackground(unittest.TestCase):
                 self.assertEqual(minekube.read_public_address('1.21.11'), 'fresh.play.minekube.net')
             self.assertEqual(sizes, [256 * 1024])
 
+    def test_shell_diff_skips_retained_content_but_delivers_visibility(self):
+        import flet as ft
+        import msgpack
+        from flet.controls.base_control import BaseControl
+        from flet.controls.object_patch import ObjectPatch, DiffBuilder
+        from flet.messaging.protocol import configure_encode_object_for_msgpack
+        from ui.chrome import TabPane
+
+        image = ft.Image(src='original.png')
+        content = ft.Column([image, *[ft.Text(f'Message {i}') for i in range(2000)]])
+        pane = TabPane(content)
+        host = ft.Stack([pane])
+        host._shell_only = True
+        encode = configure_encode_object_for_msgpack(BaseControl)
+        initial, added, removed = ObjectPatch.from_diff(None, host, BaseControl)
+        encoded = msgpack.packb(initial.to_message(), default=encode)
+        self.assertIn(b'Message 1999', encoded)
+        self.assertIn(b'original.png', encoded)
+        self.assertFalse(removed)
+        self.assertTrue(added)
+
+        image.src = 'changed.png'
+        original = DiffBuilder._compare_dataclasses
+        walks = []
+        def count(builder, *args, **kwargs):
+            walks.append(args)
+            return original(builder, *args, **kwargs)
+        for visible in (False, True):
+            pane.visible = visible
+            walks.clear()
+            with thread_safe_ui.update_scope(host), \
+                 patch.object(DiffBuilder, '_compare_dataclasses', count):
+                changes, added, removed = ObjectPatch.from_diff(host, host, BaseControl)
+            encoded = msgpack.packb(changes.to_message(), default=encode)
+            self.assertIn(b'visible', encoded)
+            self.assertNotIn(b'src', encoded)
+            self.assertFalse(added or removed)
+            self.assertLess(len(walks), 10, 'navigation traversed the transcript')
+        self.assertIs(host.controls[0], pane)
+        changes, added, removed = ObjectPatch.from_diff(image, image, BaseControl)
+        encoded = msgpack.packb(changes.to_message(), default=encode)
+        self.assertIn(b'changed.png', encoded, 'scoped content repaint was swallowed')
+        self.assertFalse(added or removed)
+        image.src = 'legacy-full-page.png'
+        with thread_safe_ui.update_scope():
+            changes, added, removed = ObjectPatch.from_diff(host, host, BaseControl)
+        encoded = msgpack.packb(changes.to_message(), default=encode)
+        self.assertIn(b'legacy-full-page.png', encoded)
+        self.assertFalse(added or removed)
+        self.assertFalse(pane.is_isolated(), 'navigation isolation leaked into later updates')
+
+    def test_shell_scope_is_applied_when_worker_updates_and_retries_execute(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        async def exercise():
+            states = []
+            class Page:
+                def __init__(self):
+                    self.loop = asyncio.get_running_loop()
+                    self.fail_once = False
+                def update(self, *controls):
+                    self_test.assertTrue(thread_safe_ui.TREE_LOCK._is_owned())
+                    states.append(thread_safe_ui.shell_update_active())
+                    if self.fail_once:
+                        self.fail_once = False
+                        raise RuntimeError('retry this diff')
+            self_test = self
+            page = Page()
+            host = SimpleNamespace(_shell_only=True)
+            with patch.object(thread_safe_ui, '_installed', False), \
+                 patch.object(thread_safe_ui, '_loops', {}), \
+                 patch.object(thread_safe_ui, '_mounted_pages', set()):
+                self.assertTrue(thread_safe_ui.install(page))
+                thread_safe_ui.mark_mounted(page)
+                page.update(host)
+                page.update()
+                worker = threading.Thread(target=lambda: page.update(host))
+                worker.start()
+                worker.join(1)
+                self.assertFalse(worker.is_alive())
+                for _ in range(100):
+                    if len(states) == 3:
+                        break
+                    await asyncio.sleep(.01)
+                self.assertEqual(states, [True, False, True])
+                page.fail_once = True
+                page.update(host)
+                for _ in range(100):
+                    if len(states) == 5:
+                        break
+                    await asyncio.sleep(.01)
+                page.update()
+                self.assertEqual(states, [True, False, True, True, True, False])
+                self.assertFalse(thread_safe_ui.shell_update_active())
+        asyncio.run(exercise())
+
+    def test_worker_repaint_flood_coalesces_and_keeps_latest_state(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        async def exercise():
+            loop = asyncio.get_running_loop()
+            page = SimpleNamespace()
+            values = []
+            class Control:
+                value = 0
+                def update(control):
+                    self.assertTrue(thread_safe_ui.TREE_LOCK._is_owned())
+                    values.append(control.value)
+            control = Control()
+            control.page = page
+            with patch.dict(thread_safe_ui._loops, {id(page): loop}):
+                def flood():
+                    for value in range(5000):
+                        control.value = value
+                        thread_safe_ui.refresh(control)
+                worker = threading.Thread(target=flood)
+                worker.start()
+                worker.join(2)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(values, [])
+                await asyncio.sleep(0)
+                self.assertEqual(values, [4999])
+                self.assertNotIn(loop, thread_safe_ui._refresh_pending)
+                # Removing the pending key before diffing permits a new paint
+                # for a mutation that arrives during the current update.
+                def mutate_during_paint():
+                    values.append(control.value)
+                    if control.value == 5000:
+                        def mutation():
+                            control.value = 5001
+                            thread_safe_ui.refresh(control)
+                        next_worker = threading.Thread(target=mutation)
+                        next_worker.start()
+                        next_worker.join(1)
+                control.update = mutate_during_paint
+                control.value = 5000
+                thread_safe_ui.refresh(control)
+                await asyncio.sleep(0)
+                self.assertEqual(values[-2:], [5000, 5001])
+                self.assertNotIn(loop, thread_safe_ui._refresh_pending)
+        asyncio.run(exercise())
+
+    def test_closed_loop_repaint_does_not_leave_a_pending_key(self):
+        import asyncio
+        from types import SimpleNamespace
+        loop = asyncio.new_event_loop()
+        loop.close()
+        page = SimpleNamespace()
+        control = SimpleNamespace(page=page)
+        with patch.dict(thread_safe_ui._loops, {id(page): loop}):
+            thread_safe_ui.refresh(control)
+            self.assertNotIn(loop, thread_safe_ui._refresh_pending)
+
+    def test_real_shell_responds_while_cold_tab_builder_is_blocked(self):
+        import inspect
+        import _fuzz_common as fz
+        import app_driver
+        stubs = fz.install_safe_stubs()
+        page = app_driver.DriverPage()
+        stubs.app.run_sync(page)
+        driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
+        switch = inspect.getclosurevars(driver.tabs()['mods'].on_click).nonlocals['switch_tab']
+        scope = inspect.getclosurevars(switch).nonlocals
+        queue = scope['entry_queue']
+        queue.deferred = True
+        builders = inspect.getclosurevars(scope['_ensure_tab']).nonlocals['_TAB_BUILDERS']
+        callbacks = inspect.getclosurevars(scope['_ensure_tab']).nonlocals['_tab_cbs']
+        entered, release = threading.Event(), threading.Event()
+        workers, built = [], []
+        original = builders['mods']
+        def blocked():
+            self.assertFalse(thread_safe_ui.TREE_LOCK._is_owned())
+            entered.set()
+            release.wait(3)
+            original()
+            built.append('mods')
+        def run_thread(fn):
+            worker = threading.Thread(target=fn, daemon=True)
+            workers.append(worker)
+            worker.start()
+        with patch.object(page, 'run_thread', side_effect=run_thread), \
+             patch.dict(builders, {'mods': blocked}):
+            try:
+                switch('mods')
+                self.assertTrue(entered.wait(1))
+                self.assertTrue(scope['_tab_views']['mods'].visible)
+                self.assertFalse(scope['_tab_views']['mods']._content_ready)
+                switch('chat')
+                switch('stats')
+                switch('play')
+                self.assertTrue(scope['_tab_views']['play'].visible)
+                self.assertTrue(thread_safe_ui.TREE_LOCK.acquire(timeout=.2))
+                thread_safe_ui.TREE_LOCK.release()
+            finally:
+                release.set()
+                for worker in workers:
+                    worker.join(3)
+            self.assertEqual(built, ['mods'])
+            self.assertFalse(queue._running)
+            self.assertNotIn('chat', callbacks)
+            self.assertNotIn('stats', callbacks)
+            self.assertFalse(scope['_tab_views']['mods'].visible)
+            self.assertFalse(scope['_tab_views']['mods']._content_ready)
+            switch('mods')
+            for worker in workers:
+                worker.join(3)
+            self.assertEqual(built, ['mods'], 'cached return rebuilt the tab')
+            self.assertTrue(scope['_tab_views']['mods']._content_ready)
+            self.assertIs(scope['_tab_views']['mods'].content, scope['tabs']['mods'])
+
+    def test_cosmetics_resize_accepts_the_loading_placeholder(self):
+        import inspect
+        from types import SimpleNamespace
+        import app_driver
+        driver = app_driver.build_headless()
+        switch = inspect.getclosurevars(driver.tabs()['mods'].on_click).nonlocals['switch_tab']
+        profile = inspect.getclosurevars(switch).nonlocals['tabs']['profile']
+        profile.on_size_change(SimpleNamespace(height=500))
+        heights = []
+        profile.controls[0].content = SimpleNamespace(set_viewport_height=heights.append)
+        profile.on_size_change(SimpleNamespace(height=600))
+        self.assertEqual(heights, [600])
+
 
 if __name__ == '__main__':
     unittest.main()

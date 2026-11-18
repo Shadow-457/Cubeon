@@ -38,10 +38,8 @@ Design rules it follows:
     conversation is open, 0.25s for a couple of seconds after a send (a tick
     is ~2ms of in-process dict work) - so chat feels immediate instead of
     lagging behind a fixed slow poll.
-  - Auto-scroll is opt-in per position (_stick): new messages follow only
-    while the view is at the bottom, so reading history never gets yanked
-    down; opening a conversation always jumps to the end. A "Newest" pill
-    (_jump_row) appears while the view is scrolled up and jumps back down.
+  - The reversed transcript anchors new messages at the bottom without
+    interrupting history reading; opening or sending jumps to the latest.
   - Composer drafts survive friend switches and tab closes within the
     session (_drafts; saved on every keystroke, restored on _select) - a
     half-typed message is never lost.
@@ -286,9 +284,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     # FriendsClient.decline_request also strips the name from the cached roster
     # on disk - so this set only covers the paint between click and roster tick.
     _canceled = set()
-    # Auto-scroll: True while the view sits at the bottom, so appended
-    # messages follow, but reading history doesn't get yanked down.
-    _stick = {"at_end": True}
     tick_lock = threading.Lock()
     stop = threading.Event()
 
@@ -434,29 +429,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     transcript = ft.ListView(expand=True, spacing=0, auto_scroll=False,
                              reverse=True, build_controls_on_demand=True,
                              cache_extent=160,
-                             on_scroll=lambda e: _on_transcript_scroll(e),
-                             scroll_interval=50,
                              padding=ft.padding.Padding.symmetric(
                                  vertical=8, horizontal=4), visible=False)
-
-    # "Jump to newest" pill: appears while the view is scrolled up and sends
-    # the transcript back to the bottom with one click.
-    jump_button = ft.TextButton(
-        "Jump to latest", icon=ft.Icons.VERTICAL_ALIGN_BOTTOM_ROUNDED,
-        style=ft.ButtonStyle(color=ACCENT, bgcolor=SURFACE_HI),
-        on_click=lambda e: _stick_bottom(force=True),
-    )
-    jump_row = ft.Container(
-        content=ft.Row(
-            [
-                ft.Container(expand=True),
-                jump_button,
-                ft.Container(expand=True),
-            ],
-            tight=True,
-        ),
-        visible=False,
-    )
 
     def _on_composer_change(_e=None):
         """Keep the open conversation's draft fresh while typing, so leaving
@@ -1226,46 +1200,24 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             margin=ft.Margin(0, 12, 0, 4),
         )
 
-    def _on_transcript_scroll(e):
-        try:
-            with thread_safe_ui.TREE_LOCK:
-                # In a reversed viewport, older messages are at positive
-                # offsets; latest is min_scroll_extent (extent_before == 0).
-                user = getattr(e, "event_type", None) == ft.ScrollType.USER
-                direction = getattr(e, "direction", None)
-                if user and direction == ft.ScrollDirection.REVERSE:
-                    _stick["at_end"] = False
-                elif _stick["at_end"]:
-                    return
-                else:
-                    _stick["at_end"] = e.extent_before < 48
-                if jump_row.visible == _stick["at_end"]:
-                    jump_row.visible = not _stick["at_end"]
-                    thread_safe_ui.refresh(jump_row)
-        except Exception:
-            pass
-
     def _stick_bottom(force=False):
         """Latest is offset zero; new messages stay anchored there naturally.
 
-        Only an explicit jump/open/send needs a scroll command. Never scroll
+        Only opening or sending needs a scroll command. Never scroll
         through a lazy list's estimated maximum to find its latest message.
         """
         with thread_safe_ui.TREE_LOCK:
-            if force:
-                _stick["at_end"] = True
-                jump_row.visible = False
-                thread_safe_ui.refresh(jump_row)
             if not force or not transcript.visible:
                 return
             name = selected["name"]
+            generation = history["generation"]
         animation = scrolling.animation()
 
         async def latest():
             # The scoped patch must reach the native viewport before jumping.
             await asyncio.sleep(0)
             with thread_safe_ui.TREE_LOCK:
-                if (selected["name"] != name or not _stick["at_end"]
+                if (selected["name"] != name or history["generation"] != generation
                         or state.get("active_tab", "chat") != "chat"):
                     return
                 ancestor = transcript
@@ -1522,7 +1474,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             last_seq[name] = -1
             _last_day[name] = None
             _last_dir[name] = None
-            _stick["at_end"] = True
             transcript.auto_scroll = False
             composer_status.visible = False
             composer.value = _drafts.get(name) or ""
@@ -1533,7 +1484,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             remove_btn.visible = header_rule.visible = True
             remove_btn.on_click = lambda e, n=name: _confirm_remove(n)
             composer_row.visible = composer_footer.visible = True
-            jump_row.visible = False
             _roster_sig["v"] = None
             # Restore pending messages before waking the history worker, so an
             # echo can replace their existing slots without racing a remount.
@@ -1549,7 +1499,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             _sync_emoji_suggestions()
             _refresh(conversation_host, transcript_header, transcript_sub,
                      header_avatar, remove_btn, header_rule, composer_row,
-                     composer_status, jump_row, composer, header_row, composer_footer)
+                     composer_status, composer, header_row, composer_footer)
         _mark_read(name)
         refresh()
         _stick_bottom(force=True)
@@ -1724,12 +1674,11 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         composer_row.visible = False
         composer_footer.visible = False
         composer_status.visible = False
-        jump_row.visible = False
         _roster_sig["v"] = None
         for ctrl in (transcript, empty_state, transcript_header,
                      transcript_sub, header_avatar, remove_btn, header_rule,
                      composer_row, composer_status,
-                     jump_row, composer, header_row, composer_footer, peer_id_btn):
+                     composer, header_row, composer_footer, peer_id_btn):
             thread_safe_ui.refresh(ctrl)
         _sync_empty_state()
         _sync_composer()
@@ -1939,7 +1888,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 conn_banner,
                 header_rule,
                 conversation_host,
-                jump_row,
                 composer_status,
                 emoji_suggestions,
                 composer_row,

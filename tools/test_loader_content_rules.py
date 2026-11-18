@@ -72,11 +72,11 @@ page = DriverPage()
 state = {"selected_mc_version": "1.21.1", "mod_loader": "vanilla"}
 root, refresh, _recommend, _browse = build_mods_tab(page, {}, state, ft.Dropdown(value="1.21.1"), section_label=section_label, **THEME)
 refresh()
-closure = inspect.getclosurevars(inspect.getclosurevars(refresh).nonlocals['_render_installed_snapshot']).nonlocals
+closure = _fuzz_common.callback_scope(refresh)
 install_button = closure["local_install_btn"]
 check("the vanilla Mods install button is disabled", install_button.disabled)
-choose_type = inspect.getclosurevars(closure["_can_install"]).nonlocals["_ct"]
-active_content = inspect.getclosurevars(choose_type).nonlocals["active_content"]
+choose_type = _fuzz_common.callback_scope(closure["_can_install"])["_ct"]
+active_content = _fuzz_common.callback_scope(choose_type)["active_content"]
 active_content["type"] = "shader"
 refresh()
 check("the vanilla Shader install button is disabled", install_button.disabled)

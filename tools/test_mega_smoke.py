@@ -572,7 +572,7 @@ SUITES = [
     "test_modpacks_cf_content.py", "test_modpack_client_mods_errors.py", "test_modpack_integrity.py",
     "test_content_management_audit.py", "test_mods_management_ui.py", "test_local_mod_import.py",
     "test_fuzz.py", "test_production.py", "test_content_instance.py",
-    "test_version_integrity.py", "test_local_api_gate.py",
+    "test_version_integrity.py", "test_local_api_gate.py", "test_local_api_disconnect.py",
     "test_auto_cleanup.py", "test_doctor_bundled_deps.py",
     "test_mod_prelaunch_dependencies.py", "test_mod_resolver.py", "test_content_checks.py", "test_fuzzy_search.py", "test_mod_install_graph.py", "test_doctor_reporting.py",
     "test_instances.py", "test_instance_storage.py", "test_version_art_cache.py", "test_version_ui.py",
@@ -580,7 +580,7 @@ SUITES = [
     "test_wedge_watchdog.py", "test_web_download_count.py",
     "test_faces.py", "test_chat_optimistic.py", "test_chat_avatar_stability.py", "test_toast.py", "test_render_compat.py",
     "test_osnotify.py",
-    "test_i18n.py", "test_launcher_preferences.py", "test_doctor_background.py",
+    "test_i18n.py", "test_launcher_preferences.py", "test_color_studio.py", "test_doctor_background.py",
     "test_webdoctor.py",
     "test_instance_icons.py",
     # The release pipeline (workflow plumbing + the version policy). Both are
@@ -594,13 +594,13 @@ SUITES = [
     # config/sodium-options.json), and the motion layer every hover goes
     # through. Both are offline and take a few seconds.
     "test_perf_mods.py", "test_game_options_persistence.py", "test_perf_mod_removal.py", "test_motion.py", "test_tab_navigation.py",
-    "test_activity_stats.py", "test_keyboard_shortcuts.py", "test_keyboard_accessibility.py",
+    "test_activity_stats.py", "test_keyboard_shortcuts.py", "test_keyboard_accessibility.py", "test_onboarding.py",
     "test_ui_sounds.py", "test_milestones.py", "test_play_backend_audit.py",
     "test_winproc.py", "test_authme_config.py", "test_cosmetics_picker.py",
     "test_version_path_safety.py", "test_mod_install_cancel.py",
     "test_scrolling.py",
     "test_appearance_preview.py", "test_loader_content_rules.py",
-    "test_cosmetics.py", "test_cosmetic_renderers.py", "test_cosmetic_elytra.py", "test_cosmetic_animation.py", "test_wing_action.py", "test_zoom.py", "test_freelook.py", "test_camera_blur.py", "test_camera_blur_lifecycle.py", "test_enemy_health.py", "test_emotes.py", "test_emote_models.py", "test_emote_wheel.py", "test_client_ui.py", "test_skin_models.py", "test_local_api_emotes.py", "test_window_close.py",
+    "test_cosmetics.py", "test_cosmetic_renderers.py", "test_cosmetic_elytra.py", "test_cosmetic_animation.py", "test_wing_action.py", "test_zoom.py", "test_freelook.py", "test_camera_blur.py", "test_camera_blur_lifecycle.py", "test_enemy_health.py", "test_emotes.py", "test_emote_models.py", "test_emote_wheel.py", "test_client_ui.py", "test_client_startup.py", "test_skin_models.py", "test_local_api_emotes.py", "test_window_close.py",
     "test_mod_ui_stability.py",
     "test_ui_image_memory.py",
     "test_mod_search.py",

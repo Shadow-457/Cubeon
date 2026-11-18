@@ -321,7 +321,7 @@ def sanitize_entityculling_config(path: str | None = None) -> dict:
 # against the section that is already in the file, so
 # a config from a different Sodium generation is never given an unknown key:
 # Sodium 0.4.x (Minecraft 1.20) keeps the same names for the shared performance
-# switches (chunk_builder_threads, use_*_culling, animate_only_visible_textures)
+# switches (chunk_builder_threads, use_*_culling)
 # and simply has none of the newer ones (chunk_build_defer_mode,
 # quad_splitting_mode, ...), which then no-op.
 #
@@ -331,6 +331,7 @@ def sanitize_entityculling_config(path: str | None = None) -> dict:
 #   quality.use_closest_point_entity_sort more correct translucent sorting,
 #                                         off by default
 #   notifications.*                       Sodium's own one-time prompts
+#   performance.animate_only_visible_textures  pack animation compatibility
 
 
 def chunk_builder_threads() -> int:
@@ -365,7 +366,6 @@ SODIUM_MAX_FPS_OPTIONS = {
         # 2, not Sodium's Auto (0): see chunk_builder_threads().
         "chunk_builder_threads": chunk_builder_threads(),
         "chunk_build_defer_mode": "ALWAYS",  # defer rebuilds off the frame
-        "animate_only_visible_textures": True,
         "use_entity_culling": True,
         "use_fog_occlusion": True,
         "use_block_face_culling": True,

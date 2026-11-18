@@ -69,33 +69,48 @@ def main(page: ft.Page):
     friends_client.connect()
 ```
 
-### The Sidebar
+### Sidebar and tab entry
 
-The sidebar is a fixed 200px-wide column on the left:
-- **Brand** - animated cube GIF + "Cubeon" wordmark
-- **Nav items** - Play, Mods, Modpacks, Friends, Servers (expandable group), Profile, Settings
-- **"Signed in as"** - avatar + username, clickable to open Profile tab
+The launcher has a fixed 64px rail of native Flet icons and a sliding accent
+marker. Native offset tweening runs inside its own small paint viewport, keeping
+animation out of tab-content painting and rail layout. Selection colors the
+active glyph; the surrounding tile stays transparent. Keyboard focus has a neutral
+outline, and active hover keeps the accent. Servers sub-tabs share one selected
+icon, and Settings is pinned below the scrolling navigation area. The content
+selectors inside Mods retain the supplied SVGs for Mods, Modpacks, Resource Packs
+and Shaders, with their original artwork colors.
 
-Each nav button has a hover state (faint wash) and an active state (green tint + accent bar). The Servers group is collapsible with a chevron.
+`switch_tab()` changes visibility on retained `TabPane` wrappers and paints the
+shell through its parent Stack. Native first visits mount a lightweight loading
+pane; `TabEntryQueue` constructs the tab off the UI event loop, commits under
+`TREE_LOCK` and publishes only for the current navigation generation. Completed
+hidden tabs stay cached. Headless callers prepare inline. Content refreshes
+follow the shell paint and target their own controls; worker repaint bursts
+coalesce per control and event loop.
 
-### Tab Switching
+### Mods loading responsibilities
 
-```python
-def switch_tab(key):
-    active_tab["value"] = key
-    # Update nav button styles
-    for k, btn in nav_buttons.items():
-        _style_nav_button(btn, k == key)
-    # Replace content area
-    content_area.content = ft.Container(tabs[key], ...)
-    # Trigger tab-specific refresh
-    if key == "mods":
-        refresh_mods_list()
-    elif key == "profile":
-        refresh_profile_tab()
-    ...
-    page.update()
-```
+`ui/mods_tab.py::ModsView` owns retained controls and routes entry, content-type
+changes and Browse/Installed changes through `_load_visible_content()`.
+
+| Work | Owner and timing |
+| --- | --- |
+| Catalogue requests | First page from each provider on Browse entry; later pages on demand |
+| Partial provider outcomes | `cubeon/mod_catalogue.py::ProviderPage`; successes, failures and pending sources stay independent |
+| Installed data and instance loader | `InstalledSnapshot`, read through `BackgroundRefresh` after Browse results arrive or on Installed entry |
+| Installed cards and automatic checks | Built/run for Installed, after its snapshot completes; fresh snapshots are reused |
+| Install eligibility | Cached verified loader while painting; actual install actions recheck the selected instance |
+| Icons | Retained holders repaint when artwork actually changes |
+
+A cached return does not replay searches or remount rows. Work completed while
+Mods is hidden updates caches; reopening displays the latest cached page.
+Changing a profile while hidden defers fetching until entry. Selecting embedded
+Modpacks keeps its existing lazy builder and stops hidden Mods publication.
+The four-value `build_mods_tab()` callback interface remains compatible.
+
+Regression checks: `test_mod_ui_stability.py`, `test_mod_catalogue.py`,
+`test_tab_navigation.py`, `test_mods_management_ui.py` and
+`test_tab_repaint_scope.py` in `tools/`.
 
 ### The Play Tab (Inline)
 
@@ -313,6 +328,11 @@ Chat
 ```
 
 **Key behaviors:**
+- The transcript is a bounded reversed lazy list: newest messages are first,
+  with latest at offset zero. Manual scrolling uses the native viewport without
+  a Python scroll callback or a latest button. Opening or sending requests
+  offset zero. Queued jumps check conversation generation
+  and tab visibility, and own their asynchronous listener completion.
 - Built lazily; only exists in `features.friends_enabled()` builds. In a public
   build `service is None` and the tab returns a static notice.
 - Polls on its own daemon thread (`_POLL_SECONDS = 1.5`) via

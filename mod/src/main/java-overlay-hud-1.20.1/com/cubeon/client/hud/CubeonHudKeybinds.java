@@ -13,7 +13,7 @@ import org.lwjgl.glfw.GLFW;
 /**
  * The single "open the Cubeon Client menu" key. On this version the category is a plain
  * string that doubles as its translation key, so Settings -> Controls -> Key Binds
- * shows the Cubeon Client group like any vanilla one. Vanilla leaves K unbound; users can
+ * shows the Cubeon Client group like any vanilla one. Right Shift opens the menu; users can
  * rebind it in the controls screen.
  */
 public final class CubeonHudKeybinds {
@@ -31,7 +31,7 @@ public final class CubeonHudKeybinds {
 		openMenu = new KeyBinding(
 				"key." + CubeonHudClient.MOD_ID + ".open_menu",
 				InputUtil.Type.KEYSYM,
-				GLFW.GLFW_KEY_K,
+				GLFW.GLFW_KEY_RIGHT_SHIFT,
 				"key.category." + CubeonHudClient.MOD_ID + ".main");
 		KeyBindingHelper.registerKeyBinding(openMenu);
 

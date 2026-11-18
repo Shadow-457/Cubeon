@@ -85,25 +85,24 @@ public class UiTest {
  public static void main(String[] args)throws Exception {
   Font font=Font.createFont(Font.TRUETYPE_FONT,new File(args[1])).deriveFont(10f);
   Properties labels=new Properties();try(var reader=new InputStreamReader(new FileInputStream(args[0]),StandardCharsets.UTF_8)){labels.load(reader);}
-  check(HudMenu.featureCount()==22&&HudMenu.overlayIndex(49)==-1,"Menu motion control adds no stale overlay actions");
-  check(HudMenu.nextBlurIntensity(1)==1.25f && HudMenu.nextBlurIntensity(2)==.25f,"Blur intensity advances and wraps predictably");
+  check(HudMenu.featureCount()==21&&HudMenu.overlayIndex(49)==-1,"Menu motion control adds no stale overlay actions");
   Canvas rim=new Canvas(120,80,font,labels);
   MenuUi.panel(rim,20,16,80,48,10,0xC0202020,0xCCFFFFFF,1);
   check((rim.image.getRGB(60*3+1,16*3+1)&255)>80,"Rounded panel has a visible border");
   check((rim.image.getRGB(60*3,40*3)&255)<(rim.image.getRGB(60*3+1,16*3+1)&255),"Border preserves the dark interior");
   float[] scales=new float[13];for(int i=0;i<scales.length;i++)scales[i]=new float[]{1,.75f,1.5f,1.25f,2}[i%5];
-  int[] saves={0};boolean[] motion={true};float[] plusStrength={1};
+  int[] saves={0};boolean[] motion={true};float[] blurIntensity={1};
   HudMenu.Settings settings=new HudMenu.Settings(){
    public boolean visible(int overlay){return overlay%2==0;}public float scale(int overlay){return scales[overlay];}
    public void setScale(int overlay,float value){scales[overlay]=value;}public void save(){saves[0]++;}
    public boolean menuAnimations(){return motion[0];}
-   public float blurPlusStrength(){return plusStrength[0];}public void setBlurPlusStrength(float value){plusStrength[0]=value;}
-   public boolean health(){return false;}public boolean animations(){return true;}public boolean wingDepth(){return true;}public boolean otherCosmetics(){return false;}public boolean cameraBlur(){return false;}public float blurIntensity(){return 1f;}
+   public float blurIntensity(){return blurIntensity[0];}public void setBlurIntensity(float value){blurIntensity[0]=value;}
+   public boolean health(){return false;}public boolean animations(){return true;}public boolean wingDepth(){return true;}public boolean otherCosmetics(){return false;}public boolean cameraBlur(){return false;}
   };
   int[] featureActions=new int[HudMenu.featureCount()];
   for(int i=0;i<13;i++)featureActions[i]=HudMenu.toggleAction(i);
   int[] extras={HudMenu.SPRINT,HudMenu.CAMERA_BLUR,HudMenu.HEALTH,HudMenu.ANIMATIONS,HudMenu.WING_DEPTH,
-                HudMenu.OTHER_COSMETICS,HudMenu.MENU_ANIMATIONS,HudMenu.OWN_NAME_TAG,HudMenu.BLUR_PLUS};
+                HudMenu.OTHER_COSMETICS,HudMenu.MENU_ANIMATIONS,HudMenu.OWN_NAME_TAG};
   System.arraycopy(extras,0,featureActions,13,extras.length);
   for(int[] size:new int[][]{{320,240},{520,304},{640,360},{960,540}}) {
    int w=size[0],h=size[1];HudMenu menu=new HudMenu();menu.layout(w,h);
@@ -139,8 +138,15 @@ public class UiTest {
            "Clock settings do not restore per-overlay move/size controls");
    menu.back();menu.activate(HudMenu.DETAIL+14);menu.layout(w,h);
    check(menu.control(HudMenu.BLUR_INTENSITY)!=null,"Camera Blur settings remain reachable");
-   menu.back();menu.activate(HudMenu.DETAIL+21);menu.layout(w,h);
-   check(menu.control(HudMenu.BLUR_PLUS_STRENGTH)!=null,"Motion Blur+ strength remains reachable");
+   menu.render(canvas,w,h,0,0,settings);
+   var intensity=menu.control(HudMenu.BLUR_INTENSITY);
+   check(menu.beginScale(intensity.x()+10,intensity.y()+25),"Intensity is a draggable slider");
+   check(blurIntensity[0]==0,"Left end is zero percent");
+   menu.dragScale(intensity.x()+intensity.w()-10);
+   check(blurIntensity[0]==1,"Right end is 100 percent");
+   int beforeSave=saves[0];menu.finishScale();check(saves[0]==beforeSave+1,"Slider saves once on release");
+   menu.adjustScale(-.01f);check(Math.abs(blurIntensity[0]-.99f)<.001f,"Arrow keys adjust intensity by one percent");
+
    menu.back();menu.layout(w,h);
    check(!menu.activate(featureActions[0]),"Clicking a feature card delegates its direct toggle to the native screen");
    menu.activate(HudMenu.CATEGORY+4);menu.layout(w,h);

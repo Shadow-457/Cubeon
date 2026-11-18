@@ -10,9 +10,18 @@ public final class CameraTransformer implements IClassTransformer, Opcodes {
     private static MethodInsnNode call(String name,String desc) { return new MethodInsnNode(INVOKESTATIC,HOOK,name,desc,false); }
     @Override public byte[] transform(String name,String transformed,byte[] bytes) {
         if(bytes==null || !(transformed.equals("net.minecraft.entity.Entity") || transformed.equals("net.minecraft.client.renderer.EntityRenderer")
-                || transformed.equals("net.minecraft.client.model.ModelPlayer") || transformed.equals("net.minecraft.client.multiplayer.PlayerControllerMP"))) return bytes;
+                || transformed.equals("net.minecraft.client.model.ModelPlayer") || transformed.equals("net.minecraft.client.multiplayer.PlayerControllerMP")
+                || transformed.equals("net.minecraft.client.settings.GameSettings"))) return bytes;
         ClassNode c=new ClassNode(); new ClassReader(bytes).accept(c,0); boolean changed=false;
         for(MethodNode m:c.methods) {
+            if(transformed.equals("net.minecraft.client.settings.GameSettings") && m.name.equals("<init>")) {
+                for(AbstractInsnNode n:m.instructions.toArray()) if(n instanceof FieldInsnNode && n.getOpcode()==PUTFIELD) {
+                    FieldInsnNode f=(FieldInsnNode)n;
+                    if((f.name.equals("guiScale")||f.name.equals("field_74335_Z")) && n.getPrevious().getOpcode()==ICONST_0) {
+                        m.instructions.set(n.getPrevious(),new InsnNode(ICONST_2)); changed=true;
+                    }
+                }
+            }
             if(transformed.equals("net.minecraft.entity.Entity") && method(m,"setAngles","func_70082_c") && m.desc.equals("(FF)V")) {
                 InsnList head=new InsnList(); LabelNode vanilla=new LabelNode();
                 head.add(new VarInsnNode(ALOAD,0)); head.add(new VarInsnNode(FLOAD,1)); head.add(new VarInsnNode(FLOAD,2));

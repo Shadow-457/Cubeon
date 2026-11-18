@@ -727,25 +727,15 @@ check("the Play path never hands the doctor an approval dialog",
 import types
 from ui import mods_tab as ui_mods, modpacks_tab as ui_packs
 from cubeon import icons, version_art
+import _fuzz_common
 
 
 def closure_env(fn):
-    return dict(zip(fn.__code__.co_freevars, [c.cell_contents for c in fn.__closure__ or ()]))
+    return _fuzz_common.callback_scope(fn)
 
 
 def closure_functions(*roots):
-    found = {}
-    seen = set()
-    def visit(fn):
-        if not isinstance(fn, types.FunctionType) or id(fn) in seen:
-            return
-        seen.add(id(fn))
-        found[fn.__name__] = fn
-        for value in closure_env(fn).values():
-            visit(value)
-    for root in roots:
-        visit(root)
-    return found
+    return _fuzz_common.callback_functions(*roots)
 
 
 class QueuedThread:
@@ -831,15 +821,9 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), \
     category = closure_env(fns["_browse_key"])["active_category"]
     scope_label = closure_env(fns["_refresh_browse_scope"])["browse_scope_text"]
     results_view = closure_env(fns["_render_browse_page"])["browse_results_view"]
-    checkbox = closure_env(fns["_change_search_scope"])["compatible_only"]
-    scope_column = next(control for control in _walk(root)
-                        if isinstance(control, ft.Column) and any(child is checkbox for child in control.controls))
-    check("the compatibility checkbox sits above a scrolling category strip",
-          any(isinstance(child, ft.Row) and child.scroll == ft.ScrollMode.AUTO for child in scope_column.controls))
-    check("the compatibility checkbox follows the active theme",
-          checkbox.active_color == _theme.THEME["ACCENT"]
-          and checkbox.label_style.color == _theme.THEME["TEXT_DIM"])
-    check("mod discovery defaults to compatible-only", scope["compatible"] and checkbox.value)
+    check("mod discovery defaults to compatible-only", scope["compatible"])
+    check("the retained catalogue has no category or compatibility toolbar",
+          not any(isinstance(control, ft.Checkbox) for control in _walk(root)))
     search.value = "durabilitywarner"
     category["value"] = "utility"
     with patch.object(_core, "search_mods", return_value=[]) as searching:
@@ -859,17 +843,18 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), \
               searching.call_args.kwargs["mc_version"] is None
               and searching.call_args.kwargs["loader"] is None
               and searching.call_args.kwargs["categories"] is None
-              and not checkbox.value)
+              and not scope["compatible"])
         check("scope changes invalidate in-flight searches", old_token != closure_env(fns["_render_browse_page"])["browse_state"]["token"])
         check("broader discovery does not change the active instance",
               state == {"selected_mc_version": "1.20.1", "mod_loader": "fabric"} and drop.value == "1.20.1")
         check("broader scope is clearly labeled", "all loaders" in scope_label.value)
-        fns["_change_search_scope"](True)
+        scope["compatible"] = True
+        fns["run_mod_search"]()
         while QueuedThread.queue:
             QueuedThread.queue.pop(0)()
         check("compatible-only can be restored without changing the instance",
               searching.call_args.kwargs["mc_version"] == "1.20.1"
-              and searching.call_args.kwargs["loader"] == "fabric" and checkbox.value)
+              and searching.call_args.kwargs["loader"] == "fabric" and scope["compatible"])
     search.value = "armor durability warner"
     with patch.object(_core, "search_mods", return_value=[{
             "project_id": "exact", "title": "DurabilityWarner", "search_query": "armor durability warner"}]):
@@ -903,8 +888,8 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), \
         check("failed searches stop loading and provide a retry action",
               not results_view.disabled
               and not any(isinstance(control, ft.ProgressRing) for control in _walk(results_view))
-              and not inspect.getclosurevars(fns['_show_browse_loading']).nonlocals['browse_retry'].disabled
-              and inspect.getclosurevars(fns['_show_browse_loading']).nonlocals['browse_retry'].opacity == 1)
+              and not _fuzz_common.callback_scope(fns['_show_browse_loading'])['browse_retry'].disabled
+              and _fuzz_common.callback_scope(fns['_show_browse_loading'])['browse_retry'].opacity == 1)
     QueuedThread.queue.clear()
     row = rowbuild({"project_id": "progress", "title": "Progress"})
     counts = []

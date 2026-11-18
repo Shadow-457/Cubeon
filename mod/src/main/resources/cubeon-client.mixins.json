@@ -9,6 +9,8 @@
     "ChatStackMixin",
     "ModMenuCountMixin",
     "ChunkDistanceOptionsMixin",
+    "GuiScaleDefaultMixin",
+    "StartupLoadingMixin",
     "LocalSimulationDistanceMixin",
     "SodiumLegacyDistanceMixin",
     "SodiumDistanceMixin",

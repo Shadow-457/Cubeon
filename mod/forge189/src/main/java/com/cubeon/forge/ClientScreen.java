@@ -7,12 +7,14 @@ import java.util.*;
 
 public final class ClientScreen extends GlassScreen {
     private int category, page;
+    private boolean blurSliding;
     private final Map<Integer,String> toggles=new HashMap<>();
     private final Map<Integer,HudFeatures> overlays=new HashMap<>();
     private static final String[][] OPTIONS={
         {"showEnemyHealth","Enemy health"},{"autoSprint","Auto sprint"},{"worldClock","World clock"},
         {"cosmeticAnimations","Cosmetic animation"},{"wingDepth","Wing depth"},{"showOtherCosmetics","Other player cosmetics"},
         {"showEmotes","Player emotes"},{"cameraMotionBlur","Camera motion blur"},
+        {"cameraBlurIntensity","Blur intensity"},
         {"showArmorHelmet","Helmet"},{"showArmorChest","Chestplate"},{"showArmorLegs","Leggings"},{"showArmorFeet","Boots"}
     };
     public ClientScreen(GuiScreen parent) { super(parent); }
@@ -30,7 +32,14 @@ public final class ClientScreen extends GlassScreen {
                 HudFeatures f=HudFeatures.ALL[i]; int id=100+i; overlays.put(id,f);
                 button(id,x,y,w,Hud189.label(f)+": "+(Hud189.enabled(f)?"On":"Off"));
             } else {
-                String field=OPTIONS[i][0]; int id=200+i; toggles.put(id,field);
+                String field=OPTIONS[i][0]; int id=200+i;
+                if(field.equals("cameraBlurIntensity")) {
+                    buttonList.add(new net.minecraftforge.fml.client.config.GuiSlider(id,x,y,w,20,
+                            "Blur intensity: ","%",0,100,c.cameraBlurIntensity*100,false,true,
+                            slider -> CubeonHudConfig.get().cameraBlurIntensity=(float)(slider.getValue()/100)));
+                    continue;
+                }
+                toggles.put(id,field);
                 boolean on=false; try { on=CubeonHudConfig.class.getField(field).getBoolean(c); } catch(Exception ignored) { }
                 button(id,x,y,w,OPTIONS[i][1]+": "+(on?"On":"Off"));
             }
@@ -53,6 +62,17 @@ public final class ClientScreen extends GlassScreen {
             catch(ReflectiveOperationException e) { throw new IllegalStateException(e); }
             initGui();
         }
+    }
+    @Override protected void mouseClicked(int x,int y,int button) throws IOException {
+        if(button==0) for(GuiButton control:buttonList) {
+            if(control instanceof net.minecraftforge.fml.client.config.GuiSlider && x>=control.xPosition && x<control.xPosition+control.width
+                    && y>=control.yPosition && y<control.yPosition+control.height) blurSliding=true;
+        }
+        super.mouseClicked(x,y,button);
+    }
+    @Override protected void mouseReleased(int x,int y,int state) {
+        super.mouseReleased(x,y,state);
+        if(blurSliding) { blurSliding=false; CubeonHudConfig.save(); }
     }
     @Override public void drawScreen(int x,int y,float partial) { chrome("Cubeon Client · Forge 1.8.9"); super.drawScreen(x,y,partial); }
 }

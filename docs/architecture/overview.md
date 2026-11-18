@@ -42,14 +42,63 @@ strictly UI-free package.
 `main.py` owns shared configuration and session state. Tab builders receive
 the state and callbacks they need, returning a control tree and refresh
 functions. Tabs are constructed lazily and retained for later navigation.
+The shell wraps each tab in `ui.chrome.TabPane`. During a navigation repaint,
+`thread_safe_ui.update_scope` enables Flet isolation at those panes, so the
+parent Stack sends visibility without traversing retained libraries or
+transcripts. Content changes repaint their own controls or hosts. Ordinary
+full-page updates retain normal traversal for existing handlers; the isolation
+scope is applied during the actual diff, including queued worker updates.
+`ui.chrome.TabEntryQueue` prepares native tab entries on one page-context worker.
+First visits paint a lightweight loading pane before mounting the completed
+content; later visits reuse it. Rapid navigation keeps the latest pending entry,
+and generation checks keep hidden completions from changing the visible tab.
+Do not prebuild heavy tabs on the UI event loop after startup. Mods builds the
+embedded Modpacks view only when its category is opened, and fresh cached Mods
+navigation skips unchanged installed-list rendering.
+The 64px sidebar uses Flet icons and a slim accent marker. `ui.chrome.NavSlider`
+moves the marker using native offset animation inside a separate, noninteractive
+paint viewport, so animation frames do not relayout the rail or repaint tab
+content. It shares the tab-switch patch and reuses existing window resize events;
+unchanged scroll events cause no paint. The settle is 120ms; reduced motion
+snaps it into place. Native animations still require renderer frames, so headless
+diff timings do not certify native frame rate.
+The active glyph uses the accent color; tiles stay transparent, and keyboard
+focus has a neutral outline. Server sub-tabs share the Servers position, and
+Settings remains pinned below the rail.
+Mods' content selectors retain the supplied Mods, Modpacks, Resource Packs and
+Shaders SVGs and their original artwork colors.
+
+`ui/mods_tab.py::ModsView` loads the selected content pane through
+`_load_visible_content()`. Browse starts the first provider page, then requests
+installation badges after results arrive. Installed loads its snapshot before
+starting the automatic compatibility check. `InstalledSnapshot` includes the
+instance's verified loader, read once on the worker; tile rendering uses that
+snapshot while actual installation actions revalidate the on-disk instance.
+`cubeon/mod_catalogue.py::ProviderPage` keeps independent pending, successful
+and failed provider outcomes. Hidden completions cache data; returning paints
+the latest cached page without restarting its requests. Icon metadata updates
+repaint only changed artwork holders. The public builder still returns four
+values: root, installed refresh, entry hook and profile refresh.
 
 Downloads and service polling must not block UI handlers. Background tree
 mutations use `thread_safe_ui.TREE_LOCK`, and repaint requests go through
-`thread_safe_ui.refresh()` so they reach Flet's event loop safely.
+`thread_safe_ui.refresh()` so they reach Flet's event loop safely. Worker bursts
+coalesce per control and event loop; pending keys clear before diffing so a
+mutation during a paint can request another delivery.
 
 Refreshing a label, unread count, or presence ring should not recreate its
 parent row or retransmit unchanged artwork. Existing controls can be updated
 in place. See [Launcher](launcher.md) for more detailed entry points.
+
+Appearance's `ui/color_studio.py` uses a responsive native hue/saturation wheel,
+one brightness slider and a hex field with a retained launcher preview. Pointer
+events perform no image decoding, filesystem work or saves. `launcher_palette`
+retains the validated seed, depth and vividness recipe for compatibility;
+choosing a color preserves existing depth/vividness values. `color_templates.py` derives
+contrast-checked dark surfaces and accents while preserving semantic colors.
+The package startup hook applies it before UI token imports; explicit color
+flags and installer mode retain their palette overrides. Saving is transactional
+and takes effect after a launcher restart.
 
 ## Game launch
 

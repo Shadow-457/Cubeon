@@ -17,7 +17,6 @@ from .atomicio import write_json
 _RENDERER = {
     "performance.chunk_builder_threads": 2,
     "performance.chunk_build_defer_mode": "ALWAYS",
-    "performance.animate_only_visible_textures": True,
     "performance.use_entity_culling": True,
     "performance.use_fog_occlusion": True,
     "performance.use_block_face_culling": True,
@@ -34,13 +33,19 @@ SETTINGS = {
         "avoid_redundant_framebuffer_switching": True,
         "batch_animated_item_updates": True,
     },
-    "cubeon-client-hud.json": {"cameraMotionBlur": False, "temporalMotionBlur": False},
+    "cubeon-client-hud.json": {"cameraMotionBlur": False},
     # Iris/Oculus test exactly "false". Case changes or trailing whitespace
     # can enable shaders. Keep raw property values for an exact restoration.
     "iris.properties": {"enableShaders": "false"},
     "oculus.properties": {"enableShaders": "false"},
 }
 BACKUP = ".cubeon-fps-mod-settings.json"
+# Older syncs forced this on, breaking packs that need all sprites ticked.
+# Read old journals so we can restore the saved preference and retire the key.
+_RETIRED_RENDERER = {"performance.animate_only_visible_textures": True}
+_RETIRED = {filename: _RETIRED_RENDERER for filename in
+            ("sodium-options.json", "embeddium-options.json", "rubidium-options.json")}
+_RETIRED["cubeon-client-hud.json"] = {"temporalMotionBlur": False}
 _LOCK = threading.RLock()
 _SHADER = re.compile(r"^([ \t\f]*enableShaders(?:[ \t\f]*[:=][ \t\f]*|[ \t\f]+))([^\r\n]*)(\r\n|\n|\r)?$")
 
@@ -124,7 +129,7 @@ def _read_backup(path):
         if entry["before"].keys() != entry["applied"].keys():
             raise ValueError("incomplete FPS mod settings backup")
         for key, before in entry["before"].items():
-            wanted = SETTINGS[filename].get(key)
+            wanted = {**SETTINGS[filename], **_RETIRED.get(filename, {})}.get(key)
             if wanted is None or type(before) is not type(wanted) or type(entry["applied"][key]) is not type(wanted):
                 raise ValueError("unsupported FPS mod settings backup key")
     return saved
@@ -154,11 +159,14 @@ def sync_mod_settings(game_dir, *, enabled, sync_settings):
                 continue
             path = directory / filename
             try:
-                current, write = _read(path, rules)
+                retired = _RETIRED.get(filename, {})
+                current, write = _read(path, {**rules, **retired})
                 if enabled:
                     backup_changed = entry is None
                     entry = entry or {"before": {}, "applied": {}}
                     for key, value in current.items():
+                        if key not in rules:
+                            continue
                         backup_changed |= key not in entry["before"] or entry["applied"].get(key) != rules[key]
                         entry["before"].setdefault(key, value)
                         entry["applied"][key] = rules[key]
@@ -169,7 +177,10 @@ def sync_mod_settings(game_dir, *, enabled, sync_settings):
                     # the first run when every setting already has its fast value.
                     if backup_changed:
                         write_json(str(marker), saved)
-                    wanted = {key: rules[key] for key in current}
+                    wanted = {key: rules[key] for key in current if key in rules}
+                    wanted.update({key: before for key, before in entry["before"].items()
+                                   if key in retired and key in current
+                                   and current[key] == entry["applied"][key]})
                 else:
                     wanted = {key: before for key, before in entry["before"].items()
                               if key in current and current[key] == entry["applied"][key]}
@@ -179,6 +190,14 @@ def sync_mod_settings(game_dir, *, enabled, sync_settings):
                     report["changed"].append(filename)
                 if not enabled:
                     saved["files"].pop(filename, None)
+                    write_json(str(marker), saved)
+                elif any(key in entry["before"] for key in retired):
+                    # Retire only after restoration succeeded; failed writes retry.
+                    for key in retired:
+                        entry["before"].pop(key, None)
+                        entry["applied"].pop(key, None)
+                    if not entry["before"]:
+                        saved["files"].pop(filename, None)
                     write_json(str(marker), saved)
             except FileNotFoundError:
                 # A removed mod/config must never be recreated by restore.
