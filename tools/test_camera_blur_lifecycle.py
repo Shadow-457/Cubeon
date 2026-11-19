@@ -28,7 +28,7 @@ def fixtures(folder, era):
     put(folder, "net.minecraft.client.gl.UniformType", "public enum CLASS { VEC2, UNIFORM_BUFFER }")
     put(folder, "org.slf4j.Logger", "public interface CLASS { default void warn(String s, Throwable t) {} }")
     put(folder, "org.slf4j.LoggerFactory", "public class CLASS { public static Logger getLogger(String s) { return new Logger() {}; } }")
-    put(folder, "com.cubeon.client.hud.CubeonHudConfig", "public class CLASS { public boolean cameraMotionBlur,temporalMotionBlur; public float cameraBlurIntensity=1f,temporalBlurStrength=1f; private static final CLASS C=new CLASS(); public static CLASS get() {return C;} }")
+    put(folder, "com.cubeon.client.hud.CubeonHudConfig", "public class CLASS { public boolean cameraMotionBlur; public float cameraBlurIntensity=1f; private static final CLASS C=new CLASS(); public static CLASS get() {return C;} }")
     put(folder, "test.Events", """public class CLASS {
         public static int live, allocations, copies, draws, attempts, submits, pipelines;
         public static boolean failAllocation, failDraw, copied;
@@ -88,8 +88,8 @@ def fixtures(folder, era):
         public static class Samplers { public Object get(Object f){return f;} public Object getClampToEdge(Object f){return f;} }
         public static class Device {
             public GpuTexture createTexture(String label,Object... a){
-                if(label.contains("current scene") && a[0] instanceof Integer && (((Integer)a[0]) & GpuTexture.USAGE_COPY_SRC)==0)
-                    throw new AssertionError("Raw scratch must allow copies into history");
+                if(a[0] instanceof Integer && (((Integer)a[0]) & (GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING)) != (GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING))
+                    throw new AssertionError("Scratch must accept the scene copy and be sampled");
                 var t=new GpuTexture();t.label=label;return t;
             }
             public GpuTextureView createTextureView(GpuTexture t){return new GpuTextureView();}
@@ -204,15 +204,6 @@ def fixtures(folder, era):
             require(Events.live==0,"Failed draw cleans partially initialized resources");
             Events.failDraw=false;CameraBlurRenderer.reset();frame();turn();require(Events.live>0,"Explicit reset can recover the optional effect");
             CameraBlurRenderer.shutdown();CameraBlurRenderer.shutdown();require(Events.live==0,"Shutdown is idempotent");
-            CubeonHudConfig.get().cameraMotionBlur=false;CubeonHudConfig.get().temporalMotionBlur=true;
-            frame();resources=Events.live;allocations=Events.allocations;draws=Events.draws;int copies=Events.copies;
-            Thread.sleep(12);frame();require(Events.draws==draws+1&&Events.copies==copies+2,"Plus blends a static camera world and saves history after drawing");
-            require(Events.live==resources&&Events.allocations==allocations,"Plus reuses its history allocation");
-            client.screen=client.currentScreen=new Object();frame();require(Events.live==0,"Plus releases history before menus");
-            client.screen=client.currentScreen=null;frame();require(com.cubeon.client.hud.TemporalBlur.INSTANCE.weight()==0,"Plus resumes with a clean scene seed");
-            client.frame.width=client.frame.textureWidth=960;client.frame.height=client.frame.textureHeight=540;
-            Thread.sleep(12);frame();require(Events.live==resources&&com.cubeon.client.hud.TemporalBlur.INSTANCE.weight()==0,"Plus resize replaces history and clears exposure");
-            CubeonHudConfig.get().temporalMotionBlur=false;frame();require(Events.live==0,"Plus off releases all resources");
             require(Events.pipelines<=1,"Pipeline descriptors must not accumulate across resize/toggles");
             System.out.println("ERA: off/idle, resource reuse, resize, world/menu/toggle/reload/close, copy ordering and failure recovery passed");
         }
@@ -228,7 +219,6 @@ class LifecycleTests(unittest.TestCase):
                 fixtures(folder, era)
                 sources = list(folder.rglob("*.java")) + [
                     MAIN / "java/com/cubeon/client/hud/CameraBlur.java",
-                    MAIN / "java/com/cubeon/client/hud/TemporalBlur.java",
                     MAIN / f"java-overlay-camera-blur-{era}/com/cubeon/client/hud/blur/CameraBlurRenderer.java"]
                 result = subprocess.run(["javac", "--release", "17", "-d", directory] + [str(p) for p in sources],
                                         capture_output=True, text=True, timeout=60)

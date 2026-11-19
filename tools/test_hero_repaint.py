@@ -87,8 +87,8 @@ with patch.object(thread_safe_ui, "refresh",
     second_title = hero_title.value
 
 check("picking another instance changes the hero title",
-      first_title == "Minecraft 1.20.1"
-      and second_title == "Minecraft 1.21.11",
+      first_title == "1.20.1"
+      and second_title == "1.21.11",
       f"first={first_title!r} second={second_title!r}")
 check("the hero title is repainted, not just mutated",
       hero_title in refreshed,

@@ -414,6 +414,12 @@ def install_safe_stubs(verbose=False):
     import cubeon.skins as skins_mod
     skins_mod._publish_skin_async = lambda *a, **k: None
     skins_mod._post = lambda *a, **k: types.SimpleNamespace(status_code=503, headers={})
+    # The owner-backed Store is a network/download leaf too. Headless and
+    # visual fuzzing must never poll Production or import real store files.
+    from cubeon import cosmetics_store
+    cosmetics_store.fetch_page = lambda offset=0: {"schema": 1, "offset": offset,
+        "page_size": cosmetics_store.PAGE_SIZE, "has_more": False, "items": []}
+    cosmetics_store.installed = lambda item: None
     import cubeon.faces as faces_mod
     faces_mod._get = lambda *a, **k: types.SimpleNamespace(status_code=404, content=b"", headers={})
 
@@ -522,6 +528,8 @@ def install_safe_stubs(verbose=False):
     for _name in _SIDE_EFFECT_NOOP:
         if hasattr(core, _name):
             setattr(core, _name, _noop_recording(_name))
+
+    cosmetics_store.download = _noop_recording("download_store_cosmetic")
 
     # add_custom_skin returns a dict the UI reads - keep the shape.
     core.add_custom_skin = lambda *a, **k: {"filename": "fuzz.png", "display_name": "fuzz"}

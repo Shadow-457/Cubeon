@@ -284,14 +284,20 @@ check('full motion keeps the same cached pane', views['mods'] is settings_view)
 check('full motion restores native offset tweening', marker.animate_offset.duration == 120)
 rail_scroll = next(control for control in walk(driver.page)
                    if getattr(getattr(control, 'on_scroll', None), '__name__', '') == '_on_nav_scroll')
-with mock_patch.object(thread_safe_ui, 'refresh') as repaint:
+scroll_paints = []
+# Other metadata workers may repaint concurrently; count calls made by this
+# handler on the test thread, including any accidental whole-page refresh.
+scroll_thread = threading.get_ident()
+def record_scroll_paint(control):
+    if threading.get_ident() == scroll_thread:
+        scroll_paints.append(control)
+with mock_patch.object(thread_safe_ui, 'refresh', side_effect=record_scroll_paint):
     for _ in range(20):
         rail_scroll.on_scroll(SimpleNamespace(pixels=0))
-    check('unchanged native scroll events cause no repaint', not repaint.called)
+    check('unchanged native scroll events cause no repaint', not scroll_paints)
     rail_scroll.on_scroll(SimpleNamespace(pixels=30))
     check('real scrolling keeps the marker beside its icon with one scoped paint',
-          marker.offset.y * marker.height == 55 and repaint.call_args.args == (marker,)
-          and repaint.call_count == 1 and marker.animate_offset.duration == 0)
+          marker.offset.y * marker.height == 55 and scroll_paints == [marker] and marker.animate_offset.duration == 0)
     rail_scroll.on_scroll(SimpleNamespace(pixels=100))
     check('a scrolled-out selection hides its marker', marker.opacity == 0)
     rail_scroll.on_scroll(SimpleNamespace(pixels=0))

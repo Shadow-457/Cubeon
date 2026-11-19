@@ -233,7 +233,7 @@ class ModSettings(unittest.TestCase):
         shader = self.directory / 'iris.properties'
         shader.write_text('enableShaders=true\nenableShaders=false\n')
         original = shader.read_bytes()
-        self.write_json('cubeon-client-hud.json', {'temporalMotionBlur': True})
+        self.write_json('cubeon-client-hud.json', {'cameraMotionBlur': True})
         report = self.sync()
         self.assertTrue(report['errors'])
         self.assertEqual(shader.read_bytes(), original)

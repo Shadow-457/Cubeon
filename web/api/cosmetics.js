@@ -8,7 +8,7 @@ const ID = /^[a-z][a-z0-9_-]{2,63}$/;
 const SHA = /^[a-f0-9]{64}$/;
 const LIST_SQL = `SELECT id, kind, name, description, mime_type, byte_size, sha256,
   encode(preview_png, 'base64') AS preview FROM cubeon_cosmetics
-  WHERE published ORDER BY updated_at DESC, id LIMIT 13 OFFSET $1`;
+  WHERE published AND ($2::boolean OR kind = 'cape') ORDER BY updated_at DESC, id LIMIT 13 OFFSET $1`;
 const FILE_SQL = `SELECT mime_type, byte_size, sha256, encode(file_bytes, 'base64') AS payload
   FROM cubeon_cosmetics WHERE published AND id = $1 AND sha256 = $2`;
 
@@ -39,23 +39,24 @@ function createHandler({env = process.env, fetch: fetcher = globalThis.fetch,
     visitors.set(key, {start: entry?.start ?? time, count: (entry?.count || 0) + 1});
     return 0;
   }
-  async function list(offset) {
-    const cached = pages.get(offset);
+  async function list(offset, all) {
+    const key = `${offset}:${all}`;
+    const cached = pages.get(key);
     if (cached && now() - cached.time < 60000) return cached.body;
-    if (pending.has(offset)) return pending.get(offset);
+    if (pending.has(key)) return pending.get(key);
     const job = (async () => {
-      const rows = await query(LIST_SQL, [offset], 450000);
+      const rows = await query(LIST_SQL, [offset, all], 450000);
       const body = {schema: 1, offset, page_size: PAGE_SIZE, has_more: rows.length > PAGE_SIZE,
         items: rows.slice(0, PAGE_SIZE).map(row => ({id: row.id, kind: row.kind,
           name: row.name, description: row.description, mime_type: row.mime_type,
           byte_size: Number(row.byte_size), sha256: row.sha256,
           preview_png: String(row.preview).replace(/\s/g, '')}))};
       if (pages.size >= 64) pages.delete(pages.keys().next().value);
-      pages.set(offset, {time: now(), body});
+      pages.set(key, {time: now(), body});
       return body;
     })();
-    pending.set(offset, job);
-    try { return await job; } finally { pending.delete(offset); }
+    pending.set(key, job);
+    try { return await job; } finally { pending.delete(key); }
   }
   return async function cosmetics(req, res) {
     if (!['GET', 'HEAD'].includes(req.method)) {
@@ -63,11 +64,14 @@ function createHandler({env = process.env, fetch: fetcher = globalThis.fetch,
       return send(req, res, 405, {error: 'method_not_allowed'});
     }
     const url = new URL(req.url, 'https://cubeon.invalid');
-    const allowed = new Set(['offset', 'id', 'sha256']);
+    const allowed = new Set(['offset', 'id', 'sha256', 'kind']);
     if ([...url.searchParams.keys()].some(key => !allowed.has(key) || url.searchParams.getAll(key).length !== 1))
       return send(req, res, 400, {error: 'invalid_query'});
     const id = url.searchParams.get('id'), sha = url.searchParams.get('sha256');
     const offsetText = url.searchParams.get('offset') ?? '0';
+    const kind = url.searchParams.get('kind');
+    if (kind !== null && (kind !== 'all' || id !== null || sha !== null))
+      return send(req, res, 400, {error: 'invalid_query'});
     if ((id !== null || sha !== null) ? (!ID.test(id || '') || !SHA.test(sha || '') || url.searchParams.has('offset'))
         : (!/^(0|[1-9][0-9]{0,4})$/.test(offsetText) || Number(offsetText) > 10000))
       return send(req, res, 400, {error: 'invalid_query'});
@@ -85,9 +89,9 @@ function createHandler({env = process.env, fetch: fetcher = globalThis.fetch,
         const data = Buffer.from(file.payload, 'base64');
         if (file.sha256 !== sha || data.length !== Number(file.byte_size) ||
             !data.length || data.length > MAX_FILE_BYTES ||
-            !['image/png', 'image/gif'].includes(file.mime_type) ||
+            !['image/png', 'image/gif', 'application/vnd.cubeon.cosmetic+json'].includes(file.mime_type) ||
             createHash('sha256').update(data).digest('hex') !== sha) throw new Error('invalid_file');
-        res.setHeader('Content-Disposition', `attachment; filename="${id}.${file.mime_type === 'image/gif' ? 'gif' : 'png'}"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${id}.${file.mime_type === 'image/gif' ? 'gif' : file.mime_type === 'image/png' ? 'png' : 'json'}"`);
         res.setHeader('ETag', `"${sha}"`);
         if (req.headers['if-none-match'] === `"${sha}"`) {
           res.statusCode = 304;
@@ -97,7 +101,7 @@ function createHandler({env = process.env, fetch: fetcher = globalThis.fetch,
         return send(req, res, 200, data, file.mime_type,
           'public, max-age=31536000, s-maxage=31536000, immutable');
       }
-      const body = await list(Number(offsetText));
+      const body = await list(Number(offsetText), kind === 'all');
       const etag = '"' + createHash('sha256').update(JSON.stringify(body)).digest('hex') + '"';
       res.setHeader('ETag', etag);
       if (req.headers['if-none-match'] === etag) {

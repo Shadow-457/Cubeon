@@ -17,7 +17,7 @@ from urllib.parse import urlencode, urlsplit
 
 from PIL import Image
 
-from . import capes, net
+from . import capes, net, cosmetic_packages
 from .paths import user_agent
 
 DEFAULT_API = "https://www.ylet.online/api/cosmetics"
@@ -65,9 +65,9 @@ def _entry(raw):
         raise ValueError("The store returned an invalid cosmetic.")
     item = dict(raw)
     if (not isinstance(item.get("id"), str) or not _ID.fullmatch(item["id"]) or
-            item.get("kind") != "cape" or not isinstance(item.get("sha256"), str) or
+            item.get("kind") not in ("cape", "pet", "wing") or not isinstance(item.get("sha256"), str) or
             not _SHA.fullmatch(item["sha256"]) or
-            item.get("mime_type") not in ("image/png", "image/gif") or
+            item.get("mime_type") not in (("image/png", "image/gif") if item.get("kind") == "cape" else (cosmetic_packages.MIME,)) or
             type(item.get("byte_size")) is not int or not 0 < item["byte_size"] <= MAX_FILE_BYTES or
             not isinstance(item.get("name"), str) or not 0 < len(item["name"].strip()) <= 80 or
             not isinstance(item.get("description"), str) or len(item["description"]) > 400):
@@ -90,7 +90,7 @@ def fetch_page(offset=0):
     import json
     if type(offset) is not int or not 0 <= offset <= 10000:
         raise ValueError("The store page is invalid.")
-    data = json.loads(_bytes(api_url() + "?" + urlencode({"offset": offset}), 450000))
+    data = json.loads(_bytes(api_url() + "?" + urlencode({"offset": offset, "kind": "all"}), 450000))
     if (not isinstance(data, dict) or data.get("schema") != 1 or
             data.get("offset") != offset or data.get("page_size") != PAGE_SIZE or
             type(data.get("has_more")) is not bool or not isinstance(data.get("items"), list) or
@@ -104,6 +104,8 @@ def fetch_page(offset=0):
 
 def installed(item):
     """Find a previously imported revision; deletion permits downloading again."""
+    if item.get("kind") in ("pet", "wing"):
+        return cosmetic_packages.installed(item)
     for entry in capes.list_custom_capes():
         if (isinstance(entry, dict) and isinstance(entry.get("filename"), str) and
                 re.fullmatch(r"[A-Za-z0-9_-]+\.png", entry["filename"]) and
@@ -121,7 +123,9 @@ def download(item):
     url = api_url() + "?" + urlencode({"id": item["id"], "sha256": item["sha256"]})
     payload = _bytes(url, MAX_FILE_BYTES)
     if len(payload) != item["byte_size"] or hashlib.sha256(payload).hexdigest() != item["sha256"]:
-        raise ValueError("The cape download was incomplete or changed. Refresh the store and try again.")
+        raise ValueError("The cosmetic download was incomplete or changed. Refresh the store and try again.")
+    if item["kind"] != "cape":
+        return cosmetic_packages.install(payload, item)
     magic = payload.startswith(b"\x89PNG\r\n\x1a\n") if item["mime_type"] == "image/png" else payload[:6] in (b"GIF87a", b"GIF89a")
     if not magic:
         raise ValueError("The downloaded file is not a cape image.")

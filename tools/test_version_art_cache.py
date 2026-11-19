@@ -162,9 +162,8 @@ page = app_driver.DriverPage()
 stubs.app.run_sync(page)
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 driver.open_tab("play")
-check("the Play banner mounts a retained image fade host", any(
-    type(control).__name__ == "Stack" and control.data == "play-banner"
-    for control in every_control(page)))
+backdrops = [c for c in every_control(page) if c.data == "window-backdrop"]
+check("the selected artwork mounts one retained window backdrop", len(backdrops) == 1)
 
 
 def find_play_rows():
@@ -189,9 +188,9 @@ if picker_btn:
     driver._fire_named(picker_btn[0], "on_click", "open version panel")
 panel = picker_model.panel if picker_model else None
 
-banner_host = next(c for c in every_control(page) if c.data == 'play-banner')
-banner_frames = tuple(banner_host.controls)
-banner_state = tuple((frame.src, frame.opacity) for frame in banner_frames)
+banner_host = backdrops[0]
+banner_image = banner_host.image
+banner_state = banner_image.src
 encode = configure_encode_object_for_msgpack(BaseControl)
 initial, _, _ = ObjectPatch.from_diff(None, banner_host, BaseControl)
 msgpack.packb(initial.to_message(), default=encode)
@@ -206,11 +205,10 @@ with patch.object(thread_safe_ui, 'refresh', side_effect=painted.append), patch.
         changes, added, removed = ObjectPatch.from_diff(banner_host, banner_host, BaseControl)
         wire = msgpack.packb(changes.to_message(), default=encode)
         check(f"sidebar cycle {cycle + 1} retains both background images and fade state",
-              tuple(banner_host.controls) == banner_frames
-              and tuple((frame.src, frame.opacity) for frame in banner_frames) == banner_state)
+              banner_host.image is banner_image and banner_image.src == banner_state)
         check(f"sidebar cycle {cycle + 1} sends no background image/remount patch",
               not added and not removed and b'src' not in wire
-              and banner_host not in painted and not any(frame in painted for frame in banner_frames))
+              and banner_host not in painted)
 
 
 def find_panel_rows():
@@ -246,10 +244,10 @@ check("exactly one card starts selected", len(selected_before) == 1,
 target = next(vid for vid in rows if vid not in selected_before)
 
 driver._fire_named(rows[target], "on_click", "panel card select")
-check("changing the selected version keeps the same two image controls",
-      tuple(banner_host.controls) == banner_frames)
+check("changing the selected version retains the window backdrop",
+      banner_host.image is banner_image)
 check("changing the selected version updates its promotional artwork",
-      banner_frames[1 if banner_frames[1].opacity == 1 else 0].src == version_art.key_art_src(target))
+      banner_host.image.src == version_art.key_art_src(target))
 check("selecting a card closes the panel",
       picker_model is not None and not picker_model.is_open())
 driver._fire_named(picker_btn[0], "on_click", "reopen version panel")

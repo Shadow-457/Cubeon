@@ -7892,6 +7892,7 @@ async def main(page: ft.Page):
     # `_sync_backdrop` swaps it live when the version selection changes.
     _backdrop_layer = ft.Container(
         left=0, top=0, right=0, bottom=0,
+        data="window-backdrop",
         image=ft.DecorationImage(
             src=_backdrop["src"], fit=ft.BoxFit.COVER,
             filter_quality=ft.FilterQuality.HIGH,

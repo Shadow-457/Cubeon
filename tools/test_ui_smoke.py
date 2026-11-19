@@ -237,7 +237,9 @@ for label in nav_labels:
 check("legacy toggle not on the play tab", "show snapshots" not in text)
 
 print("\n3. the Play tab is wired")
-check("Play has no username editor", "username" not in text)
+check("Play has no username editor", not any(
+    type(c).__name__ == "TextField" and getattr(c, "hint_text", None) == "Username"
+    for c in walk(page.controls[0])))
 check("version selector present", "version" in text)
 # The loader is chosen when an instance is DOWNLOADED and fixed afterwards
 # (2026-10-26 user ask). The Play card therefore shows a read-only instance
@@ -1443,18 +1445,18 @@ check("local install runs on a worker thread",
       "handle_local_mod_files must not block the UI thread")
 check("local install parks its button",
       "local_install_btn.disabled = True" in _local_src
-      and "local_install_btn.disabled = not _can_install()" in _local_src,
+      and "self.local_install_btn.disabled = not self._can_install(verify=False)" in _local_src,
       "the Install-from-file button must be parked while installing")
 check("local install repaints via control refresh, not page.update",
       "page.update()" not in _local_src
-      and "thread_safe_ui.refresh(local_install_status)" in _local_src,
+      and "thread_safe_ui.refresh(self.local_install_status)" in _local_src,
       "full-tree page.update() from the worker is the jank anti-pattern")
 
 # --- icon worker must not fire a full-tree page.update() from a thread ----------
 _icons_src = _fn_src(_mods_src, "_fetch_missing_icons")
 check("icon worker repaints the list region only",
       "page.update()" not in _icons_src
-      and "thread_safe_ui.refresh(mods_list_view)" in _icons_src,
+      and "thread_safe_ui.refresh(holder)" in _icons_src,
       "the slug->icon worker must not full-tree update")
 
 # --- Stats tab (2026-09-09) ----------------------------------------------------
@@ -1476,7 +1478,7 @@ check("Crash report has Doctor and log copy, with no Fix crash action",
       "Crash repair is reached through Doctor or Installed's Check & repair")
 check("stats tab exists and is wired into nav + lazy builders",
       "def build_stats_tab" in _stats_src
-      and '("stats", ft.Icons.QUERY_STATS_ROUNDED, i18n.t("Stats"))' in _main_src
+      and '("stats", ft.Icons.BAR_CHART_ROUNDED, i18n.t("Stats"))' in _main_src
       and '"stats": _build_stats_tab' in _main_src
       and '"stats": stats_tab_host' in _main_src,
       "the Stats tab must be reachable from the top nav")
@@ -1523,7 +1525,7 @@ check("screenshot gallery opens from the compact profile-strip button",
 check("screenshot gallery offers copy-image action",
       "screenshot-copy" in _screenshot_tab_src
       and "set_files" in _screenshot_tab_src
-      and "Copy image" in _screenshot_tab_src,
+      and "Copy the selected screenshot" in _screenshot_tab_src,
       "the selected screenshot needs a desktop clipboard action")
 
 # --- Chat tab (2026-09-11) -----------------------------------------------------
@@ -1533,7 +1535,7 @@ _chat_path = os.path.join(_app_root, "ui", "chat_tab.py")
 check("chat tab exists and is wired into nav + lazy builders",
       os.path.exists(_chat_path)
       and "def build_chat_tab" in open(_chat_path, encoding="utf-8").read()
-      and 'ft.Icons.CHAT_BUBBLE_ROUNDED,' in _main_src
+      and 'ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,' in _main_src
       and 'i18n.t("Chat")' in _main_src
       and '"chat": _build_chat_tab' in _main_src
       and '"chat": chat_tab_host' in _main_src,
@@ -2070,7 +2072,7 @@ check("the FPS boost switch is built in main.py",
       "main.py lost the Play-menu switch")
 check("the boost switch sits in the PLAY card, defined before play_tab",
       _src_main.index("fps_boost_switch = ft.Switch(")
-      < _src_main.index("play_tab = ft.Stack("),
+      < _src_main.index("play_tab = play_home.root"),
       "the switch must exist before the Play tab builds (UnboundLocalError)")
 check("boost transitions preserve and restore previous graphics at launch",
       "sync_fps_boost" in open(os.path.join(_app_root, "cubeon", "launch.py"),

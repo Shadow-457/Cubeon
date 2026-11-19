@@ -143,7 +143,10 @@ import main as app  # noqa: E402
 
 def build():
     page = FakePage()
-    app.run_sync(page)
+    load = core.load_config
+    with patch.object(core, "load_config", side_effect=lambda: dict(
+            load(), onboarded=True, username="tester", last_version="1.20.1")):
+        app.run_sync(page)
     return page
 
 
@@ -195,11 +198,7 @@ def _drain_new_threads(before, timeout):
 
 
 def click_play(page):
-    """Fill in a username and press the real Play button, then wait out the
-    background launch thread."""
-    field = find(page, lambda c: getattr(c, "hint_text", None) == "Username")
-    assert field is not None, "no username field"
-    field.value = "tester"
+    """Press Play with the saved username and wait for its launch worker."""
     btn = find(page, lambda c: getattr(c, "on_click", None) is not None
                and type(c).__name__ == "Container"
                and any(getattr(t, "value", None) == "PLAY"

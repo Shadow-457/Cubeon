@@ -2,17 +2,16 @@
 
 # Neon cosmetics store
 
-Cubeon's **Cosmetics → Store** downloads free capes from the public website API.
-Downloads appear in **Cape**; the user explicitly selects a cape to equip it.
-This uses the existing cape importer, previews, animation support and instance
-sync. A custom cape is visible locally; other players still see the shared
-Cubeon cape under the existing skin service contract.
+Cubeon's **Cosmetics → Store** downloads capes, animated GIF capes, pets and
+wings from the public website API. Downloads appear in **Cape**, **Pets** or
+**Back**; the user explicitly selects an item to equip it. Custom capes use the
+existing importer and animation support. Pets and wings use Cubeon's existing
+box/feather geometry, texture atlas and animation rig.
 
 The first catalog contains one **Cubeon Cape Sample**, using the original
-bundled `assets/capes/cubeon_cape.png` artwork. Publishing an additional PNG
-or GIF cape requires no launcher or client JAR rebuild. Back items and pets
-retain the generated launcher/JAR catalog described in
-[the architecture guide](../architecture/overview.md).
+bundled `assets/capes/cubeon_cape.png` artwork. After installing the client version
+that supports store models, publishing another supported cosmetic requires no
+launcher rebuild, client JAR rebuild, Git push or website deployment.
 
 ## Set up the database
 
@@ -41,6 +40,44 @@ Use `init` to create an empty store instead.
 
 ## Publish another cape
 
+The repository includes a publishing script and a **Git-ignored `cosmetics/`
+folder**. Initialize a new checkout once:
+
+```bash
+./publish-cosmetics.sh setup
+```
+
+This creates the existing sample in `cosmetics/capes/`, empty `pets/` and
+`wings/` folders, and example recipes under `examples/`. It preserves existing
+files. The examples are not uploaded.
+
+Put PNG or GIF capes in `cosmetics/capes/`, then run:
+
+```bash
+./publish-cosmetics.sh --dry-run  # validate without credentials or uploads
+./publish-cosmetics.sh            # publish new/changed cosmetics to Neon
+```
+
+The script uses the checkout's `.venv` or `.venv-build`, falling back to
+`python3`. Set `CUBEON_PYTHON` to select another interpreter. The same commands
+are available as `python worker/manage-cosmetics.py setup` and `sync`.
+
+Cape filenames produce stable ids and display names. An optional same-stem
+JSON file overrides metadata. For example, `emerald.png` and `emerald.json`:
+
+```json
+{"id": "emerald-cape", "name": "Emerald Cape", "description": "My original emerald cape."}
+```
+
+Keep the id when renaming a file or updating its artwork. Duplicate ids fail
+validation before uploads. Every input is validated before any database write;
+unchanged entries retain their timestamp. Interrupted uploads can be rerun.
+Removing local files does not delete or hide existing Neon entries. Sync
+republishes entries present in the folder; move a hidden entry out of its upload
+folder before rerunning sync.
+
+The explicit single-file command remains available:
+
 ```bash
 python worker/manage-cosmetics.py upload /path/to/cape.png \
   --id emerald-cape --name "Emerald Cape" \
@@ -54,6 +91,47 @@ that catalog entry; the checksum changes when its bytes change. A later download
 of a new revision creates a separate local cape, preserving equipped older
 copies. Owners can set `published = false` in Neon to hide an entry without
 deleting its bytes. Clients may retain cached catalog entries for 60 seconds.
+
+## Publish pets and wings
+
+Pets and wings need a JSON recipe and PNG texture atlas. A raw image alone has
+no 3D geometry. Copy `cosmetics/examples/pet.json` into `cosmetics/pets/`, or
+`examples/wing.json` into `cosmetics/wings/`, then edit its id and name.
+The examples reuse the existing animated Ember Fox and Small Ember Wings:
+
+```json
+{
+  "id": "my-fox",
+  "name": "My Fox",
+  "description": "My original pet recolour.",
+  "based_on": "shoulder_ember_fox",
+  "texture": "my-fox.png"
+}
+```
+
+Place `my-fox.png` beside that JSON recipe. Retain the template's atlas dimensions
+and layout. Omitting `texture` uses the bundled artwork. For a completely new
+model, replace `based_on` with a `model` object in the format used by
+`assets/cosmetics/catalog.json`: `slot`, `texture`, `tex_w`, `tex_h`, `boxes`,
+and optional `feathers`/`flat`. Pets use `shoulder`; wings use `back`. Boxes use
+`origin`, `size`, `uv`, `px`, and optionally `pivot`/`motion` for the existing
+animation rig. `flat_texture` supplies the optional flat wing variant's PNG.
+The publisher embeds textures and geometry into a data-only package; it never
+uploads executable scripts. Models allow up to 2,048 boxes, 16 feather guides,
+2,048-pixel PNG textures and **2 MB** per complete package. Arbitrary OBJ,
+Blockbench project files and executable mods must be converted to this format.
+
+Run the same publishing script. Cubeon verifies checksums, validates the package,
+and stores each revision in its own local directory. Downloaded models join the
+existing Pets/Back library; old equipped revisions and bundled artwork remain
+available. When equipped, their geometry is written beside the instance selection
+file and textures are installed through a dedicated `cubeon-store` resource pack.
+Other selected resource packs and graphics settings are preserved. **Restart
+Minecraft after equipping a newly downloaded pet or wing** so its textures load.
+These models require Cubeon Client on supported Fabric/Quilt versions; the Rust
+beta and vanilla Minecraft cannot render them. Downloads do not equip items.
+Custom store models are local; other players need the same model installed for
+its id to resolve. Existing bundled cosmetics retain their shared visibility.
 
 ## Deploy the public API
 
@@ -79,8 +157,9 @@ contain no credentials or query string.
 
 | Request | Result |
 | --- | --- |
-| `GET /api/cosmetics?offset=0` | Schema 1, up to 12 metadata entries and `has_more` |
-| `GET /api/cosmetics?id=ID&sha256=SHA256` | Published PNG/GIF bytes pinned to the advertised checksum |
+| `GET /api/cosmetics?offset=0` | Schema 1, up to 12 cape entries and `has_more`, for older clients |
+| `GET /api/cosmetics?offset=0&kind=all` | Schema 1, up to 12 capes/pets/wings and `has_more` |
+| `GET /api/cosmetics?id=ID&sha256=SHA256` | Published PNG/GIF or model-package bytes pinned to the advertised checksum |
 | `HEAD` on either route | The same headers, without a body |
 | Any write method | 405; there is no public upload or database query route |
 
@@ -104,6 +183,7 @@ allows a new import. Downloads never change the active cape.
 ```bash
 node worker/test-neon-cosmetics.cjs
 python tools/test_cosmetics_store.py
+python tools/test_cosmetic_packages.py
 python tools/test_cosmetics_picker.py
 python tools/test_capes.py
 python tools/test_gif_capes.py

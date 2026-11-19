@@ -66,7 +66,10 @@ def assets_dir(override: str | None = None) -> str:
 
 def _load(directory: str) -> dict:
     with open(os.path.join(directory, "catalog.json"), encoding="utf-8") as fh:
-        return json.load(fh)
+        value = json.load(fh)
+    from . import cosmetic_packages
+    value["items"] = [*value.get("items", []), *cosmetic_packages.installed_items()]
+    return value
 
 
 def catalog(directory: str | None = None) -> dict:
@@ -102,7 +105,7 @@ def get(item_id: str | None, directory: str | None = None) -> dict | None:
 
 
 def texture_path(item: dict, directory: str | None = None) -> str:
-    return os.path.join(assets_dir(directory), item["texture"])
+    return os.path.join(item.get("_store_directory") or assets_dir(directory), item["texture"])
 
 
 def texture(item: dict, directory: str | None = None) -> Image.Image:
@@ -365,6 +368,8 @@ def sync_to_game(cfg: dict, game_dir: str | None = None, *, strict: bool = False
     payload = selection_payload(cfg)
     text = json.dumps(payload, indent=2) + "\n"
     try:
+        from . import cosmetic_packages
+        cosmetic_packages.sync_game(cfg, game_dir or active_game_dir())
         os.makedirs(os.path.dirname(path), exist_ok=True)
         try:
             with open(path, encoding="utf-8") as fh:

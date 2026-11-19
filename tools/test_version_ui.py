@@ -18,6 +18,7 @@ No window, no network, no real install.
 Run: python3 tools/test_version_ui.py
 """
 import inspect
+import flet as ft
 import os
 import sys
 import time
@@ -154,9 +155,10 @@ if picker_model and FABRIC_ID in cards and "1.21.11" in cards:
     loader_scope = inspect.getclosurevars(selection_scope["refresh_loader_support"]).nonlocals
     loader_control = loader_scope["loader_toggle"]
     status_slots = [control for control in every_control(page) if control.data == "play-loader-status"]
-    check("loader notices have a fixed-height slot in the Play card",
-          len(status_slots) == 1 and status_slots[0].height == 18
-          and status_slots[0].content is loader_scope["loader_status_text"])
+    check("loader notices stay bounded to one line in the Play card",
+          not status_slots and loader_scope["loader_status_text"] in list(every_control(page))
+          and loader_scope["loader_status_text"].max_lines == 1
+          and loader_scope["loader_status_text"].overflow == ft.TextOverflow.ELLIPSIS)
     hero_scope = inspect.getclosurevars(selection_scope["update_hero"]).nonlocals
     check("long Jump Back In names cannot wrap the Play header",
           hero_scope["hero_title"].max_lines == 1 and hero_scope["hero_title"].expand
@@ -174,7 +176,7 @@ if picker_model and FABRIC_ID in cards and "1.21.11" in cards:
         cards[FABRIC_ID].on_click(None)
         check("Quick Jump selects the Fabric instance's loader", selection_state["mod_loader"] == "fabric")
         check("Quick Jump updates the loader toggle", loader_control.selected_index == loader_ids.index("fabric"))
-        check("Jump Back In keeps the loader-status region's height", status_slots[0].height == 18)
+        check("Jump Back In keeps the notice on one line", loader_scope["loader_status_text"].max_lines == 1)
         check("Quick Jump uses the Fabric instance's base version", selection_state["selected_mc_version"] == "26.1.2")
         cards["1.21.11"].on_click(None)
         check("Quick Jump back to Vanilla clears the Fabric selection", selection_state["mod_loader"] == "vanilla")

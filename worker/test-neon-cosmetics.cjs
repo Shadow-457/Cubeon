@@ -35,6 +35,11 @@ const body = res => JSON.parse(res.body.toString());
   const repeated = await call(handler);
   assert.equal(reads, 1, 'metadata is cached');
   assert.deepEqual(repeated.body, catalog.body);
+  await call(handler, '/api/cosmetics?kind=all');
+  assert.equal(reads, 2, 'legacy cape pages and full catalogs have separate caches');
+  assert.deepEqual(calls[0].params, [0, false]);
+  assert.deepEqual(calls[1].params, [0, true]);
+  assert.ok(calls[0].sql.includes("kind = 'cape'"), 'old clients only see compatible capes');
   const conditional = await call(handler, '/api/cosmetics', 'GET', {'if-none-match': catalog.headers.etag});
   assert.equal(conditional.statusCode, 304);
   assert.equal(conditional.body, undefined);
@@ -55,6 +60,7 @@ const body = res => JSON.parse(res.body.toString());
   }
   for (const path of ['?id=test-cape', '?sha256=' + sha, '?offset=-1', '?offset=1e2',
     '?offset=10001', '?offset=1&offset=2', '?url=https://elsewhere.invalid',
+    '?kind=unknown', '?kind=all&kind=all', '?kind=all&id=test-cape&sha256=' + sha,
     '?id=../../private&sha256=' + sha, '?id=a%27%3Bdrop%20table&sha256=' + sha]) {
     assert.equal((await call(handler, '/api/cosmetics' + path)).statusCode, 400, path);
   }
@@ -68,6 +74,14 @@ const body = res => JSON.parse(res.body.toString());
   const corrupt = createHandler({query: async () => [{mime_type: 'image/png', byte_size: bytes.length,
     sha256: sha, payload: Buffer.from('changed').toString('base64')}]});
   assert.equal((await call(corrupt, filePath)).statusCode, 503);
+  const modelBytes = Buffer.from('{"schema":1,"kind":"pet"}');
+  const modelSha = createHash('sha256').update(modelBytes).digest('hex');
+  const modelHandler = createHandler({query: async () => [{mime_type: 'application/vnd.cubeon.cosmetic+json',
+    byte_size: modelBytes.length, sha256: modelSha, payload: modelBytes.toString('base64')}]});
+  const modelFile = await call(modelHandler, '/api/cosmetics?id=my-pet&sha256=' + modelSha);
+  assert.equal(modelFile.statusCode, 200);
+  assert.deepEqual(modelFile.body, modelBytes);
+  assert.match(modelFile.headers['content-disposition'], /my-pet\.json/);
   let clock = 0, rateReads = 0;
   const limited = createHandler({now: () => clock, query: async () => {rateReads++; return [item];}});
   for (let i = 0; i < 120; i++) assert.equal((await call(limited)).statusCode, 200);

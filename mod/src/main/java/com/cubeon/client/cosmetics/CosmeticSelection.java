@@ -50,6 +50,7 @@ public final class CosmeticSelection {
 
     /** Initial binding loads once; later frame-time refreshes never read storage. */
     public static void bind(Path configFile) {
+        CosmeticCatalog.bindExternal(configFile.resolveSibling("cubeon-store.json"));
         long requestGeneration;
         synchronized (CosmeticSelection.class) {
             file = configFile;

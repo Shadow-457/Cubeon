@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Background doctor runs without dialogs, batches clicks, and scopes repairs."""
-import ast
 from pathlib import Path
 import sys
 import threading
@@ -14,13 +13,13 @@ import app_driver
 
 class BackgroundDoctorTests(unittest.TestCase):
     def test_background_and_explicit_policy(self):
-        # Execute the actual tab closures with queued workers to reproduce a
+        # Execute the actual tab methods with queued workers to reproduce a
         # double click while a scan has not completed. No page/dialog API is
         # provided: any popup would fail this test.
-        source = (Path(__file__).resolve().parents[1] / 'ui/mods_tab.py').read_text()
-        tree = ast.parse(source)
-        wanted = {'_start_repair', 'run_mod_repair', 'auto_check'}
-        functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in wanted]
+        from unittest.mock import patch
+        from ui import mods_tab
+        from ui.mods_tab import ModsView
+        self.addCleanup(patch.stopall)
         jobs, calls, statuses, popups = [], [], [], []
         class Worker:
             def __init__(self, target, **kw): self.target = target
@@ -29,60 +28,65 @@ class BackgroundDoctorTests(unittest.TestCase):
         def check(target, **kw):
             calls.append((target, kw))
             return {'fixed': [], 'unfixed': [{'mod':'Example Mod', 'detail':'Example Mod: Needs Fabric API'}]}
-        scope = dict(state=state, version_dropdown=types.SimpleNamespace(value='instance'),
-                     check_repair_btn=types.SimpleNamespace(disabled=False),
-                     repair_lock=threading.Lock(), auto_check_state={'last':{}},
-                     AUTO_CHECK_SECONDS=900, _ct=lambda:'mod', _is_mod=lambda:True,
-                     _repair_sections=lambda:['mods'],
-                     _set_repair_status=lambda *a:statuses.append(a),
-                     check_content=check, show_content_issues=lambda *a, **kw:popups.append((a, kw)),
-                     page=object(), refresh_mods_list=lambda **kw:None, i18n=i18n,
-                     thread_safe_ui=types.SimpleNamespace(TREE_LOCK=threading.RLock(), refresh=lambda c:None),
-                     threading=types.SimpleNamespace(Thread=Worker),
-                     time=__import__('time'), logging=__import__('logging'))
-        exec(compile(ast.Module(body=functions, type_ignores=[]), '<doctor closures>', 'exec'), scope)
-        scope['auto_check']()
-        scope['auto_check']()
+        view = ModsView.__new__(ModsView)
+        view.state = state
+        view.version_dropdown = types.SimpleNamespace(value='instance')
+        view.check_repair_btn = types.SimpleNamespace(disabled=False)
+        view.repair_lock = threading.Lock()
+        view.auto_check_state = {'last': {}}
+        view.AUTO_CHECK_SECONDS = 900
+        view._ct = lambda: 'mod'
+        view._is_mod = lambda: True
+        view._repair_sections = lambda: ['mods']
+        view._set_repair_status = lambda *a: statuses.append(a)
+        view.page = object()
+        view.refresh_mods_list = lambda **kw: None
+        patch.object(mods_tab, 'check_content', side_effect=check).start()
+        patch.object(mods_tab, 'show_content_issues', side_effect=lambda *a, **kw: popups.append((a, kw))).start()
+        patch.object(mods_tab.threading, 'Thread', Worker).start()
+        patch.object(thread_safe_ui, 'refresh', lambda c: None).start()
+        view.auto_check()
+        view.auto_check()
         self.assertEqual(len(jobs), 1)
         jobs.pop()()
         self.assertEqual(calls[-1], (('mod', '1.21.1', 'fabric', 'instance'), {}))
         self.assertEqual(len(popups), 1)
         self.assertIn('need attention', statuses[-1][0])
         self.assertIn('Example Mod: Needs Fabric API', statuses[-1][1])
-        scope['run_mod_repair']()
-        scope['run_mod_repair']()
+        view.run_mod_repair()
+        view.run_mod_repair()
         self.assertEqual(len(jobs), 1)
         self.assertIsNone(state.get('fixing_mods'))
         jobs.pop()()
         self.assertIsNone(state.get('fixing_mods'))
         self.assertEqual(calls[-1][1], {})
         self.assertEqual(len(popups), 2)
-        self.assertFalse(scope['check_repair_btn'].disabled)
-        scope['check_content'] = lambda *a, **kw: {'fixed':[], 'unfixed':[], 'elapsed':.005}
-        scope['run_mod_repair']()
+        self.assertFalse(view.check_repair_btn.disabled)
+        mods_tab.check_content.side_effect = lambda *a, **kw: {'fixed':[], 'unfixed':[], 'elapsed':.005}
+        view.run_mod_repair()
         jobs.pop()()
         self.assertEqual(statuses[-1], ('Compatible · 5 ms',))
         state['running_version'] = 'instance'
-        scope['run_mod_repair']()
+        view.run_mod_repair()
         self.assertFalse(jobs)
 
     def test_named_results_are_visible_inline(self):
-        # Run the actual UI mutation closure, rather than just checking tooltip
+        # Run the actual UI mutation method, rather than just checking tooltip
         # strings, and verify both regions repaint without opening a dialog.
-        source = (Path(__file__).resolve().parents[1] / 'ui/mods_tab.py').read_text()
-        setter = next(n for n in ast.walk(ast.parse(source))
-                      if isinstance(n, ast.FunctionDef) and n.name == '_set_repair_status')
+        from unittest.mock import patch
+        from ui.mods_tab import ModsView
         status = types.SimpleNamespace(value='', visible=False, tooltip=None)
         details = types.SimpleNamespace(value='', visible=False)
+        view = ModsView.__new__(ModsView)
+        view.repair_status, view.repair_details = status, details
         refreshed = []
-        scope = dict(repair_status=status, repair_details=details, i18n=i18n,
-                     thread_safe_ui=types.SimpleNamespace(TREE_LOCK=threading.RLock(), refresh=refreshed.append))
-        exec(compile(ast.Module(body=[setter], type_ignores=[]), '<doctor result>', 'exec'), scope)
-        scope['_set_repair_status']('Fixed 1; 1 need attention', 'Sodium: needs Fabric API')
+        with patch.object(thread_safe_ui, 'refresh', refreshed.append):
+            view._set_repair_status('Fixed 1; 1 need attention', 'Sodium: needs Fabric API')
         self.assertTrue(details.visible)
         self.assertEqual(details.value, 'Sodium: needs Fabric API')
         self.assertEqual(refreshed, [status, details])
-        scope['_set_repair_status']('Checking…')
+        with patch.object(thread_safe_ui, 'refresh', refreshed.append):
+            view._set_repair_status('Checking…')
         self.assertFalse(details.visible)
         self.assertEqual(details.value, '')
 

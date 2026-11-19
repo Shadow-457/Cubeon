@@ -17,9 +17,9 @@ COMMON = {
     'com/cubeon/client/hud/screen/FriendsChatScreen.java': 'package com.cubeon.client.hud.screen; public class FriendsChatScreen {}',
     'com/cubeon/client/hud/screen/EmoteMenuScreen.java': 'package com.cubeon.client.hud.screen; public class EmoteMenuScreen {}',
     'com/cubeon/client/cosmetics/CosmeticSelection.java': 'package com.cubeon.client.cosmetics; public class CosmeticSelection { public static String wing="back_ember_wings"; public static String selectedWing(){return wing != null && wing.endsWith("_small") ? null : wing;} }',
-    'org/lwjgl/glfw/GLFW.java': 'package org.lwjgl.glfw; public class GLFW { public static final int GLFW_KEY_G=71,GLFW_KEY_K=75,GLFW_KEY_B=66,GLFW_KEY_N=78,GLFW_KEY_Z=90,GLFW_KEY_LEFT_ALT=342; }',
+    'org/lwjgl/glfw/GLFW.java': 'package org.lwjgl.glfw; public class GLFW { public static final int GLFW_KEY_G=71,GLFW_KEY_K=75,GLFW_KEY_B=66,GLFW_KEY_N=78,GLFW_KEY_Z=90,GLFW_KEY_LEFT_ALT=342,GLFW_KEY_RIGHT_SHIFT=344; }',
     'net/minecraft/client/util/InputUtil.java': 'package net.minecraft.client.util; public class InputUtil { public enum Type { KEYSYM } }',
-    'com/mojang/blaze3d/platform/InputConstants.java': 'package com.mojang.blaze3d.platform; public class InputConstants { public enum Type { KEYSYM,KEYBOARD } public static final int KEY_G=71,KEY_K=75,KEY_B=66,KEY_N=78,KEY_Z=90,KEY_LALT=342; }',
+    'com/mojang/blaze3d/platform/InputConstants.java': 'package com.mojang.blaze3d.platform; public class InputConstants { public enum Type { KEYSYM,KEYBOARD } public static final int KEY_G=71,KEY_K=75,KEY_B=66,KEY_N=78,KEY_Z=90,KEY_LALT=342,KEY_RSHIFT=344; }',
     'net/minecraft/util/Identifier.java': 'package net.minecraft.util; public class Identifier { public static Identifier of(String n,String p){return new Identifier();} }',
     'net/minecraft/resources/Identifier.java': 'package net.minecraft.resources; public class Identifier { public static Identifier fromNamespaceAndPath(String n,String p){return new Identifier();} }',
 }

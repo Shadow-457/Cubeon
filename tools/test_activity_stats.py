@@ -160,8 +160,13 @@ check("Stats has only overview, timeline and server activity",
 fixture["session_history"] = [{"id": f"session-{index}", "started": time.time()-index*3600, "seconds": 900,
                                "profile": "Survival" if index % 2 else "Creative", "version": "1.21.1" if index % 2 else "26.3",
                                "servers": ["play.example.net"] if index % 2 else []} for index in range(61)]
-refresh_stats = inspect.getclosurevars(switch).nonlocals["_cb"]("stats", "refresh")
-refresh_stats()
+switch("play")
+switch("stats")
+deadline = time.monotonic() + 2
+while time.monotonic() < deadline:
+    if any(getattr(control, "value", None) == "30 sessions" for control in walk(stats_root)):
+        break
+    time.sleep(.01)
 check("server panel counts actual connected sessions", any(getattr(control, "value", None) == "30 sessions" for control in walk(stats_root)))
 
 valid = fixture["session_history"][0]

@@ -396,7 +396,7 @@ public class HealthTest {
         CubeonHudConfig.get().wingDepth=false;
         CubeonHudConfig.get().showOtherCosmetics=true;
         CubeonHudConfig.get().cameraMotionBlur=true;
-        CubeonHudConfig.get().cameraBlurIntensity=1.75f;
+        CubeonHudConfig.get().cameraBlurIntensity=.75f;
         CubeonHudConfig.get().showEmotes=false; CubeonHudConfig.save();
         var saved=com.google.gson.JsonParser.parseString(Files.readString(
                 directory.resolve("cubeon-client-hud.json"))).getAsJsonObject();
@@ -412,10 +412,10 @@ public class HealthTest {
         CubeonHudConfig.get().showEmotes=true; CubeonHudConfig.load();
         require(CubeonHudConfig.get().showEnemyHealth,"Health toggle persists");
         require(CubeonHudConfig.get().cameraMotionBlur,"Camera blur toggle persists independently of removed blur");
-        require(CubeonHudConfig.get().cameraBlurIntensity==1.75f,"Blur intensity survives a save/reload");
+        require(CubeonHudConfig.get().cameraBlurIntensity==.75f,"Blur intensity survives a save/reload");
         for(float value:new float[]{Float.NaN,Float.POSITIVE_INFINITY,Float.NEGATIVE_INFINITY,-1,100}) {
             CubeonHudConfig.get().cameraBlurIntensity=value; CubeonHudConfig.save(); CubeonHudConfig.load();
-            float expected=Float.isFinite(value) ? Math.max(.25f,Math.min(2f,value)) : 1;
+            float expected=Float.isFinite(value) ? Math.max(0f,Math.min(1f,value)) : 1;
             require(CubeonHudConfig.get().cameraBlurIntensity==expected,"Malformed blur intensity normalizes safely");
         }
         require(Arrays.equals(CubeonHudConfig.get().emoteFavorites,new String[]{"sit", "laugh"}),

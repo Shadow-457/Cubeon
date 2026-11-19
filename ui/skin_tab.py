@@ -869,23 +869,24 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         def work():
             try:
                 cosmetics_store.download(item)
-                message = f"Downloaded {item['name']}. Open Cape to equip it."
+                destination = {'cape': 'Cape', 'pet': 'Pets', 'wing': 'Back'}[item['kind']]
+                message = f"Downloaded {item['name']}. Open {destination} to equip it."
                 success = True
             except Exception as error:
-                message = f"Couldn't download this cape: {error}"
+                message = f"Couldn't download this cosmetic: {error}"
                 success = False
             with thread_safe_ui.TREE_LOCK:
                 store_state["downloads"].discard(item["id"])
                 card.disabled = False
                 card.set_selected(success)
-                card.set_sublabel("Downloaded" if success else "Free cape")
+                card.set_sublabel("Downloaded" if success else "Free cosmetic")
                 store_status.value = message
-                if success:
+                if success and item["kind"] == "cape":
                     refresh_capes_list()
                 sync_store_buttons()
             thread_safe_ui.refresh(card)
             thread_safe_ui.refresh(store_toolbar)
-            if success:
+            if success and item["kind"] == "cape":
                 thread_safe_ui.refresh(capes_list_col)
             _refresh_status(store_status)
 
@@ -899,7 +900,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 return
             requested = store_state["offset"] if offset is None else offset
             store_state["loading"] = True
-            store_status.value = "Loading capes…"
+            store_status.value = "Loading cosmetics…"
             sync_store_buttons()
         thread_safe_ui.refresh(store_toolbar)
         _refresh_status(store_status)
@@ -920,7 +921,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                         store_state["cards"].clear()
                         for item in data["items"]:
                             card = _owned_card(src=item["preview_png"], label=item["name"],
-                                sublabel="Downloaded" if owned[item["id"]] else "Free cape",
+                                sublabel="Downloaded" if owned[item["id"]] else "Free cosmetic",
                                 active=bool(owned[item["id"]]),
                                 on_use=lambda e, value=item: download_store_cape(value),
                                 on_delete=None, preview_w=64, preview_h=84, action_label="Download")
@@ -932,11 +933,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                     else:
                         for item_id, card in store_state["cards"].items():
                             card.set_selected(bool(owned[item_id]))
-                            card.set_sublabel("Downloaded" if owned[item_id] else "Free cape")
+                            card.set_sublabel("Downloaded" if owned[item_id] else "Free cosmetic")
                     store_state.update(loaded=True, offset=requested, more=data["has_more"])
-                    store_status.value = "" if data["items"] else "No capes are available yet."
+                    store_status.value = "" if data["items"] else "No cosmetics are available yet."
                 else:
-                    store_status.value = "The cape store is unavailable. Try Refresh."
+                    store_status.value = "The cosmetics store is unavailable. Try Refresh."
                 sync_store_buttons()
             thread_safe_ui.refresh(store_grid)
             thread_safe_ui.refresh(store_toolbar)
@@ -953,7 +954,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     store_toolbar = ft.Row([store_refresh, ft.Container(expand=True), store_previous,
                             store_page, store_next], spacing=4)
     store_pane = ft.Column([store_toolbar,
-        ft.Text("Download a free cape, then choose it in Cape.", size=12, color=TEXT_DIM),
+        ft.Text("Download cosmetics, then equip them in Cape, Pets or Back.", size=12, color=TEXT_DIM),
         _scroll_cards(store_grid), store_status], spacing=8, expand=True,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH, data="cosmetics-store")
     store_pane.load_items = load_store
@@ -1024,14 +1025,17 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                                      ("giant", "Giant wings"), ("pack", "Packs"))]
 
         def refresh():
-            if not cards:
+            if len(cards) != len(cosmetics.items(slot, appearance.cosmetics_dir)):
+                cards.clear()
+                groups.clear()
+                grid.controls.clear()
                 items = cosmetics.items(slot, appearance.cosmetics_dir)
                 # Start with the worn item in view; later choices keep their
                 # position so applying/filtering never reshuffles the grid.
                 items.sort(key=lambda item: item["id"] != cfg.get(key))
                 for item in items:
                     wing = bool(item.get("feathers"))
-                    group = "small" if item["id"].endswith("_small") else "giant" if wing else "pack"
+                    group = "small" if item["id"].endswith("_small") or (wing and item.get("wing_flare") is False) else "giant" if wing else "pack"
                     cached = _COSMETIC_MEMO.get(item["id"])
                     card = _owned_card(
                         src=cached, lazy_thumb=None if cached else ("cosmetic", item["id"]),

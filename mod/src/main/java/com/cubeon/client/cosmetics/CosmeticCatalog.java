@@ -6,6 +6,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -283,6 +285,13 @@ public final class CosmeticCatalog {
     }
 
     private static volatile Catalog catalog;
+    private static Path external;
+
+    /** Launcher downloads supply data beside the selection file; never executable code. */
+    public static synchronized void bindExternal(Path path) {
+        external = path;
+        catalog = null;
+    }
 
     private CosmeticCatalog() {
     }
@@ -317,7 +326,26 @@ public final class CosmeticCatalog {
             while ((read = stream.read(buffer)) > 0) {
                 out.write(buffer, 0, read);
             }
-            return Catalog.parse(new String(out.toByteArray(), StandardCharsets.UTF_8));
+            Catalog bundled = Catalog.parse(new String(out.toByteArray(), StandardCharsets.UTF_8));
+            if (external != null && Files.isRegularFile(external)) {
+                try {
+                    if (Files.size(external) <= 8 * 1024 * 1024) {
+                        Catalog downloaded = Catalog.parse(Files.readString(external));
+                        Map<String, Item> merged = new LinkedHashMap<>(bundled.items);
+                        for (Item item : downloaded.items()) {
+                            if (item.id.matches("store_[a-f0-9]{32}")
+                                    && item.texture.matches("store_[a-f0-9]{32}\\.png")
+                                    && (item.flatVariant == null || item.flatVariant.texture.matches("store_[a-f0-9]{32}_flat\\.png"))) {
+                                merged.putIfAbsent(item.id, item);
+                            }
+                        }
+                        return new Catalog(merged, bundled.anchors);
+                    }
+                } catch (IOException | RuntimeException ignored) {
+                    // A damaged download never removes bundled cosmetics.
+                }
+            }
+            return bundled;
         } catch (IOException | RuntimeException ignored) {
             // A broken bundled catalogue must cost cosmetics, never the game.
             return null;

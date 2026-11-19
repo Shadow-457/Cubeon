@@ -225,8 +225,9 @@ def select_instance(pg, version):
 
 # --- Scenario A: Play -> launch_game (valid username + installed version) ---
 pgA = fresh_build()
-check("directed Play finds its username input",
-      set_fields(pgA, "TextField", "Username", "TesterName") == 1)
+check("directed Play uses the configured account without a username editor",
+      not find(pgA, lambda c: type(c).__name__ == "TextField"
+               and getattr(c, "hint_text", None) == "Username"))
 check("directed Play selects the installed instance through the picker",
       select_instance(pgA, "1.20.1"))
 # Fire the original action once. A second wrapper click can cancel the worker
