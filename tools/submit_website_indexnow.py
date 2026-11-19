@@ -50,8 +50,6 @@ def sitemap_urls(source):
 
 def local_page(url):
     name = urlsplit(url).path.lstrip('/') or 'index'
-    if name == 'cubeon-bench':
-        name += '/index'
     return WEB / (name + '.html')
 
 

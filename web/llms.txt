@@ -16,8 +16,6 @@
 
 ## Official sources
 
-- [Cubeon Bench](https://www.ylet.online/cubeon-bench): coming soon as a resource pack editor exclusively for Cubeon cosmetics.
-
 - [Project facts](https://www.ylet.online/about): product identity, platforms, profiles and limitations.
 - [Downloads](https://www.ylet.online/download): official platform downloads.
 - [Source code](https://github.com/Shadow-457/Cubeon): source and build instructions.
@@ -33,6 +31,7 @@
 - [Modpacks](https://www.ylet.online/modpacks): packs and imports.
 - [Multiplayer](https://www.ylet.online/multiplayer): friends, local servers and offline-profile limitations.
 - [Cosmetics](https://www.ylet.online/cosmetics): skins, capes and decorative items.
+- [Cosmetics Store](https://www.ylet.online/store): browse free wings, pets, headwear, footwear and capes to download in Cubeon.
 - [Troubleshooting](https://www.ylet.online/troubleshooting): launch and installation problems.
 - [Cubeon Doctor](https://www.ylet.online/doctor): crash-report analysis.
 - [Benchmarks](https://www.ylet.online/benchmarks): measurements and their comparison limits.

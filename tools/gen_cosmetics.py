@@ -73,6 +73,7 @@ ANCHORS = {
     "hand": [-5.0, 2.0, 0.0],
     "trail": [0.0, 24.0, 0.0],
     "aura": [0.0, 0.0, 0.0],
+    "feet": [0.0, 12.0, 0.0],
 }
 
 # ---------------------------------------------------------------------------
@@ -1153,7 +1154,8 @@ def render_item(item):
     placements = {}
     if "feathers" in item:
         # Compact shelves keep even detailed giant wings below old GPU limits.
-        sheet_w = 512 if item.get("separate_feathers") else 256
+        sheet_w = max(max(width for width, _ in sizes),
+                      512 if item.get("separate_feathers") else 256)
         x = y = shelf_height = 0
         for index in sorted(range(len(sizes)), key=lambda i: -sizes[i][1]):
             width, height = sizes[index]
@@ -1204,6 +1206,10 @@ def render_item(item):
 
 
 def main():
+    if "--store-collection" in sys.argv:
+        from gen_store_collection import generate
+        generate()
+        return
     os.makedirs(LAUNCHER_DIR, exist_ok=True)
     os.makedirs(MOD_TEXTURE_DIR, exist_ok=True)
     os.makedirs(MOD_CATALOG_DIR, exist_ok=True)

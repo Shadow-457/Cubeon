@@ -3,13 +3,12 @@
 The canonical production site is **https://www.ylet.online**. Public pages
 declare clean canonical URLs and matching Open Graph URLs in their HTML.
 The homepage identifies Cubeon as a free, open-source Minecraft Java
-Edition launcher for Windows, Linux and macOS. The homepage visibly identifies
+Edition launcher for Windows and Linux. The homepage visibly identifies
 **Cubeon Launcher** in its main heading, with Minecraft Java Edition explained
 in the introduction, and links to installation, mods, modpacks, multiplayer
 and troubleshooting guides.
 
-`web/sitemap.xml` lists 21 English public pages, including the Cubeon Bench
-**Coming soon** placeholder, using `/` for the homepage and extensionless paths
+`web/sitemap.xml` lists 21 English public pages, including the cosmetics Store, using `/` for the homepage and extensionless paths
 for other pages. The website is English-only. Former Arabic, Russian and
 Ukrainian routes permanently redirect to the matching English pages; the site
 has no locale catalogues, language picker or browser-language redirect.
@@ -27,8 +26,7 @@ Structured data helps identify the product; it does not guarantee rich results.
 ## Minecraft launcher searches
 
 The homepage title connects the Cubeon Launcher name to “Free Minecraft
-Launcher for Java Edition”. The download title and introduction cover Windows,
-Linux and macOS. `/minecraft-launcher` is a substantive choosing guide for
+Launcher for Java Edition”. The download title and introduction cover Windows and Linux. `/minecraft-launcher` is a substantive choosing guide for
 “best Minecraft launcher” searches: game edition, Microsoft authentication,
 platforms, mod loaders, modpacks, backups and how to compare FPS measurements.
 It explains Cubeon's fit and limitations and links to the official Minecraft
@@ -264,3 +262,22 @@ Playwright check intercepts all HTTP traffic and checks the homepage/download/ab
 1440, 768, 390 and 320 pixels, plus crawlable content with JavaScript disabled.
 Set `CUBEON_TEST_CHROMIUM` to an installed Chromium executable if needed.
 Screenshots stay under `archive/ui-captures/`.
+
+## Removed editor
+
+The former `/cubeon-bench` editor and all descendants return HTTP 410 with
+`X-Robots-Tag: noindex` through the generic retired-page handler in both hosting
+layouts. No editor HTML, service worker, promotional links, sitemap entry or
+llms entry is shipped. Existing browser data is not deleted. The separate
+`/benchmarks` performance report remains available.
+
+## Cosmetics Store and project notes
+
+`/store` uses the public cosmetics API with `kind=all&models=2`. The same live
+catalog drives Cubeon and the website. `tools/prepare_store_gallery.py` reuses
+validated owner packages to generate larger checksum-pinned WebP previews and
+a readable HTML fallback. Later uploads still appear through API thumbnails
+without rebuilding the website. Run the preview helper to refresh larger
+artwork before a website push. The author credit lives in a native collapsed
+`/docs#project-notes` section after the screenshots; it uses normal readable
+text, without extra promotion or hidden metadata.

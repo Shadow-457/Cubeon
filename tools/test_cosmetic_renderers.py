@@ -91,12 +91,17 @@ package net.minecraft.client.render.entity.model;
 import net.minecraft.client.util.math.MatrixStack;
 public class PlayerEntityModel {
     public Body body = new Body();
-    public Part head = new Part(0, 0), rightArm = new Part(-5, 2);
+    public Part head = new Part(0, 0), rightArm = new Part(-5, 2),
+                leftLeg = new Part(1.9f, 12), rightLeg = new Part(-1.9f, 12);
     public static class Part {
+        public static float leftPitch, rightPitch;
         public final float x, y;
         public Part(float x, float y) { this.x=x; this.y=y; }
         public void rotate(MatrixStack matrices) { applyTransform(matrices); }
-        public void applyTransform(MatrixStack matrices) { matrices.translate(x/16, y/16, 0); }
+        public void applyTransform(MatrixStack matrices) {
+            matrices.translate(x/16, y/16, 0);
+            if (y == 12) matrices.rotateX(x > 0 ? leftPitch : rightPitch);
+        }
     }
     public static class Body {
         public static float y, z, pitch;
@@ -160,7 +165,7 @@ public class VertexConsumer {
     public VertexConsumer color(int r, int g, int b, int a) { return this; }
     public VertexConsumer texture(float u, float v) { return this; }
     public VertexConsumer overlay(int value) { return this; }
-    public VertexConsumer light(int value) { return this; }
+    public VertexConsumer light(int value) { Draws.lights.add(value); return this; }
     public VertexConsumer normal(MatrixStack.Entry entry, float x, float y, float z) { return this; }
 }''',
     'net/minecraft/client/render/VertexConsumerProvider.java': '''
@@ -185,7 +190,7 @@ public class OrderedRenderCommandQueue {
     'probe/Draws.java': '''
 package probe;
 import java.util.*;
-public class Draws { public static List<String> textures = new ArrayList<>(); public static int vertices; public static List<float[]> points = new ArrayList<>(); }
+public class Draws { public static List<String> textures = new ArrayList<>(); public static int vertices; public static List<float[]> points = new ArrayList<>(); public static List<Integer> lights = new ArrayList<>(); }
 ''',
     'probe/RendererTest.java': r'''
 package probe;
@@ -207,6 +212,53 @@ public class RendererTest {
                                             "textures/cosmetics/shoulder_star_owl.png");
     static Object renderer;
     static Method render;
+    static void checkGlow() throws Exception {
+        PlayerEntityRenderState state = new PlayerEntityRenderState(); state.id=42;
+        MatrixStack pose = new MatrixStack();
+        Object output=render.getParameterTypes()[1].getConstructor().newInstance();
+        Draws.textures.clear();Draws.lights.clear();Draws.points.clear();Draws.vertices=0;
+        render.invoke(renderer,pose,output,9,state,0f,0f);
+        if(Draws.textures.size()!=2 || !Draws.textures.get(1).endsWith("_glow.png"))
+            throw new AssertionError("Missing emissive texture pass");
+        int count=Draws.lights.size()/2;
+        for(int i=0;i<Draws.lights.size();i++) if(Draws.lights.get(i)!=(i<count?9:0xF000F0))
+            throw new AssertionError("Glow did not use full-bright lighting");
+        for(int i=0;i<count;i++) if(!Arrays.equals(Draws.points.get(i),Draws.points.get(i+count)))
+            throw new AssertionError("Glow detached from its animated surface");
+        if(pose.depth!=0) throw new AssertionError("Glow leaked the native pose");
+    }
+    static void checkFeet(String itemId) throws Exception {
+        var item = CosmeticCatalog.get().get(itemId);
+        var part = net.minecraft.client.render.entity.model.PlayerEntityModel.Part.class;
+        for (float stride : new float[] {0, .65f, -1.1f}) {
+            part.getField("leftPitch").setFloat(null, stride);
+            part.getField("rightPitch").setFloat(null, -stride);
+            for (boolean motion : new boolean[] {true, false}) {
+                com.cubeon.client.hud.CubeonHudConfig.get().cosmeticAnimations = motion;
+                PlayerEntityRenderState state = new PlayerEntityRenderState(); state.id=42;
+                MatrixStack pose = new MatrixStack();
+                Object output = render.getParameterTypes()[1].getConstructor().newInstance();
+                Draws.textures.clear(); Draws.points.clear(); Draws.vertices=0;
+                render.invoke(renderer, pose, output, 0, state, 0f, 0f);
+                int index=0;
+                for (String leg : List.of("left_leg", "right_leg")) {
+                    float pitch = "left_leg".equals(leg) ? stride : -stride;
+                    double c=Math.cos(pitch), s=Math.sin(pitch);
+                    for (var quad : CosmeticGeometry.quads(item,0)) {
+                        if (!leg.equals(quad.motion)) continue;
+                        for (int vertex=0;vertex<4;vertex++) {
+                            float y=(quad.y[vertex]-12)/16, z=quad.z[vertex]/16;
+                            float[] expected={quad.x[vertex]/16,12/16f+(float)(c*y-s*z),(float)(s*y+c*z)};
+                            float[] actual=Draws.points.get(index++);
+                            for(int axis=0;axis<3;axis++) if(Math.abs(actual[axis]-expected[axis])>.00001f)
+                                throw new AssertionError("Shoe did not follow " + leg + " stride=" + stride);
+                        }
+                    }
+                }
+                if(index!=Draws.vertices || pose.depth!=0) throw new AssertionError("Duplicate shoe geometry or leaked leg pose");
+            }
+        }
+    }
     static void check(int id, Object name, List<String> expected) throws Exception {
         PlayerEntityRenderState state = new PlayerEntityRenderState();
         state.id = id; state.displayName = name;
@@ -384,6 +436,12 @@ public class RendererTest {
         com.cubeon.client.hud.CubeonHudConfig.get().wingDepth = true;
         check(42, null, BOTH);
         if (Draws.vertices <= flatCount * 10) throw new AssertionError("Depth OFF must reduce geometry work");
+        Files.writeString(Path.of(args[0]), "{\"head\":\"store_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}");
+        CosmeticSelection.bind(Path.of(args[0]));
+        checkGlow();
+        Files.writeString(Path.of(args[0]), "{\"feet\":\"store_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}");
+        CosmeticSelection.bind(Path.of(args[0]));
+        checkFeet("store_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         MinecraftClient.instance.player = null;
         check(42, null, List.of());                  // Leaving a world is harmless.
         MinecraftClient.instance = null;
@@ -532,6 +590,20 @@ class CosmeticRendererTests(unittest.TestCase):
                 for source in (ROOT / 'assets/cosmetics').glob('*.png'):
                     shutil.copyfile(source, artwork / source.name)
                 selection = root / 'cubeon-cosmetics.json'
+                from gen_store_collection import footwear
+                from gen_cosmetics import render_item
+                shoe = footwear()[0]
+                image, boxes = render_item(shoe)
+                model = dict(id='store_' + 'a' * 32, slot='feet', name=shoe['name'],
+                             texture='store_' + 'a' * 32 + '.png', tex_w=image.width, tex_h=image.height,
+                             boxes=boxes, wing_flare=False)
+                from gen_store_collection import headwear
+                halo = headwear()[0]
+                image, boxes = render_item(halo)
+                glowing = dict(id='store_' + 'b' * 32, slot='head', name=halo['name'],
+                    texture='store_' + 'b' * 32 + '.png', emissive_texture='store_' + 'b' * 32 + '_glow.png',
+                    tex_w=image.width, tex_h=image.height, boxes=boxes, wing_flare=False)
+                (root / 'cubeon-store.json').write_text(json.dumps({'items': [model,glowing]}))
                 selection.write_text(json.dumps({'version': 1, 'shoulder': 'shoulder_star_owl',
                                                  'back': 'back_void_wings'}), encoding='utf-8')
                 checked = subprocess.run(['java', '-cp', str(classes), 'probe.RendererTest', str(selection)],

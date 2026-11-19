@@ -206,6 +206,7 @@ class CharacterModel:
             item = cosmetics.get(cfg.get(f"active_{slot}_item"), cosmetics_dir)
             if item is not None:
                 worn.extend(cosmetics.preview_faces(item, cosmetics_dir, simplify=True))
+                worn.extend(cosmetics.preview_faces(item, cosmetics_dir, simplify=True, emissive=True))
         return cls(sheet, slim=slim, cape=cape, cosmetics_faces=worn)
 
     def project(self, yaw=25, pitch=10, size=(320, 440), *, detail=True):
@@ -256,6 +257,7 @@ def render_faces(faces, textures=None, size=(320, 440), supersample=1, *, cancel
     canvas = Image.new("RGBA", (width, height))
     depth_buffer = Image.new("F", canvas.size, -100000)
     translucent = []
+    emissions = []
     # Coplanar limb/voxel edges can tie in depth. Use the model's stable face
     # index so those pixels and translucent layers don't depend on submission
     # order when a caller reuses or reverses the projected faces.
@@ -287,7 +289,8 @@ def render_faces(faces, textures=None, size=(320, 440), supersample=1, *, cancel
         transform = (inverse_x, inverse_y, inverse_x * (left - origin[0]) + inverse_y * (top - origin[1]),
                      inverse_vertical_x, inverse_vertical_y,
                      inverse_vertical_x * (left - origin[0]) + inverse_vertical_y * (top - origin[1]))
-        lighting = 0.72 + 0.28 * max(0, normal[1] * 0.5 + normal[2] * 0.8)
+        emitting = bool(texture.info.get("cubeon_emissive"))
+        lighting = 1 if emitting else 0.72 + 0.28 * max(0, normal[1] * 0.5 + normal[2] * 0.8)
         shaded = ImageEnhance.Brightness(texture).enhance(lighting)
         tile = shaded.transform((right - left, bottom - top), Image.Transform.AFFINE,
                                 transform, resample=Image.Resampling.NEAREST)
@@ -305,6 +308,9 @@ def render_faces(faces, textures=None, size=(320, 440), supersample=1, *, cancel
             horizontal=coordinates_x.resize(tile.size, Image.Resampling.NEAREST),
             vertical=coordinates_y.resize(tile.size, Image.Resampling.NEAREST))
         alpha = tile.getchannel("A")
+        if emitting:
+            emissions.append((tile, candidate_depth, (left, top, right, bottom)))
+            continue
         semi_alpha = alpha.point(list(range(255)) + [0])
         if semi_alpha.getbbox():
             semi_tile = tile.copy()
@@ -326,6 +332,23 @@ def render_faces(faces, textures=None, size=(320, 440), supersample=1, *, cancel
             candidate=candidate_depth, stored=depth_buffer.crop(bounds)).convert("L")
         tile.putalpha(ImageChops.multiply(tile.getchannel("A"), visible_pixels))
         canvas.alpha_composite(tile, bounds[:2])
+    # Emission shares the base surface's depth; preserve occlusion by skin and
+    # other cosmetics, then add a small preview bloom around luminous pixels.
+    if emissions:
+        glow = Image.new("RGBA", canvas.size)
+        for tile, candidate_depth, bounds in emissions:
+            if cancel is not None and cancel.is_set():
+                raise RenderCancelled()
+            visible = ImageMath.lambda_eval(
+                lambda values: (values["candidate"] >= values["stored"] - .0001) * 255,
+                candidate=candidate_depth, stored=depth_buffer.crop(bounds)).convert("L")
+            tile.putalpha(ImageChops.multiply(tile.getchannel("A"), visible))
+            glow.alpha_composite(tile, bounds[:2])
+        from PIL import ImageFilter
+        haze = glow.filter(ImageFilter.GaussianBlur(3 * supersample))
+        haze.putalpha(haze.getchannel("A").point(lambda value: round(value * .32)))
+        canvas.alpha_composite(haze)
+        canvas.alpha_composite(glow)
     if supersample > 1:
         canvas = canvas.resize(size, Image.Resampling.BOX)
     return canvas

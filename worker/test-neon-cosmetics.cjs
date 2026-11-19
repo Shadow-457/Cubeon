@@ -36,10 +36,31 @@ const body = res => JSON.parse(res.body.toString());
   assert.equal(reads, 1, 'metadata is cached');
   assert.deepEqual(repeated.body, catalog.body);
   await call(handler, '/api/cosmetics?kind=all');
-  assert.equal(reads, 2, 'legacy cape pages and full catalogs have separate caches');
-  assert.deepEqual(calls[0].params, [0, false]);
-  assert.deepEqual(calls[1].params, [0, true]);
+  assert.equal(reads, 2, 'cape pages and original model catalogs have separate caches');
+  await call(handler, '/api/cosmetics?kind=all&models=2');
+  assert.equal(reads, 3, 'expanded model catalogs have a separate cache');
+  await call(handler, '/api/cosmetics?kind=all&models=2');
+  assert.equal(reads, 3, 'expanded metadata is cached');
+  assert.deepEqual(calls[0].params, [0, false, false]);
+  assert.deepEqual(calls[1].params, [0, true, false]);
+  assert.deepEqual(calls[2].params, [0, true, true]);
   assert.ok(calls[0].sql.includes("kind = 'cape'"), 'old clients only see compatible capes');
+  assert.match(calls[0].sql, /\$2::boolean AND kind IN \('pet', 'wing'\)/);
+  assert.match(calls[0].sql, /\$3::boolean AND kind IN \('head', 'feet'\)/);
+  const kinds = ['cape', 'pet', 'wing', 'head', 'feet'];
+  const compatible = createHandler({query: async (sql, [, all, expanded]) =>
+    kinds.filter(kind => kind === 'cape' || (all && ['pet', 'wing'].includes(kind)) ||
+      (expanded && ['head', 'feet'].includes(kind))).map(kind => ({...item, id: 'test-' + kind, kind}))});
+  assert.deepEqual(body(await call(compatible)).items.map(entry => entry.kind), ['cape']);
+  const originalPath = '/api/cosmetics?kind=all';
+  const expandedPath = originalPath + '&models=2';
+  const original = await call(compatible, originalPath);
+  const expanded = await call(compatible, expandedPath);
+  assert.deepEqual(body(original).items.map(entry => entry.kind), ['cape', 'pet', 'wing']);
+  assert.deepEqual(body(expanded).items.map(entry => entry.kind), kinds);
+  assert.notEqual(original.headers.etag, expanded.headers.etag);
+  assert.deepEqual((await call(compatible, originalPath)).body, original.body,
+    'expanded requests cannot contaminate older client catalogs');
   const conditional = await call(handler, '/api/cosmetics', 'GET', {'if-none-match': catalog.headers.etag});
   assert.equal(conditional.statusCode, 304);
   assert.equal(conditional.body, undefined);
@@ -61,6 +82,9 @@ const body = res => JSON.parse(res.body.toString());
   for (const path of ['?id=test-cape', '?sha256=' + sha, '?offset=-1', '?offset=1e2',
     '?offset=10001', '?offset=1&offset=2', '?url=https://elsewhere.invalid',
     '?kind=unknown', '?kind=all&kind=all', '?kind=all&id=test-cape&sha256=' + sha,
+    '?models=2', '?kind=all&models=1', '?kind=all&models=02', '?kind=all&models=',
+    '?kind=all&models=2&models=2', '?models=2&id=test-cape&sha256=' + sha,
+    '?kind=all&models=2&id=test-cape&sha256=' + sha,
     '?id=../../private&sha256=' + sha, '?id=a%27%3Bdrop%20table&sha256=' + sha]) {
     assert.equal((await call(handler, '/api/cosmetics' + path)).statusCode, 400, path);
   }

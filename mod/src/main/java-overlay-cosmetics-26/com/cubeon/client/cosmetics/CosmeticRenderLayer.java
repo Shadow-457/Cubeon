@@ -47,6 +47,18 @@ public final class CosmeticRenderLayer
         if (catalog == null) return;
         for (String slot : CosmeticSelection.SLOTS) {
             if ("trail".equals(slot) || view.items().get(slot) == null) continue;
+            if ("feet".equals(slot)) {
+                for (String leg : new String[] {"left_leg", "right_leg"}) {
+                    pose.pushPose();
+                    try {
+                        boolean left = "left_leg".equals(leg);
+                        (left ? getParentModel().leftLeg : getParentModel().rightLeg).translateAndRotate(pose);
+                        pose.translate((left ? -1.9f : 1.9f) / 16, -12 / 16.0f, 0);
+                        drawItem(catalog, slot, pose, collector, light, view, leg);
+                    } finally { pose.popPose(); }
+                }
+                continue;
+            }
             pose.pushPose();
             try {
                 if ("face".equals(slot) || "head".equals(slot)) {
@@ -57,7 +69,7 @@ public final class CosmeticRenderLayer
                 } else {
                     getParentModel().body.translateAndRotate(pose);
                 }
-                drawItem(catalog, slot, pose, collector, light, view);
+                drawItem(catalog, slot, pose, collector, light, view, null);
             } finally {
                 pose.popPose();
             }
@@ -66,7 +78,7 @@ public final class CosmeticRenderLayer
 
     private void drawItem(CosmeticCatalog.Catalog catalog, String slot,
                           PoseStack pose, SubmitNodeCollector collector, int light,
-                          CosmeticView view) {
+                          CosmeticView view, String leg) {
         CosmeticCatalog.Item selected = catalog.get(view.items().get(slot));
         final CosmeticCatalog.Item item = selected == null ? null
                 : selected.forWingDepth(CubeonHudConfig.get().wingDepth);
@@ -74,26 +86,31 @@ public final class CosmeticRenderLayer
             return;
         }
         final CosmeticAnimation.Frame itemAnimation = view.animation() == null ? null : view.animation().forItem(item);
-        Identifier texture = Identifier.fromNamespaceAndPath("cubeon-client",
-                "textures/cosmetics/" + item.texture);
-        RenderType type = RenderTypes.entityCutout(texture, false);
-        collector.submitCustomGeometry(pose, type, (entry, buffer) -> {
+        for (int pass = 0; pass < (item.emissiveTexture == null ? 1 : 2); pass++) {
+            // Atlas-matched luminous details stay full-bright in dark scenes.
+            final int passLight = pass == 0 ? light : 0xF000F0;
+            Identifier texture = Identifier.fromNamespaceAndPath("cubeon-client",
+                    "textures/cosmetics/" + (pass == 0 ? item.texture : item.emissiveTexture));
+            RenderType type = RenderTypes.entityCutout(texture, false);
+            collector.submitCustomGeometry(pose, type, (entry, buffer) -> {
 
-            for (CosmeticGeometry.Quad quad : CosmeticGeometry.quads(
-                    item, catalog.anchorX(item.slot))) {
-                posed.set(quad, itemAnimation);
-                for (int i = 0; i < 4; i++) {
-                    buffer.addVertex(entry, posed.x[i] / 16.0f, posed.y[i] / 16.0f,
-                                    posed.z[i] / 16.0f)
-                            .setColor(255, 255, 255, 255)
-                            .setUv(quad.u[i], quad.v[i])
-                            .setOverlay(OverlayTexture.NO_OVERLAY)
-                            .setLight(light)
-                            .setNormal(entry, posed.normalX, posed.normalY,
-                                    posed.normalZ);
+                for (CosmeticGeometry.Quad quad : CosmeticGeometry.quads(
+                        item, catalog.anchorX(item.slot))) {
+                    if (leg != null && !leg.equals(quad.motion)) continue;
+                    posed.set(quad, itemAnimation);
+                    for (int i = 0; i < 4; i++) {
+                        buffer.addVertex(entry, posed.x[i] / 16.0f, posed.y[i] / 16.0f,
+                                        posed.z[i] / 16.0f)
+                                .setColor(255, 255, 255, 255)
+                                .setUv(quad.u[i], quad.v[i])
+                                .setOverlay(OverlayTexture.NO_OVERLAY)
+                                .setLight(passLight)
+                                .setNormal(entry, posed.normalX, posed.normalY,
+                                        posed.normalZ);
+                    }
                 }
-            }
-        });
+            });
+        }
         if (replacesElytra) CosmeticElytra.drawn(item);
     }
 }

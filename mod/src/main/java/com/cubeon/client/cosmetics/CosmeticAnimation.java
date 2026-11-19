@@ -63,7 +63,7 @@ public final class CosmeticAnimation {
     }
 
     public static final class Frame {
-        private final Transform body, head, leftWing, rightWing, pack, aura;
+        private final Transform body, head, leftWing, rightWing, pack, aura, orbit, flutterLeft, flutterRight;
         private final float time, movement, flight, sprinting, wingPhase, dragon, hover;
         private final float[] feathers;
         private final CosmeticCatalog.Item featherItem;
@@ -72,6 +72,10 @@ public final class CosmeticAnimation {
             time = t; movement = move; flight = gliding; sprinting = sprint;
             hover = .12f * sin(t * 1.8f);
             aura = new Transform(0, t * .8f % TAU, 0, 1);
+            orbit = new Transform(0, t * .28f % TAU, 0, 1);
+            float flutter = .28f * sin(t * 5.2f) + .04f * sin(t * 10.4f - .5f);
+            flutterLeft = new Transform(0, flutter, 0, 1);
+            flutterRight = new Transform(0, -flutter, 0, 1);
             wingPhase = phase; dragon = dragonElapsed; feathers = null; featherItem = null;
             float breath = 0.018f * sin(t * 2.2f);
             body = new Transform(0, 0, 0.012f * sin(t * 1.1f)
@@ -116,6 +120,7 @@ public final class CosmeticAnimation {
         private Frame(Frame source, CosmeticCatalog.Item item) {
             body = source.body; head = source.head; leftWing = source.leftWing;
             rightWing = source.rightWing; pack = source.pack; aura = source.aura;
+            orbit = source.orbit; flutterLeft = source.flutterLeft; flutterRight = source.flutterRight;
             time = source.time; movement = source.movement; flight = source.flight;
             hover = source.hover;
             sprinting = source.sprinting; wingPhase = source.wingPhase; dragon = source.dragon;
@@ -194,13 +199,17 @@ public final class CosmeticAnimation {
                 return;
             }
             Transform inner = switch (quad.motion) {
-                case "head" -> frame.head;
+                case "head", "hover_head" -> frame.head;
                 case "wing" -> quad.mirrored ? frame.rightWing : frame.leftWing;
                 case "pack" -> frame.pack;
                 case "aura" -> frame.aura;
+                case "orbit_wing_left" -> frame.flutterLeft;
+                case "orbit_wing_right" -> frame.flutterRight;
                 default -> null;
             };
-            boolean pet = "head".equals(quad.motion) || "body".equals(quad.motion);
+            boolean pet = "head".equals(quad.motion) || "body".equals(quad.motion)
+                    || "hover_body".equals(quad.motion) || "hover_head".equals(quad.motion);
+            boolean orbiting = quad.motion.startsWith("orbit");
             boolean feather = quad.feathers != null && frame.feathers != null;
             if (feather && offsetsFrame != frame) {
                 offsetsFrame = frame;
@@ -233,11 +242,13 @@ public final class CosmeticAnimation {
                 if (inner != null) point(inner, quad.pivotX, quad.pivotY, quad.pivotZ);
                 // The head is a child of the breathing body, keeping the neck attached.
                 if (pet) point(frame.body,
-                        "body".equals(quad.motion) ? quad.pivotX : quad.parentPivotX,
-                        "body".equals(quad.motion) ? quad.pivotY : quad.parentPivotY,
-                        "body".equals(quad.motion) ? quad.pivotZ : quad.parentPivotZ);
+                        quad.motion.endsWith("body") ? quad.pivotX : quad.parentPivotX,
+                        quad.motion.endsWith("body") ? quad.pivotY : quad.parentPivotY,
+                        quad.motion.endsWith("body") ? quad.pivotZ : quad.parentPivotZ);
+                if (orbiting) point(frame.orbit, 0, -11, 0);
                 x[vertex] = px; y[vertex] = py; z[vertex] = pz;
-                if ("float".equals(quad.motion) || "aura".equals(quad.motion)) y[vertex] += frame.hover;
+                if ("float".equals(quad.motion) || "aura".equals(quad.motion)
+                        || quad.motion.startsWith("hover_") || orbiting) y[vertex] += frame.hover;
             }
             if (feather) {
                 // Lighting follows the flexed surface. The catalogue's outward winding
@@ -254,6 +265,7 @@ public final class CosmeticAnimation {
             px = quad.normalX; py = quad.normalY; pz = quad.normalZ;
             if (inner != null) normal(inner);
             if (pet) normal(frame.body);
+            if (orbiting) normal(frame.orbit);
             float length = (float) Math.sqrt(px * px + py * py + pz * pz);
             normalX = px / length; normalY = py / length; normalZ = pz / length;
         }

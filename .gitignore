@@ -40,6 +40,7 @@ instructions.txt
 !/tools/test_color_studio.py
 !/tools/test_cosmetics_store.py
 !/tools/test_cosmetic_packages.py
+!/tools/gen_store_collection.py
 # Minekube Connect is downloaded and cached on demand, outside source releases.
 /assets/jars/connect-spigot.jar
 
@@ -79,3 +80,6 @@ cubeon/_cf_key.py
 
 # --- Discord bot (local management layer & credentials) ---
 discord-bot/
+
+!tools/prepare_store_gallery.py
+!tools/test_website_store.cjs

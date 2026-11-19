@@ -127,6 +127,19 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertEqual(self.cfg['active_back_item'], 'back_ember_wings_small')
         self.assertEqual(self.cfg['active_shoulder_item'], 'shoulder_ember_fox')
 
+    def test_head_and_downloaded_feet_use_the_existing_picker(self):
+        self.tab('Head')
+        self.apply('Apply Sun Halo')
+        self.assertEqual(self.cfg['active_head_item'], 'head_halo')
+        shoe = {'id': 'store_shoe_fixture', 'slot': 'feet', 'name': 'Harbor High Tops', 'blurb': 'Sneakers'}
+        with patch.object(cosmetics, 'items', return_value=[shoe]), \
+                patch.object(cosmetics, 'get', side_effect=lambda key, *args: shoe if key == shoe['id'] else None):
+            self.tab('Feet')
+            self.apply('Apply Harbor High Tops')
+            self.assertEqual(self.cfg['active_feet_item'], shoe['id'])
+            self.assertEqual(self.cfg['active_head_item'], 'head_halo')
+            self.assertEqual(self.page.update_calls, 0)
+
     def test_skin_and_cape_choices_retain_their_images(self):
         cards = self.cards()
         self.apply('Apply steve')

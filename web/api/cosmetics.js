@@ -8,7 +8,10 @@ const ID = /^[a-z][a-z0-9_-]{2,63}$/;
 const SHA = /^[a-f0-9]{64}$/;
 const LIST_SQL = `SELECT id, kind, name, description, mime_type, byte_size, sha256,
   encode(preview_png, 'base64') AS preview FROM cubeon_cosmetics
-  WHERE published AND ($2::boolean OR kind = 'cape') ORDER BY updated_at DESC, id LIMIT 13 OFFSET $1`;
+  WHERE published AND (kind = 'cape'
+    OR ($2::boolean AND kind IN ('pet', 'wing'))
+    OR ($3::boolean AND kind IN ('head', 'feet')))
+  ORDER BY updated_at DESC, id LIMIT 13 OFFSET $1`;
 const FILE_SQL = `SELECT mime_type, byte_size, sha256, encode(file_bytes, 'base64') AS payload
   FROM cubeon_cosmetics WHERE published AND id = $1 AND sha256 = $2`;
 
@@ -39,13 +42,13 @@ function createHandler({env = process.env, fetch: fetcher = globalThis.fetch,
     visitors.set(key, {start: entry?.start ?? time, count: (entry?.count || 0) + 1});
     return 0;
   }
-  async function list(offset, all) {
-    const key = `${offset}:${all}`;
+  async function list(offset, all, expanded) {
+    const key = `${offset}:${all}:${expanded}`;
     const cached = pages.get(key);
     if (cached && now() - cached.time < 60000) return cached.body;
     if (pending.has(key)) return pending.get(key);
     const job = (async () => {
-      const rows = await query(LIST_SQL, [offset, all], 450000);
+      const rows = await query(LIST_SQL, [offset, all, expanded], 450000);
       const body = {schema: 1, offset, page_size: PAGE_SIZE, has_more: rows.length > PAGE_SIZE,
         items: rows.slice(0, PAGE_SIZE).map(row => ({id: row.id, kind: row.kind,
           name: row.name, description: row.description, mime_type: row.mime_type,
@@ -64,13 +67,16 @@ function createHandler({env = process.env, fetch: fetcher = globalThis.fetch,
       return send(req, res, 405, {error: 'method_not_allowed'});
     }
     const url = new URL(req.url, 'https://cubeon.invalid');
-    const allowed = new Set(['offset', 'id', 'sha256', 'kind']);
+    const allowed = new Set(['offset', 'id', 'sha256', 'kind', 'models']);
     if ([...url.searchParams.keys()].some(key => !allowed.has(key) || url.searchParams.getAll(key).length !== 1))
       return send(req, res, 400, {error: 'invalid_query'});
     const id = url.searchParams.get('id'), sha = url.searchParams.get('sha256');
     const offsetText = url.searchParams.get('offset') ?? '0';
     const kind = url.searchParams.get('kind');
+    const models = url.searchParams.get('models');
     if (kind !== null && (kind !== 'all' || id !== null || sha !== null))
+      return send(req, res, 400, {error: 'invalid_query'});
+    if (models !== null && (models !== '2' || kind !== 'all'))
       return send(req, res, 400, {error: 'invalid_query'});
     if ((id !== null || sha !== null) ? (!ID.test(id || '') || !SHA.test(sha || '') || url.searchParams.has('offset'))
         : (!/^(0|[1-9][0-9]{0,4})$/.test(offsetText) || Number(offsetText) > 10000))
@@ -101,7 +107,7 @@ function createHandler({env = process.env, fetch: fetcher = globalThis.fetch,
         return send(req, res, 200, data, file.mime_type,
           'public, max-age=31536000, s-maxage=31536000, immutable');
       }
-      const body = await list(Number(offsetText), kind === 'all');
+      const body = await list(Number(offsetText), kind === 'all', models === '2');
       const etag = '"' + createHash('sha256').update(JSON.stringify(body)).digest('hex') + '"';
       res.setHeader('ETag', etag);
       if (req.headers['if-none-match'] === etag) {

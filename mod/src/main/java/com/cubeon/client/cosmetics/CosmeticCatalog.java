@@ -31,7 +31,7 @@ import java.util.Map;
  */
 public final class CosmeticCatalog {
     public static final List<String> SLOTS = List.of(
-            "back", "shoulder", "face", "head", "waist", "hand", "trail", "aura");
+            "back", "shoulder", "face", "head", "waist", "hand", "trail", "aura", "feet");
 
     /** Resource path inside the mod jar. */
     public static final String RESOURCE =
@@ -108,10 +108,11 @@ public final class CosmeticCatalog {
         public final boolean wingFlare;
         public final boolean separateFeathers;
         public final Item flatVariant;
+        public final String emissiveTexture;
 
         Item(String id, String slot, String name, String texture,
              int texWidth, int texHeight, List<Box> boxes, List<Feather> feathers,
-             boolean wingFlare, boolean separateFeathers, Item flatVariant) {
+             boolean wingFlare, boolean separateFeathers, Item flatVariant, String emissiveTexture) {
             this.id = id;
             this.slot = slot;
             this.name = name;
@@ -123,6 +124,7 @@ public final class CosmeticCatalog {
             this.wingFlare = wingFlare;
             this.separateFeathers = separateFeathers;
             this.flatVariant = flatVariant;
+            this.emissiveTexture = emissiveTexture;
         }
 
         /** Resolve once before queued rendering so a setting change cannot mix meshes. */
@@ -228,7 +230,8 @@ public final class CosmeticCatalog {
             if (flat != null && (!id.equals(flat.id) || !slot.equals(flat.slot))) flat = null;
             return new Item(id, slot, Json.str(raw, "name", id), texture,
                     texWidth, texHeight, boxes, feathers, Json.bool(raw, "wing_flare", true),
-                    Json.bool(raw, "separate_feathers", false), flat);
+                    Json.bool(raw, "separate_feathers", false), flat,
+                    Json.str(raw, "emissive_texture", null));
         }
 
         private static Box parseBox(Object raw) {
@@ -335,7 +338,9 @@ public final class CosmeticCatalog {
                         for (Item item : downloaded.items()) {
                             if (item.id.matches("store_[a-f0-9]{32}")
                                     && item.texture.matches("store_[a-f0-9]{32}\\.png")
-                                    && (item.flatVariant == null || item.flatVariant.texture.matches("store_[a-f0-9]{32}_flat\\.png"))) {
+                                    && (item.emissiveTexture == null || item.emissiveTexture.matches("store_[a-f0-9]{32}_glow\\.png"))
+                                    && (item.flatVariant == null || item.flatVariant.texture.matches("store_[a-f0-9]{32}_flat\\.png")
+                                        && (item.flatVariant.emissiveTexture == null || item.flatVariant.emissiveTexture.matches("store_[a-f0-9]{32}_flat_glow\\.png")))) {
                                 merged.putIfAbsent(item.id, item);
                             }
                         }

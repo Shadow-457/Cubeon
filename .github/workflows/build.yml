@@ -78,6 +78,11 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Check public cosmetics and retired-page APIs
+        run: |
+          node worker/test-neon-cosmetics.cjs
+          node tools/test_website_store.cjs
+
       - name: Run test suite
         env:
           # The harnesses are hermetic (sandboxed game dir), but set it

@@ -34,10 +34,10 @@ from PIL import Image
 from .config import save_config
 from .paths import active_game_dir
 
-SLOTS = ("shoulder", "back", "face", "head", "waist", "hand", "trail", "aura")
+SLOTS = ("shoulder", "back", "face", "head", "waist", "hand", "trail", "aura", "feet")
 SLOT_LABELS = {"shoulder": "Pets", "back": "Back", "face": "Face",
                "head": "Head", "waist": "Waist", "hand": "Wrist", "trail": "Trails",
-               "aura": "Aura"}
+               "aura": "Aura", "feet": "Feet"}
 
 #: Absolute model-space attachment points (see gen_cosmetics.py).
 ANCHORS = {
@@ -49,6 +49,7 @@ ANCHORS = {
     "hand": (-5.0, 2.0, 0.0),
     "trail": (0.0, 24.0, 0.0),
     "aura": (0.0, 0.0, 0.0),
+    "feet": (0.0, 12.0, 0.0),
 }
 
 _REPO_ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -157,7 +158,7 @@ def _feather_depth(guide: dict, x: float) -> float:
     return math.floor(value * 4096 + .5) / 4096
 
 
-def preview_faces(item: dict, directory: str | None = None, *, simplify=False) -> list[tuple]:
+def preview_faces(item: dict, directory: str | None = None, *, simplify=False, emissive=False) -> list[tuple]:
     """``(vertices, normal, texture)`` triples in the preview's space.
 
     Preview space is the one ``cubeon.appearance.CharacterModel`` already
@@ -171,7 +172,12 @@ def preview_faces(item: dict, directory: str | None = None, *, simplify=False) -
     """
     if simplify:
         item = item.get("flat") or item
-    sheet = texture(item, directory)
+    if emissive:
+        if not item.get("emissive_texture"):
+            return []
+        sheet = texture({**item, "texture": item["emissive_texture"]}, directory)
+    else:
+        sheet = texture(item, directory)
     anchor_x = ANCHORS[item["slot"]][0]
     result = []
     for box in item.get("boxes", []):
@@ -215,6 +221,8 @@ def preview_faces(item: dict, directory: str | None = None, *, simplify=False) -
                 if source not in box.get("faces", faces):
                     continue
                 tile = _tile(sheet, rects[source], mirrored)
+                if emissive:
+                    tile.info["cubeon_emissive"] = True
                 if tile.getbbox():
                     if curve:
                         vertices = [(x, y, z - curve_first -
@@ -245,6 +253,7 @@ def render_thumbnail(item: dict, directory: str | None = None,
     import math
 
     faces = preview_faces(item, directory, simplify=simplify)
+    faces.extend(preview_faces(item, directory, simplify=simplify, emissive=True))
     if not faces:
         return Image.new("RGBA", size, (0, 0, 0, 0))
     vertices = [vertex for face in faces for vertex in face[0]]
@@ -299,7 +308,7 @@ def render_thumbnail(item: dict, directory: str | None = None,
         coeffs = (d / det, -b / det, (d * (x0 - origin[0]) - b * (y0 - origin[1])) / det,
                   -c / det, a / det, (-c * (x0 - origin[0]) + a * (y0 - origin[1])) / det)
         from PIL import ImageEnhance
-        lighting = 0.72 + 0.28 * max(0, normal[1] * 0.5 + normal[2] * 0.8)
+        lighting = 1 if texture.info.get("cubeon_emissive") else 0.72 + 0.28 * max(0, normal[1] * 0.5 + normal[2] * 0.8)
         tile = ImageEnhance.Brightness(texture).enhance(lighting).transform(
             (x1 - x0, y1 - y0), Image.Transform.AFFINE, coeffs,
             resample=Image.Resampling.NEAREST)

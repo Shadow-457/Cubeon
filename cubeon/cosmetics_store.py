@@ -65,7 +65,7 @@ def _entry(raw):
         raise ValueError("The store returned an invalid cosmetic.")
     item = dict(raw)
     if (not isinstance(item.get("id"), str) or not _ID.fullmatch(item["id"]) or
-            item.get("kind") not in ("cape", "pet", "wing") or not isinstance(item.get("sha256"), str) or
+            item.get("kind") not in ("cape", *cosmetic_packages.KIND_SLOTS) or not isinstance(item.get("sha256"), str) or
             not _SHA.fullmatch(item["sha256"]) or
             item.get("mime_type") not in (("image/png", "image/gif") if item.get("kind") == "cape" else (cosmetic_packages.MIME,)) or
             type(item.get("byte_size")) is not int or not 0 < item["byte_size"] <= MAX_FILE_BYTES or
@@ -90,7 +90,7 @@ def fetch_page(offset=0):
     import json
     if type(offset) is not int or not 0 <= offset <= 10000:
         raise ValueError("The store page is invalid.")
-    data = json.loads(_bytes(api_url() + "?" + urlencode({"offset": offset, "kind": "all"}), 450000))
+    data = json.loads(_bytes(api_url() + "?" + urlencode({"offset": offset, "kind": "all", "models": 2}), 450000))
     if (not isinstance(data, dict) or data.get("schema") != 1 or
             data.get("offset") != offset or data.get("page_size") != PAGE_SIZE or
             type(data.get("has_more")) is not bool or not isinstance(data.get("items"), list) or
@@ -104,7 +104,7 @@ def fetch_page(offset=0):
 
 def installed(item):
     """Find a previously imported revision; deletion permits downloading again."""
-    if item.get("kind") in ("pet", "wing"):
+    if item.get("kind") in cosmetic_packages.KIND_SLOTS:
         return cosmetic_packages.installed(item)
     for entry in capes.list_custom_capes():
         if (isinstance(entry, dict) and isinstance(entry.get("filename"), str) and

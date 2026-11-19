@@ -206,6 +206,33 @@ transparent_model.faces.reverse()
 check("translucent skin blending is independent of face submission order",
       transparent_model.render(0, 0).tobytes() == transparent_frame.tobytes())
 
+# Luminous masks share the base surface's depth but bypass directional shading.
+# An opaque foreground must also block their bloom at its source.
+glowing = CharacterModel(bare_sheet)
+glow_vertices = ((-4, 20, 0), (4, 20, 0), (-4, 12, 0))
+glow_texture = Image.new("RGBA", (8, 8), (240, 180, 80, 255))
+glow_texture.info["cubeon_emissive"] = True
+glowing.faces = [Face(glow_vertices, (0, 0, 1), glow_texture.copy())]
+unlit = glowing.render(0, 0)
+glowing.faces[0].texture.info.clear()
+shaded = glowing.render(0, 0)
+check("emissive details stay at full brightness while ordinary textures are shaded",
+      unlit.getpixel((160, 220)) == (240, 180, 80, 255)
+      and shaded.getpixel((160, 220))[0] < 240)
+glowing.faces.append(Face(glow_vertices, (0, 0, 1), glow_texture))
+check("coplanar luminous masks draw over their base surface",
+      glowing.render(0, 0).getpixel((160, 220)) == unlit.getpixel((160, 220)))
+glow_frame = glowing.render(0, 0)
+check("visible luminous pixels add a subtle halo beyond their silhouette",
+      glow_frame.getpixel((112, 220))[3] > 0 and shaded.getpixel((112, 220))[3] == 0)
+foreground = Face(((-5, 21, 2), (5, 21, 2), (-5, 11, 2)),
+                  (0, 0, 1), Image.new("RGBA", (10, 10), "blue"))
+glowing.faces.append(foreground)
+covered = glowing.render(0, 0)
+glowing.faces = [foreground]
+check("opaque foregrounds hide the luminous source and its preview halo",
+      covered.tobytes() == glowing.render(0, 0).tobytes())
+
 cape_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "capes", "cubeon_cape.png")
 with Image.open(cape_path) as source:
     cape_model = CharacterModel(skins.default_base_skin(), cape=source)

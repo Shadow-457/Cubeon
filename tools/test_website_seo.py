@@ -68,7 +68,6 @@ class SEOTests(unittest.TestCase):
     def setUp(self):
         self.pages = {path.stem: Page(path.read_text()) for path in WEB.glob('*.html')
                       if not re.fullmatch(r'google[0-9a-f]+', path.stem)}
-        self.pages['cubeon-bench'] = Page((WEB / 'cubeon-bench/index.html').read_text())
 
     def test_canonical_inventory_and_sitemap(self):
         expected = set()
@@ -179,7 +178,7 @@ class SEOTests(unittest.TestCase):
         for key, page in self.pages.items():
             with self.subTest(page=key):
                 self.assertEqual(page.language, 'en')
-                path = WEB / ('cubeon-bench/index.html' if key == 'cubeon-bench' else f'{key}.html')
+                path = WEB / f'{key}.html'
                 source = path.read_text()
                 for marker in ('hreflang=', 'cubeon:language', 'cubeon:auto-language',
                                'cubeon-lang', 'navigator.language', 'navigator.languages'):
@@ -203,7 +202,7 @@ class SEOTests(unittest.TestCase):
 
     def test_launcher_social_metadata_is_complete(self):
         for key, page in self.pages.items():
-            if key == 'cubeon-bench' or key.rsplit('/', 1)[-1].isdigit():
+            if key.rsplit('/', 1)[-1].isdigit():
                 continue
             with self.subTest(page=key):
                 self.assertEqual(page.meta['og:image'], [ORIGIN + '/assets/og.png'])
@@ -220,32 +219,17 @@ class SEOTests(unittest.TestCase):
         image = (WEB / 'assets/og.png').read_bytes()
         self.assertEqual(struct.unpack('>II', image[16:24]), (1200, 630))
 
-    def test_bench_is_coming_soon_for_cosmetics_with_safe_legacy_routes(self):
-        bench = WEB / 'cubeon-bench'
-        source = (bench / 'index.html').read_text()
-        page = self.pages['cubeon-bench']
-        self.assertIn('Coming Soon', page.title)
-        self.assertIn('resource pack editor exclusively for Cubeon cosmetics', page.meta['description'][0])
-        self.assertEqual(page.canonicals, [ORIGIN + '/cubeon-bench'])
-        self.assertEqual(page.meta['og:url'], page.canonicals)
-        self.assertEqual(page.meta['og:image'], [ORIGIN + '/assets/og.png'])
-        self.assertEqual(page.meta['og:image:width'], ['1200'])
-        self.assertEqual(page.meta['og:image:height'], ['630'])
-        self.assertEqual(page.meta['twitter:card'], ['summary_large_image'])
-        self.assertEqual(source.count('src="/_vercel/insights/script.js"'), 1)
-        self.assertIn('window.vaq', source)
-        self.assertEqual(json.loads(page.schemas[0])['@type'], 'WebPage')
-        self.assertIn('/', page.links)
-        self.assertIn('/cosmetics', page.links)
-        self.assertEqual({path.name for path in bench.iterdir()}, {'index.html', 'sw.js'})
+    def test_bench_is_removed_from_public_files_and_discovery(self):
+        self.assertFalse((WEB / 'cubeon-bench').exists())
+        for path in list(WEB.glob('*.html')) + [WEB / 'sitemap.xml', WEB / 'llms.txt']:
+            self.assertNotIn('/cubeon-bench', path.read_text(), str(path))
         for config_path in (ROOT / 'vercel.json', WEB / 'vercel.json'):
-            redirects = {entry['source']: entry for entry in json.loads(config_path.read_text())['redirects']}
-            for old in ('workspace', 'workspace.html', 'landing', 'landing.html', 'index', 'index.html'):
-                redirect = redirects['/cubeon-bench/' + old]
-                self.assertEqual(redirect['destination'], '/cubeon-bench')
-                self.assertFalse(redirect['permanent'])
-        from submit_website_indexnow import local_page
-        self.assertEqual(local_page(ORIGIN + '/cubeon-bench'), bench / 'index.html')
+            config = json.loads(config_path.read_text())
+            routes = config['rewrites']
+            for path in ('/cubeon-bench', '/cubeon-bench.html', '/cubeon-bench/:path*'):
+                rule = next(route for route in routes if route['source'] == path)
+                self.assertEqual(rule['destination'], '/api/retired')
+            self.assertFalse(any('/cubeon-bench' in rule['source'] for rule in config['redirects']))
 
     def test_product_data_matches_visible_product(self):
         page = self.pages['index']
@@ -310,7 +294,7 @@ class SEOTests(unittest.TestCase):
                     self.assertTrue(hosts[host]['permanent'])
             self.assertNotIn('www.ylet.online', hosts, 'Canonical host must not redirect to itself')
         for key in self.pages:
-            path = WEB / 'cubeon-bench/index.html' if key == 'cubeon-bench' else WEB / f'{key}.html'
+            path = WEB / f'{key}.html'
             source = path.read_text()
             with self.subTest(page=key):
                 self.assertNotIn('https://cubeon.ylet.online', source)
@@ -387,7 +371,7 @@ class SEOTests(unittest.TestCase):
             if key.isdigit():
                 continue
             with self.subTest(page=key):
-                source = (WEB / ('cubeon-bench/index.html' if key == 'cubeon-bench' else f'{key}.html')).read_text()
+                source = (WEB / f'{key}.html').read_text()
                 self.assertEqual(source.count(snippet), 1)
                 self.assertIn('window.vaq', source)
         for policy in ('privacy', 'cookies'):

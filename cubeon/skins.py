@@ -643,6 +643,12 @@ def _publish_skin_serial(cfg: dict) -> None:
         from .cosmetics import selection_payload
         cosmetics = selection_payload(cfg)
         cosmetics.pop("version")
+        # The peer service accepts bundled IDs. Store models stay local until
+        # a shared model-download protocol is available; still publish skin and
+        # bundled selections when a downloaded item occupies another slot.
+        cosmetics = {slot: None if value and value.startswith("store_") else value
+                     for slot, value in cosmetics.items()}
+        cosmetics.pop("feet", None)  # No bundled footwear in the peer protocol yet.
         cosmetics_changed = (state.get("uuid") != machine_uuid
                              or state.get("base") != csl.CUBEON_API_BASE
                              or state.get("cosmetics") != cosmetics)

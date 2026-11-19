@@ -20,12 +20,12 @@ class IndexNowTests(unittest.TestCase):
         expected = {url for path in indexing.WEB.glob('*.html')
                     if not path.stem.isdigit()
                     for url in indexing.CrawlPage(path.read_text()).canonicals}
-        expected.add(indexing.ORIGIN + '/cubeon-bench')
         self.assertEqual(set(payload['urlList']), expected)
         self.assertEqual(payload['keyLocation'], indexing.ORIGIN + '/indexnow-key.txt')
         for url in ('https://preview.vercel.app/about', indexing.ORIGIN + '/api/doctor',
                     indexing.ORIGIN + '/about#report=private', indexing.ORIGIN + '/404',
-                    indexing.ORIGIN + '/windowsdownload', indexing.ORIGIN + '/about?channel=beta'):
+                    indexing.ORIGIN + '/windowsdownload', indexing.ORIGIN + '/about?channel=beta',
+                    indexing.ORIGIN + '/cubeon-bench'):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 indexing.make_payload([url])
 

@@ -869,7 +869,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         def work():
             try:
                 cosmetics_store.download(item)
-                destination = {'cape': 'Cape', 'pet': 'Pets', 'wing': 'Back'}[item['kind']]
+                destination = {'cape': 'Cape', 'pet': 'Pets', 'wing': 'Back', 'head': 'Head', 'feet': 'Feet'}[item['kind']]
                 message = f"Downloaded {item['name']}. Open {destination} to equip it."
                 success = True
             except Exception as error:
@@ -954,7 +954,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     store_toolbar = ft.Row([store_refresh, ft.Container(expand=True), store_previous,
                             store_page, store_next], spacing=4)
     store_pane = ft.Column([store_toolbar,
-        ft.Text("Download cosmetics, then equip them in Cape, Pets or Back.", size=12, color=TEXT_DIM),
+        ft.Text("Download cosmetics, then equip them in Cape, Pets, Back, Head or Feet.", size=12, color=TEXT_DIM),
         _scroll_cards(store_grid), store_status], spacing=8, expand=True,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH, data="cosmetics-store")
     store_pane.load_items = load_store
@@ -1093,14 +1093,14 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         pane.load_items = refresh
         return pane
 
-    # Keep the extra cosmetic categories hidden for now.
+    # Headwear and footwear share the existing picker and selection flow.
     cosmetic_panes = [(slot, cosmetics.SLOT_LABELS[slot],
                       ft.Container(content=ft.Column([
                           ft.Text("Coming soon", size=20, weight=ft.FontWeight.W_600, color=TEXT),
                           ft.Text("Auras are not available yet.", size=13, color=TEXT_DIM),
                       ], spacing=8), padding=24, data="cosmetic-coming-soon-aura")
                       if slot == "aura" else _cosmetic_pane(slot))
-                     for slot in ("shoulder", "back", "aura")]
+                     for slot in ("shoulder", "back", "head", "feet", "aura")]
 
     # --- Tab state + switching --------------------------------------------
     # active_pane is a plain dict ref (same pattern the Mods tab uses for

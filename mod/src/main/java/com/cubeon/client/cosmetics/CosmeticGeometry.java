@@ -62,7 +62,7 @@ public final class CosmeticGeometry {
         List<Quad> out = new ArrayList<>();
         CosmeticCatalog.Box parent = null;
         for (CosmeticCatalog.Box box : item.boxes) {
-            if ("body".equals(box.motion)) {
+            if ("body".equals(box.motion) || "hover_body".equals(box.motion)) {
                 parent = box;
                 break;
             }

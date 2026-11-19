@@ -2,9 +2,9 @@
 
 # Neon cosmetics store
 
-Cubeon's **Cosmetics → Store** downloads capes, animated GIF capes, pets and
-wings from the public website API. Downloads appear in **Cape**, **Pets** or
-**Back**; the user explicitly selects an item to equip it. Custom capes use the
+Cubeon's **Cosmetics → Store** downloads capes, animated GIF capes, pets,
+wings, headwear and footwear from the public website API. Downloads appear in
+**Cape**, **Pets**, **Back**, **Head** or **Feet**; the user explicitly selects an item to equip it. Custom capes use the
 existing importer and animation support. Pets and wings use Cubeon's existing
 box/feather geometry, texture atlas and animation rig.
 
@@ -47,8 +47,8 @@ folder**. Initialize a new checkout once:
 ./publish-cosmetics.sh setup
 ```
 
-This creates the existing sample in `cosmetics/capes/`, empty `pets/` and
-`wings/` folders, and example recipes under `examples/`. It preserves existing
+This creates the existing sample in `cosmetics/capes/`, empty `pets/`,
+`wings/`, `head/` and `feet/` folders, and example recipes under `examples/`. It preserves existing
 files. The examples are not uploaded.
 
 Put PNG or GIF capes in `cosmetics/capes/`, then run:
@@ -92,7 +92,7 @@ of a new revision creates a separate local cape, preserving equipped older
 copies. Owners can set `published = false` in Neon to hide an entry without
 deleting its bytes. Clients may retain cached catalog entries for 60 seconds.
 
-## Publish pets and wings
+## Publish models
 
 Pets and wings need a JSON recipe and PNG texture atlas. A raw image alone has
 no 3D geometry. Copy `cosmetics/examples/pet.json` into `cosmetics/pets/`, or
@@ -113,9 +113,25 @@ Place `my-fox.png` beside that JSON recipe. Retain the template's atlas dimensio
 and layout. Omitting `texture` uses the bundled artwork. For a completely new
 model, replace `based_on` with a `model` object in the format used by
 `assets/cosmetics/catalog.json`: `slot`, `texture`, `tex_w`, `tex_h`, `boxes`,
-and optional `feathers`/`flat`. Pets use `shoulder`; wings use `back`. Boxes use
+and optional `feathers`/`flat`. Pets use `shoulder`; wings use `back`;
+headwear uses `head`; footwear uses `feet`. Headwear and footwear recipes go
+in the matching `head/` and `feet/` folders. Footwear boxes must use
+`motion: "left_leg"` or `"right_leg"` so each shoe follows its native leg.
+Boxes use
 `origin`, `size`, `uv`, `px`, and optionally `pivot`/`motion` for the existing
-animation rig. `flat_texture` supplies the optional flat wing variant's PNG.
+animation rig. `float` adds gentle hovering; `hover_body` and `hover_head`
+compose hovering with the pet's breathing and glances. `orbit` and
+`orbit_wing_left`/`orbit_wing_right` provide a slow head-centred butterfly orbit
+and local wing beats. `aura` rotates around the box pivot while hovering.
+Motion respects the existing in-game Cosmetic motion setting.
+An optional `emissive_texture` PNG marks luminous pixels with opaque colour and
+leaves other pixels transparent. It must match the base atlas dimensions and UV
+layout. The client renders it over the same animated geometry at full brightness,
+so glows remain visible in dark scenes. Preview bloom is included in the launcher;
+Minecraft bloom depends on the user's shader setup. Use `flat_emissive_texture`
+for a flat variant's mask. Complete packages allow up to four embedded PNGs.
+`separate_feathers: true` preserves each feather's curved rest geometry and rig;
+include it when using per-box `feather` indices. `flat_texture` supplies the optional flat wing variant's PNG.
 The publisher embeds textures and geometry into a data-only package; it never
 uploads executable scripts. Models allow up to 2,048 boxes, 16 feather guides,
 2,048-pixel PNG textures and **2 MB** per complete package. Arbitrary OBJ,
@@ -123,15 +139,49 @@ Blockbench project files and executable mods must be converted to this format.
 
 Run the same publishing script. Cubeon verifies checksums, validates the package,
 and stores each revision in its own local directory. Downloaded models join the
-existing Pets/Back library; old equipped revisions and bundled artwork remain
+existing Pets/Back/Head/Feet libraries; old equipped revisions and bundled artwork remain
 available. When equipped, their geometry is written beside the instance selection
 file and textures are installed through a dedicated `cubeon-store` resource pack.
 Other selected resource packs and graphics settings are preserved. **Restart
-Minecraft after equipping a newly downloaded pet or wing** so its textures load.
+Minecraft after equipping a newly downloaded model** so its textures load.
 These models require Cubeon Client on supported Fabric/Quilt versions; the Rust
 beta and vanilla Minecraft cannot render them. Downloads do not equip items.
 Custom store models are local; other players need the same model installed for
-its id to resolve. Existing bundled cosmetics retain their shared visibility.
+its id to resolve. The peer service currently publishes bundled IDs only;
+custom models are cleared from that optional publication so they do not prevent
+skin or bundled-cosmetic updates. Existing bundled cosmetics retain their shared visibility.
+
+The original reference-inspired owner collection can be regenerated locally:
+
+```bash
+python tools/gen_cosmetics.py --store-collection
+./publish-cosmetics.sh --dry-run
+```
+
+This replaces the generator-owned files under each kind's `collection/`
+subfolder. Keep manual designs outside those subfolders. It generates layered
+feathers, curved membrane wings, companions, headwear and sneakers; it does
+not upload anything. Review the generated models before running the publisher.
+Normal client builds regenerate the bundled art only.
+
+## Website gallery
+
+The public `/store` page reads the same Neon catalog as the launcher, including
+headwear and footwear. Category filters, search and item previews work in the
+browser; downloads and equipping stay in Cubeon. New uploads appear through the
+API without a website deployment.
+
+For larger public previews of the owner collection, run:
+
+```bash
+python tools/prepare_store_gallery.py
+```
+
+This reuses validated packages and the launcher's renderer to update the Store's
+HTML fallback and `web/assets/store/` WebP images. Images match the full package
+checksum, so a changed revision uses its API thumbnail until the larger preview
+is regenerated and deployed. The generator does not write to Neon. The static
+collection remains readable when JavaScript or the catalog is unavailable.
 
 ## Deploy the public API
 
@@ -158,12 +208,17 @@ contain no credentials or query string.
 | Request | Result |
 | --- | --- |
 | `GET /api/cosmetics?offset=0` | Schema 1, up to 12 cape entries and `has_more`, for older clients |
-| `GET /api/cosmetics?offset=0&kind=all` | Schema 1, up to 12 capes/pets/wings and `has_more` |
+| `GET /api/cosmetics?offset=0&kind=all` | Schema 1, up to 12 cape/pet/wing entries and `has_more`, for original store-model clients |
+| `GET /api/cosmetics?offset=0&kind=all&models=2` | Schema 1, up to 12 entries including headwear/footwear and `has_more` |
 | `GET /api/cosmetics?id=ID&sha256=SHA256` | Published PNG/GIF or model-package bytes pinned to the advertised checksum |
 | `HEAD` on either route | The same headers, without a body |
 | Any write method | 405; there is no public upload or database query route |
 
 Catalogs cache for 60 seconds; checksum-pinned downloads cache immutably.
+The three catalog variants have separate caches. `models=2` is accepted only
+with `kind=all` on catalog requests. Deploy this API update before publishing
+headwear/footwear or releasing the expanded client so older clients retain a
+usable catalog.
 An outdated download id/checksum returns 404, so Refresh retrieves the latest
 catalog. Conditional requests use ETags. Database errors return a generic 503
 without connection strings or upstream details. Metadata fetches coalesce

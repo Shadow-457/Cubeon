@@ -4,6 +4,12 @@
   "functions": {
     "api/doctor.js": {
       "maxDuration": 60
+    },
+    "api/retired.js": {
+      "includeFiles": "web/404.html"
+    },
+    "api/status.js": {
+      "includeFiles": "web/*.html"
     }
   },
   "redirects": [
@@ -52,36 +58,6 @@
     {
       "source": "/windowsdownload",
       "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/windowsdownload",
-      "permanent": false
-    },
-    {
-      "source": "/cubeon-bench/workspace",
-      "destination": "/cubeon-bench",
-      "permanent": false
-    },
-    {
-      "source": "/cubeon-bench/workspace.html",
-      "destination": "/cubeon-bench",
-      "permanent": false
-    },
-    {
-      "source": "/cubeon-bench/landing",
-      "destination": "/cubeon-bench",
-      "permanent": false
-    },
-    {
-      "source": "/cubeon-bench/landing.html",
-      "destination": "/cubeon-bench",
-      "permanent": false
-    },
-    {
-      "source": "/cubeon-bench/index",
-      "destination": "/cubeon-bench",
-      "permanent": false
-    },
-    {
-      "source": "/cubeon-bench/index.html",
-      "destination": "/cubeon-bench",
       "permanent": false
     },
     {
@@ -143,6 +119,44 @@
       "source": "/uk/:path*",
       "destination": "/:path*",
       "permanent": true
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/cubeon-bench",
+      "destination": "/api/retired"
+    },
+    {
+      "source": "/cubeon-bench.html",
+      "destination": "/api/retired"
+    },
+    {
+      "source": "/cubeon-bench/:path*",
+      "destination": "/api/retired"
+    },
+    {
+      "source": "/403",
+      "destination": "/api/status?code=403"
+    },
+    {
+      "source": "/404",
+      "destination": "/api/status?code=404"
+    },
+    {
+      "source": "/429",
+      "destination": "/api/status?code=429"
+    },
+    {
+      "source": "/500",
+      "destination": "/api/status?code=500"
+    },
+    {
+      "source": "/502",
+      "destination": "/api/status?code=502"
+    },
+    {
+      "source": "/503",
+      "destination": "/api/status?code=503"
     }
   ]
 }

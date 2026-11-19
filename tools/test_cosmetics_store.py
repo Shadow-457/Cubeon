@@ -74,8 +74,11 @@ class Downloads(unittest.TestCase):
 
     def test_page_validates_duplicates_and_schema(self):
         page = {"schema": 1, "offset": 0, "page_size": 12, "has_more": False, "items": [self.item]}
-        with patch.object(store, "_bytes", return_value=json.dumps(page).encode()):
+        with patch.object(store, "_bytes", return_value=json.dumps(page).encode()) as fetch:
             self.assertEqual(store.fetch_page()["items"], [self.item])
+            from urllib.parse import parse_qs, urlsplit
+            self.assertEqual(parse_qs(urlsplit(fetch.call_args.args[0]).query),
+                {"offset": ["0"], "kind": ["all"], "models": ["2"]})
         for changes in ({"items": [self.item, self.item]}, {"schema": 2}, {"has_more": "yes"}):
             with patch.object(store, "_bytes", return_value=json.dumps({**page, **changes}).encode()), self.assertRaises(ValueError):
                 store.fetch_page()

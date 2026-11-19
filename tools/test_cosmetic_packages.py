@@ -122,6 +122,44 @@ class Packages(unittest.TestCase):
         self.assertIsNotNone(cosmetics.get("shoulder_ember_fox"))
         self.assertEqual(len(packages.installed_items()), 2)
 
+    def test_headwear_and_footwear_download_and_sync_independently(self):
+        from gen_store_collection import headwear, footwear
+        from gen_cosmetics import render_item
+        cfg = {"last_version": "1.21.11"}
+        for kind, item in (("head", headwear()[0]), ("feet", footwear()[0])):
+            image, boxes = render_item(item)
+            directory = self.folder / kind
+            image.save(directory / 'model.png')
+            model = dict(slot=kind, texture='model.png', tex_w=image.width, tex_h=image.height,
+                         boxes=boxes, wing_flare=False)
+            if kind == 'head':
+                image.save(directory / 'glow.png')
+                model['emissive_texture'] = 'glow.png'
+            path = directory / 'original.json'
+            path.write_text(json.dumps(dict(id='my-' + kind, name=item['name'], model=model)))
+            values = publisher.prepare_model(path, kind)
+            metadata = dict(zip(('id','name','description','mime_type','file','byte_size','sha256','preview_png','kind'), values))
+            payload = base64.b64decode(metadata.pop('file'))
+            with patch.object(cosmetics_store, '_bytes', return_value=payload):
+                saved = cosmetics_store.download(metadata)
+            cfg['active_' + kind + '_item'] = saved['id']
+            if kind == 'feet':
+                self.assertEqual({b['motion'] for b in saved['boxes']}, {'left_leg','right_leg'})
+                bad = packages.read(payload)
+                bad['item']['boxes'][0]['motion'] = 'none'
+                with self.assertRaises(ValueError):
+                    packages.encode(bad)
+        game = self.root / 'game'
+        cosmetics.sync_to_game(cfg, str(game), strict=True)
+        external = json.loads((game / 'config/cubeon-store.json').read_text())
+        self.assertEqual({model['slot'] for model in external['items']}, {'head','feet'})
+        head = next(model for model in external['items'] if model['slot'] == 'head')
+        self.assertTrue(head['emissive_texture'].endswith('_glow.png'))
+        self.assertTrue((game / 'resourcepacks/cubeon-store/assets/cubeon-client/textures/cosmetics' / head['emissive_texture']).is_file())
+        selection = json.loads((game / 'config/cubeon-cosmetics.json').read_text())
+        self.assertEqual(selection['head'], cfg['active_head_item'])
+        self.assertEqual(selection['feet'], cfg['active_feet_item'])
+
     def test_bad_models_and_textures_never_install(self):
         payload, metadata = self.model()
         source = packages.read(payload)
