@@ -10,6 +10,12 @@ import java.util.Map;
 public final class CosmeticElytra {
     private static final ThreadLocal<Pass> PASS = ThreadLocal.withInitial(Pass::new);
     private static final Map<CosmeticCatalog.Item, Boolean> ART = new IdentityHashMap<>();
+    @FunctionalInterface
+    public interface Artwork {
+        InputStream open(String texture) throws Exception;
+    }
+    private static Artwork artwork = texture -> CosmeticElytra.class.getResourceAsStream(
+            "/assets/cubeon-client/textures/cosmetics/" + texture);
     private CosmeticElytra() { }
 
     private static final class Pass {
@@ -39,17 +45,23 @@ public final class CosmeticElytra {
     }
 
     /** Missing art, non-wing backs and empty meshes must preserve vanilla equipment. */
-    public static boolean ready(CosmeticCatalog.Item item) {
+    public static synchronized boolean ready(CosmeticCatalog.Item item) {
         if (item == null) return false;
         return ART.computeIfAbsent(item, CosmeticElytra::hasArtwork);
+    }
+
+    /** The native resource reload supplies both bundled and downloaded artwork. */
+    public static synchronized void bindArtwork(Artwork source) {
+        if (source == null) throw new IllegalArgumentException("Missing cosmetic artwork source");
+        artwork = source;
+        ART.clear();
     }
 
     private static boolean hasArtwork(CosmeticCatalog.Item item) {
         if (!"back".equals(item.slot)
                 || item.boxes.stream().noneMatch(box -> "wing".equals(box.motion))
                 || CosmeticGeometry.quads(item, 0).isEmpty()) return false;
-        try (InputStream stream = CosmeticElytra.class.getResourceAsStream(
-                "/assets/cubeon-client/textures/cosmetics/" + item.texture)) {
+        try (InputStream stream = artwork.open(item.texture)) {
             if (stream == null) return false;
             var image = ImageIO.read(stream);
             if (image == null || image.getWidth() != item.texWidth

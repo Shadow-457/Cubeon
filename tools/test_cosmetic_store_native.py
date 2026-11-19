@@ -77,6 +77,11 @@ public class StoreProbe implements ClientModInitializer {
                 Map<?,?> expected=(Map<?,?>)raw;
                 var item=catalog.get((String)expected.get("id"));
                 check(item!=null && item.wingFlare,"Real catalog loaded each full wing model");
+                check(CosmeticElytra.ready(item),"Real resource pack qualifies downloaded wings for Elytra replacement");
+                CosmeticElytra.begin(client); CosmeticElytra.drawn(item);
+                check(CosmeticElytra.consume(client),"Downloaded wings mark the same replacement pass as bundled wings");
+                check(item.boxes.stream().allMatch(box -> box.pivotX==2 && box.pivotY==2 && box.pivotZ==2.25f),
+                    "Downloaded collection uses the built-in Giant wing hinges");
                 for(Object rawTexture:(List<?>)expected.get("textures")) {
                     Map<?,?> expectedTexture=(Map<?,?>)rawTexture;
                     String filename=(String)expectedTexture.get("name");
@@ -151,13 +156,21 @@ def verify(version):
         shutil.copytree(profile / "saves/New World", work / "saves/Store probe", ignore=shutil.ignore_patterns("session.lock"))
         (work / "options.txt").write_text("maxFps:60\nenableVsync:false\nonboardAccessibility:false\n")
         all_models = []
+        staged_textures = work / "staged-textures"
+        staged_textures.mkdir()
+        textures = work / "resourcepacks/cubeon-store/assets/cubeon-client/textures/cosmetics"
         for item in items:
             cosmetics.sync_to_game(dict(last_version=loader, active_back_item=item["id"]), str(work), strict=True,
                                     mc_version=version, version_id=loader)
             all_models.extend(json.loads((work / "config/cubeon-store.json").read_text())["items"])
+            # Normal sync prunes unequipped textures; this probe loads every
+            # wing at once to audit the entire installed collection.
+            for texture in textures.glob("*.png"):
+                shutil.copyfile(texture, staged_textures / texture.name)
+        for texture in staged_textures.glob("*.png"):
+            shutil.copyfile(texture, textures / texture.name)
         (work / "config/cubeon-store.json").write_text(json.dumps(dict(items=all_models, anchors=cosmetics.ANCHORS)))
         expected = []
-        textures = work / "resourcepacks/cubeon-store/assets/cubeon-client/textures/cosmetics"
         for item in all_models:
             entries = []
             for name in (item["texture"], item.get("emissive_texture")):

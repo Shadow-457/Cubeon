@@ -637,6 +637,8 @@ def generate(folder=None):
         model=dict(slot=item["slot"],texture=texture,tex_w=image.width,tex_h=image.height,
                    boxes=boxes,feathers=item.get("feathers",[]),wing_flare=item.get("wing_flare",False),
                    separate_feathers=item.get("separate_feathers",False))
+        from cubeon.cosmetic_packages import normalize_wing_attachment
+        model=normalize_wing_attachment(model)
         glow=glow_texture(image,key)
         if glow is not None:
             name=key+"_glow.png"

@@ -173,7 +173,7 @@ def preview_faces(item: dict, directory: str | None = None, *, simplify=False, e
     with four quads. The catalogue and full game geometry remain untouched.
     """
     if (simplify and item.get("_store_directory") and not item.get("flat")
-            and item.get("wing_flare") and len(item.get("boxes", ())) >= 128):
+            and len(item.get("boxes", ())) >= 48):
         from .cosmetic_preview import prepared
         return prepared(item, directory, emissive)
     if simplify:
@@ -357,6 +357,18 @@ def selection_payload(cfg: dict) -> dict:
         "version": 1,
         **{slot: active(cfg, slot) for slot in SLOTS},
     }
+
+
+def delete_downloaded(cfg: dict, item_id: str) -> None:
+    """Remove a downloaded revision and clear only its equipped slot."""
+    from . import cosmetic_packages
+    item = get(item_id)
+    if item is None or not item.get("_store_directory"):
+        raise ValueError("Only downloaded cosmetics can be deleted.")
+    if cfg.get(f"active_{item['slot']}_item") == item_id:
+        set_active(cfg, item["slot"], None, strict=True)
+    cosmetic_packages.remove(item_id)
+    sync_to_game(cfg, strict=True)
 
 
 def game_config_path(game_dir: str | None = None) -> str:

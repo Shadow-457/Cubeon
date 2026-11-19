@@ -100,6 +100,30 @@ class Preview(unittest.TestCase):
                  (((2, 4, 0), (6, 4, 0), (2, 0, 0)), (0, 0, 1), tile)]
         self.assertEqual(cosmetic_preview.compact_faces(faces), faces)
 
+    def test_solid_pets_and_footwear_keep_side_surfaces_and_reuse_prepared_faces(self):
+        for original in [collection.pets()[1], collection.footwear()[0]]:
+            folder = Path(self.temp.name) / original["id"]
+            folder.mkdir()
+            sheet, boxes = render_item(original)
+            sheet.save(folder / "model.png")
+            item = dict(id="store_" + "b" * 32, slot=original["slot"], texture="model.png",
+                        boxes=boxes, _store_directory=str(folder))
+            full = cosmetics.preview_faces(item)
+            prepared = cosmetics.preview_faces(item, simplify=True)
+            self.assertLess(len(prepared), len(full) / 2)
+            self.assertFalse(any(texture.info.get("cubeon_preview_detail") for _, _, texture in prepared))
+            with patch.object(cosmetic_preview, "compact_faces", side_effect=AssertionError("rebaked wearable")):
+                cosmetics.preview_faces(item, simplify=True)
+            reference = CharacterModel(skins.default_base_skin(), cosmetics_faces=full)
+            compact = CharacterModel(skins.default_base_skin(), cosmetics_faces=prepared)
+            self.assertAlmostEqual(reference._orbit_radius, compact._orbit_radius)
+            self.assertAlmostEqual(reference._vertical_extent, compact._vertical_extent)
+            for yaw in (25, 90, 155):
+                actual = compact.render(yaw, 10)
+                difference = ImageChops.difference(actual, reference.render(yaw, 10))
+                changed = sum(1 for pixel in zip(*(iter(channel.tobytes()) for channel in difference.split())) if max(pixel) > 32)
+                self.assertLess(changed, actual.width * actual.height * .005, (original["id"], yaw, changed))
+
     def test_layered_feathers_keep_their_art_and_fit_inside_the_cache(self):
         item = self.make_item("ivory-tide")
         full = cosmetics.preview_faces(item) + cosmetics.preview_faces(item, emissive=True)

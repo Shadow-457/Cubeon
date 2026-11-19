@@ -148,6 +148,20 @@ without the deprecated `supported_formats` key; Minecraft rejects that key for
 these packs. Prelaunch restores the pack selection after repairing its metadata.
 Other selected resource packs and graphics settings are preserved. **Restart
 Minecraft after equipping a newly downloaded model** so its textures load.
+Downloaded models have a Delete action in their Pets/Back/Head/Feet library
+cards. Deleting an equipped item clears only that slot, removes its local
+revision and unused generated textures, and leaves the Store entry available
+to download again. Deleting the last equipped downloaded model disables only
+the generated Store pack; other resource packs and saved appearance stay intact.
+
+Collection wings use the built-in Giant hinge `(2, 2, 2.25)` and layered roots
+against the back. The launcher adapts legacy collection packages on read,
+preserving source files, textures, revision IDs and checksums. Other authored
+rigs stay unchanged. Downloaded wings share the built-in render-only Elytra
+replacement: Minecraft's resource manager validates their artwork, and resource
+reloads clear cached readiness. Missing artwork preserves vanilla Elytra;
+equipment and flight behavior stay unchanged.
+
 These models require Cubeon Client on supported Fabric/Quilt versions; the Rust
 beta and vanilla Minecraft cannot render them. Downloads do not equip items.
 Custom store models are local; other players need the same model installed for
@@ -155,11 +169,13 @@ its id to resolve. The peer service currently publishes bundled IDs only;
 custom models are cleared from that optional publication so they do not prevent
 skin or bundled-cosmetic updates. Existing bundled cosmetics retain their shared visibility.
 
-Complex downloaded wings use cached coplanar preview textures in
+Complex downloaded wings, pets and wearables use cached coplanar preview textures in
 `cubeon/cosmetic_preview.py`. Curved planes, UV colors, normals, depth and glow
-remain separate; full game geometry is unchanged. Fine edge walls return when
+remain separate; full game geometry is unchanged. Fine wing edge walls return when
 the viewport stops rotating. Camera fitting uses the original mesh bounds,
-and the revision/file-aware cache is limited to six entries and 64 MiB.
+and the revision/file-aware cache is limited to 24 entries and 64 MiB. Solid pet
+and wearable side surfaces remain visible during dragging. Plane sampling fits
+the viewport resolution; returning to cached items reuses their prepared faces.
 Run `python tools/test_cosmetic_preview.py` for visual/performance regression
 checks. `python tools/test_cosmetic_store_native.py 1.21.11` verifies pack
 acceptance and real base/glow GPU textures in a temporary copy of an installed

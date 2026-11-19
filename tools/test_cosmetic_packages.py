@@ -121,6 +121,63 @@ class Packages(unittest.TestCase):
         self.assertIsNotNone(cosmetics.get(original["id"]))
         self.assertIsNotNone(cosmetics.get("shoulder_ember_fox"))
         self.assertEqual(len(packages.installed_items()), 2)
+        with patch.object(packages, "installed_items", side_effect=AssertionError("scanned every revision")):
+            self.assertEqual(packages.installed(metadata)["id"], original["id"])
+            self.assertIsNone(packages.installed({**metadata, "sha256": "0" * 64}))
+
+    def test_delete_download_clears_equipped_slot_and_allows_redownload(self):
+        payload, metadata = self.model("wing")
+        wing = packages.install(payload, metadata)
+        pet_payload, pet_metadata = self.model("pet")
+        pet = packages.install(pet_payload, pet_metadata)
+        game = self.root / "game"
+        game.mkdir()
+        (game / "options.txt").write_text('resourcePacks:["file/player-pack.zip"]\nfov:0.7\n')
+        cfg = dict(last_version="1.21.11", active_back_item=wing["id"], active_shoulder_item=pet["id"],
+                   active_skin="personal.png", active_cape="personal-cape.png")
+        with patch.object(cosmetics, "active_game_dir", return_value=str(game)), \
+                patch.object(cosmetics, "save_config"), patch.object(cosmetics, "set_active", wraps=cosmetics.set_active):
+            cosmetics.sync_to_game(cfg, strict=True)
+            with patch.object(packages, "installed_items", side_effect=AssertionError("equip reread every model")):
+                cosmetics.sync_to_game(cfg, strict=True)
+            cosmetics.delete_downloaded(cfg, wing["id"])
+        self.assertIsNone(cfg["active_back_item"])
+        self.assertEqual(cfg["active_shoulder_item"], pet["id"])
+        self.assertEqual((cfg["active_skin"], cfg["active_cape"]), ("personal.png", "personal-cape.png"))
+        self.assertFalse((self.storage / wing["id"]).exists())
+        self.assertIsNone(packages.installed(metadata))
+        textures = game / "resourcepacks/cubeon-store/assets/cubeon-client/textures/cosmetics"
+        self.assertFalse((textures / (wing["id"] + ".png")).exists())
+        self.assertTrue((textures / (pet["id"] + ".png")).exists())
+        models = json.loads((game / "config/cubeon-store.json").read_text())["items"]
+        self.assertEqual([item["id"] for item in models], [pet["id"]])
+        self.assertIn("file/player-pack.zip", (game / "options.txt").read_text())
+        with self.assertRaises(ValueError):
+            cosmetics.delete_downloaded(cfg, "back_ember_wings")
+        with self.assertRaises(ValueError):
+            packages.remove("../private")
+        self.assertEqual(packages.install(payload, metadata)["id"], wing["id"])
+        with patch.object(cosmetics, "active_game_dir", return_value=str(game)), patch.object(cosmetics, "save_config"):
+            cosmetics.delete_downloaded(cfg, pet["id"])
+        self.assertEqual(json.loads((game / "config/cubeon-store.json").read_text())["items"], [])
+        self.assertNotIn("file/cubeon-store", (game / "options.txt").read_text())
+
+    def test_legacy_wing_attachment_reuses_giant_hinge_without_rewriting_source(self):
+        item = dict(slot="back", wing_flare=True, separate_feathers=True,
+                    feathers=[dict(start=[3, .5], end=[20, 18], curl=2, width=2)],
+                    boxes=[dict(origin=[3, .5, 4.75], size=[1, 1, .5], pivot=[1, 3, 2.5],
+                                motion="wing", mirror=True, feather=0)])
+        original = copy.deepcopy(item)
+        aligned = packages.normalize_wing_attachment(item)
+        self.assertEqual(item, original)
+        self.assertEqual(aligned["boxes"][0]["pivot"], [2, 2, 2.25])
+        self.assertEqual(aligned["boxes"][0]["origin"], [3, 2, 2.125])
+        self.assertEqual(aligned["feathers"][0]["start"], [3, 2])
+        self.assertAlmostEqual(aligned["boxes"][0]["origin"][2] + aligned["feathers"][0]["curl"], 6.75)
+        self.assertIs(packages.normalize_wing_attachment(aligned), aligned)
+        other = copy.deepcopy(item)
+        other["boxes"][0]["pivot"] = [4, 5, 6]
+        self.assertIs(packages.normalize_wing_attachment(other), other)
 
     def test_json_only_fabric_profile_uses_parent_jar_and_reenables_pack(self):
         runtime = self.root / "runtime"

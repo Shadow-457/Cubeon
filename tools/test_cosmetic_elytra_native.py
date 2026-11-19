@@ -8,15 +8,19 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 
 from minecraft_launcher_lib.command import get_minecraft_command
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from cubeon import cosmetic_packages, cosmetics, storage
+from cubeon.launch import _normalize_inherited_client_jar
 JAVA = Path.home() / 'jdks/jdk-25.0.4.1+1/bin'
 GAME = Path.home() / '.cubeon_minecraft/instances/.runtime'
-PROFILE = Path.home() / '.cubeon_minecraft/instances/26.3-Fabric/mods'
+PROFILE = Path(storage.game_dir('fabric-loader-0.20.1-26.3'))
 OUT = ROOT / 'archive/ui-captures/elytra-wings-native'
 
 PROBE = r'''
@@ -86,7 +90,11 @@ public class ElytraProbe implements ClientModInitializer {
                 });
         var catalog=CosmeticCatalog.get();
         var giant=catalog.get("back_void_wings");
-        for(var item:List.of(giant,giant.forWingDepth(false),catalog.get("back_void_wings_small"))) {
+        var wings=new ArrayList<>(List.of(giant,giant.forWingDepth(false),catalog.get("back_void_wings_small")));
+        var downloaded=catalog.get(System.getProperty("cubeon.probe.wing"));
+        check(downloaded!=null && CosmeticElytra.ready(downloaded),"Downloaded pack artwork is ready in the native client");
+        wings.add(downloaded);
+        for(var item:wings) {
             CosmeticElytra.begin(state); CosmeticElytra.drawn(item); models[0]=0;
             submit.invoke(layers.get(wing),new PoseStack(),collector,15728880,state,0f,0f);
             check(models[0]==0,"Actual elytra mixin cancels only the vanilla model for ready wings");
@@ -118,10 +126,10 @@ def main():
         mods = work / 'mods'
         mods.mkdir()
         client = ROOT / 'assets/jars/cubeon-client-1.0.0+mc26.3.jar'
-        api = PROFILE / 'fabric-api-0.163.0+26.3.jar'
+        api = next((PROFILE / 'mods').glob('fabric-api-*.jar'))
         shutil.copyfile(client, mods / client.name)
         shutil.copyfile(api, mods / api.name)
-        world = Path.home() / '.cubeon_minecraft/instances/26.3-Fabric/saves/New World'
+        world = PROFILE / 'saves/New World'
         shutil.copytree(world, work / 'saves/Elytra probe', ignore=shutil.ignore_patterns('session.lock'))
         source = work / 'ElytraProbe.java'
         source.write_text(PROBE)
@@ -145,12 +153,15 @@ def main():
                 'schemaVersion': 1, 'id': 'elytra_probe', 'version': '1.0',
                 'environment': 'client', 'entrypoints': {'client': ['probe.ElytraProbe']}}))
         (work / 'options.txt').write_text('maxFps:60\nenableVsync:false\nonboardAccessibility:false\n')
+        downloaded = next(item for item in cosmetic_packages.installed_items() if item.get('wing_flare'))
+        cosmetics.sync_to_game(dict(active_back_item=downloaded['id']), str(work), strict=True,
+                               mc_version='26.3', version_id='fabric-loader-0.20.1-26.3')
         command = get_minecraft_command('fabric-loader-0.20.1-26.3', str(GAME), {
             'username': 'ElytraProbe', 'uuid': '5f5e020167373e67b59baa2682e55583',
             'token': '0', 'executablePath': str(JAVA / 'java'), 'gameDirectory': str(work),
-            'jvmArguments': ['-Xmx1536M', '-Xms256M'],
+            'jvmArguments': ['-Xmx1536M', '-Xms256M', f'-Dcubeon.probe.wing={downloaded["id"]}'],
             'launcherName': 'CubeonElytraProbe', 'launcherVersion': '1'})
-        command += ['--quickPlaySingleplayer', 'Elytra probe']
+        command = _normalize_inherited_client_jar(command, 'fabric-loader-0.20.1-26.3') + ['--quickPlaySingleplayer', 'Elytra probe']
         env = dict(os.environ)
         for key in ('LIBGL_ALWAYS_SOFTWARE', 'MESA_LOADER_DRIVER_OVERRIDE', 'GALLIUM_DRIVER'):
             env.pop(key, None)

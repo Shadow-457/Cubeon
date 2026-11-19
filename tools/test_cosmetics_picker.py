@@ -140,6 +140,37 @@ class CosmeticsPicker(unittest.TestCase):
             self.assertEqual(self.cfg['active_head_item'], 'head_halo')
             self.assertEqual(self.page.update_calls, 0)
 
+    def test_downloaded_delete_keeps_other_cards_and_clears_only_its_slot(self):
+        entry = dict(id="store_" + "a" * 32, slot="back", name="Downloaded Wings", blurb="Local revision",
+                     feathers=[{}], wing_flare=True, _store_directory="local", store_id="sample")
+        extra = [entry]
+        original_items, original_get = cosmetics.items, cosmetics.get
+        def items(slot=None, directory=None):
+            return original_items(slot, directory) + (extra if slot in (None, "back") else [])
+        def get(item_id, directory=None):
+            return next((item for item in extra if item["id"] == item_id), None) or original_get(item_id, directory)
+        def delete(cfg, item_id):
+            extra.clear()
+            if cfg.get("active_back_item") == item_id:
+                cfg["active_back_item"] = None
+        with patch.object(cosmetics, "items", side_effect=items), patch.object(cosmetics, "get", side_effect=get), \
+                patch.object(skin_ui.core, "delete_downloaded_cosmetic", side_effect=delete) as remove:
+            self.cfg.update(active_back_item=entry["id"], active_shoulder_item="shoulder_ember_fox")
+            self.tab("Back")
+            cards = self.cards()
+            downloaded = next(card for card in cards if "downloaded wings" in fz.subtree_text(card))
+            images = [c for card in cards if card is not downloaded for c in fz.walk(card) if isinstance(c, ft.Image)]
+            self.preview.reset_mock()
+            button = next(c for c in fz.walk(downloaded) if isinstance(c, ft.Container) and c.tooltip == "Delete")
+            button.cubeon_keyboard_button.on_click(None)
+            remove.assert_called_once_with(self.cfg, entry["id"])
+            self.assertEqual(self.cards(), [card for card in cards if card is not downloaded])
+            self.assertEqual(images, [c for card in self.cards() for c in fz.walk(card) if isinstance(c, ft.Image)])
+            self.assertIsNone(self.cfg["active_back_item"])
+            self.assertEqual(self.cfg["active_shoulder_item"], "shoulder_ember_fox")
+            self.assertEqual(self.preview.call_count, 1)
+            self.assertEqual(self.page.update_calls, 0)
+
     def test_skin_and_cape_choices_retain_their_images(self):
         cards = self.cards()
         self.apply('Apply steve')

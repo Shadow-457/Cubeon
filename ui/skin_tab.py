@@ -250,8 +250,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         def apply_item(e):
             ft.context.disable_auto_update()
             with thread_safe_ui.TREE_LOCK:
-                if not selected["value"]:
-                    on_use(e)
+                selected_now = selected["value"]
+            if not selected_now:
+                on_use(e)
 
         primary = ft.Container(
             content=ft.Column([artwork, name,
@@ -843,7 +844,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     store_status = ft.Text("", size=12, color=TEXT_DIM, visible=False)
     store_page = ft.Text("Page 1", size=12, color=TEXT_DIM)
     store_state = {"loaded": False, "loading": False, "offset": 0, "more": False,
-                   "signature": None, "downloads": set(), "cards": {}}
+                   "signature": None, "downloads": set(), "cards": {}, "items": {}}
 
     def sync_store_buttons():
         busy = store_state["loading"] or bool(store_state["downloads"])
@@ -934,6 +935,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                         for item_id, card in store_state["cards"].items():
                             card.set_selected(bool(owned[item_id]))
                             card.set_sublabel("Downloaded" if owned[item_id] else "Free cosmetic")
+                    store_state["items"] = {item["id"]: item for item in data["items"]}
                     store_state.update(loaded=True, offset=requested, more=data["has_more"])
                     store_status.value = "" if data["items"] else "No cosmetics are available yet."
                 else:
@@ -960,9 +962,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     store_pane.load_items = load_store
 
     # --- Shoulder / Back cosmetics ----------------------------------------
-    # These are not uploads: the art ships with the Cubeon Client, and the
-    # launcher only records which id is worn. The cards therefore have no
-    # Delete action - the honest actions are "use" and "empty slot".
+    # Bundled artwork stays available; downloaded revisions have the same
+    # separate delete action as imported skins and capes.
     _COSMETIC_MEMO = {}
 
     def _cosmetic_thumb(item):
@@ -1025,15 +1026,18 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                                      ("giant", "Giant wings"), ("pack", "Packs"))]
 
         def refresh():
-            if len(cards) != len(cosmetics.items(slot, appearance.cosmetics_dir)):
-                cards.clear()
-                groups.clear()
-                grid.controls.clear()
-                items = cosmetics.items(slot, appearance.cosmetics_dir)
+            items = cosmetics.items(slot, appearance.cosmetics_dir)
+            ids = {item["id"] for item in items}
+            for item_id in list(cards):
+                if item_id not in ids:
+                    grid.controls.remove(cards.pop(item_id))
+                    groups.pop(item_id, None)
+            if not cards:
                 # Start with the worn item in view; later choices keep their
                 # position so applying/filtering never reshuffles the grid.
                 items.sort(key=lambda item: item["id"] != cfg.get(key))
-                for item in items:
+            for item in items:
+                if item["id"] not in cards:
                     wing = bool(item.get("feathers"))
                     group = "small" if item["id"].endswith("_small") or (wing and item.get("wing_flare") is False) else "giant" if wing else "pack"
                     cached = _COSMETIC_MEMO.get(item["id"])
@@ -1042,14 +1046,43 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                         label=item["name"].split(" (")[0] if wing else item["name"],
                         sublabel=("Small" if group == "small" else "Giant") if wing else "",
                         active=cfg.get(key) == item["id"],
-                        on_use=lambda e, i=item["id"]: choose(i), on_delete=None,
+                        on_use=lambda e, i=item["id"]: choose(i),
+                        on_delete=(lambda e, i=item["id"]: delete(i)) if item.get("_store_directory") else None,
                         preview_w=76, preview_h=76)
                     card.tooltip = item["blurb"]
                     cards[item["id"]] = card
                     groups[item["id"]] = group
+                    card.visible = category["id"] == "all" or category["id"] == group
                     grid.controls.append(card)
-                _fit_grid(grid)
+            _fit_grid(grid)
             sync_selection()
+
+        def delete(item_id):
+            ft.context.disable_auto_update()
+            item = cosmetics.get(item_id, appearance.cosmetics_dir)
+            try:
+                core.delete_downloaded_cosmetic(cfg, item_id)
+            except Exception as error:
+                status.value = f"Couldn't delete this cosmetic: {error}"
+                _refresh_status(status)
+                return
+            with thread_safe_ui.TREE_LOCK:
+                _COSMETIC_MEMO.pop(item_id, None)
+                refresh()
+                appearance.refresh(invalidate=True)
+                status.value = ""
+                store_id = item.get("store_id") if item else None
+                card = store_state["cards"].get(store_id)
+                metadata = store_state["items"].get(store_id)
+                if card is not None and metadata is not None:
+                    owned = cosmetics_store.installed(metadata) is not None
+                    card.set_selected(owned)
+                    card.set_sublabel("Downloaded" if owned else "Free cosmetic")
+            for control in (grid, equipped, remove):
+                thread_safe_ui.refresh(control)
+            if card is not None:
+                thread_safe_ui.refresh(card)
+            _refresh_status(status)
 
         def choose(item_id):
             if cfg.get(key) == item_id:

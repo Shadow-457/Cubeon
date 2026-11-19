@@ -135,6 +135,7 @@ from cubeon.cosmetics import (
     items as cosmetic_items,
     get as get_cosmetic,
     set_active as set_active_cosmetic,
+    delete_downloaded as delete_downloaded_cosmetic,
     sync_to_game as sync_cosmetics_to_game,
 )
 

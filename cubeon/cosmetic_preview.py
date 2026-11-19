@@ -11,8 +11,8 @@ from PIL import Image
 _CACHE = OrderedDict()
 _LOCK = threading.Lock()
 _MAX_BYTES = 64 * 1024 * 1024
-_MAX_ENTRIES = 6
-_DENSITY = 18  # Above the texel density of the large-wing 640px settled viewport.
+_MAX_ENTRIES = 24
+_DENSITY = 12  # Covers the large-wing 640px settled viewport without oversampling.
 
 
 def clear_cache():
@@ -38,7 +38,7 @@ def compact_faces(faces, *, density=_DENSITY):
     """
     groups = defaultdict(list)
     for index, (vertices, normal, texture) in enumerate(faces):
-        translucent = bool(texture.getchannel("A").point([0] + [255] * 254 + [0]).getbbox())
+        translucent = any(0 < alpha < 255 for count, alpha in texture.getchannel("A").getcolors(256))
         key = (tuple(round(value, 7) for value in normal),
                round(_dot(normal, vertices[0]), 7),
                bool(texture.info.get("cubeon_emissive")),
@@ -129,7 +129,7 @@ def prepared(item, directory, emissive):
     faces = cosmetics.preview_faces(item, directory, emissive=emissive)
     # Fine feather edge walls return in the settled frame, as skin walls do.
     for _, normal, texture in faces:
-        if abs(normal[2]) < .001:
+        if item.get("wing_flare") and abs(normal[2]) < .001:
             texture.info["cubeon_preview_detail"] = True
     result = compact_faces(faces)
     cost = sum(texture.width * texture.height * 4 for _, _, texture in result)

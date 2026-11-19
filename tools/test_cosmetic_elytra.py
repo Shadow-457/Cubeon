@@ -42,6 +42,21 @@ public class ElytraTest {
             CosmeticElytra.begin(player); CosmeticElytra.drawn(missing);
             check(!CosmeticElytra.consume(player), "Missing image cannot hide vanilla");
         }
+        Path external=Path.of(args[0]).resolveSibling("external-wing.png");
+        String externalName="store_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png";
+        var downloaded=CosmeticCatalog.Catalog.parse(text.replace(wings.texture,externalName)).get(wings.id);
+        check(!CosmeticElytra.ready(downloaded),"Downloaded artwork is not a classloader resource");
+        CosmeticElytra.bindArtwork(filename -> filename.equals(externalName) ? Files.newInputStream(external)
+            : ElytraTest.class.getResourceAsStream("/assets/cubeon-client/textures/cosmetics/"+filename));
+        check(CosmeticElytra.ready(downloaded),"Real resource-pack artwork qualifies downloaded wings");
+        CosmeticElytra.begin(player); CosmeticElytra.drawn(downloaded);
+        check(CosmeticElytra.consume(player),"Downloaded wings use the identical replacement pass");
+        CosmeticElytra.bindArtwork(filename -> null);
+        check(!CosmeticElytra.ready(downloaded),"Resource reload clears stale artwork readiness");
+        CosmeticElytra.begin(player); CosmeticElytra.drawn(downloaded);
+        check(!CosmeticElytra.consume(player),"Removing a pack restores visible vanilla equipment");
+        CosmeticElytra.bindArtwork(filename -> ElytraTest.class.getResourceAsStream(
+            "/assets/cubeon-client/textures/cosmetics/"+filename));
         CosmeticElytra.begin(player); CosmeticElytra.drawn(pack);
         check(!CosmeticElytra.consume(player), "Backpacks cannot replace elytra");
         CosmeticElytra.begin(player); CosmeticElytra.drawn(null);
@@ -85,8 +100,12 @@ def run_contract():
         for source in (ROOT / 'assets/cosmetics').glob('*.png'):
             shutil.copyfile(source, art / source.name)
         (art / 'corrupt.png').write_bytes(b'not a PNG')
+        shutil.copyfile(ROOT / 'assets/cosmetics/back_void_wings.png',
+                        root / 'external-wing.png')
+        catalog_path = root / 'catalog.json'
+        shutil.copyfile(ROOT / 'assets/cosmetics/catalog.json', catalog_path)
         subprocess.run(['java', '-cp', folder, 'ElytraTest',
-                        str(ROOT / 'assets/cosmetics/catalog.json')], check=True, timeout=30)
+                        str(catalog_path)], check=True, timeout=30)
 
 
 def audit_targets():

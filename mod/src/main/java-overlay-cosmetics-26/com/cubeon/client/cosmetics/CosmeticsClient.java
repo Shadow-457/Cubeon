@@ -24,6 +24,18 @@ public final class CosmeticsClient {
     }
 
     public static void register() {
+        net.fabricmc.fabric.api.resource.ResourceManagerHelper.get(net.minecraft.server.packs.PackType.CLIENT_RESOURCES)
+                .registerReloadListener(new net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener() {
+                    public net.minecraft.resources.Identifier getFabricId() {
+                        return net.minecraft.resources.Identifier.fromNamespaceAndPath("cubeon-client", "cosmetic-wings");
+                    }
+                    public void onResourceManagerReload(net.minecraft.server.packs.resources.ResourceManager manager) {
+                        CosmeticElytra.bindArtwork(texture -> {
+                            var resource = manager.getResource(net.minecraft.resources.Identifier.fromNamespaceAndPath("cubeon-client", "textures/cosmetics/" + texture));
+                            return resource.isPresent() ? resource.get().open() : null;
+                        });
+                    }
+                });
         CosmeticSelection.bind(FabricLoader.getInstance().getConfigDir()
                 .resolve(CosmeticSelection.FILE_NAME));
         if (CosmeticCatalog.get() == null) {

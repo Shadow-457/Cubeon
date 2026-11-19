@@ -12,6 +12,8 @@ import re
 import tempfile
 import os
 import threading
+import shutil
+import statistics
 
 from PIL import Image
 from .paths import CUBEON_HOME
@@ -23,6 +25,42 @@ KIND_SLOTS = {"pet": "shoulder", "wing": "back", "head": "head", "feet": "feet"}
 MAX_BYTES = 2 * 1024 * 1024
 _LOCK = threading.RLock()
 _NAME = re.compile(r"[a-z0-9_-]+\.png")
+_ITEM_ID = re.compile(r"store_[a-f0-9]{32}")
+
+
+def normalize_wing_attachment(item):
+    """Move the legacy collection onto the built-in Giant wing attachment.
+
+    Keep source texels and the X-strip curve grid. Bring layered roots against
+    the back, compensating tip curl as the bundled Giant generator does.
+    Other authored rigs and already-normalized revisions remain untouched.
+    """
+    boxes, feathers = item.get("boxes", []), item.get("feathers", [])
+    if (item.get("wing_attachment") == "giant" or item.get("slot") != "back"
+            or not item.get("wing_flare") or not feathers or not boxes
+            or any(box.get("motion") != "wing" or not box.get("mirror")
+                   or box.get("pivot") != [1, 3, 2.5] for box in boxes)):
+        return item
+    item = copy.deepcopy(item)
+    boxes, feathers = item["boxes"], item["feathers"]
+    shift_y = 2 - statistics.median(guide["start"][1] for guide in feathers)
+    layers = sorted({box["origin"][2] for box in boxes})
+    root_depth = {depth: 2.125 + index / 64 for index, depth in enumerate(layers)}
+    curls = [0.0] * len(feathers)
+    for box in boxes:
+        old_depth = box["origin"][2]
+        box["origin"][1] += shift_y
+        box["origin"][2] = root_depth[old_depth]
+        box["pivot"] = [2, 2, 2.25]
+        feather = box.get("feather", -1)
+        if 0 <= feather < len(feathers):
+            curls[feather] = max(curls[feather], old_depth - root_depth[old_depth])
+    for index, guide in enumerate(feathers):
+        guide["start"][1] += shift_y
+        guide["end"][1] += shift_y
+        guide["curl"] = guide.get("curl", 0) + curls[index]
+    item["wing_attachment"] = "giant"
+    return item
 
 
 def _vector(value, length, bound=256):
@@ -126,35 +164,59 @@ def read(payload):
         raise ValueError("Invalid Cubeon model package.") from error
 
 
-def installed_items():
-    result = []
-    if DIRECTORY.is_dir():
-        for manifest in sorted(DIRECTORY.glob("store_*/item.json")):
-            try:
-                item = json.loads(manifest.read_text())
-                if item.get("id") != manifest.parent.name or not _NAME.fullmatch(item.get("texture", "")):
-                    continue
-                if item.get("flat") and (not _NAME.fullmatch(item["flat"].get("texture", "")) or
-                        not (manifest.parent / item["flat"]["texture"]).is_file()):
-                    continue
-                if (manifest.parent / item["texture"]).is_file():
-                    if any(model.get("emissive_texture") and
-                           (not _NAME.fullmatch(model["emissive_texture"]) or
-                            not (manifest.parent / model["emissive_texture"]).is_file())
-                           for model in (item, item.get("flat")) if model):
-                        continue
-                    item["_store_directory"] = str(manifest.parent)
-                    if item.get("flat"):
-                        item["flat"]["_store_directory"] = str(manifest.parent)
-                    result.append(item)
-            except (OSError, ValueError, AttributeError):
+def _installed_manifest(manifest):
+    try:
+        item = json.loads(manifest.read_text())
+        if (item.get("id") != manifest.parent.name or not _ITEM_ID.fullmatch(item["id"])
+                or manifest.parent.is_symlink()):
+            return None
+        for model in (item, item.get("flat")):
+            if not model:
                 continue
-    return result
+            for key in ("texture", "emissive_texture"):
+                name = model.get(key)
+                if key == "emissive_texture" and not name:
+                    continue
+                if not _NAME.fullmatch(name or "") or not (manifest.parent / name).is_file():
+                    return None
+            model["_store_directory"] = str(manifest.parent)
+        return normalize_wing_attachment(item)
+    except (OSError, ValueError, AttributeError, KeyError):
+        return None
+
+
+def installed_items():
+    return [item for manifest in sorted(DIRECTORY.glob("store_*/item.json"))
+            if (item := _installed_manifest(manifest)) is not None]
+
+
+def _revision_id(metadata):
+    return "store_" + hashlib.sha256((metadata["id"] + metadata["sha256"]).encode()).hexdigest()[:32]
 
 
 def installed(item):
-    return next((value for value in installed_items() if value.get("store_id") == item["id"] and
-                 value.get("store_sha256") == item["sha256"]), None)
+    # Store ownership checks need only this revision, not every installed mesh.
+    value = _installed_manifest(DIRECTORY / _revision_id(item) / "item.json")
+    return value if value and value.get("store_id") == item["id"] and value.get("store_sha256") == item["sha256"] else None
+
+
+def remove(item_id):
+    """Delete one local downloaded revision; never bundled art or Neon data."""
+    if not isinstance(item_id, str) or not _ITEM_ID.fullmatch(item_id):
+        raise ValueError("Only downloaded cosmetics can be deleted.")
+    with _LOCK:
+        folder = DIRECTORY / item_id
+        if folder.is_symlink() or folder.resolve().parent != DIRECTORY.resolve():
+            raise ValueError("Invalid downloaded cosmetic directory.")
+        if not folder.exists():
+            return False
+        manifest = json.loads((folder / "item.json").read_text())
+        if manifest.get("id") != item_id:
+            raise ValueError("The downloaded cosmetic metadata is invalid.")
+        shutil.rmtree(folder)
+        from . import cosmetics
+        cosmetics.invalidate_cache()
+        return True
 
 
 def install(payload, metadata):
@@ -169,7 +231,7 @@ def install(payload, metadata):
             return existing
         # Versioned ids preserve equipped older revisions and cannot replace bundled art.
         item = copy.deepcopy(package["item"])
-        item_id = "store_" + hashlib.sha256((metadata["id"] + metadata["sha256"]).encode()).hexdigest()[:32]
+        item_id = _revision_id(metadata)
         item.update(id=item_id, name=metadata["name"], blurb=metadata["description"],
                     store_id=metadata["id"], store_sha256=metadata["sha256"])
         textures = validate(package)
@@ -191,14 +253,15 @@ def install(payload, metadata):
 def sync_game(cfg, game_dir, *, mc_version=None, version_id=None):
     """Install selected model data and texture resources before Minecraft starts."""
     from . import cosmetics, game_options, packformat
-    entries = [item for item in installed_items() if item["id"] in
+    entries = [item for item in cosmetics.items() if item.get("_store_directory") and item["id"] in
                (cfg.get(f"active_{slot}_item") for slot in KIND_SLOTS.values())]
-    if not entries:
-        return
     game = Path(game_dir)
     pack = game / "resourcepacks" / "cubeon-store"
     textures = pack / "assets/cubeon-client/textures/cosmetics"
-    textures.mkdir(parents=True, exist_ok=True)
+    if not entries and not pack.exists() and not (game / "config/cubeon-store.json").exists():
+        return
+    if entries:
+        textures.mkdir(parents=True, exist_ok=True)
     models = []
     for original in entries:
         item = copy.deepcopy(original)
@@ -239,6 +302,13 @@ def sync_game(cfg, game_dir, *, mc_version=None, version_id=None):
                             if os.path.exists(temporary): os.unlink(temporary)
                     model["emissive_texture"] = target
         models.append(item)
+    wanted_textures = {model[key] for item in models for model in (item, item.get("flat")) if model
+                       for key in ("texture", "emissive_texture") if model.get(key)}
+    if textures.is_dir():
+        for path in textures.iterdir():
+            if (re.fullmatch(r"store_[a-f0-9]{32}(?:_flat)?(?:_glow)?\.png", path.name)
+                    and path.name not in wanted_textures and (path.is_file() or path.is_symlink())):
+                path.unlink()
     from .versions import resolve_mc_version
     version_id = version_id or cfg.get("last_version")
     mc_version = mc_version or resolve_mc_version(version_id or "")
@@ -248,7 +318,8 @@ def sync_game(cfg, game_dir, *, mc_version=None, version_id=None):
         section.update(min_format=fmt, max_format=fmt)
     elif fmt >= packformat.SUPPORTED_FORMATS_SINCE:
         section["supported_formats"] = [fmt, fmt]
-    write_json(str(pack / "pack.mcmeta"), {"pack": section})
+    if entries:
+        write_json(str(pack / "pack.mcmeta"), {"pack": section})
     write_json(str(game / "config/cubeon-store.json"), {"items": models, "anchors": cosmetics.ANCHORS})
     options = game / "options.txt"
     packs = []
@@ -258,7 +329,11 @@ def sync_game(cfg, game_dir, *, mc_version=None, version_id=None):
                 packs = json.loads(line.partition(":")[2])
     if not isinstance(packs, list) or any(not isinstance(value, str) for value in packs):
         raise ValueError("The instance resource pack selection is invalid.")
-    if "file/cubeon-store" not in packs:
+    if not entries:
+        if "file/cubeon-store" in packs:
+            packs = [name for name in packs if name != "file/cubeon-store"]
+            game_options._set_options(str(options), {"resourcePacks": json.dumps(packs)}, "Cosmetics", allow_missing=True)
+    elif "file/cubeon-store" not in packs:
         packs.append("file/cubeon-store")
         game_options._set_options(str(options), {"resourcePacks": json.dumps(packs)}, "Cosmetics", allow_missing=True)
         if not options.is_file() or not any(line.startswith("resourcePacks:") and
