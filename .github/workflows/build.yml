@@ -80,6 +80,7 @@ jobs:
 
       - name: Check public cosmetics and retired-page APIs
         run: |
+          node worker/test-cosmetics.mjs
           node worker/test-neon-cosmetics.cjs
           node tools/test_website_store.cjs
 

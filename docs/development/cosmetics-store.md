@@ -24,6 +24,9 @@ and carry an emissive mask. It attaches to the torso so crouching and swimming
 follow the player; Cosmetic motion off freezes the rig. Its small wings use
 two-sided cutout textures to keep the mesh at 40 boxes. Auras equip independently
 of pets, wings, headwear and shoes.
+The skins Worker's bundled-ID catalog accepts `aura_butterfly` for peer
+sharing. Deploy the updated skins Worker when introducing a new bundled ID;
+the Neon website deployment does not update this separate service.
 
 Fitted wearables suppress the outer skin parts they cover. The preview and
 client share the same coverage rules: fitted head/face geometry hides the hat
