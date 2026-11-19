@@ -46,6 +46,11 @@ catalog; the scripts in `tools/` are the current inventory.
 | Launch and downloads | `test_version_integrity.py`, `test_launch_fixes.py`, `test_net.py` |
 | Release tooling | `test_release_version.py`, `test_release_pipeline.py` |
 
+Keep declared client mixins in `tools/build_mod_jars.py`'s `REQUIRED_ENTRIES`.
+`test_mod_compile.py` checks this contract, and `test_mod_matrix.py` audits the
+shipped archives. Rebuild through the mod builder after changing game sources
+so packaged JARs carry the new hooks.
+
 For example:
 
 ```bash

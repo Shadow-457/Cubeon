@@ -557,6 +557,82 @@ def headwear():
     return [item for item in output if "cubeon-" + item["id"].removeprefix("head_") not in STORE_IDS]
 
 
+def bat_cowl():
+    """Fitted, faceted cowl; sculpted details use the existing sealed atlas rig."""
+    bat=Model("head","midnight-cowl","Midnight Bat Cowl",
+        "A sculpted matte-charcoal cowl with swept pointed ears, a raised angular brow, softly luminous pearl-white eye lenses and a shaped open jaw.")
+    # Two shallow chamfered crown tiers meet the native square head cleanly.
+    for size,y,thickness,inset,color in ((70,-8.5,.375,5,'#252b35'),(68,-8.75,.25,6,'#2a313c')):
+        mask=Image.new('L',(size,size));d=ImageDraw.Draw(mask);end=size-1
+        d.polygon([(inset,0),(end-inset,0),(end,inset),(end,end-inset),
+                   (end-inset,end),(inset,end),(0,end-inset),(0,inset)],fill=255)
+        bat.slab(mask,y,color,thickness=thickness,unit=.125)
+    bat.box((-4.375,-8.125,-3.875),(.375,8.25,8),'#171d27')
+    bat.box((4,-8.125,-3.875),(.375,8.25,8),'#171d27')
+    bat.box((-4,-8.125,4),(8,8.25,.375),'#1b212b')
+    bat.box((-3.5,-.375,4.125),(7,.5,.25),'#111721')
+
+    mask=Image.new('L',(70,70));d=ImageDraw.Draw(mask)
+    d.polygon([(0,3),(3,0),(66,0),(69,3),(69,62),(65,68),(58,57),
+               (55,45),(45,43),(35,53),(24,43),(14,45),(11,57),(4,68),(0,62)],fill=255)
+    face=material(mask.size,'#242b35','front')
+    d=ImageDraw.Draw(face)
+    # Broad restrained facets replace the old conspicuous sinusoidal streaks.
+    d.polygon([(3,1),(34,1),(27,28),(7,24)],fill='#2c3440')
+    d.polygon([(36,1),(66,1),(63,24),(43,28)],fill='#222a35')
+    d.polygon([(34,3),(39,25),(35,45),(30,25)],fill='#343e4b')
+    d.polygon([(2,34),(12,40),(13,50),(5,63)],fill='#1a212b')
+    d.polygon([(68,34),(58,40),(57,50),(65,63)],fill='#151c26')
+    d.line([(5,7),(7,22)],fill='#39434f',width=1)
+    d.line([(65,7),(63,22)],fill='#2e3845',width=1)
+    face.putalpha(mask)
+    bat.mesh(face,(-4.375,-8.375,-4.5),px=8,depth=.25)
+
+    # Each lens is enclosed by a dark rim, with a raised brow above it.
+    for flip in (False,True):
+        lens=Image.new('RGBA',(70,70));d=ImageDraw.Draw(lens)
+        d.polygon([(7,27),(29,33),(30,38),(24,42),(12,38),(8,32)],fill='#090f18')
+        d.polygon([(11,31),(27,35),(25,38),(14,35)],fill='#dce8ec')
+        d.line([(12,31),(26,35)],fill='#ffffff',width=1)
+        if flip:lens=lens.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        bat.mesh(lens,(-4.375,-8.375,-4.75),px=8,depth=.125)
+        brow=Image.new('L',(70,70));d=ImageDraw.Draw(brow)
+        points=[(5,24),(23,28),(32,32),(29,35),(8,28)]
+        d.polygon([(69-x,y) for x,y in points] if flip else points,fill=255)
+        bevel=material(brow.size,'#303946','front');bevel.putalpha(brow)
+        bat.mesh(bevel,(-4.375,-8.375,-4.875),px=8,depth=.125)
+    nose=Image.new('L',(70,70));d=ImageDraw.Draw(nose)
+    d.polygon([(32,34),(38,34),(40,43),(35,53),(30,43)],fill=255)
+    ridge=material(nose.size,'#202936','front');d=ImageDraw.Draw(ridge)
+    d.polygon([(34,35),(35,49),(32,43)],fill='#3b4654')
+    d.line([(35,37),(37,44),(35,51)],fill='#101822',width=1)
+    ridge.putalpha(nose)
+    bat.mesh(ridge,(-4.375,-8.375,-5),px=8,depth=.25)
+
+    # Swept tapered ears carry a narrow lit ridge and a substantial dark side.
+    for side in (-1,1):
+        mask=Image.new('L',(20,40));d=ImageDraw.Draw(mask)
+        d.polygon([(1,39),(3,5),(6,0),(9,4),(19,39)],fill=255)
+        ear=material(mask.size,'#232c38','front');d=ImageDraw.Draw(ear)
+        d.polygon([(6,2),(7,6),(10,35),(5,37)],fill='#3a4655')
+        d.polygon([(8,7),(18,38),(11,37)],fill='#111923')
+        ear.putalpha(mask)
+        bat.mesh(ear,(-4.5 if side<0 else 4.5,-13.125,-1.75),px=8,depth=1.75,flip=side>0)
+        bat.box((-4.125 if side<0 else 2.375,-8.625,-1.875),(1.75,.5,2),'#222b37')
+    item=bat.item()
+    # Finished side/back panels use quiet seams and bevels, not random grain.
+    for box in item['boxes'][:len(bat.pieces)]:
+        faces=item['_faces'][box['part']]
+        if box['size'][1] < 7:continue
+        for side in ('left','right','back'):
+            tile=faces[side];d=ImageDraw.Draw(tile);w,h=tile.size
+            if w<12:continue
+            d.line([(w//2,3),(w//2,h-5)],fill='#111822',width=1)
+            d.line([(w//2+1,4),(w//2+1,h-6)],fill='#29333f',width=1)
+            d.line([(3,h-8),(w-4,h-8)],fill='#0f1620',width=1)
+    return item
+
+
 def themed_headwear():
     """Head-fitted cloth accessories using the existing box/painted mesh rig."""
     hat=Model("head","winter-snowcap","Christmas Snowcap",
@@ -583,28 +659,7 @@ def themed_headwear():
         hat.slab(mask,y,'#fff8eb' if i%2 else '#e8e4d9',thickness=.5,
                  unit=radius*2/32,offset=(5,.25),motif='cloth')
 
-    bat=Model("head","midnight-cowl","Midnight Bat Cowl",
-        "A fitted charcoal and midnight-blue cowl with sculpted pointed ears, swept ivory eye slits and an open lower face.")
-    bat.box((-4.25,-8.375,-4.25),(8.5,.5,8.5),'#253443','cloth')
-    bat.box((-4.25,-8,-4.25),(.375,8.25,8.5),'#1b2735','cloth')
-    bat.box((3.875,-8,-4.25),(.375,8.25,8.5),'#1b2735','cloth')
-    bat.box((-4.25,-8,3.875),(8.5,8.25,.375),'#1b2735','cloth')
-    mask=Image.new('L',(68,68));d=ImageDraw.Draw(mask)
-    d.polygon([(0,0),(67,0),(67,67),(57,60),(54,43),(44,40),(34,51),
-               (24,40),(13,43),(10,60),(0,67)],fill=255)
-    face=painted_mask(mask,'#253745','#111c29','#4c6374',grain='cloth')
-    d=ImageDraw.Draw(face)
-    for polygon in ([(9,27),(27,32),(24,38),(12,35)],[(59,27),(41,32),(44,38),(56,35)]):
-        d.polygon(polygon,fill='#dce7df')
-        d.line(polygon[:2],fill='#7897a4',width=1)
-    d.line([(34,7),(31,31),(34,47),(37,31),(34,7)],fill='#3e5668',width=1)
-    bat.mesh(face,(-4.25,-8.25,-4.625),px=8,depth=.25)
-    for side in (-1,1):
-        ear=Image.new('L',(22,38));d=ImageDraw.Draw(ear)
-        d.polygon([(1,37),(3,3),(9,0),(20,37)],fill=255)
-        art_ear=painted_mask(ear,'#233343','#101b28','#567081',grain='cloth')
-        bat.mesh(art_ear,(-3.875 if side<0 else 1.125,-12.75,-.875),px=8,depth=1.5)
-        bat.box((-3.75 if side<0 else 2.125,-8.625,-1),(1.625,.625,2),'#263c4d','cloth')
+    bat=bat_cowl()
 
     web=Model("head","crimson-web-mask","Crimson Web Mask",
         "A head-fitted scarlet web mask with curved stitched webbing, raised pearl eye lenses and dark sculpted lens rims.")
@@ -630,7 +685,7 @@ def themed_headwear():
     lens_item=lenses.item();start=len(shell['_faces'])
     shell['boxes'].extend({**box,'part':box['part']+start} for box in lens_item['boxes'])
     shell['_faces'].extend(lens_item['_faces'])
-    return [hat.item(),bat.item(),shell]
+    return [hat.item(),bat,shell]
 
 
 def pets():
@@ -768,7 +823,7 @@ def glow_texture(image,key):
            "obsidian-seraph":"gold","amethyst-fae":"violet","glacial-morpho":"blue",
            "crimson-archfiend":"red","sunward-halo":"gold","dawnflare-halo":"gold",
            "tidal-crown":"cyan","morpho-orbit":"blue","zephyr-sprite":"spirit",
-           "lantern-pilot":"beacon","jade-cloud-dragon":"beacon"}
+           "lantern-pilot":"beacon","jade-cloud-dragon":"beacon","midnight-cowl":"lenses"}
     mode=modes.get(key)
     if mode is None:return None
     result=Image.new('RGBA',image.size)
@@ -782,6 +837,7 @@ def glow_texture(image,key):
                       mode=='blue' and b>215 and g>180 and r>90 or
                       mode=='red' and r>185 and g<120 and b<135 or
                       mode=='cyan' and g>165 and b>150 and r<g*.9 or
+                      mode=='lenses' and min(r,g,b)>205 or
                       mode=='spirit' and (min(r,g,b)>205 or r>215 and g>180 and b<175) or
                       mode=='beacon' and (r>215 and 165<g<225 and b<150 or g>190 and b>175 and r<170))
             if a and selected:
