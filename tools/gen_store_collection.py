@@ -633,6 +633,143 @@ def bat_cowl():
     return item
 
 
+def spider_mask():
+    """Sculpted fitted mask, with actual relief webs and layered eye frames."""
+    web=Model("head","crimson-web-mask","Crimson Web Mask",
+        "A sculpted scarlet mask with raised graphite webbing, sweeping three-dimensional eye frames, pearl-white lenses and a fitted beveled crown.")
+    web.box((-4.125,-8.125,-4.125),(8.25,8.25,8.25),'#a71f35')
+    base=web.item()
+    # Fine woven material and coherent webs wrap the whole fitted shell.
+    for side,tile in base['_faces'][0].items():
+        d=ImageDraw.Draw(tile);w,h=tile.size
+        cx,cy=w/2,h*.48
+        for angle in range(0,360,45):
+            a=math.radians(angle)
+            d.line((cx,cy,cx+math.cos(a)*w,cy+math.sin(a)*h),fill='#401c2a',width=1)
+        for radius in range(9,max(w,h),11):
+            points=[(cx+math.cos(i*math.tau/8)*radius,cy+math.sin(i*math.tau/8)*radius) for i in range(9)]
+            d.line(points,fill='#4a1e2c',width=1)
+        if side in ('left','right','back'):
+            d.line((w//2,1,w//2,h-2),fill='#7b162e',width=1)
+
+    side_web=Image.new('RGBA',(66,66));d=ImageDraw.Draw(side_web)
+    for angle in range(0,360,45):
+        a=math.radians(angle)
+        d.line((33,31.68,33+math.cos(a)*66,31.68+math.sin(a)*66),fill='#401c2a',width=1)
+    for radius in range(9,66,11):
+        d.line([(33+math.cos(i*math.tau/8)*radius,31.68+math.sin(i*math.tau/8)*radius)
+                for i in range(9)],fill='#4a1e2c',width=1)
+    side_parts=[]
+    for side,origin,dimensions in (('left',(-4.25,-8.125,-4.125),(.125,8.25,8.25)),
+                                   ('right',(4.125,-8.125,-4.125),(.125,8.25,8.25)),
+                                   ('back',(-4.125,-8.125,4.125),(8.25,8.25,.125))):
+        side_parts.append((len(web.pieces),side))
+        web.box(origin,dimensions,'#401c2a')
+
+    # An octagonal cap and a second narrow rim soften the square head outline.
+    crown_start=len(web.pieces)
+    for size,y,thickness,color in ((68,-8.375,.25,'#c02a40'),(66,-8.5,.125,'#d43048')):
+        mask=Image.new('L',(size,size));d=ImageDraw.Draw(mask);end=size-1
+        d.polygon([(4,0),(end-4,0),(end,4),(end,end-4),
+                   (end-4,end),(4,end),(0,end-4),(0,4)],fill=255)
+        web.slab(mask,y,color,thickness=thickness,unit=.125)
+    crown_end=len(web.pieces)
+
+    size=68
+    face=Image.new('RGBA',(size,size))
+    for y in range(size):
+        for x in range(size):
+            # Smooth broad cloth lighting; the model supplies the raised shape.
+            centre=1-abs(x-33.5)/34
+            light=.05+.10*centre-.12*y/67+((x*5+y*3)%7-3)/500
+            face.putpixel((x,y),art.shade('#c82740',light))
+    face_mask=Image.new('L',(size,size));d=ImageDraw.Draw(face_mask)
+    d.polygon([(4,0),(63,0),(67,4),(67,59),(62,67),(5,67),(0,59),(0,4)],fill=255)
+    face.putalpha(face_mask)
+    webs=Image.new('RGBA',face.size);d=ImageDraw.Draw(webs)
+    centre=(33.5,33)
+    for angle in range(0,360,45):
+        a=math.radians(angle)
+        d.line((*centre,centre[0]+math.cos(a)*80,centre[1]+math.sin(a)*80),fill='#311c29',width=1)
+    for radius in (10,21,32,43,54):
+        points=[(centre[0]+math.cos(i*math.tau/8)*radius,
+                 centre[1]+math.sin(i*math.tau/8)*radius) for i in range(9)]
+        d.line(points,fill='#361b28',width=1)
+    webs.putalpha(ImageChops.multiply(webs.getchannel('A'),face_mask))
+
+    def relief(image, extra=0, cutout=False):
+        # Broad stepped planes give the nose/cheeks depth without texel cubes.
+        for y in range(0,size,8):
+            for x in range(0,size,8):
+                tile=image.crop((x,y,min(size,x+8),min(size,y+8)))
+                if not tile.getbbox():continue
+                cx=x+tile.width/2;cy=y+tile.height/2
+                crown=max(0,1-abs(cx-34)/30)
+                cheek=max(0,1-abs(cy-36)/35)
+                depth=round((.125+.25*crown+.125*crown*cheek)*8)/8
+                build=web.panel if cutout else web.mesh
+                build(tile,(-4.25+x/8,-8.25+y/8,-4.125-depth-extra),px=8,depth=.125)
+    relief(face)
+    relief(webs,.125,cutout=True)
+
+    # Three physical tiers: beveled outer frame, dark gasket, inset white lens.
+    outer=[(4,17),(13,21),(27,28),(31,33),(28,42),(23,47),
+           (16,46),(10,40),(6,31)]
+    gasket=[(7,21),(14,24),(26,30),(28,33),(25,40),(21,44),
+            (17,43),(12,37),(9,29)]
+    inner=[(10,25),(16,27),(24,31),(25,34),(22,39),(20,41),
+           (17,40),(14,35),(12,29)]
+    for flip in (False,True):
+        for points,color,z,depth in ((outer,'#31323d',-5.125,.25),
+                                    (gasket,'#111923',-5.125,.125),
+                                    (inner,'#e5edf2',-5.0625,.125)):
+            mask=Image.new('L',(size,size));d=ImageDraw.Draw(mask)
+            d.polygon([(67-x,y) for x,y in points] if flip else points,fill=255)
+            if points is not inner:
+                hole=gasket if points is outer else inner
+                d.polygon([(67-x,y) for x,y in hole] if flip else hole,fill=0)
+            layer=Image.new('RGBA',mask.size,color);d=ImageDraw.Draw(layer)
+            if points is outer:
+                edge=[(5,18),(13,22),(27,29)]
+                d.line([(67-x,y) for x,y in edge] if flip else edge,fill='#60616a',width=1)
+            elif points is inner:
+                for y in range(size):
+                    d.line((0,y,size,y),fill=art.shade('#eaf1f5',.04-.1*y/67))
+                edge=[(11,26),(16,28),(23,32)]
+                d.line([(67-x,y) for x,y in edge] if flip else edge,fill='#ffffff',width=1)
+            layer.putalpha(mask)
+            build=web.mesh if points is outer else web.panel
+            build(layer,(-4.25,-8.25,z),px=8,depth=depth)
+
+    # A narrow scarlet bridge between the eyes joins the facial planes.
+    bridge=Image.new('L',(size,size));d=ImageDraw.Draw(bridge)
+    d.polygon([(32,29),(35,29),(37,40),(34,46),(30,40)],fill=255)
+    tile=Image.new('RGBA',bridge.size,'#ac2038');d=ImageDraw.Draw(tile)
+    d.line([(33,30),(33,39),(34,43)],fill='#e84757',width=1)
+    d.line([(34,31),(35,40),(34,45)],fill='#5d172e',width=1)
+    tile.putalpha(bridge)
+    web.mesh(tile,(-4.25,-8.25,-4.875),px=8,depth=.25)
+    item=web.item()
+    item['_faces'][0]=base['_faces'][0]
+    for part,side in side_parts:
+        tiles=item['_faces'][part]
+        item['_faces'][part]={face:side_web.copy() if face==side else Image.new('RGBA',tile.size)
+                              for face,tile in tiles.items()}
+        item['boxes'][part]['faces']=[side]
+    crown_web=Image.new('RGBA',(68,68));d=ImageDraw.Draw(crown_web)
+    for angle in range(0,360,45):
+        a=math.radians(angle)
+        d.line((34,34,34+math.cos(a)*68,34+math.sin(a)*68),fill='#501e2d',width=1)
+    for radius in (12,25,38):
+        d.line([(34+math.cos(i*math.tau/8)*radius,34+math.sin(i*math.tau/8)*radius)
+                for i in range(9)],fill='#5b2030',width=1)
+    for part in range(crown_start,crown_end):
+        box=item['boxes'][part];tile=item['_faces'][part]['top']
+        x,z=(round((box['origin'][axis]+4.25)*8) for axis in (0,2))
+        tile.alpha_composite(crown_web.crop((x,z,x+tile.width,z+tile.height)))
+    return item
+
+
 def themed_headwear():
     """Head-fitted cloth accessories using the existing box/painted mesh rig."""
     hat=Model("head","winter-snowcap","Christmas Snowcap",
@@ -661,31 +798,7 @@ def themed_headwear():
 
     bat=bat_cowl()
 
-    web=Model("head","crimson-web-mask","Crimson Web Mask",
-        "A head-fitted scarlet web mask with curved stitched webbing, raised pearl eye lenses and dark sculpted lens rims.")
-    web.box((-4.25,-8.25,-4.25),(8.5,8.5,8.5),'#b43b49','cloth')
-    shell=web.item()
-    for face,tile in shell['_faces'][0].items():
-        draw=ImageDraw.Draw(tile);w,h=tile.size;cx,cy=w//2,h//2
-        for angle in range(0,360,45):
-            a=math.radians(angle)
-            draw.line((cx,cy,cx+math.cos(a)*max(w,h),cy+math.sin(a)*max(w,h)),fill='#402732',width=1)
-        for radius in range(9,max(w,h),10):
-            points=[(cx+math.cos(i*math.tau/8)*radius,cy+math.sin(i*math.tau/8)*radius) for i in range(9)]
-            draw.line(points,fill='#542735',width=1)
-        if face=='front':
-            draw.line((cx,0,cx,h),fill='#e76a68',width=1)
-    lens=Image.new('RGBA',(68,68));draw=ImageDraw.Draw(lens)
-    for outer,inner in (([(6,22),(29,31),(25,45),(16,43),(9,35)],[(10,27),(25,33),(22,40),(16,38),(12,33)]),
-                        ([(62,22),(39,31),(43,45),(52,43),(59,35)],[(58,27),(43,33),(46,40),(52,38),(56,33)])):
-        draw.polygon(outer,fill='#252c37');draw.polygon(inner,fill='#e9efe5')
-        draw.line(inner[:2],fill='#ffffff',width=1)
-    lenses=Model('head','web-lenses','Lenses','Raised lenses')
-    lenses.mesh(lens,(-4.25,-8.25,-4.5),px=8,depth=.125)
-    lens_item=lenses.item();start=len(shell['_faces'])
-    shell['boxes'].extend({**box,'part':box['part']+start} for box in lens_item['boxes'])
-    shell['_faces'].extend(lens_item['_faces'])
-    return [hat.item(),bat,shell]
+    return [hat.item(),bat,spider_mask()]
 
 
 def pets():
@@ -823,7 +936,8 @@ def glow_texture(image,key):
            "obsidian-seraph":"gold","amethyst-fae":"violet","glacial-morpho":"blue",
            "crimson-archfiend":"red","sunward-halo":"gold","dawnflare-halo":"gold",
            "tidal-crown":"cyan","morpho-orbit":"blue","zephyr-sprite":"spirit",
-           "lantern-pilot":"beacon","jade-cloud-dragon":"beacon","midnight-cowl":"lenses"}
+           "lantern-pilot":"beacon","jade-cloud-dragon":"beacon","midnight-cowl":"lenses",
+           "crimson-web-mask":"lenses"}
     mode=modes.get(key)
     if mode is None:return None
     result=Image.new('RGBA',image.size)
