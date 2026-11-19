@@ -276,14 +276,14 @@ class SkinTests(unittest.TestCase):
         import io
         self.assertEqual(Image.open(io.BytesIO(data)).size, (64, 64))
 
-    def test_retired_aura_is_unavailable_and_clears_without_replacing_pets_or_wings(self):
+    def test_retired_aura_clears_and_butterfly_equips_without_replacing_pets_or_wings(self):
         self.cfg.update(active_back_item='back_ember_wings_small',
                         active_shoulder_item='shoulder_ember_fox',
                         active_aura_item='aura_shadow')
         page = self.service.snapshot(kind='aura')
         self.assertEqual([item['id'] for item in page['items']],
-                         ['__none__'])
-        self.assertEqual(page['total'], 0)
+                         ['__none__', 'aura_butterfly'])
+        self.assertEqual(page['total'], 1)
         self.assertEqual(page['active'], '__none__')
         self.assertIsNone(page['cosmetics']['aura'])
         with self.assertRaises(ValueError):
@@ -296,6 +296,13 @@ class SkinTests(unittest.TestCase):
         self.assertIsNone(payload['aura'])
         self.assertEqual(payload['back'], 'back_ember_wings_small')
         self.assertEqual(payload['shoulder'], 'shoulder_ember_fox')
+        self.service.action({'kind': 'aura', 'action': 'apply',
+                             'id': 'aura_butterfly', 'game_dir': self.game})
+        payload = json.loads(mirror.read_text())
+        self.assertEqual(payload['aura'], 'aura_butterfly')
+        self.assertEqual(payload['back'], 'back_ember_wings_small')
+        self.assertEqual(payload['shoulder'], 'shoulder_ember_fox')
+        self.assertEqual(self.cfg['active_aura_item'], 'aura_butterfly')
         with self.assertRaises(ValueError):
             self.service.action({'kind': 'aura', 'action': 'apply',
                                  'id': 'shoulder_ember_fox', 'game_dir': self.game})
