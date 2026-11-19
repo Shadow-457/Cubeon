@@ -40,6 +40,8 @@ instructions.txt
 !/tools/test_color_studio.py
 !/tools/test_cosmetics_store.py
 !/tools/test_cosmetic_packages.py
+!/tools/test_cosmetic_preview.py
+!/tools/test_cosmetic_store_native.py
 !/tools/gen_store_collection.py
 # Minekube Connect is downloaded and cached on demand, outside source releases.
 /assets/jars/connect-spigot.jar

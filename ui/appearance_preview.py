@@ -305,7 +305,7 @@ class AppearancePreview:
                 if request is not None:
                     generation, cfg = request
                     model = CharacterModel.from_config(cfg, self.default_cape_path, self.cosmetics_dir)
-                    textures = {index: face.texture.convert("RGBA")
+                    textures = {index: face.texture
                                 for index, face in enumerate(model.faces) if face.texture.getbbox()}
                     with self._lock:
                         if generation != self._generation:

@@ -1396,7 +1396,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         # instance's config/, not the shared root.
         try:
             from . import cosmetics as _cosmetics
-            _cosmetics.sync_to_game(cfg, game_dir)
+            _cosmetics.sync_to_game(cfg, game_dir, mc_version=mc_version, version_id=version_id)
         except Exception:
             logging.getLogger(__name__).debug(
                 "cosmetics sync failed", exc_info=True)

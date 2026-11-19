@@ -89,6 +89,8 @@ def invalidate_cache() -> None:
     with _lock:
         _catalog = None
         _catalog_dir = None
+    from .cosmetic_preview import clear_cache
+    clear_cache()
 
 
 def items(slot: str | None = None, directory: str | None = None) -> list[dict]:
@@ -170,6 +172,10 @@ def preview_faces(item: dict, directory: str | None = None, *, simplify=False, e
     ``simplify=True``. Its matching texture preserves the whole silhouette
     with four quads. The catalogue and full game geometry remain untouched.
     """
+    if (simplify and item.get("_store_directory") and not item.get("flat")
+            and item.get("wing_flare") and len(item.get("boxes", ())) >= 128):
+        from .cosmetic_preview import prepared
+        return prepared(item, directory, emissive)
     if simplify:
         item = item.get("flat") or item
     if emissive:
@@ -366,7 +372,8 @@ def game_config_path(game_dir: str | None = None) -> str:
                         "cubeon-cosmetics.json")
 
 
-def sync_to_game(cfg: dict, game_dir: str | None = None, *, strict: bool = False) -> str:
+def sync_to_game(cfg: dict, game_dir: str | None = None, *, strict: bool = False,
+                 mc_version: str | None = None, version_id: str | None = None) -> str:
     """Write the active ids where the client mod looks for them.
 
     Atomic and change-aware: the mod polls the file's mtime, so rewriting an
@@ -378,7 +385,8 @@ def sync_to_game(cfg: dict, game_dir: str | None = None, *, strict: bool = False
     text = json.dumps(payload, indent=2) + "\n"
     try:
         from . import cosmetic_packages
-        cosmetic_packages.sync_game(cfg, game_dir or active_game_dir())
+        cosmetic_packages.sync_game(cfg, game_dir or active_game_dir(),
+                                    mc_version=mc_version, version_id=version_id)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         try:
             with open(path, encoding="utf-8") as fh:

@@ -17,7 +17,7 @@ from unittest.mock import patch
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[1])]
 import _sandbox_home
 _sandbox_home.isolate()
-from cubeon import cosmetic_packages as packages, cosmetics, cosmetics_store
+from cubeon import cosmetic_packages as packages, cosmetics, cosmetics_store, packformat
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("publisher", ROOT / "worker/manage-cosmetics.py")
@@ -121,6 +121,63 @@ class Packages(unittest.TestCase):
         self.assertIsNotNone(cosmetics.get(original["id"]))
         self.assertIsNotNone(cosmetics.get("shoulder_ember_fox"))
         self.assertEqual(len(packages.installed_items()), 2)
+
+    def test_json_only_fabric_profile_uses_parent_jar_and_reenables_pack(self):
+        runtime = self.root / "runtime"
+        loader = "fabric-loader-0.20.1-1.21.11"
+        folder = runtime / "versions" / loader
+        folder.mkdir(parents=True)
+        (folder / (loader + ".json")).write_text(json.dumps({"inheritsFrom": "1.21.11"}))
+        (folder / (loader + ".jar.part")).write_bytes(b"unfinished")
+        parent = runtime / "versions/1.21.11"
+        parent.mkdir()
+        import zipfile
+        with zipfile.ZipFile(parent / "1.21.11.jar", "w") as jar:
+            # Deliberately differs from the table: actual JAR metadata wins.
+            jar.writestr("version.json", json.dumps({"pack_version": {"resource_major": 76}}))
+        payload, metadata = self.model("wing")
+        saved = packages.install(payload, metadata)
+        game = self.root / "game"
+        game.mkdir()
+        (game / "options.txt").write_text('resourcePacks:["file/player-pack.zip"]\nfov:0.7\n')
+        cfg = {"last_version": loader, "active_back_item": saved["id"]}
+        self.addCleanup(packformat._format_cache.clear)
+        self.addCleanup(packformat._jar_format_cache.clear)
+        packformat._format_cache.clear()
+        packformat._jar_format_cache.clear()
+        with patch.object(packformat, "MINECRAFT_DIR", str(runtime)):
+            self.assertEqual(packformat.resource_format_for(loader), 76)
+            cosmetics.sync_to_game(cfg, str(game), strict=True)
+            meta = json.loads((game / "resourcepacks/cubeon-store/pack.mcmeta").read_text())["pack"]
+            self.assertEqual(meta["pack_format"], 76)
+            self.assertNotIn("supported_formats", meta)
+            self.assertEqual((meta["min_format"], meta["max_format"]), (76, 76))
+            self.assertIn('file/player-pack.zip', (game / "options.txt").read_text())
+            self.assertEqual((game / "options.txt").read_text().count('file/cubeon-store'), 1)
+            # Launch passes its captured target even if the UI selected another version.
+            cosmetics.sync_to_game({**cfg, "last_version": "1.20.1"}, str(game), strict=True,
+                                    mc_version="1.21.11", version_id=loader)
+            self.assertEqual(json.loads((game / "resourcepacks/cubeon-store/pack.mcmeta").read_text())["pack"]["pack_format"], 76)
+
+    def test_format_inheritance_is_bounded_and_retries_missing_parent(self):
+        runtime = self.root / "runtime"
+        for name, parent in (("a", "b"), ("b", "a"), ("bad", "../private"), ("late", "26w99probe")):
+            folder = runtime / "versions" / name
+            folder.mkdir(parents=True)
+            (folder / (name + ".json")).write_text(json.dumps({"inheritsFrom": parent}))
+        self.addCleanup(packformat._format_cache.clear)
+        self.addCleanup(packformat._jar_format_cache.clear)
+        packformat._format_cache.clear()
+        packformat._jar_format_cache.clear()
+        with patch.object(packformat, "MINECRAFT_DIR", str(runtime)):
+            for name in ("a", "bad", "late"):
+                self.assertIsNone(packformat.resource_format_for(name))
+            parent = runtime / "versions/26w99probe"
+            parent.mkdir()
+            import zipfile
+            with zipfile.ZipFile(parent / "26w99probe.jar", "w") as jar:
+                jar.writestr("version.json", json.dumps({"pack_version": {"resource": 88}}))
+            self.assertEqual(packformat.resource_format_for("late"), 88)
 
     def test_headwear_and_footwear_download_and_sync_independently(self):
         from gen_store_collection import headwear, footwear

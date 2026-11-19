@@ -188,7 +188,7 @@ def install(payload, metadata):
         return installed(metadata)
 
 
-def sync_game(cfg, game_dir):
+def sync_game(cfg, game_dir, *, mc_version=None, version_id=None):
     """Install selected model data and texture resources before Minecraft starts."""
     from . import cosmetics, game_options, packformat
     entries = [item for item in installed_items() if item["id"] in
@@ -239,9 +239,16 @@ def sync_game(cfg, game_dir):
                             if os.path.exists(temporary): os.unlink(temporary)
                     model["emissive_texture"] = target
         models.append(item)
-    fmt = packformat.resource_format_for(cfg.get("last_version")) or 15
-    write_json(str(pack / "pack.mcmeta"), {"pack": {"description": "Downloaded Cubeon cosmetics",
-               "pack_format": fmt, "supported_formats": [fmt, fmt], "min_format": fmt, "max_format": fmt}})
+    from .versions import resolve_mc_version
+    version_id = version_id or cfg.get("last_version")
+    mc_version = mc_version or resolve_mc_version(version_id or "")
+    fmt = packformat.resource_format_for(mc_version, version_id) or 15
+    section = {"description": "Downloaded Cubeon cosmetics", "pack_format": fmt}
+    if fmt >= packformat.SUPPORTED_FORMATS_DEPRECATED_SINCE:
+        section.update(min_format=fmt, max_format=fmt)
+    elif fmt >= packformat.SUPPORTED_FORMATS_SINCE:
+        section["supported_formats"] = [fmt, fmt]
+    write_json(str(pack / "pack.mcmeta"), {"pack": section})
     write_json(str(game / "config/cubeon-store.json"), {"items": models, "anchors": cosmetics.ANCHORS})
     options = game / "options.txt"
     packs = []

@@ -176,12 +176,18 @@ class CharacterModel:
             cape = cape.convert("RGBA").resize((64, 32), Image.Resampling.NEAREST)
             self.faces.extend(_box(cape, (0, 0), (10, 16, 1), (-5, 7, -3.5, 5, 23, -2.5), cape=True))
         for vertices, normal, texture in cosmetics_faces:
-            self.faces.append(Face(vertices, normal, texture))
-        vertices = [vertex for face in self.faces for vertex in (
-            *face.vertices, tuple(face.vertices[1][i] + face.vertices[2][i] - face.vertices[0][i]
-                                  for i in range(3)))]
-        self._orbit_radius = max(math.hypot(x, z) for x, y, z in vertices)
-        self._vertical_extent = max(abs(y - 16) for x, y, z in vertices)
+            self.faces.append(Face(vertices, normal, texture, detail=bool(texture.info.get("cubeon_preview_detail"))))
+        bounds = []
+        for face in self.faces:
+            if "cubeon_preview_bounds" in face.texture.info:
+                bounds.append(face.texture.info["cubeon_preview_bounds"])
+            else:
+                vertices = (*face.vertices, tuple(face.vertices[1][i] + face.vertices[2][i] - face.vertices[0][i]
+                                                  for i in range(3)))
+                bounds.append((max(math.hypot(x, z) for x, y, z in vertices),
+                               max(abs(y - 16) for x, y, z in vertices)))
+        self._orbit_radius = max(radius for radius, height in bounds)
+        self._vertical_extent = max(height for radius, height in bounds)
 
     @classmethod
     def from_config(cls, cfg, default_cape_path=None, cosmetics_dir=None):

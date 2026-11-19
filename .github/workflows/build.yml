@@ -96,7 +96,7 @@ jobs:
             # checking (test_mod_compile) stays, building does not.
             case "$t" in
               tools/test_visual_*.py) echo "skip (manual) $t"; continue;;
-              tools/test_cosmetic_elytra_native.py|tools/test_live_cape_native.py|tools/test_client_263_native.py|tools/test_gif_capes_native.py|tools/test_rust_engine_native.py|tools/test_rust_profile_native.py)
+              tools/test_cosmetic_elytra_native.py|tools/test_cosmetic_store_native.py|tools/test_live_cape_native.py|tools/test_client_263_native.py|tools/test_gif_capes_native.py|tools/test_rust_engine_native.py|tools/test_rust_profile_native.py)
                 echo "skip (installed game + graphical desktop) $t"; continue;;
               tools/test_camera_blur_gpu.py)
                 echo "skip (local OpenGL/EGL GPU probe) $t"; continue;;

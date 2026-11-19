@@ -142,6 +142,10 @@ and stores each revision in its own local directory. Downloaded models join the
 existing Pets/Back/Head/Feet libraries; old equipped revisions and bundled artwork remain
 available. When equipped, their geometry is written beside the instance selection
 file and textures are installed through a dedicated `cubeon-store` resource pack.
+The pack format follows the exact launch target and inherited client JAR, including
+JSON-only Fabric profiles. Formats 65 and later use `min_format`/`max_format`
+without the deprecated `supported_formats` key; Minecraft rejects that key for
+these packs. Prelaunch restores the pack selection after repairing its metadata.
 Other selected resource packs and graphics settings are preserved. **Restart
 Minecraft after equipping a newly downloaded model** so its textures load.
 These models require Cubeon Client on supported Fabric/Quilt versions; the Rust
@@ -150,6 +154,16 @@ Custom store models are local; other players need the same model installed for
 its id to resolve. The peer service currently publishes bundled IDs only;
 custom models are cleared from that optional publication so they do not prevent
 skin or bundled-cosmetic updates. Existing bundled cosmetics retain their shared visibility.
+
+Complex downloaded wings use cached coplanar preview textures in
+`cubeon/cosmetic_preview.py`. Curved planes, UV colors, normals, depth and glow
+remain separate; full game geometry is unchanged. Fine edge walls return when
+the viewport stops rotating. Camera fitting uses the original mesh bounds,
+and the revision/file-aware cache is limited to six entries and 64 MiB.
+Run `python tools/test_cosmetic_preview.py` for visual/performance regression
+checks. `python tools/test_cosmetic_store_native.py 1.21.11` verifies pack
+acceptance and real base/glow GPU textures in a temporary copy of an installed
+world; it requires cached Minecraft, Fabric API and a graphical desktop.
 
 The original reference-inspired owner collection can be regenerated locally:
 

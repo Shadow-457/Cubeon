@@ -37,7 +37,7 @@ catalog; the scripts in `tools/` are the current inventory.
 | Navigation and input | `test_tab_navigation.py`, `test_keyboard_shortcuts.py` |
 | Motion and scrolling | `test_motion.py`, `test_scrolling.py` |
 | Artwork and avatars | `test_mod_ui_stability.py`, `test_chat_avatar_stability.py`, `test_faces.py` |
-| Cosmetics | `test_appearance_preview.py`, `test_capes.py`, `test_skins_net.py`, `test_cosmetics_store.py` |
+| Cosmetics | `test_appearance_preview.py`, `test_cosmetic_preview.py`, `test_cosmetic_packages.py`, `test_capes.py`, `test_skins_net.py`, `test_cosmetics_store.py`; installed-game probe: `test_cosmetic_store_native.py` |
 | Mods and packs | `test_modpacks.py`, `test_mod_store.py`, `test_loader_content_rules.py`, `test_perf_mod_removal.py` |
 | Combined mod catalogue | `test_mod_catalogue.py`, `test_mod_search.py`, `test_mod_detail.py`, `test_content_install_feedback.py`, `test_mods_management_ui.py` |
 | Content isolation | `test_content_instance.py`, `test_instances.py` |

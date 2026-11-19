@@ -75,6 +75,7 @@ FORMAT_TABLE = (
 # `pack_format` alone, which is why repair_pack() has to write that one too
 # when an older version is in the target set.
 SUPPORTED_FORMATS_SINCE = 18
+SUPPORTED_FORMATS_DEPRECATED_SINCE = 65
 
 # Written IN ADDITION to supported_formats for modern targets: newer pack
 # schemas also accept an explicit min/max pair. Unknown keys inside the "pack"
@@ -125,9 +126,8 @@ def _format_from_jar(version_id: str | None) -> int | None:
 
     `version.json` inside the jar is the game's own metadata, so this is exact
     for every version (including 26.x and anything released after this code was
-    written) - no table to go stale. A loader profile (fabric-loader-x-1.21.11)
-    has the vanilla jar copied into its own folder, which is why a plain
-    "look in versions/<id>/" works for both."""
+    written) - no table to go stale. JSON-only loader profiles refer to the
+    client through `jar` or `inheritsFrom`; follow those bounded references."""
     if not version_id:
         return None
     if version_id in _jar_format_cache:
@@ -145,19 +145,41 @@ def _format_from_jar(version_id: str | None) -> int | None:
     except OSError:
         candidates = []
 
+    from . import versions
     fmt = None
-    for folder in candidates:
+    pending = [(folder, 0) for folder in reversed(candidates)]
+    seen = set()
+    root = os.path.realpath(versions_dir)
+    while pending:
+        folder, depth = pending.pop()
+        resolved = os.path.realpath(folder)
+        if (resolved in seen or depth > versions._MAX_INHERITS_DEPTH
+                or os.path.commonpath((root, resolved)) != root or resolved == root):
+            continue
+        seen.add(resolved)
         try:
             jars = sorted(f for f in os.listdir(folder)
                           if f.lower().endswith(".jar"))
         except OSError:
             continue
         for jar_name in jars:
-            fmt = _read_jar_format(os.path.join(folder, jar_name))
+            jar_path = os.path.join(folder, jar_name)
+            if os.path.commonpath((root, os.path.realpath(jar_path))) != root:
+                continue
+            fmt = _read_jar_format(jar_path)
             if fmt is not None:
                 break
         if fmt is not None:
             break
+        name = os.path.basename(folder)
+        metadata_path = os.path.join(folder, name + ".json")
+        if os.path.commonpath((root, os.path.realpath(metadata_path))) != root:
+            continue
+        data = versions._load_version_json(folder, name + ".json") or {}
+        for key in ("inheritsFrom", "jar"):
+            reference = data.get(key)
+            if versions._plain_filename(reference):
+                pending.append((os.path.join(versions_dir, reference), depth + 1))
 
     # Cache POSITIVE results only. A cached None would pin "can't tell"
     # for the whole process lifetime: a version installed (or a snapshot
