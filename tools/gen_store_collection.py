@@ -99,6 +99,19 @@ class Model:
                 part=len(self.mesh_faces)-1,motion=motion,pivot=list(pivot),
                 faces=[{"left":"right","right":"left"}.get(side,side) for side in visible] if flip else visible))
 
+    def panel(self, image, origin, px=16, depth=.125, motion="none", pivot=(0,0,0), flip=False):
+        # Small butterfly wings use the existing two-sided cutout approach.
+        # Alpha supplies the silhouette; splitting every texel creates needless faces.
+        w,h=image.size
+        if flip:image=image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        side=max(1,round(depth*px))
+        blank=lambda size:Image.new('RGBA',size)
+        self.mesh_faces.append(art.faces(image,image.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
+            blank((side,h)),blank((side,h)),blank((w,side)),blank((w,side))))
+        self.mesh_boxes.append(dict(origin=[origin[0]-w/px if flip else origin[0],origin[1],origin[2]],
+            size=[w/px,h/px,depth],px=px,part=len(self.mesh_faces)-1,
+            faces=["front","back"],motion=motion,pivot=list(pivot)))
+
     def slab(self, mask, y, color, thickness=.5, unit=.25, motif=None, offset=(0,0)):
         image=Image.new('RGBA',mask.size);image.putalpha(mask)
         for x,z,w,d in art.silhouette_rectangles(image):
@@ -369,6 +382,38 @@ def flower_layers():
     return [(art._feather_mesh_art(bark),0,5,.2),(art._feather_mesh_art(blossoms),0,3,.6)],[guide]
 
 
+def butterfly_wing():
+    wing=Image.new('RGBA',(28,40))
+    mask=Image.new('L',wing.size)
+    d=ImageDraw.Draw(mask)
+    d.polygon([(1,20),(6,8),(16,2),(26,1),(27,10),(24,20),(15,24),(1,23)],fill=255)
+    d.polygon([(1,24),(18,24),(27,30),(23,39),(11,37),(2,30)],fill=255)
+    wing=painted_mask(mask,'#188dd2','#152b4a','#b1f3ff',grain='silk')
+    d=ImageDraw.Draw(wing)
+    d.line([(2,23),(22,6)],fill='#164a82',width=1)
+    d.line([(2,23),(24,16)],fill='#36b7e9',width=1)
+    d.line([(2,25),(21,33)],fill='#103860',width=1)
+    d.rectangle((21,7,22,8),fill='#a4edff');d.rectangle((20,34,21,35),fill='#93e8ff')
+    return wing
+
+
+def butterfly_aura():
+    aura=Model("aura","butterfly","Celestial Butterfly Aura",
+        "Eight luminous blue butterflies spiral around your whole body, with gentle wing beats from your shoulders to your ankles.")
+    wing=butterfly_wing()
+    for i,cy in enumerate((-7,-2,3,7,11,15,19,23)):
+        angle=i*2.39996
+        radius=9.5+(i%3)*.5
+        cx=round(math.cos(angle)*radius*4)/4
+        cz=round(math.sin(angle)*radius*4)/4
+        aura.box((cx-.125,cy-.875,cz-.125),(.25,1.75,.375),'#172640',motion="orbit")
+        for flip,motion in ((False,"orbit_wing_right"),(True,"orbit_wing_left")):
+            aura.panel(wing,(cx,cy-1.25,cz),px=16,depth=.125,motion=motion,pivot=(cx,cy,cz),flip=flip)
+        for side in (-1,1):
+            aura.box((cx+side*.25,cy-1.25,cz),(.125,.5,.125),'#385f7d',motion="orbit")
+    return aura.item()
+
+
 def headwear():
     output=[]
     halo=Model("head","sunward-halo","Sunward Halo","A substantial floating gold halo with ivory bevels, chamfered corners and a warm polished interior.")
@@ -414,17 +459,7 @@ def headwear():
     output.append(crown.item())
 
     wreath=Model("head","morpho-orbit","Morpho Orbit Halo","Three shaped blue morpho butterflies circle at different heights, with bright silk lobes and independent wing beats.")
-    wing=Image.new('RGBA',(28,40))
-    mask=Image.new('L',wing.size)
-    d=ImageDraw.Draw(mask)
-    d.polygon([(1,20),(6,8),(16,2),(26,1),(27,10),(24,20),(15,24),(1,23)],fill=255)
-    d.polygon([(1,24),(18,24),(27,30),(23,39),(11,37),(2,30)],fill=255)
-    wing=painted_mask(mask,'#188dd2','#152b4a','#b1f3ff',grain='silk')
-    d=ImageDraw.Draw(wing)
-    d.line([(2,23),(22,6)],fill='#164a82',width=1)
-    d.line([(2,23),(24,16)],fill='#36b7e9',width=1)
-    d.line([(2,25),(21,33)],fill='#103860',width=1)
-    d.rectangle((21,7,22,8),fill='#a4edff');d.rectangle((20,34,21,35),fill='#93e8ff')
+    wing=butterfly_wing()
     for i,angle in enumerate((.2,2.3,4.4)):
         cx=round(math.cos(angle)*6*4)/4
         cz=round(math.sin(angle)*6*4)/4
@@ -517,7 +552,85 @@ def headwear():
             points.append((-10+round(math.cos(a)*radius*4)/4,y+round(math.sin(a)*.5*4)/4,round(math.sin(a)*radius*4)/4))
         sprite.tube(points,.25,'#e4f5ef',motion="aura",pivot=(-10,-5,0),motif=None)
     output.append(sprite.item())
-    return output
+    output.extend(themed_headwear())
+    from cubeon.cosmetic_retirement import STORE_IDS
+    return [item for item in output if "cubeon-" + item["id"].removeprefix("head_") not in STORE_IDS]
+
+
+def themed_headwear():
+    """Head-fitted cloth accessories using the existing box/painted mesh rig."""
+    hat=Model("head","winter-snowcap","Christmas Snowcap",
+        "A crimson knitted Christmas hat with an ivory fur cuff, a curved drooping crown and a round snow-white pompom.")
+    cuff=Image.new('L',(80,80));d=ImageDraw.Draw(cuff)
+    d.rounded_rectangle((1,1,78,78),radius=13,fill=255)
+    d.rounded_rectangle((9,9,70,70),radius=9,fill=0)
+    hat.slab(cuff,-8.875,'#f0eadf',thickness=1.25,unit=.125,motif='cloth')
+    hat.slab(cuff,-8.875,'#fff8e9',thickness=.25,unit=.125,motif='cloth')
+    for i in range(14):
+        t=i/13
+        width=8.75-7.25*t
+        mask=Image.new('L',(72,72));d=ImageDraw.Draw(mask)
+        d.rounded_rectangle((1,1,70,70),radius=18,fill=255)
+        hat.slab(mask,-9.25-i*.375,'#b83d46' if i%3 else '#c94a50',thickness=.5,
+                 unit=width/72,offset=(3.75*t*t,.25*t),motif='cloth')
+    hat.tube([(3.75,-14.125,.25),(4.375,-13.875,.25),(4.875,-13.25,.25),
+              (5,-12.625,.25)],1.25,'#bf4149',motif='cloth')
+    for i in range(9):
+        y=-13.75+i*.375
+        radius=math.sqrt(max(0,1.75**2-(y+12.25)**2))
+        if radius<.2:continue
+        mask=Image.new('L',(32,32));ImageDraw.Draw(mask).ellipse((1,1,30,30),fill=255)
+        hat.slab(mask,y,'#fff8eb' if i%2 else '#e8e4d9',thickness=.5,
+                 unit=radius*2/32,offset=(5,.25),motif='cloth')
+
+    bat=Model("head","midnight-cowl","Midnight Bat Cowl",
+        "A fitted charcoal and midnight-blue cowl with sculpted pointed ears, swept ivory eye slits and an open lower face.")
+    bat.box((-4.25,-8.375,-4.25),(8.5,.5,8.5),'#253443','cloth')
+    bat.box((-4.25,-8,-4.25),(.375,8.25,8.5),'#1b2735','cloth')
+    bat.box((3.875,-8,-4.25),(.375,8.25,8.5),'#1b2735','cloth')
+    bat.box((-4.25,-8,3.875),(8.5,8.25,.375),'#1b2735','cloth')
+    mask=Image.new('L',(68,68));d=ImageDraw.Draw(mask)
+    d.polygon([(0,0),(67,0),(67,67),(57,60),(54,43),(44,40),(34,51),
+               (24,40),(13,43),(10,60),(0,67)],fill=255)
+    face=painted_mask(mask,'#253745','#111c29','#4c6374',grain='cloth')
+    d=ImageDraw.Draw(face)
+    for polygon in ([(9,27),(27,32),(24,38),(12,35)],[(59,27),(41,32),(44,38),(56,35)]):
+        d.polygon(polygon,fill='#dce7df')
+        d.line(polygon[:2],fill='#7897a4',width=1)
+    d.line([(34,7),(31,31),(34,47),(37,31),(34,7)],fill='#3e5668',width=1)
+    bat.mesh(face,(-4.25,-8.25,-4.625),px=8,depth=.25)
+    for side in (-1,1):
+        ear=Image.new('L',(22,38));d=ImageDraw.Draw(ear)
+        d.polygon([(1,37),(3,3),(9,0),(20,37)],fill=255)
+        art_ear=painted_mask(ear,'#233343','#101b28','#567081',grain='cloth')
+        bat.mesh(art_ear,(-3.875 if side<0 else 1.125,-12.75,-.875),px=8,depth=1.5)
+        bat.box((-3.75 if side<0 else 2.125,-8.625,-1),(1.625,.625,2),'#263c4d','cloth')
+
+    web=Model("head","crimson-web-mask","Crimson Web Mask",
+        "A head-fitted scarlet web mask with curved stitched webbing, raised pearl eye lenses and dark sculpted lens rims.")
+    web.box((-4.25,-8.25,-4.25),(8.5,8.5,8.5),'#b43b49','cloth')
+    shell=web.item()
+    for face,tile in shell['_faces'][0].items():
+        draw=ImageDraw.Draw(tile);w,h=tile.size;cx,cy=w//2,h//2
+        for angle in range(0,360,45):
+            a=math.radians(angle)
+            draw.line((cx,cy,cx+math.cos(a)*max(w,h),cy+math.sin(a)*max(w,h)),fill='#402732',width=1)
+        for radius in range(9,max(w,h),10):
+            points=[(cx+math.cos(i*math.tau/8)*radius,cy+math.sin(i*math.tau/8)*radius) for i in range(9)]
+            draw.line(points,fill='#542735',width=1)
+        if face=='front':
+            draw.line((cx,0,cx,h),fill='#e76a68',width=1)
+    lens=Image.new('RGBA',(68,68));draw=ImageDraw.Draw(lens)
+    for outer,inner in (([(6,22),(29,31),(25,45),(16,43),(9,35)],[(10,27),(25,33),(22,40),(16,38),(12,33)]),
+                        ([(62,22),(39,31),(43,45),(52,43),(59,35)],[(58,27),(43,33),(46,40),(52,38),(56,33)])):
+        draw.polygon(outer,fill='#252c37');draw.polygon(inner,fill='#e9efe5')
+        draw.line(inner[:2],fill='#ffffff',width=1)
+    lenses=Model('head','web-lenses','Lenses','Raised lenses')
+    lenses.mesh(lens,(-4.25,-8.25,-4.5),px=8,depth=.125)
+    lens_item=lenses.item();start=len(shell['_faces'])
+    shell['boxes'].extend({**box,'part':box['part']+start} for box in lens_item['boxes'])
+    shell['_faces'].extend(lens_item['_faces'])
+    return [hat.item(),bat.item(),shell]
 
 
 def pets():

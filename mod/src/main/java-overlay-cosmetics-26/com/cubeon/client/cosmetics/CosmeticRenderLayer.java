@@ -63,7 +63,7 @@ public final class CosmeticRenderLayer
             try {
                 if ("face".equals(slot) || "head".equals(slot)) {
                     getParentModel().head.translateAndRotate(pose);
-                } else if ("hand".equals(slot) || "aura".equals(slot)) {
+                } else if ("hand".equals(slot) || "aura".equals(slot) && !"aura_butterfly".equals(view.items().get(slot))) {
                     getParentModel().rightArm.translateAndRotate(pose);
                     pose.translate(5 / 16.0f, -2 / 16.0f, 0);
                 } else {

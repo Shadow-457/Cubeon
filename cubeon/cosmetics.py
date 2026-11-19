@@ -69,7 +69,10 @@ def _load(directory: str) -> dict:
     with open(os.path.join(directory, "catalog.json"), encoding="utf-8") as fh:
         value = json.load(fh)
     from . import cosmetic_packages
-    value["items"] = [*value.get("items", []), *cosmetic_packages.installed_items()]
+    from .cosmetic_retirement import retired
+    value["items"] = [item for item in
+                      (*value.get("items", []), *cosmetic_packages.installed_items())
+                      if not retired(item)]
     return value
 
 
@@ -98,6 +101,17 @@ def items(slot: str | None = None, directory: str | None = None) -> list[dict]:
     if slot is None:
         return list(entries)
     return [item for item in entries if item.get("slot") == slot]
+
+
+def covered_skin_layers(item):
+    """Match CosmeticSkinCoverage's fitted outer-layer suppression in game."""
+    slot = item.get("slot")
+    if slot in ("head", "face"):
+        for box in item.get("boxes", []):
+            x, y, z = box["origin"]; w, h, d = box["size"]
+            if x < 4.75 and x + w > -4.75 and y < .75 and y + h > -8.75 and z < 4.75 and z + d > -4.75:
+                return {"head"}
+    return {"feet": {"left_leg", "right_leg"}, "hand": {"right_arm"}, "waist": {"body"}}.get(slot, set())
 
 
 def get(item_id: str | None, directory: str | None = None) -> dict | None:

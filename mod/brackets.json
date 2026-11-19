@@ -90,7 +90,8 @@
         "skin-native-legacy",
         "name-tag-legacy",
         "tab-logo-yarn",
-        "loading-legacy"
+        "loading-legacy",
+        "skin-coverage-player"
       ],
       "java": ">=17",
       "min": "1.20",
@@ -120,7 +121,8 @@
         "skin-native-legacy",
         "name-tag-legacy",
         "tab-logo-yarn",
-        "loading-legacy"
+        "loading-legacy",
+        "skin-coverage-player"
       ],
       "java": ">=17",
       "min": "1.20.1",
@@ -151,7 +153,8 @@
         "skin-native-legacy",
         "name-tag-legacy",
         "tab-logo-yarn",
-        "loading-legacy"
+        "loading-legacy",
+        "skin-coverage-player"
       ],
       "java": ">=17",
       "min": "1.20.2",
@@ -182,7 +185,8 @@
         "skin-native-legacy",
         "name-tag-legacy",
         "tab-logo-yarn",
-        "loading-legacy"
+        "loading-legacy",
+        "skin-coverage-player"
       ],
       "java": ">=17",
       "min": "1.20.3",
@@ -213,7 +217,8 @@
         "skin-native-legacy",
         "name-tag-legacy",
         "tab-logo-yarn",
-        "loading-legacy"
+        "loading-legacy",
+        "skin-coverage-player"
       ],
       "java": ">=17",
       "min": "1.20.4",
@@ -244,7 +249,8 @@
         "skin-native-yarn",
         "name-tag-legacy",
         "tab-logo-yarn",
-        "loading-legacy"
+        "loading-legacy",
+        "skin-coverage-player"
       ],
       "java": ">=17",
       "min": "1.20.5",
@@ -275,7 +281,8 @@
         "skin-native-yarn",
         "name-tag-legacy",
         "tab-logo-yarn",
-        "loading-legacy"
+        "loading-legacy",
+        "skin-coverage-player"
       ],
       "java": ">=17",
       "min": "1.20.6",
@@ -306,7 +313,8 @@
         "skin-native-yarn-1.21",
         "name-tag-legacy",
         "tab-logo-yarn",
-        "loading-legacy"
+        "loading-legacy",
+        "skin-coverage-player"
       ],
       "java": ">=21",
       "min": "1.21",
@@ -337,7 +345,8 @@
         "skin-native-yarn-1.21",
         "name-tag-legacy",
         "tab-logo-yarn",
-        "loading-legacy"
+        "loading-legacy",
+        "skin-coverage-player"
       ],
       "java": ">=21",
       "min": "1.21.1",
@@ -368,7 +377,8 @@
         "skin-native-yarn-new",
         "name-tag-yarn-state",
         "tab-logo-yarn",
-        "loading-layer"
+        "loading-layer",
+        "skin-coverage-player"
       ],
       "java": ">=21",
       "min": "1.21.2",
@@ -399,7 +409,8 @@
         "skin-native-yarn-new",
         "name-tag-yarn-state",
         "tab-logo-yarn",
-        "loading-layer"
+        "loading-layer",
+        "skin-coverage-player"
       ],
       "java": ">=21",
       "min": "1.21.3",
@@ -430,7 +441,8 @@
         "skin-native-yarn-new",
         "name-tag-yarn-state",
         "tab-logo-yarn",
-        "loading-layer"
+        "loading-layer",
+        "skin-coverage-player"
       ],
       "java": ">=21",
       "min": "1.21.4",
@@ -461,7 +473,8 @@
         "skin-native-yarn-new",
         "name-tag-yarn-state",
         "tab-logo-yarn",
-        "loading-layer"
+        "loading-layer",
+        "skin-coverage-player"
       ],
       "java": ">=21",
       "min": "1.21.5",
@@ -491,7 +504,8 @@
         "name-tag-yarn-state",
         "tab-logo-yarn",
         "health-projection-modern",
-        "loading-pipeline"
+        "loading-pipeline",
+        "skin-coverage-player"
       ],
       "java": ">=21",
       "min": "1.21.6",
@@ -521,7 +535,8 @@
         "name-tag-yarn-state",
         "tab-logo-yarn",
         "health-projection-modern",
-        "loading-pipeline"
+        "loading-pipeline",
+        "skin-coverage-player"
       ],
       "java": ">=21",
       "min": "1.21.7",
@@ -551,7 +566,8 @@
         "name-tag-yarn-state",
         "tab-logo-yarn",
         "health-projection-modern",
-        "loading-pipeline"
+        "loading-pipeline",
+        "skin-coverage-player"
       ],
       "java": ">=21",
       "min": "1.21.8",
@@ -581,7 +597,8 @@
         "name-tag-yarn-avatar",
         "tab-logo-yarn-modern",
         "health-projection-modern",
-        "loading-pipeline"
+        "loading-pipeline",
+        "skin-coverage-playerlike"
       ],
       "java": ">=21",
       "min": "1.21.9",
@@ -611,7 +628,8 @@
         "name-tag-yarn-avatar",
         "tab-logo-yarn-modern",
         "health-projection-modern",
-        "loading-pipeline"
+        "loading-pipeline",
+        "skin-coverage-playerlike"
       ],
       "java": ">=21",
       "min": "1.21.10",
@@ -642,7 +660,8 @@
         "tab-logo-yarn-modern",
         "health-projection-modern",
         "health-world-label-1.21.11",
-        "loading-pipeline"
+        "loading-pipeline",
+        "skin-coverage-playerlike"
       ],
       "java": ">=21",
       "min": "1.21.11",

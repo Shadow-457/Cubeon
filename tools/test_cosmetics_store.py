@@ -19,7 +19,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import _sandbox_home
 _sandbox_home.isolate()
 from PIL import Image
-from cubeon import capes, cosmetics_store as store
+from cubeon import capes, cosmetics_store as store, local_cache, cosmetic_packages, cosmetics
 
 
 def png(image):
@@ -41,6 +41,8 @@ class Downloads(unittest.TestCase):
         directory = self.stack.enter_context(tempfile.TemporaryDirectory())
         self.stack.enter_context(patch.object(capes, "CAPES_DIR", directory))
         self.stack.enter_context(patch.object(capes, "CAPES_META_PATH", str(Path(directory) / "capes.json")))
+        self.stack.enter_context(patch.object(local_cache, "CACHE_DIR", directory))
+        local_cache._MEM.clear()
         self.data = png(Image.new("RGBA", (64, 32), "green"))
         self.item = entry(self.data)
 
@@ -82,6 +84,57 @@ class Downloads(unittest.TestCase):
         for changes in ({"items": [self.item, self.item]}, {"schema": 2}, {"has_more": "yes"}):
             with patch.object(store, "_bytes", return_value=json.dumps({**page, **changes}).encode()), self.assertRaises(ValueError):
                 store.fetch_page()
+
+    def test_saved_pages_survive_restart_and_are_separate_by_page_and_api(self):
+        page = {"schema": 1, "offset": 0, "page_size": 12, "has_more": True, "items": [self.item]}
+        with patch.object(store, "_bytes", return_value=json.dumps(page).encode()):
+            store.fetch_page()
+        local_cache._MEM.clear()
+        with patch.object(store, "_bytes", side_effect=AssertionError("cache used network")):
+            self.assertEqual(store.cached_page(bundled=False), page)
+            self.assertIsNone(store.cached_page(12, bundled=False))
+            with patch.dict(os.environ, {"CUBEON_COSMETICS_API": "https://another.invalid/api/cosmetics"}):
+                self.assertIsNone(store.cached_page())
+        with patch.object(local_cache.time, "time", return_value=__import__('time').time() + store.CATALOG_AGE + 1):
+            self.assertIsNone(store.cached_page(bundled=False))
+
+    def test_invalid_oversized_or_retired_snapshots_are_not_shown(self):
+        page = {"schema": 1, "offset": 0, "page_size": 12, "has_more": False,
+                "items": [{**self.item, "id": "cubeon-morpho-orbit"}]}
+        key = [store.api_url(), 0]
+        local_cache.set(store._CACHE_NS, key, page)
+        self.assertEqual(store.cached_page(bundled=False)["items"], [])
+        for invalid in ({**page, "schema": 2}, {**page, "items": [{**self.item, "preview_png": "!"}]},
+                        {**page, "extra": "x" * store.CATALOG_BYTES}):
+            local_cache.set(store._CACHE_NS, key, invalid)
+            local_cache._MEM.clear()
+            self.assertIsNone(store.cached_page(bundled=False))
+        Path(local_cache._path(store._CACHE_NS, key)).write_text('{"time":"broken","value":{}}')
+        local_cache._MEM.clear()
+        self.assertIsNone(store.cached_page(bundled=False))
+        with patch.object(store, "_bytes") as network, self.assertRaises(ValueError):
+            store.download({**self.item, "id": "cubeon-morpho-orbit"})
+        network.assert_not_called()
+
+    def test_retired_bundled_and_downloaded_models_are_not_in_local_catalog(self):
+        retired = dict(id="store_" + "a" * 32, store_id="cubeon-zephyr-sprite", slot="head")
+        cosmetics.invalidate_cache()
+        with patch.object(cosmetic_packages, "installed_items", return_value=[retired]):
+            self.assertFalse(any(item["id"] in {"head_halo", "head_crown", retired["id"]}
+                                 for item in cosmetics.items()))
+        cosmetics.invalidate_cache()
+
+    def test_first_open_snapshot_works_without_network_or_saved_cache(self):
+        items = []
+        with patch.object(store, "_bytes", side_effect=AssertionError("first paint waited for network")):
+            for offset in (0, 12, 24):
+                page = store.cached_page(offset)
+                self.assertIsNotNone(page)
+                items.extend(page["items"])
+        ids = {item["id"] for item in items}
+        self.assertEqual(len(ids), len(items))
+        self.assertFalse(ids & store.STORE_IDS)
+        self.assertTrue({"cubeon-midnight-cowl", "cubeon-crimson-web-mask", "cubeon-winter-snowcap"} <= ids)
 
     def test_gif_animation_survives_import(self):
         stream = io.BytesIO()
@@ -137,7 +190,8 @@ class Picker(unittest.TestCase):
         with patch.object(skin_ui, "threading", SimpleNamespace(**{**vars(threading), "Thread": QueuedThread})), \
                 patch.object(thread_safe_ui, "refresh"), patch.object(AppearancePreview, "refresh"), \
                 patch.object(store, "fetch_page", return_value=data) as fetch, \
-                patch.object(store, "installed", return_value=None), \
+                patch.object(store, "cached_page", return_value=None), \
+                patch.object(store, "has_installed", return_value=False), \
                 patch.object(store, "download", return_value={"filename": "new.png"}) as download:
             page = DriverPage()
             root = skin_ui.build_skin_section(page, cfg, section_label=section_label,
@@ -165,6 +219,51 @@ class Picker(unittest.TestCase):
             tab("Skin")
             tab("Store")
             fetch.assert_called_once()
+            self.assertEqual(page.update_calls, 0)
+
+    def test_saved_cards_paint_before_slow_network_and_stale_pages_cannot_overwrite_navigation(self):
+        import _fuzz_common as fz
+        from app_driver import DriverPage
+        import flet as ft
+        from cubeon import thread_safe_ui
+        from cubeon.theme import THEME, section_label, pixel_divider
+        import ui.skin_tab as skin_ui
+        from ui.appearance_preview import AppearancePreview
+        fz.install_safe_stubs()
+        jobs = []
+        class QueuedThread:
+            def __init__(self, target, args=(), **kwargs): self.target = lambda: target(*args)
+            def start(self): jobs.append(self.target)
+        item = entry(png(Image.new("RGBA", (64, 32), "green")))
+        saved = dict(items=[item], offset=0, has_more=True)
+        second_item = {**item, "id": "second-cape", "name": "Second Cape"}
+        second = dict(items=[second_item], offset=12, has_more=False)
+        def cache(offset, **kwargs):
+            return None if kwargs.get("max_age") == 60 else (saved if offset == 0 else second)
+        def fetch(offset):
+            # This runs where a slow transport would block: saved cards are
+            # already mounted and navigation works before the response arrives.
+            self.assertIn("sample cape", fz.subtree_text(root))
+            images = [c for c in fz.walk(root) if isinstance(c, ft.Image)]
+            next(c for c in fz.walk(root) if getattr(c, 'tooltip', None) == 'Next store page').on_click(None)
+            jobs[-1]()  # second page's offline refresh
+            self.assertIn("second cape", fz.subtree_text(root))
+            self.assertNotEqual(images, [c for c in fz.walk(root) if isinstance(c, ft.Image)])
+            return saved  # late first-page response must be ignored
+        with patch.object(skin_ui, "threading", SimpleNamespace(**{**vars(threading), "Thread": QueuedThread})), \
+                patch.object(thread_safe_ui, "refresh"), patch.object(AppearancePreview, "refresh"), \
+                patch.object(store, "cached_page", side_effect=cache), patch.object(store, "has_installed", return_value=False), \
+                patch.object(store, "fetch_page", side_effect=lambda offset: fetch(offset) if offset == 0 else (_ for _ in ()).throw(OSError("offline"))):
+            page = DriverPage()
+            root = skin_ui.build_skin_section(page, {}, section_label=section_label,
+                pixel_divider=pixel_divider, **THEME, assets_dir=str(ROOT / "assets"),
+                mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(), cape_file_picker=ft.FilePicker())
+            next(c for c in fz.walk(root) if callable(getattr(c, 'on_click', None))
+                 and any(getattr(t, 'value', None) == 'Store' for t in fz.walk(c))).on_click(None)
+            jobs[-1]()
+            self.assertIn("second cape", fz.subtree_text(root))
+            self.assertNotIn("sample cape", fz.subtree_text(root))
+            self.assertIn("showing saved cosmetics", fz.subtree_text(root))
             self.assertEqual(page.update_calls, 0)
 
 

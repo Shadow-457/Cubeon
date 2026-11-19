@@ -152,7 +152,7 @@ def _voxel_layer(faces, thickness=0.5):
 
 
 class CharacterModel:
-    def __init__(self, sheet, *, slim=False, cape=None, cosmetics_faces=()):
+    def __init__(self, sheet, *, slim=False, cape=None, cosmetics_faces=(), hidden_layers=()):
         sheet = sheet.convert("RGBA")
         legacy = sheet.height == 32
         arm_width = 3 if slim and not legacy else 4
@@ -169,7 +169,7 @@ class CharacterModel:
             mirrored = legacy and index in (3, 5)
             base_faces = _box(sheet, origin, dimensions, bounds, mirrored=mirrored)
             self.faces.extend(base_faces)
-            if not legacy or index == 0:
+            if (not legacy or index == 0) and ("head", "body", "right_arm", "left_arm", "right_leg", "left_leg")[index] not in hidden_layers:
                 overlay_faces = _box(sheet, overlay, dimensions, bounds, inflate=0.5)
                 self.faces.extend(_voxel_layer(overlay_faces))
         if cape is not None:
@@ -208,12 +208,14 @@ class CharacterModel:
             with Image.open(cape_path) as source:
                 cape = source.convert("RGBA")
         worn = []
+        hidden_layers = set()
         for slot in cosmetics.SLOTS:
             item = cosmetics.get(cfg.get(f"active_{slot}_item"), cosmetics_dir)
             if item is not None:
+                hidden_layers.update(cosmetics.covered_skin_layers(item))
                 worn.extend(cosmetics.preview_faces(item, cosmetics_dir, simplify=True))
                 worn.extend(cosmetics.preview_faces(item, cosmetics_dir, simplify=True, emissive=True))
-        return cls(sheet, slim=slim, cape=cape, cosmetics_faces=worn)
+        return cls(sheet, slim=slim, cape=cape, cosmetics_faces=worn, hidden_layers=hidden_layers)
 
     def project(self, yaw=25, pitch=10, size=(320, 440), *, detail=True):
         yaw, pitch = math.radians(yaw), math.radians(pitch)

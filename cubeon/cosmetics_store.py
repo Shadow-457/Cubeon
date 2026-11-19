@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -17,11 +18,15 @@ from urllib.parse import urlencode, urlsplit
 
 from PIL import Image
 
-from . import capes, net, cosmetic_packages
+from . import capes, net, cosmetic_packages, local_cache
+from .cosmetic_retirement import STORE_IDS
 from .paths import user_agent
 
 DEFAULT_API = "https://www.ylet.online/api/cosmetics"
 PAGE_SIZE = 12
+CATALOG_BYTES = 450000
+CATALOG_AGE = 24 * 60 * 60
+_CACHE_NS = "cosmetics_catalog_v2"
 MAX_FILE_BYTES = 2 * 1024 * 1024
 _IMPORT_LOCK = threading.Lock()
 _ID = re.compile(r"[a-z][a-z0-9_-]{2,63}")
@@ -86,11 +91,12 @@ def _entry(raw):
     return item
 
 
-def fetch_page(offset=0):
-    import json
+def _offset(offset):
     if type(offset) is not int or not 0 <= offset <= 10000:
         raise ValueError("The store page is invalid.")
-    data = json.loads(_bytes(api_url() + "?" + urlencode({"offset": offset, "kind": "all", "models": 2}), 450000))
+
+
+def _page(data, offset):
     if (not isinstance(data, dict) or data.get("schema") != 1 or
             data.get("offset") != offset or data.get("page_size") != PAGE_SIZE or
             type(data.get("has_more")) is not bool or not isinstance(data.get("items"), list) or
@@ -99,7 +105,49 @@ def fetch_page(offset=0):
     entries = [_entry(item) for item in data["items"]]
     if len({item["id"] for item in entries}) != len(entries):
         raise ValueError("The store returned duplicate cosmetics.")
-    return {**data, "items": entries}
+    # Explicit retirement applies to stale snapshots and still-cached API pages.
+    return {**data, "items": [item for item in entries if item["id"] not in STORE_IDS]}
+
+
+def cached_page(offset=0, *, max_age=CATALOG_AGE, bundled=True):
+    """Validated saved cards for immediate paint; never starts a network job."""
+    _offset(offset)
+    endpoint = api_url()
+    try:
+        data = local_cache.get(_CACHE_NS, [endpoint, offset], max_age,
+                               max_bytes=CATALOG_BYTES + 1000)
+        if data is not None and len(json.dumps(data)) <= CATALOG_BYTES:
+            return _page(data, offset)
+    except (OSError, ValueError, TypeError, AttributeError, RecursionError):
+        pass
+    if bundled and endpoint == DEFAULT_API:
+        try:
+            path = Path(__file__).resolve().parent.parent / "assets/cosmetics/store-catalog.json"
+            with path.open() as source:
+                raw = source.read(CATALOG_BYTES + 1)
+            if len(raw) > CATALOG_BYTES:
+                return None
+            pages = json.loads(raw)
+            return _page(pages[str(offset)], offset)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+            pass
+    return None
+
+
+def fetch_page(offset=0):
+    """Always refresh from the API; persist only a fully validated response."""
+    _offset(offset)
+    endpoint = api_url()
+    data = _page(json.loads(_bytes(endpoint + "?" + urlencode(
+        {"offset": offset, "kind": "all", "models": 2}), CATALOG_BYTES)), offset)
+    local_cache.set(_CACHE_NS, [endpoint, offset], data)
+    return data
+
+
+def has_installed(item):
+    if item.get("kind") in cosmetic_packages.KIND_SLOTS:
+        return cosmetic_packages.has_installed(item)
+    return bool(installed(item))
 
 
 def installed(item):
@@ -117,6 +165,8 @@ def installed(item):
 
 def download(item):
     item = _entry(item)
+    if item["id"] in STORE_IDS:
+        raise ValueError("This cosmetic has been removed from the collection.")
     existing = installed(item)
     if existing:
         return existing

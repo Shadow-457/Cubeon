@@ -124,6 +124,9 @@ class Packages(unittest.TestCase):
         with patch.object(packages, "installed_items", side_effect=AssertionError("scanned every revision")):
             self.assertEqual(packages.installed(metadata)["id"], original["id"])
             self.assertIsNone(packages.installed({**metadata, "sha256": "0" * 64}))
+        with patch.object(packages, "normalize_wing_attachment", side_effect=AssertionError("prepared model during ownership check")):
+            self.assertTrue(packages.has_installed(metadata))
+            self.assertFalse(packages.has_installed({**metadata, "sha256": "0" * 64}))
 
     def test_delete_download_clears_equipped_slot_and_allows_redownload(self):
         payload, metadata = self.model("wing")

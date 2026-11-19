@@ -207972,6 +207972,1044 @@
         }
       ],
       "wing_flare": false
+    },
+    {
+      "id": "aura_butterfly",
+      "slot": "aura",
+      "name": "Celestial Butterfly Aura",
+      "blurb": "Eight luminous blue butterflies spiral around your whole body, with gentle wing beats from your shoulders to your ankles.",
+      "texture": "aura_butterfly.png",
+      "tex_w": 256,
+      "tex_h": 196,
+      "boxes": [
+        {
+          "origin": [
+            9.375,
+            -7.875,
+            -0.125
+          ],
+          "size": [
+            0.25,
+            1.75,
+            0.375
+          ],
+          "px": 8,
+          "uv": [
+            0,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            9.25,
+            -8.25,
+            0.0
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            96,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            9.75,
+            -8.25,
+            0.0
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            102,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -7.375,
+            -2.875,
+            6.625
+          ],
+          "size": [
+            0.25,
+            1.75,
+            0.375
+          ],
+          "px": 8,
+          "uv": [
+            12,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -7.5,
+            -3.25,
+            6.75
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            108,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -7.0,
+            -3.25,
+            6.75
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            114,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            0.875,
+            2.125,
+            -10.625
+          ],
+          "size": [
+            0.25,
+            1.75,
+            0.375
+          ],
+          "px": 8,
+          "uv": [
+            24,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            0.75,
+            1.75,
+            -10.5
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            120,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            1.25,
+            1.75,
+            -10.5
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            126,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            5.625,
+            6.125,
+            7.375
+          ],
+          "size": [
+            0.25,
+            1.75,
+            0.375
+          ],
+          "px": 8,
+          "uv": [
+            36,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            5.5,
+            5.75,
+            7.5
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            132,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            6.0,
+            5.75,
+            7.5
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            138,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -9.875,
+            10.125,
+            -1.875
+          ],
+          "size": [
+            0.25,
+            1.75,
+            0.375
+          ],
+          "px": 8,
+          "uv": [
+            48,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -10.0,
+            9.75,
+            -1.75
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            144,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -9.5,
+            9.75,
+            -1.75
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            150,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            8.625,
+            14.125,
+            -5.875
+          ],
+          "size": [
+            0.25,
+            1.75,
+            0.375
+          ],
+          "px": 8,
+          "uv": [
+            60,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            8.5,
+            13.75,
+            -5.75
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            156,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            9.0,
+            13.75,
+            -5.75
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            162,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -2.625,
+            18.125,
+            9.125
+          ],
+          "size": [
+            0.25,
+            1.75,
+            0.375
+          ],
+          "px": 8,
+          "uv": [
+            72,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -2.75,
+            17.75,
+            9.25
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            168,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -2.25,
+            17.75,
+            9.25
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            174,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.625,
+            22.125,
+            -8.875
+          ],
+          "size": [
+            0.25,
+            1.75,
+            0.375
+          ],
+          "px": 8,
+          "uv": [
+            84,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.75,
+            21.75,
+            -8.75
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            180,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.25,
+            21.75,
+            -8.75
+          ],
+          "size": [
+            0.125,
+            0.5,
+            0.125
+          ],
+          "px": 8,
+          "uv": [
+            186,
+            176
+          ],
+          "mirror": false,
+          "motion": "orbit",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            9.5,
+            -8.25,
+            0.0
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_right",
+          "pivot": [
+            9.5,
+            -7,
+            0.0
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            7.75,
+            -8.25,
+            0.0
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            62,
+            0
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_left",
+          "pivot": [
+            9.5,
+            -7,
+            0.0
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            -7.25,
+            -3.25,
+            6.75
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            124,
+            0
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_right",
+          "pivot": [
+            -7.25,
+            -2,
+            6.75
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            -9.0,
+            -3.25,
+            6.75
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            186,
+            0
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_left",
+          "pivot": [
+            -7.25,
+            -2,
+            6.75
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            1.0,
+            1.75,
+            -10.5
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            0,
+            44
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_right",
+          "pivot": [
+            1.0,
+            3,
+            -10.5
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            -0.75,
+            1.75,
+            -10.5
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            62,
+            44
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_left",
+          "pivot": [
+            1.0,
+            3,
+            -10.5
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            5.75,
+            5.75,
+            7.5
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            124,
+            44
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_right",
+          "pivot": [
+            5.75,
+            7,
+            7.5
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            4.0,
+            5.75,
+            7.5
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            186,
+            44
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_left",
+          "pivot": [
+            5.75,
+            7,
+            7.5
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            -9.75,
+            9.75,
+            -1.75
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            0,
+            88
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_right",
+          "pivot": [
+            -9.75,
+            11,
+            -1.75
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            -11.5,
+            9.75,
+            -1.75
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            62,
+            88
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_left",
+          "pivot": [
+            -9.75,
+            11,
+            -1.75
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            8.75,
+            13.75,
+            -5.75
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            124,
+            88
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_right",
+          "pivot": [
+            8.75,
+            15,
+            -5.75
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            7.0,
+            13.75,
+            -5.75
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            186,
+            88
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_left",
+          "pivot": [
+            8.75,
+            15,
+            -5.75
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            -2.5,
+            17.75,
+            9.25
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            0,
+            132
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_right",
+          "pivot": [
+            -2.5,
+            19,
+            9.25
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            -4.25,
+            17.75,
+            9.25
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            62,
+            132
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_left",
+          "pivot": [
+            -2.5,
+            19,
+            9.25
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            -4.5,
+            21.75,
+            -8.75
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            124,
+            132
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_right",
+          "pivot": [
+            -4.5,
+            23,
+            -8.75
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        },
+        {
+          "origin": [
+            -6.25,
+            21.75,
+            -8.75
+          ],
+          "size": [
+            1.75,
+            2.5,
+            0.125
+          ],
+          "px": 16,
+          "uv": [
+            186,
+            132
+          ],
+          "mirror": false,
+          "motion": "orbit_wing_left",
+          "pivot": [
+            -4.5,
+            23,
+            -8.75
+          ],
+          "faces": [
+            "front",
+            "back"
+          ]
+        }
+      ],
+      "feathers": [],
+      "wing_flare": false,
+      "emissive_texture": "aura_butterfly_glow.png"
     }
   ]
 }

@@ -10,6 +10,17 @@ public final class CosmeticPlayers {
     private static final WeakHashMap<PlayerEntity, CosmeticAnimation.Tracker> MOTION = new WeakHashMap<>();
     private static Object world;
     private CosmeticPlayers() { }
+    /** Selection-only query: layer visibility must not advance animation time. */
+    public static CosmeticSelection.Items selection(PlayerEntity player) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.world == null) return null;
+        var config = CubeonHudConfig.get();
+        boolean local = player == client.player;
+        if (player.isInvisible() || player.isSpectator()
+                || !local && (!config.showOtherCosmetics || player.squaredDistanceTo(client.player) > 4096)) return null;
+        RemoteCosmetics.context(client.world, config.showOtherCosmetics);
+        return local ? CosmeticSelection.snapshot() : RemoteCosmetics.get(player.getName().getString());
+    }
     public static CosmeticView view(int id, float age, boolean gliding) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client == null || client.world == null) return null;

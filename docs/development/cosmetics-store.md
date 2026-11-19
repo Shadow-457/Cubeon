@@ -8,6 +8,31 @@ wings, headwear and footwear from the public website API. Downloads appear in
 existing importer and animation support. Pets and wings use Cubeon's existing
 box/feather geometry, texture atlas and animation rig.
 
+The Store shows a validated saved page immediately while refreshing it in the
+background. Pages are keyed by API address and offset, saved atomically, and
+retained for up to 24 hours. A page fetched within the last 60 seconds needs no
+new request unless **Refresh** is pressed. First-time installs use the bundled
+public collection snapshot, refreshed through the same API. Offline refreshes
+keep the saved cards usable; downloads still verify the current pinned checksum.
+Catalog reads are bounded and malformed snapshots are ignored. Ownership checks
+read only the selected revision's manifest and texture presence, without preparing
+its rendering geometry. Opening Store does not download or equip models.
+
+**Aura → Celestial Butterfly Aura** is bundled with Cubeon Client. Eight blue
+butterflies orbit at different heights around the body, flutter independently,
+and carry an emissive mask. It attaches to the torso so crouching and swimming
+follow the player; Cosmetic motion off freezes the rig. Its small wings use
+two-sided cutout textures to keep the mesh at 40 boxes. Auras equip independently
+of pets, wings, headwear and shoes.
+
+Fitted wearables suppress the outer skin parts they cover. The preview and
+client share the same coverage rules: fitted head/face geometry hides the hat
+layer, footwear hides outer trousers, wristwear hides its sleeve, and waistwear
+hides the jacket layer. Floating head ornaments, wings, pets and auras keep
+the skin layers. The client uses per-player model-part visibility, also honored
+by 3D Skin Layers, without editing skins or Minecraft's saved preferences.
+Removing the wearable immediately restores the original visibility setting.
+
 The first catalog contains one **Cubeon Cape Sample**, using the original
 bundled `assets/capes/cubeon_cape.png` artwork. After installing the client version
 that supports store models, publishing another supported cosmetic requires no
@@ -76,6 +101,14 @@ Removing local files does not delete or hide existing Neon entries. Sync
 republishes entries present in the folder; move a hidden entry out of its upload
 folder before rerunning sync.
 
+Explicitly retired designs are listed by stable identity in
+`cubeon/cosmetic_retirement.py`. They are excluded from saved/live Store pages
+and the local picker, and owner sync rejects them before uploading. The owner
+generator excludes them too, so regeneration cannot restore a removed design.
+Morpho Orbit Halo, Zephyr Sprite, Dune Runner Cap, Cloudlet Head Wings and
+Dawnflare Halo are retired Store entries; Floating Crown and Sun Halo are retired
+bundled choices. Existing bundled source artwork is retained for compatibility.
+
 The explicit single-file command remains available:
 
 ```bash
@@ -90,7 +123,9 @@ and a static first-frame preview are stored in Neon. Using the same id updates
 that catalog entry; the checksum changes when its bytes change. A later download
 of a new revision creates a separate local cape, preserving equipped older
 copies. Owners can set `published = false` in Neon to hide an entry without
-deleting its bytes. Clients may retain cached catalog entries for 60 seconds.
+deleting its bytes. The API caches pages for 60 seconds; clients may show older
+saved cards during an offline or slow refresh. Explicit retirements are filtered
+from those saved pages too.
 
 ## Publish models
 

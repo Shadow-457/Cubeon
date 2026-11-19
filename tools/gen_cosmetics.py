@@ -1205,6 +1205,11 @@ def render_item(item):
     return sheet, out_boxes
 
 
+def generated_items():
+    from gen_store_collection import butterfly_aura
+    return [*ITEMS, butterfly_aura()]
+
+
 def main():
     if "--store-collection" in sys.argv:
         from gen_store_collection import generate
@@ -1215,7 +1220,8 @@ def main():
     os.makedirs(MOD_CATALOG_DIR, exist_ok=True)
 
     catalog = {"version": 1, "anchors": ANCHORS, "items": []}
-    for item in ITEMS:
+    from gen_store_collection import glow_texture
+    for item in generated_items():
         image, boxes = render_item(item)
         name = item["id"] + ".png"
         for folder in (LAUNCHER_DIR, MOD_TEXTURE_DIR):
@@ -1233,6 +1239,13 @@ def main():
             **({"wing_flare": item["wing_flare"]} if "wing_flare" in item else {}),
             **({"separate_feathers": True} if item.get("separate_feathers") else {}),
         }
+        if item["id"] == "aura_butterfly":
+            glow = glow_texture(image, "morpho-orbit")
+            if glow is not None:
+                glow_name = item["id"] + "_glow.png"
+                for folder in (LAUNCHER_DIR, MOD_TEXTURE_DIR):
+                    glow.save(os.path.join(folder, glow_name), optimize=True)
+                entry["emissive_texture"] = glow_name
         if item.get("_flat"):
             flat_image, flat_boxes = render_item(item["_flat"])
             flat_name = item["id"] + "_flat.png"

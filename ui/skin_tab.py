@@ -844,7 +844,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     store_status = ft.Text("", size=12, color=TEXT_DIM, visible=False)
     store_page = ft.Text("Page 1", size=12, color=TEXT_DIM)
     store_state = {"loaded": False, "loading": False, "offset": 0, "more": False,
-                   "signature": None, "downloads": set(), "cards": {}, "items": {}}
+                   "signature": None, "downloads": set(), "cards": {}, "items": {}, "request": 0}
 
     def sync_store_buttons():
         busy = store_state["loading"] or bool(store_state["downloads"])
@@ -857,6 +857,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         with thread_safe_ui.TREE_LOCK:
             if store_state["loading"] or item["id"] in store_state["downloads"]:
                 return
+            # A saved page remains usable during its background refresh. That
+            # refresh must not replace controls beneath an active download.
+            store_state["request"] += 1
             store_state["downloads"].add(item["id"])
             card = store_state["cards"][item["id"]]
             card.disabled = True
@@ -900,19 +903,19 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             if store_state["loaded"] and offset is None and not force:
                 return
             requested = store_state["offset"] if offset is None else offset
+            store_state["request"] += 1
+            request = store_state["request"]
             store_state["loading"] = True
             store_status.value = "Loading cosmetics…"
             sync_store_buttons()
         thread_safe_ui.refresh(store_toolbar)
         _refresh_status(store_status)
 
-        def work():
-            try:
-                data = cosmetics_store.fetch_page(requested)
-                owned = {item["id"]: cosmetics_store.installed(item) for item in data["items"]}
-            except Exception:
-                data, owned = None, {}
+        def paint(data, *, message=""):
+            owned = {item["id"]: cosmetics_store.has_installed(item) for item in data["items"]} if data else {}
             with thread_safe_ui.TREE_LOCK:
+                if request != store_state["request"]:
+                    return
                 store_state["loading"] = False
                 if data is not None:
                     signature = (requested, tuple((item["id"], item["sha256"], item["name"],
@@ -937,13 +940,33 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                             card.set_sublabel("Downloaded" if owned[item_id] else "Free cosmetic")
                     store_state["items"] = {item["id"]: item for item in data["items"]}
                     store_state.update(loaded=True, offset=requested, more=data["has_more"])
-                    store_status.value = "" if data["items"] else "No cosmetics are available yet."
+                    store_status.value = message or ("" if data["items"] else "No cosmetics are available yet.")
                 else:
-                    store_status.value = "The cosmetics store is unavailable. Try Refresh."
+                    store_status.value = message or "The cosmetics store is unavailable. Try Refresh."
                 sync_store_buttons()
             thread_safe_ui.refresh(store_grid)
             thread_safe_ui.refresh(store_toolbar)
             _refresh_status(store_status)
+
+        def work():
+            try:
+                cached = cosmetics_store.cached_page(requested)
+                fresh = None if force else cosmetics_store.cached_page(requested, max_age=60, bundled=False)
+            except Exception:
+                cached, fresh = None, None
+            if cached is not None:
+                paint(cached, message="" if fresh is not None else "Updating cosmetics…")
+            if fresh is not None:
+                return
+            try:
+                data = cosmetics_store.fetch_page(requested)
+            except Exception:
+                if cached is not None:
+                    paint(cached, message="Showing saved cosmetics. Try Refresh for the latest collection.")
+                else:
+                    paint(None)
+            else:
+                paint(data)
 
         threading.Thread(target=work, daemon=True, name="cubeon-store-catalog").start()
 
@@ -1127,12 +1150,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         return pane
 
     # Headwear and footwear share the existing picker and selection flow.
-    cosmetic_panes = [(slot, cosmetics.SLOT_LABELS[slot],
-                      ft.Container(content=ft.Column([
-                          ft.Text("Coming soon", size=20, weight=ft.FontWeight.W_600, color=TEXT),
-                          ft.Text("Auras are not available yet.", size=13, color=TEXT_DIM),
-                      ], spacing=8), padding=24, data="cosmetic-coming-soon-aura")
-                      if slot == "aura" else _cosmetic_pane(slot))
+    cosmetic_panes = [(slot, cosmetics.SLOT_LABELS[slot], _cosmetic_pane(slot))
                      for slot in ("shoulder", "back", "head", "feet", "aura")]
 
     # --- Tab state + switching --------------------------------------------

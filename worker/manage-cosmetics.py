@@ -94,6 +94,9 @@ def prepare_cape(path, item_id, name, description):
 
 
 def publish(connection, values):
+    from cubeon.cosmetic_retirement import STORE_IDS
+    if values[0] in STORE_IDS:
+        raise ValueError("This cosmetic has been retired; remove it from the upload folder.")
     # Cape upload callers retain their original eight-value contract.
     if len(values) == 8:
         values = [*values, "cape"]
@@ -217,6 +220,9 @@ def prepare_folder(folder):
         for path in sorted((folder / directory).rglob("*.json")):
             prepared.append(prepare_model(path, kind))
     ids = [value[0] for value in prepared]
+    from cubeon.cosmetic_retirement import STORE_IDS
+    if set(ids) & STORE_IDS:
+        raise ValueError("Retired cosmetics must be removed from the upload folder before sync.")
     if len(ids) != len(set(ids)):
         raise ValueError("Two local cosmetics have the same id. Give each entry a unique id.")
     return prepared

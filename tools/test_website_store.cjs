@@ -34,7 +34,14 @@ async function browserChecks() {
   const png = fs.readFileSync(path.join(web, 'assets/favicon.png')).toString('base64');
   const snapshot = [...html.matchAll(/data-id="([^"]+)" data-sha="([^"]+)" data-kind="([^"]+)" data-name="([^"]+)" data-description="([^"]*)"/g)]
     .map(m => ({id:m[1],sha256:m[2],kind:m[3],name:decode(m[4]),description:decode(m[5]),preview_png:png}));
-  assert.equal(snapshot.length, 29);
+  assert.equal(snapshot.length, 27);
+  for (const id of ['cubeon-morpho-orbit', 'cubeon-zephyr-sprite', 'cubeon-dune-runner-cap',
+                    'cubeon-cloudlet-headwings', 'cubeon-dawnflare-halo']) {
+    assert.ok(!snapshot.some(item => item.id === id));
+  }
+  for (const id of ['cubeon-midnight-cowl', 'cubeon-crimson-web-mask', 'cubeon-winter-snowcap']) {
+    assert.ok(snapshot.some(item => item.id === id));
+  }
   const captures = path.join(root, 'archive/ui-captures/store');
   fs.mkdirSync(captures, {recursive:true});
   let mode = 'live', items = snapshot;
@@ -61,7 +68,7 @@ async function browserChecks() {
     await page.route('**/*',route);
     await page.goto('https://cubeon.test/store');
     await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('Available in Cubeon'));
-    assert.equal(await page.locator('.store-card').count(),29);
+    assert.equal(await page.locator('.store-card').count(),snapshot.length);
     for (const image of await page.locator('.store-card img').all()) {
       await image.scrollIntoViewIfNeeded();
       await image.evaluate(async img=>{await img.decode();});
@@ -99,7 +106,7 @@ async function browserChecks() {
   await page.route('**/*',route);
   items=[...snapshot,{...snapshot[0],id:'new-item',sha256:'a'.repeat(64),name:'<svg onload="alert(1)">',kind:'pet'}];
   await page.goto('https://cubeon.test/store');
-  await page.waitForFunction(()=>document.querySelectorAll('.store-card').length===30);
+  await page.waitForFunction(count=>document.querySelectorAll('.store-card').length===count,snapshot.length+1);
   const extra=page.locator('[data-id="new-item"]');
   assert.equal(await extra.locator('h2').textContent(),'<svg onload="alert(1)">');
   assert.equal(await extra.locator('svg').count(),0);
@@ -108,17 +115,17 @@ async function browserChecks() {
     mode=failure;
     await page.reload();
     await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('latest availability'));
-    assert.equal(await page.locator('.store-card').count(),29,'failed catalog leaves fallback intact');
+    assert.equal(await page.locator('.store-card').count(),snapshot.length,'failed catalog leaves fallback intact');
   }
   await page.close();
   const plain=await browser.newPage({javaScriptEnabled:false,viewport:{width:390,height:800}});
   await plain.route('**/*',route);
   await plain.goto('https://cubeon.test/store');
-  assert.equal(await plain.locator('.store-card').count(),29);
+  assert.equal(await plain.locator('.store-card').count(),snapshot.length);
   assert.ok(await plain.locator('.store-card h2').first().isVisible());
   assert.ok(!(await plain.locator('#storeTools').isVisible()));
   assert.ok(await plain.evaluate(()=>document.documentElement.scrollWidth <= innerWidth+1));
   await browser.close();
-  console.log('PASS live Store, 29 posters, filters/search/dialogs, new uploads, malformed/offline fallback, quiet keyboard-accessible credit, and 1440/768/390/320px layouts');
+  console.log('PASS live Store, 27 posters, retired entries removed, two masks and Christmas hat, filters/search/dialogs, new uploads, malformed/offline fallback, quiet keyboard-accessible credit, and 1440/768/390/320px layouts');
 }
 if (process.argv.includes('--browser')) browserChecks().catch(error=>{console.error(error);process.exitCode=1;});

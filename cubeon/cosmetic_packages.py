@@ -164,7 +164,7 @@ def read(payload):
         raise ValueError("Invalid Cubeon model package.") from error
 
 
-def _installed_manifest(manifest):
+def _installed_manifest(manifest, *, normalize=True):
     try:
         item = json.loads(manifest.read_text())
         if (item.get("id") != manifest.parent.name or not _ITEM_ID.fullmatch(item["id"])
@@ -180,7 +180,7 @@ def _installed_manifest(manifest):
                 if not _NAME.fullmatch(name or "") or not (manifest.parent / name).is_file():
                     return None
             model["_store_directory"] = str(manifest.parent)
-        return normalize_wing_attachment(item)
+        return normalize_wing_attachment(item) if normalize else item
     except (OSError, ValueError, AttributeError, KeyError):
         return None
 
@@ -198,6 +198,13 @@ def installed(item):
     # Store ownership checks need only this revision, not every installed mesh.
     value = _installed_manifest(DIRECTORY / _revision_id(item) / "item.json")
     return value if value and value.get("store_id") == item["id"] and value.get("store_sha256") == item["sha256"] else None
+
+
+def has_installed(item):
+    """Check this revision's files without copying/normalizing its game mesh."""
+    value = _installed_manifest(DIRECTORY / _revision_id(item) / "item.json", normalize=False)
+    return bool(value and value.get("store_id") == item["id"]
+                and value.get("store_sha256") == item["sha256"])
 
 
 def remove(item_id):

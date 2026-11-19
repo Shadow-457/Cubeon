@@ -83,11 +83,11 @@ def test_catalog():
     every = cosmetics.items()
     shoulder = cosmetics.items("shoulder")
     back = cosmetics.items("back")
-    check("43 cosmetics", len(every) == 43, str(len(every)))
+    check("42 cosmetics", len(every) == 42, str(len(every)))
     check("13 shoulder items", len(shoulder) == 13, str(len(shoulder)))
     check("15 back items", len(back) == 15, str(len(back)))
     check("every item is in one slot", sum(len(cosmetics.items(s)) for s in cosmetics.SLOTS) == len(every))
-    for slot, count in {"face": 4, "head": 3, "waist": 3, "hand": 3, "trail": 2, "aura": 0}.items():
+    for slot, count in {"face": 4, "head": 1, "waist": 3, "hand": 3, "trail": 2, "aura": 1}.items():
         check(f"{count} {slot} cosmetics", len(cosmetics.items(slot)) == count)
 
     ids = [item["id"] for item in every]
@@ -275,6 +275,8 @@ def test_wing_thickness():
     for item in cosmetics.items():
         sheet = cosmetics.texture(item)
         for index, box in enumerate(item["boxes"]):
+            if item["id"] == "aura_butterfly" and box.get("faces") == ["front", "back"]:
+                continue  # Deliberate alpha-cutout wings; separately validated.
             for face, (x, y, w, h) in cosmetics.face_rects(box).items():
                 tile = sheet.crop((x, y, x + w, y + h))
                 if tile.getchannel("A").getextrema() != (255, 255):
@@ -521,7 +523,7 @@ def _same_bytes(left, right):
 def _render_variants():
     """Public items plus internal flat meshes, with unique diagnostic ids."""
     variants = []
-    for item in cosmetics.items():
+    for item in json.load(open(os.path.join(LAUNCHER_BUNDLE, "catalog.json")))["items"]:
         variants.append(item)
         if item.get("flat"):
             variants.append({**item["flat"], "id": item["id"] + "_flat"})
@@ -564,15 +566,16 @@ def test_generator_output():
         check("generator imports", False, repr(exc))
         return
 
-    catalog = cosmetics.catalog()
-    generated_ids = [item["id"] for item in generator.ITEMS]
+    catalog = json.load(open(os.path.join(LAUNCHER_BUNDLE, "catalog.json")))
+    generated = generator.generated_items()
+    generated_ids = [item["id"] for item in generated]
     check("generator and catalogue list the same ids",
           generated_ids == [item["id"] for item in catalog["items"]],
           f"{len(generated_ids)} vs {len(catalog['items'])}")
 
     by_id = {item["id"]: item for item in catalog["items"]}
     problems = []
-    for item in generator.ITEMS:
+    for item in generated:
         entry = by_id.get(item["id"])
         if entry is None:
             problems.append((item["id"], "not in catalogue"))

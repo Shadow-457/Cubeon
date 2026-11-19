@@ -18,6 +18,7 @@
     "ComboDamageMixin",
     "CosmeticLayersAccessor",
     "CosmeticElytraMixin",
+    "CosmeticSkinVisibilityMixin",
     "LiveSkinMixin",
     "SkinTitleMenuMixin",
     "OwnNameTagMixin"

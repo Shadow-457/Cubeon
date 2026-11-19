@@ -101,7 +101,19 @@ public class StoreProbe implements ClientModInitializer {
                         && height==((Number)expectedTexture.get("height")).intValue(),"GPU loaded the atlas, not the missing-texture image");
                 }
             }
-            System.out.println("CUBEON_STORE_NATIVE_PASS "+checks+" checks; compatible pack and real base/glow GPU textures");
+            Object player=client.getClass().getField(name("player")).get(client);
+            Class<?> parts=Class.forName(name("playerParts"));
+            Object hat=parts.getField(name("hatPart")).get(null);
+            Object jacket=parts.getField(name("jacketPart")).get(null);
+            Method visible=player.getClass().getMethod(name("partVisible"),parts);
+            check(!(Boolean)visible.invoke(player,hat),"Fitted cosmetics suppress the actual game outer head layer");
+            check((Boolean)visible.invoke(player,jacket),"Uncovered jacket layers remain visible");
+            var aura=catalog.get("aura_butterfly");
+            check(aura!=null && aura.emissiveTexture!=null && aura.boxes.size()<=48,"Lightweight glowing butterfly aura loaded");
+            Path selection=net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve(CosmeticSelection.FILE_NAME);
+            Files.writeString(selection,"{\"aura\":\"aura_butterfly\"}"); CosmeticSelection.bind(selection);
+            check((Boolean)visible.invoke(player,hat),"Removing the wearable restores the player's original layer setting");
+            System.out.println("CUBEON_STORE_NATIVE_PASS "+checks+" checks; compatible pack, real base/glow GPU textures, fitted layers and butterfly aura");
         } catch(Throwable error) {
             finished=true; System.out.println("CUBEON_STORE_NATIVE_FAIL "+error); error.printStackTrace();
         } finally {
@@ -118,7 +130,8 @@ def names_for(version):
                     profiles="getSelectedPacks", id="getId", compatibility="getCompatibility", compatible="isCompatible",
                     resources="getResourceManager", textures="getTextureManager", identifier="net.minecraft.resources.Identifier",
                     of="fromNamespaceAndPath", resource="getResource", packId="sourcePackId", input="open",
-                    texture="getTexture", gpu="getTexture", stop="stop")
+                    texture="getTexture", gpu="getTexture", stop="stop",
+                    playerParts="net.minecraft.world.entity.player.PlayerModelPart",hatPart="HAT",jacketPart="JACKET",partVisible="isModelPartShown")
     mapping = next((Path.home() / ".gradle/caches/fabric-loom" / version).glob("net.fabricmc.yarn*/mappings.tiny"))
     wanted = {
         "net/minecraft/client/MinecraftClient": dict(player="player", getResourcePackManager="packs", getResourceManager="resources",
@@ -130,13 +143,16 @@ def names_for(version):
         "net/minecraft/resource/ResourceFactory": dict(getResource="resource"),
         "net/minecraft/resource/Resource": dict(getPackId="packId", getInputStream="input"),
         "net/minecraft/client/texture/TextureManager": dict(getTexture="texture"),
-        "net/minecraft/client/texture/AbstractTexture": dict(getGlTexture="gpu")}
+        "net/minecraft/client/texture/AbstractTexture": dict(getGlTexture="gpu"),
+        "net/minecraft/entity/PlayerLikeEntity": dict(isModelPartVisible="partVisible"),
+        "net/minecraft/entity/player/PlayerModelPart": dict(HAT="hatPart",JACKET="jacketPart")}
     result, owner = {}, None
     for line in mapping.read_text().splitlines():
         columns = line.split("\t")
         if columns[0] == "c":
             owner = columns[-1]
             if owner == "net/minecraft/util/Identifier": result["identifier"] = columns[-2].replace("/", ".")
+            if owner == "net/minecraft/entity/player/PlayerModelPart": result["playerParts"] = columns[-2].replace("/", ".")
         elif len(columns) > 4 and columns[1] in ("m", "f") and columns[-1] in wanted.get(owner, {}):
             result[wanted[owner][columns[-1]]] = columns[-2]
     return result
@@ -170,6 +186,10 @@ def verify(version):
         for texture in staged_textures.glob("*.png"):
             shutil.copyfile(texture, textures / texture.name)
         (work / "config/cubeon-store.json").write_text(json.dumps(dict(items=all_models, anchors=cosmetics.ANCHORS)))
+        selection=work / "config/cubeon-cosmetics.json"
+        selected=json.loads(selection.read_text())
+        selected.update(head="head_horns",aura="aura_butterfly")
+        selection.write_text(json.dumps(selected))
         expected = []
         for item in all_models:
             entries = []

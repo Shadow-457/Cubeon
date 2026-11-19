@@ -71,7 +71,8 @@ def generate(folder):
         sha = entry[6]
         kind = entry[8] if len(entry) == 9 else "cape"
         filename = item_id + "-" + sha[:12] + ".webp"
-        preview(entry).save(output / filename, lossless=True, method=6)
+        if not (output / filename).is_file():
+            preview(entry).save(output / filename, lossless=True, method=6)
         safe = {key: html.escape(value, quote=True) for key, value in
                 {"id": item_id, "name": name, "description": description}.items()}
         cards.append(f'''      <article class="store-card" data-id="{safe['id']}" data-sha="{sha}" data-kind="{kind}" data-name="{safe['name']}" data-description="{safe['description']}">
@@ -89,6 +90,16 @@ def generate(folder):
     _, after = rest.split("<!-- STORE CARDS END -->", 1)
     page.write_text(before + "<!-- STORE CARDS START -->\n" + "\n".join(cards) +
                     "\n      <!-- STORE CARDS END -->" + after)
+    # The same validated recipes supply a first-open launcher snapshot. It is
+    # shown immediately and refreshed through the API, never an upload source.
+    entries = [dict(id=value[0], name=value[1], description=value[2], mime_type=value[3],
+                    byte_size=value[5], sha256=value[6], preview_png=value[7],
+                    kind=value[8] if len(value) == 9 else "cape") for value in values]
+    entries.sort(key=lambda item: item["id"])
+    pages = {str(offset): dict(schema=1, offset=offset, page_size=12,
+              has_more=offset + 12 < len(entries), items=entries[offset:offset + 12])
+             for offset in range(0, max(1, len(entries)), 12)}
+    (ROOT / "assets/cosmetics/store-catalog.json").write_text(json.dumps(pages, separators=(",", ":")) + "\n")
     print(f"Prepared {len(cards)} checksum-pinned Store previews. No uploads.")
 
 

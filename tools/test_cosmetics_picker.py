@@ -114,30 +114,29 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertTrue(remove.disabled)
         self.assertIn('nothing equipped', fz.subtree_text(self.root))
 
-    def test_aura_is_coming_soon_without_equipping_or_loading_artwork(self):
+    def test_butterfly_aura_equips_independently_and_loads_art_only_on_open(self):
         self.cfg['active_back_item'] = 'back_ember_wings_small'
         self.cfg['active_shoulder_item'] = 'shoulder_ember_fox'
-        rendered, jobs = self.raster.call_count, len(self.jobs)
+        rendered = self.raster.call_count
         self.tab('Aura')
-        self.assertEqual(self.cards(), [])
-        self.assertIn('coming soon', fz.subtree_text(self.root))
-        self.equip.assert_not_called()
+        self.assertIn('celestial butterfly aura', fz.subtree_text(self.root))
         self.assertEqual(self.raster.call_count, rendered)
-        self.assertEqual(len(self.jobs), jobs)
+        self.apply('Apply Celestial Butterfly Aura')
+        self.assertEqual(self.cfg['active_aura_item'], 'aura_butterfly')
         self.assertEqual(self.cfg['active_back_item'], 'back_ember_wings_small')
         self.assertEqual(self.cfg['active_shoulder_item'], 'shoulder_ember_fox')
 
     def test_head_and_downloaded_feet_use_the_existing_picker(self):
         self.tab('Head')
-        self.apply('Apply Sun Halo')
-        self.assertEqual(self.cfg['active_head_item'], 'head_halo')
+        self.apply('Apply Ember Horns')
+        self.assertEqual(self.cfg['active_head_item'], 'head_horns')
         shoe = {'id': 'store_shoe_fixture', 'slot': 'feet', 'name': 'Harbor High Tops', 'blurb': 'Sneakers'}
         with patch.object(cosmetics, 'items', return_value=[shoe]), \
                 patch.object(cosmetics, 'get', side_effect=lambda key, *args: shoe if key == shoe['id'] else None):
             self.tab('Feet')
             self.apply('Apply Harbor High Tops')
             self.assertEqual(self.cfg['active_feet_item'], shoe['id'])
-            self.assertEqual(self.cfg['active_head_item'], 'head_halo')
+            self.assertEqual(self.cfg['active_head_item'], 'head_horns')
             self.assertEqual(self.page.update_calls, 0)
 
     def test_downloaded_delete_keeps_other_cards_and_clears_only_its_slot(self):

@@ -24,8 +24,10 @@ import threading
 import time
 from collections import OrderedDict
 from hashlib import sha1
+import math
 
 from .paths import CACHE_DIR
+from .atomicio import write_json
 
 # --- in-memory tier ---------------------------------------------------------
 # Keyed by (namespace, digest) - the same identity the disk file has, so a mem
@@ -64,7 +66,7 @@ def _mem_put(kk: tuple, stored_at: float, value) -> None:
             _MEM.popitem(last=False)
 
 
-def get(namespace: str, key: object, max_age: int = 86400):
+def get(namespace: str, key: object, max_age: int = 86400, *, max_bytes: int = 0):
     """Fresh-only read: memory first, then disk. None when missing OR stale."""
     kk = (namespace, _path(namespace, key))
     hit = _mem_get(kk)
@@ -74,11 +76,19 @@ def get(namespace: str, key: object, max_age: int = 86400):
     path = kk[1]
     try:
         with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+            if max_bytes:
+                raw = f.read(max_bytes + 1)
+                if len(raw) > max_bytes:
+                    return None
+                payload = json.loads(raw)
+            else:
+                payload = json.load(f)
+        stored = payload.get("time", 0)
+        value = payload.get("value")
+        if type(stored) not in (int, float) or not math.isfinite(stored) or stored > time.time():
+            return None
     except Exception:
         return None
-    stored = payload.get("time", 0)
-    value = payload.get("value")
     if max_age and time.time() - stored > max_age:
         return None  # stale: don't serve as fresh (cached_call handles the rest)
     _mem_put(kk, stored, value)
@@ -106,13 +116,7 @@ def set(namespace: str, key: object, value):
     path = _path(namespace, key)
     stored_at = time.time()
     try:
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"time": stored_at, "value": value}, f)
-        # Atomic-ish swap: a launcher killed mid-write can never leave a
-        # half-written cache file that poisons every later read.
-        os.replace(tmp, path)
+        write_json(path, {"time": stored_at, "value": value}, indent=None)
     except Exception:
         pass
     _mem_put((namespace, path), stored_at, value)
