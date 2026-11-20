@@ -21,6 +21,7 @@ from cubeon import rust_engine as rust, paths, launch, versions, watchdog
 from ui.versions import VersionPicker
 from app_driver import DriverPage
 import build_rust_engine
+import fetch_rust_build_inputs
 from publish_rust_beta import verify_archive
 
 
@@ -555,6 +556,76 @@ class RustPickerTests(unittest.TestCase):
         state["selected_version"] = "26.3"
         self.assertTrue(scope["_hosting_allowed"]("26.3"))
         self.assertFalse(scope["_hosting_allowed"](rust.INSTANCE_ID))
+
+
+class RustBuildInputTests(unittest.TestCase):
+    def setUp(self):
+        import minecraft_launcher_lib as mll
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.manifest = self.root / "build/rust-inputs/versions/26.3/26.3.json"
+        self.server = b"pinned server resource fixture"
+        self.server_url = "https://piston-data.mojang.com/fixture/server.jar"
+        self.original = json.dumps({"id": "26.3", "assetIndex": {"id": "34"}, "downloads": {"server": {
+            "url": self.server_url, "sha1": hashlib.sha1(self.server).hexdigest()}}}).encode()
+        self.pinned = hashlib.sha1(self.original).hexdigest()
+        self.accepted = self.original.replace(b'"34"', b'"35"')
+        lock = self.root / "native/cubeon-rust/research-lock.json"
+        lock.parent.mkdir(parents=True)
+        lock.write_text(json.dumps({"minecraft": {"version": "26.3", "manifest_sha1": self.pinned,
+            "accepted_manifest_sha1": [hashlib.sha1(self.accepted).hexdigest()],
+            "server_sha1": hashlib.sha1(self.server).hexdigest()}}))
+        for context in (patch.object(fetch_rust_build_inputs, "ROOT", self.root),
+                        patch.object(mll.install, "install_minecraft_version", side_effect=self.install)):
+            context.start()
+            self.addCleanup(context.stop)
+
+    def install(self, version, directory, **kwargs):
+        self.assertEqual(version, "26.3")
+        self.assertEqual(Path(directory), self.root / "build/rust-inputs")
+        self.assertIn(self.manifest.read_bytes(), (self.original, self.accepted),
+                      "Libraries and assets must resolve from an accepted manifest")
+
+    def download(self, destination, url, **kwargs):
+        data = self.server if url == self.server_url else self.original
+        self.assertEqual(kwargs["expected_hash"], ("sha1", hashlib.sha1(data).hexdigest()))
+        self.assertTrue(kwargs["url_validator"](url))
+        Path(destination).write_bytes(data)
+
+    def test_fresh_and_republished_inputs_use_the_pin_before_installing(self):
+        for existing in (None, b'{"id":"26.3","rewritten":true}'):
+            with self.subTest(existing=existing):
+                if self.manifest.exists():
+                    self.manifest.unlink()
+                if existing is not None:
+                    self.manifest.parent.mkdir(parents=True, exist_ok=True)
+                    self.manifest.write_bytes(existing)
+                with patch.object(fetch_rust_build_inputs.net, "download_to", side_effect=self.download) as download:
+                    fetch_rust_build_inputs.main()
+                self.assertEqual([call.args[1] for call in download.call_args_list], [
+                    f"https://piston-meta.mojang.com/v1/packages/{self.pinned}/26.3.json", self.server_url])
+                self.assertEqual(self.manifest.read_bytes(), self.original)
+
+    def test_all_accepted_cached_inputs_skip_the_manifest_download(self):
+        self.manifest.parent.mkdir(parents=True)
+        for data in (self.original, self.accepted):
+            with self.subTest(checksum=hashlib.sha1(data).hexdigest()):
+                self.manifest.write_bytes(data)
+                with patch.object(fetch_rust_build_inputs.net, "download_to", side_effect=self.download) as download:
+                    fetch_rust_build_inputs.main()
+                self.assertEqual([call.args[1] for call in download.call_args_list], [self.server_url])
+                self.assertEqual(self.manifest.read_bytes(), data)
+
+    def test_an_installer_rewrite_cannot_bypass_the_source_pin(self):
+        import minecraft_launcher_lib as mll
+        def rewrite(*args, **kwargs):
+            self.manifest.write_bytes(b'{"id":"26.3","rewritten":true}')
+        with patch.object(fetch_rust_build_inputs.net, "download_to", side_effect=self.download) as download, \
+                patch.object(mll.install, "install_minecraft_version", side_effect=rewrite):
+            with self.assertRaisesRegex(RuntimeError, "Mojang manifest changed"):
+                fetch_rust_build_inputs.main()
+        self.assertEqual(download.call_count, 1, "Unverified inputs cannot publish a server JAR")
 
 
 if __name__ == "__main__":

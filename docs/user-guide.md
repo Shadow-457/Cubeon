@@ -327,9 +327,25 @@ Escape returns to the same catalogue. **Overview** shows the README and metadata
 **Versions** lists builds and **Gallery** shows project images. The header's
 **Install** action uses the matching build for the selected instance.
 
+### Horizon content mods for Rust
+
+Select **Rust · Beta 26.3** on Play, then open **Mods**. The launcher searches
+Horizon automatically. Enter a mod name or paste its Horizon project link,
+open its details, and choose **Install**. **Versions** lets you choose a release
+or update an installed mod. **Import mods** accepts local `.hmod` files.
+
+Use **Installed** to enable, disable or remove these mods. New installs start
+enabled; updates keep your previous enabled/disabled choice. Restart the game
+to apply changes.
+
+This beta supports content mods, such as added blocks, items and recipes.
+Java JARs, WebAssembly code and native-code mods are unavailable. Some content
+packages need a separate native mod; check their description before installing.
+The launcher keeps Cubeon's current engine.
+
 ### Checking installed content
 
-For mods you already have, choose **Mods → Import mods** and select one or more
+For Java mods you already have, choose **Mods → Import mods** and select one or more
 JARs. Review the target instance, compatibility and dependency warnings before
 importing. Identical files are skipped even if renamed. Select a replacement
 explicitly to keep the previous build disabled as a backup. Each file reports

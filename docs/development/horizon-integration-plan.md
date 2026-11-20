@@ -1,6 +1,6 @@
 # Cubeon Rust beta integration
 
-Status updated 2026-11-09. The Linux runtime and original resource exporters
+Status updated 2026-11-21. The Linux runtime and original resource exporters
 are built and packaged. Native terrain rendering, save/reopen and persistent
 local identity are verified on Linux. Linux and Windows runtime packages are
 published as `rust-26.3-beta.2`; Windows gameplay and FPS benchmarking remain
@@ -24,6 +24,18 @@ Microsoft sign-in, premium-session renewal, upstream chat credentials, telemetry
 default server injection and upstream hosted cosmetics are disabled. This
 beta retains the essential game engine, renderer, input, audio and local storage.
 Java mod JARs cannot run in the native engine.
+
+Select the Rust instance on Play and open **Mods** to browse Horizon content
+mods inside the launcher. Search by name or paste a `playhorizon.dev/mods/…`
+link, open details and select **Install** or a specific release under
+**Versions**. **Import mods** accepts local `.hmod` packages. **Installed**
+provides enable/disable and remove controls; changes apply on the next launch.
+New mods start enabled and updates preserve an existing disabled choice.
+
+This integration supports API 0.2 content mods for 26.3. Native-code mods and
+retired WebAssembly mods remain unavailable, with their compatibility reason.
+It does not upgrade the engine. Some content packages supply assets for a
+separate native mod; their project description explains that requirement.
 
 Native appearance reads Cubeon's CSL-compatible LocalSkin mirrors first, then
 public Cubeon skins/capes, with explicit slim models and transparent hidden capes.
@@ -50,9 +62,10 @@ patched third-party dependencies, research pins and original Java exporter
 sources. The original MIT notice and third-party notices are retained.
 Horizon's separate launcher and hosted applications are excluded.
 
-Cubeon builds `cubeon-rust` and `cubeon-rust-prepare` from this tree. Installation
-and gameplay do not consult Horizon's releases, account services, relay or mod
-registry. Internal package/type names remain where needed to preserve gameplay
+Cubeon builds `cubeon-rust` and `cubeon-rust-prepare` from this tree. Engine
+acquisition uses Cubeon's pinned bundles. Optional content-mod discovery reads
+Horizon's public registry through the launcher; it does not change the runtime
+pin or use Horizon accounts or relay services. Internal package/type names remain where needed to preserve gameplay
 and make future source patches reviewable. Intertwined optional systems retain
 passive types; their service entry points are disabled.
 
@@ -81,6 +94,11 @@ original from Mojang, verifies its SHA-1 and caches it separately under Rust's
 `inputs/`. The preparer receives that file through `--version-json`, while
 libraries and asset objects still come from the shared install. The shared
 Java version JSON stays current, and a verified pinned cache needs no download.
+
+The Rust artifact CI uses `tools/fetch_rust_build_inputs.py` to seed its isolated
+version directory with the verified source-pinned manifest before installing
+libraries and assets. Accepted cached manifests are reused, and the manifest
+and server checksums remain checked after installation.
 
 First preparation requires
 **exact Java 25** for the pinned exporters. It checks configured Java, PATH,
@@ -114,12 +132,22 @@ Files live below `CUBEON_HOME/rust/`:
 - `inputs/server-26.3.jar`: verified official server input.
 - `inputs/manifest-26.3-<sha1>.json`: verified version metadata pinned by the runtime.
 - `instances/26.3/`: isolated native worlds, settings and screenshots.
+- `instances/26.3/cubeon-mods/<id>.hmod`: adapted Horizon/local content packages.
+- `instances/26.3/cubeon-mods.txt`: native mod enable settings and key bindings.
 - `instance.json`: installation/discovery marker.
 
 Removing the Rust installation clears its marker and preserves worlds/settings.
 Native folders do not adopt shared Java worlds or stage Java mod JARs.
 Cubeon's stable UUID applies only to its local owner connection, including
 after a name change; remote offline server and guest identity rules are retained.
+
+`cubeon/rust_mods.py` verifies original package sizes, SHA-256 and optional
+minisign signatures, then adapts Horizon manifest/declaration names for the
+fork. Artwork is preserved. Downloads reuse the global mod cache; adapted
+instance files are regular ZIPs because native folders refuse symbolic links.
+Failed publication restores the package, source receipt and enable settings.
+See [Mod catalogue](../architecture/mod-catalogue.md#horizon-content-mods-for-rust)
+for the API, content fence, revocations and update contracts.
 
 ## Building and distribution
 
@@ -170,6 +198,9 @@ Completed checks:
   friends/message/emote bridge behavior. No new captures were taken.
 - Native Flet captures verified the existing picker flow and Server
   unavailability/restoration. Cubeon's default mega smoke gate passed.
+- Horizon's live API and a verified Additional Lights 3.1.4 download passed
+  the launcher adapter. The installed Linux beta.2 loaded its custom registries,
+  rendered terrain and saved/reopened an isolated world with the content mod.
 
 These resolve the earlier dependency, UUID persistence and exporter-packaging
 prototype questions. Interactive gameplay coverage and Windows execution remain

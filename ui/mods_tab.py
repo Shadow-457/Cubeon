@@ -938,7 +938,8 @@ class ModsView:
 
     def _apply_installed_snapshot(self, snapshot, *, render_installed=False):
         target, items, mods = snapshot.target, snapshot.items, snapshot.mods
-        self._installed_pending_target = None
+        if self._installed_pending_target == target:
+            self._installed_pending_target = None
         self.instance_loaders[target[3]] = snapshot.instance_loader
         while len(self.instance_loaders) > 12:
             self.instance_loaders.pop(next(iter(self.instance_loaders)))
@@ -1036,7 +1037,7 @@ class ModsView:
             with thread_safe_ui.TREE_LOCK:
                 if target == self._installed_target():
                     self.installed_refresh.invalidate()
-                    self._apply_installed_snapshot(snapshot)
+                self._apply_installed_snapshot(snapshot)
         except Exception:
             logging.getLogger(__name__).warning('post-install refresh failed', exc_info=True)
 
@@ -1316,10 +1317,11 @@ class ModsView:
                 if action_error is not None and enabled_before is not None:
                     row.content.controls[2].value = enabled_before
                 feedback.finish(error=action_error)
-                if target == self._installed_target():
-                    if snapshot is not None:
+                if snapshot is not None:
+                    if target == self._installed_target():
                         self.installed_refresh.invalidate()
-                        self._apply_installed_snapshot(snapshot)
+                    self._apply_installed_snapshot(snapshot)
+                if target == self._installed_target():
                     self._set_installed_status(message)
                     thread_safe_ui.refresh(row)
 
@@ -1845,7 +1847,9 @@ class ModsView:
         self._sync_client_preference()
         self._sync_content_notices()
         self._sync_local_install_action()
-        self.check_repair_btn.visible = not self._is_rust()
+        if self.check_repair_btn.visible == self._is_rust():
+            self.check_repair_btn.visible = not self._is_rust()
+            thread_safe_ui.refresh(self.check_repair_btn)
         self.installed_filter_field.hint_text = ('Search installed mods...' if self._is_mod()
                                             else 'Search installed resource packs...' if self._ct() == 'resourcepack'
                                             else 'Search installed shaders...')

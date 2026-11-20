@@ -18,17 +18,29 @@ def main():
     game = ROOT / "build/rust-inputs"
     lock = json.loads((ROOT / "native/cubeon-rust/research-lock.json").read_text())["minecraft"]
     version = lock["version"]
-    mll.install.install_minecraft_version(version, str(game), callback={"setStatus": print})
     manifest = game / f"versions/{version}/{version}.json"
+    accepted = {lock["manifest_sha1"], *lock["accepted_manifest_sha1"]}
+    from cubeon.rust_engine import _official_url
+    digest = None
+    if manifest.is_file():
+        with manifest.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha1").hexdigest()
+    if digest not in accepted:
+        # The installer reuses an existing version JSON. Seed its verified
+        # source pin before it resolves libraries/assets from Mojang's latest.
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        net.download_to(str(manifest),
+                        f"https://piston-meta.mojang.com/v1/packages/{lock['manifest_sha1']}/{version}.json",
+                        expected_hash=("sha1", lock["manifest_sha1"]), url_validator=_official_url)
+    mll.install.install_minecraft_version(version, str(game), callback={"setStatus": print})
     with manifest.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha1").hexdigest()
-    if digest not in {lock["manifest_sha1"], *lock["accepted_manifest_sha1"]}:
+    if digest not in accepted:
         raise RuntimeError("Mojang manifest changed; review and update the source pin before building")
     info = json.loads(manifest.read_text())
     server = info["downloads"]["server"]
     if server["sha1"] != lock["server_sha1"]:
         raise RuntimeError("Server resource input differs from Cubeon's source pin")
-    from cubeon.rust_engine import _official_url
     if not _official_url(server["url"]):
         raise RuntimeError("Server resource input is not hosted by Mojang")
     net.download_to(str(game / "server.jar"), server["url"],

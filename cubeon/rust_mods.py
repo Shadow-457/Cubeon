@@ -53,7 +53,7 @@ def _https(value):
         return False
     try:
         parsed = urlsplit(value or "")
-        return (parsed.scheme == "https" and bool(parsed.hostname) and not parsed.fragment
+        return (parsed.scheme == "https" and bool(parsed.hostname)
                 and parsed.port in (None, 443) and not parsed.username and not parsed.password)
     except (ValueError, TypeError):
         return False
@@ -64,6 +64,8 @@ def download_url(url, project):
     if not _https(url):
         return False
     parsed = urlsplit(url)
+    if parsed.fragment:
+        return False
     if parsed.hostname in ("release-assets.githubusercontent.com", "objects.githubusercontent.com"):
         return True
     if parsed.hostname != "github.com":
@@ -353,13 +355,12 @@ def _enabled_text(text, ident, enabled):
 
 
 def _write_text(path, text):
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                     prefix=".mods-", delete=False) as stream:
-        temporary = stream.name
-        stream.write(text)
-        stream.flush()
-        os.fsync(stream.fileno())
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".mods-")
     try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
@@ -463,7 +464,10 @@ def _read_package(path):
 def _installed_manifest(path, stamp):
     target = Path(path)
     if target.is_dir():
-        return _manifest((target / MANIFEST).read_text(encoding="utf-8"))
+        meta = rust_engine._owned(target / MANIFEST)
+        if meta.stat().st_size > 65536:
+            raise ValueError("The mod manifest is too large.")
+        return _manifest(meta.read_text(encoding="utf-8"))
     archive, manifest, _mapping = _package(_read_package(target))
     archive.close()
     return manifest
@@ -564,8 +568,8 @@ def _publish_files(files, temporary):
     changed = []
     try:
         for path, staged in files.items():
-            changed.append(path)
             os.replace(staged, path)
+            changed.append(path)
     except BaseException:
         for path in reversed(changed):
             if previous[path] is None:

@@ -253,7 +253,8 @@ public class UiTest {
             sources = [harness, shared / "Json.java", shared / "Bridge.java", shared / "hud/HudFeatures.java",
                        *sorted((shared / "ui").glob("*.java")), *sorted((shared / "emotes").glob("*.java"))]
             sources.extend(sorted((shared / "skins").glob("*.java")))
-            sources.extend(shared / "cosmetics" / name for name in ("CosmeticCatalog.java", "CosmeticGeometry.java"))
+            sources.extend(shared / "cosmetics" / name for name in (
+                "CosmeticCatalog.java", "CosmeticGeometry.java", "CosmeticSelection.java", "CosmeticSkinCoverage.java"))
             result = subprocess.run(["javac", "--release", "17", "-d", str(folder), *map(str, sources)], capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run(["java", "-Djava.awt.headless=true",

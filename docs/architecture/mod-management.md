@@ -104,12 +104,21 @@ changes and Browse/Installed changes through `_load_visible_content()`.
 
 A cached return does not replay searches or remount rows. Work completed while
 Mods is hidden updates caches; reopening displays the latest cached page.
+Install, toggle and remove completions update their captured instance's inventory
+even after selection changes, while status and repaints stay with the current
+instance. A hidden completion preserves another instance's pending refresh.
 Changing a profile while hidden defers fetching until entry. Selecting embedded
 Modpacks keeps its existing lazy builder and stops hidden Mods publication.
 The four-value `build_mods_tab()` callback interface remains compatible.
 
+Canonical Rust instances use Horizon's API in the same view for content-mod
+browsing, details, releases, `.hmod` import, enable/disable and removal. Native
+code remains unavailable with its compatibility reason. See
+[the Horizon catalogue contract](mod-catalogue.md#horizon-content-mods-for-rust)
+for package verification, conversion and native storage paths.
+
 Regression checks: `test_mod_ui_stability.py`, `test_mod_catalogue.py`,
-`test_tab_navigation.py`, `test_mods_management_ui.py` and
+`test_rust_mods.py`, `test_tab_navigation.py`, `test_mods_management_ui.py` and
 `test_tab_repaint_scope.py` in `tools/`.
 
 ### The Play Tab (Inline)

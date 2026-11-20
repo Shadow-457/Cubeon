@@ -40,6 +40,7 @@ catalog; the scripts in `tools/` are the current inventory.
 | Cosmetics | `test_appearance_preview.py`, `test_cosmetic_preview.py`, `test_cosmetic_packages.py`, `test_capes.py`, `test_skins_net.py`, `test_cosmetics_store.py`; installed-game probe: `test_cosmetic_store_native.py` |
 | Mods and packs | `test_modpacks.py`, `test_mod_store.py`, `test_loader_content_rules.py`, `test_perf_mod_removal.py` |
 | Combined mod catalogue | `test_mod_catalogue.py`, `test_mod_search.py`, `test_mod_detail.py`, `test_content_install_feedback.py`, `test_mods_management_ui.py` |
+| Horizon content mods for Rust | `test_rust_mods.py`; `test_rust_engine_native.py --content-mod /path/to/adapted.hmod` with a matching installed binary/resources |
 | Content isolation | `test_content_instance.py`, `test_instances.py` |
 | Friends and chat | `test_friends.py`, `test_friends_service.py`, `test_chat_optimistic.py` |
 | Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py` |
@@ -84,6 +85,8 @@ before running it in automation.
 ## Adding a regression test
 
 - Add `tools/test_<feature>.py`, following the adjacent standalone scripts.
+- Add its explicit `.gitignore` exception: `/tools/*` otherwise keeps new
+  local scripts out of Git and the CI checkout.
 - Make failures produce a nonzero exit status.
 - Use temporary directories and deterministic service fixtures.
 - Add the script to `SUITES` if it belongs in the extended smoke gate.

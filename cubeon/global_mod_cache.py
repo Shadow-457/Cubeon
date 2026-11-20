@@ -224,7 +224,7 @@ def _choose_store_name(sha256_hex: str, human_name: str | None, index: dict) -> 
     # the store must never be written outside itself.
     base = os.path.basename(base.replace("\\", "/"))
     from .file_safety import download_name
-    base = download_name(base, ('.jar', '.disabled'))
+    base = download_name(base, ('.jar', '.disabled', '.hmod'))
 
     candidate = base
     collision = 0

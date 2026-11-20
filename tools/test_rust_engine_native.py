@@ -9,9 +9,12 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import socket
 import time
+import tomllib
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -80,6 +83,7 @@ def main():
     parser.add_argument("--binary", type=Path, default=ROOT / "native/cubeon-rust/target/fast/cubeon-rust")
     parser.add_argument("--resources", type=Path, default=ROOT / "build/rust-engine-smoke/resources")
     parser.add_argument("--companion", action="store_true")
+    parser.add_argument("--content-mod", type=Path, help="An adapted content .hmod to load in the isolated world")
     args = parser.parse_args()
     output = ROOT / "build/rust-engine-smoke"
     output.mkdir(parents=True, exist_ok=True)
@@ -93,6 +97,17 @@ def main():
             env[key] = str(directory)
         env["CUBEON_RUST_PLAYER_UUID"] = "01234567-89ab-cdef-0123-456789abcdef"
         game = home / "game"
+        mod_id = None
+        declares_items = False
+        if args.content_mod:
+            with zipfile.ZipFile(args.content_mod) as archive:
+                mod_id = tomllib.loads(archive.read("cubeon-mod.toml").decode())["id"]
+                declares_items = any(name.startswith((f"data/{mod_id}/cubeon/block/", f"data/{mod_id}/cubeon/item/"))
+                                     for name in archive.namelist())
+            directory = game / "cubeon-mods"
+            directory.mkdir(parents=True)
+            shutil.copyfile(args.content_mod, directory / (mod_id + ".hmod"))
+            (game / "cubeon-mods.txt").write_text(f"mod.{mod_id}:true\n")
         if args.companion:
             config = game / "config"
             config.mkdir(parents=True)
@@ -135,6 +150,12 @@ def main():
             assert (world / "level.dat").is_file(), "World was not saved"
             assert (world / "players/data/01234567-89ab-cdef-0123-456789abcdef.dat").is_file(), "Stable local identity was not saved"
             assert not (game / "servers.dat").exists(), "An upstream server was added"
+            if mod_id:
+                log_text = (output / f"world-{index}.log").read_text()
+                assert "content from 1 mod(s)" in log_text, "The native engine did not load the content mod: " + log_text[-6000:]
+                if declares_items:
+                    registries = list((game / ".cubeon-cache").rglob("registries.json"))
+                    assert any(mod_id + ":" in p.read_text() for p in registries), "Custom content was missing from the prepared registries"
             if args.companion:
                 assert json.loads((game / "config/cubeon-client-hud.json").read_text())["autoSprint"]
         print("Native 26.3 world saved and reopened with the same identity after rename.", flush=True)
