@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "mod/src/main"
 
 
-def render_method(source):
-    match = re.search(r"private static void render\([^)]*\)\s*\{", source)
+def render_method(source, name="render"):
+    match = re.search(r"(?:private|public) static (?:void|int) " + re.escape(name) + r"\([^)]*\)\s*\{", source)
     if not match:
         raise AssertionError("HUD render entry point is missing")
     depth = 1
@@ -176,6 +176,56 @@ class WorldHealthProjection {
 
 @unittest.skipUnless(shutil.which("javac") and shutil.which("java"), "JDK required")
 class HudDebugVisibilityTests(unittest.TestCase):
+    def test_keystrokes_mouse_row_aligns_with_keyboard_and_space(self):
+        adapters = sorted(MAIN.glob("java-overlay-hud-*/com/cubeon/client/hud/CubeonHud.java"))
+        self.assertEqual(len(adapters), 8)
+        for adapter in adapters:
+            source = adapter.read_text()
+            keys = render_method(source, "renderKeys")
+            constants = '\n'.join(re.findall(r"\s*static final int (?:KEY_SIZE|GAP|MOUSE_BUTTON_WIDTH|SPACE_HEIGHT) = [^;]+;", source))
+            fields = sorted(set(re.findall(r"client.options.(\w+)", keys)))
+            options = ','.join(name + '=new Key()' for name in fields)
+            client = 'Minecraft' if 'GuiGraphicsExtractor' in keys else 'MinecraftClient'
+            gui = 'GuiGraphicsExtractor' if client == 'Minecraft' else 'DrawContext'
+            harness = r'''
+import java.util.*;
+public class CubeonHud {
+    // CONSTANTS
+    // WIDTH
+    // KEYS
+    record Box(int x,int y,int w,int h) {}
+    static Map<String,Box> boxes=new HashMap<>();
+    static void keyBox(GuiBase gui,ClientBase client,int x,int y,int w,int h,String label,boolean down) { boxes.put(label,new Box(x,y,w,h)); }
+    static void spaceBar(GuiBase gui,int x,int y,int w,boolean down) { boxes.put("SPACE",new Box(x,y,w,SPACE_HEIGHT)); }
+    static void check(boolean ok,String why) { if(!ok) throw new AssertionError(why+": "+boxes); }
+    public static void main(String[] args) {
+        for(boolean preview:new boolean[]{false,true}) {
+            renderKeys(new GUI(),new CLIENT(),13,17,preview);
+            Box a=boxes.get("A"),d=boxes.get("D"),l=boxes.get("LMB"),r=boxes.get("RMB"),space=boxes.get("SPACE"),w=boxes.get("W");
+            check(l.x()==a.x()&&r.x()+r.w()==d.x()+d.w(),"Mouse row aligns with both WASD edges");
+            check(l.w()==r.w()&&r.x()-l.x()-l.w()==GAP,"Mouse buttons have equal widths and the shared gap");
+            check(space.x()==l.x()&&space.w()==l.w()+GAP+r.w(),"Space bar shares the mouse-row width");
+            check(w.x()+w.w()/2==space.x()+space.w()/2,"W shares the full widget center");
+            check(l.y()==r.y()&&l.y()==a.y()+KEY_SIZE+GAP,"Mouse buttons have one aligned baseline");
+        }
+        System.out.println("WASD, LMB/RMB and space rows align in gameplay and preview.");
+    }
+}
+class GuiBase {} class DrawContext extends GuiBase {} class GuiGraphicsExtractor extends GuiBase {}
+class Key { boolean isDown(){return false;} boolean isPressed(){return false;} }
+class ClientBase { Options options=new Options(); static class Options { Key OPTIONS; } }
+class MinecraftClient extends ClientBase {} class Minecraft extends ClientBase {}
+'''
+            harness = harness.replace('// CONSTANTS', constants).replace('// WIDTH', render_method(source, 'widgetWidth'))
+            harness = harness.replace('// KEYS', keys).replace('OPTIONS', options).replace('GUI', gui).replace('CLIENT', client)
+            with self.subTest(era=adapter.relative_to(MAIN).parts[0]), tempfile.TemporaryDirectory(prefix='cubeon-keystrokes-') as temporary:
+                folder = Path(temporary); path = folder / 'CubeonHud.java'; path.write_text(harness)
+                run = subprocess.run(['javac', '--release', '17', '-d', str(folder), str(path)], capture_output=True, text=True, timeout=60)
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                run = subprocess.run(['java', '-cp', str(folder), 'CubeonHud'], capture_output=True, text=True, timeout=60)
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                print(adapter.relative_to(MAIN).parts[0] + ': ' + run.stdout.strip())
+
     def test_render_entry_points(self):
         adapters = sorted(MAIN.glob("java-overlay-hud-*/com/cubeon/client/hud/CubeonHud.java"))
         self.assertEqual(len(adapters), 8)

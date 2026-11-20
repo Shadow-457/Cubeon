@@ -239,17 +239,12 @@ SPACE_XXL = 32
 SPACE_XXXL = 48
 
 # --- Type ------------------------------------------------------------------
-# Minecraftia is the blocky pixel display face, used for LARGE text only
-# (titles, the wordmark, big buttons) - that's where a pixel font reads crisp
-# and looks right. At small sizes Minecraftia anti-aliases to a blur (Flet
-# can't turn AA off), so all the small labels/data/console text uses Inter,
-# which stays readable at 11-13px. Both files are bundled under assets/fonts
-# and loaded from the local asset dir (never fetched over the network), so the
-# window appears instantly even offline.
-FONT_DISPLAY = "Minecraftia"   # blocky pixel display face - titles and big text
-FONT_BODY = "Inter"            # readable body/label text (small and long-form)
-FONT_MONO = "Inter"            # small labels, version ids, console - too small
-                               # for a pixel face, so it shares Inter
+# Minecraftia is reserved for prominent headings and the Cubeon wordmark.
+# Small labels, values, inputs, buttons and body text use bundled Inter.
+# FONT_MONO retains its legacy name for tab builders but also uses Inter.
+FONT_DISPLAY = "Minecraftia"
+FONT_BODY = "Inter"
+FONT_MONO = FONT_BODY
 
 # Registered next to the family names above so a font can't be referenced
 # without also being registered here. Values are asset-relative paths (resolved
@@ -458,9 +453,7 @@ def pixel_divider(color=BORDER, height=1):
 
 
 def section_label(text):
-    """Small uppercase heading above each block of settings. Rendered in Inter
-    (FONT_MONO is Inter now that small text avoids Minecraftia), so it can take
-    a real semibold weight - no synthesized faux-bold, no tracking needed."""
+    """Small uppercase section label in bundled Inter semibold."""
     return ft.Text(
         text.upper(),
         size=12,

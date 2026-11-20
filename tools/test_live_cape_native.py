@@ -24,6 +24,8 @@ OUT = ROOT / 'build/cape-native-verification'
 PROBE = r'''
 package probe;
 import com.cubeon.client.Json;
+import com.cubeon.client.hud.CubeonHudConfig;
+import com.cubeon.client.hud.FullBright;
 import com.cubeon.client.skins.CapeAnimation;
 import net.fabricmc.api.ClientModInitializer;
 import java.lang.reflect.*;
@@ -101,6 +103,22 @@ public class CapeProbe implements ClientModInitializer {
             CapeAnimation.accept(Map.of("ok",true,"enabled",false,"revision","disabled"));
             set.invoke(options,capePart,false);
             check(call(call(player,"getSkin"),"cape")==null,"Local visibility applies before or after bridge clears selection");
+
+            // 1.21.11 caches the lightmap aggressively. The mixin must notice
+            // both setting edges before vanilla's !dirty early return, while
+            // the gamma option override remains scoped to lightmap work.
+            Object renderer=field(client,"gameRenderer");
+            Object lightmap=call(renderer,"getLightmap");
+            Field enabled=lightmap.getClass().getDeclaredField("cubeon$fullBright"); enabled.setAccessible(true);
+            Method update=lightmap.getClass().getMethod(name("update"),float.class);
+            CubeonHudConfig.get().fullBright=false; update.invoke(lightmap,0f);
+            check(!enabled.getBoolean(lightmap),"Full Bright disable edge reaches the real lightmap");
+            CubeonHudConfig.get().fullBright=true; update.invoke(lightmap,0f);
+            check(enabled.getBoolean(lightmap),"Full Bright enable edge forces the real lightmap rebuild");
+            Object gamma=call(options,"getGamma");
+            FullBright.beginLightmap(); Object boosted=call(gamma,"getValue"); FullBright.endLightmap();
+            check(boosted instanceof Double && ((Double)boosted)==FullBright.GAMMA,
+                    "Real gamma option receives the scoped Full Bright value");
             System.out.println("CUBEON_CAPE_NATIVE_PASS "+checks+" checks with CustomSkinLoader");
         } catch(Throwable error) {
             finished=true;System.out.println("CUBEON_CAPE_NATIVE_FAIL "+error);error.printStackTrace();
@@ -115,7 +133,9 @@ public class CapeProbe implements ClientModInitializer {
 def names_for(version):
     if version.startswith('26.'):
         return dict(part='net.minecraft.world.entity.player.PlayerModelPart', capePart='CAPE',
-                    player='player', options='options', setPart='setModelPart', getSkin='getSkin',
+                    player='player', options='options', gameRenderer='gameRenderer',
+                    setPart='setModelPart', getSkin='getSkin', getLightmap='getLightmapTextureManager',
+                    getGamma='getGamma', getValue='get', update='extractRenderState',
                     cape='cape', elytra='elytra', texturePath='texturePath',
                     state='net.minecraft.client.renderer.entity.state.AvatarRenderState',
                     skinTextures='skin', capeVisible='showCape',
@@ -130,17 +150,24 @@ def names_for(version):
         elif len(columns) > 4 and columns[1] in ('m', 'f'):
             members[columns[-1]] = columns[-2]
     result = {key: members[value] for key, value in dict(
-        capePart='CAPE', player='player', options='options', setPart='setPlayerModelPart',
+        capePart='CAPE', player='player', options='options', gameRenderer='gameRenderer',
+        setPart='setPlayerModelPart', getLightmap='getLightmapTextureManager', getGamma='getGamma',
+        getValue='getValue', update='update',
         getSkin='getSkin', cape='cape', elytra='elytra', texturePath='texturePath',
         skinTextures='skinTextures', capeVisible='capeVisible', getTexture='getTexture', stop='scheduleStop').items()}
     # Names repeated on unrelated classes need the concrete owner below.
     owners = dict(part='net/minecraft/entity/player/PlayerModelPart',
+                  renderer='net/minecraft/client/render/GameRenderer',
+                  lightmap='net/minecraft/client/render/LightmapTextureManager',
+                  option='net/minecraft/client/option/SimpleOption',
                   state='net/minecraft/client/render/entity/state/PlayerEntityRenderState',
                   wingsLayer='net/minecraft/client/render/entity/feature/ElytraFeatureRenderer')
     result.update({key: classes[value] for key, value in owners.items()})
     owner = None
     wanted = {'net/minecraft/client/MinecraftClient': {'player', 'options', 'scheduleStop'},
-              'net/minecraft/client/option/GameOptions': {'setPlayerModelPart'},
+              'net/minecraft/client/option/GameOptions': {'setPlayerModelPart', 'getGamma'},
+              owners['renderer']: {'getLightmapTextureManager'}, owners['lightmap']: {'update'},
+              owners['option']: {'getValue'},
               'net/minecraft/entity/player/SkinTextures': {'cape', 'elytra'},
               owners['part']: {'CAPE'},
               owners['state']: {'skinTextures', 'capeVisible'}, owners['wingsLayer']: {'getTexture'}}
@@ -155,15 +182,16 @@ def names_for(version):
 
 def verify(version):
     profiles = GAME / 'instances' / f'{version}-Fabric'
+    game = profiles / 'minecraft' if (profiles / 'minecraft').is_dir() else profiles
     loader = next((RUNTIME / 'versions').glob(f'fabric-loader-*-{version}')).name
     client = ROOT / 'assets/jars' / f'cubeon-client-1.0.0+mc{version}.jar'
-    api = next((profiles / 'mods').glob('fabric-api-*.jar'))
-    csl = next((profiles / 'mods').glob('CustomSkinLoader*.jar'))
+    api = next((game / 'mods').glob('fabric-api-*.jar'))
+    csl = next((game / 'mods').glob('CustomSkinLoader*.jar'))
     with tempfile.TemporaryDirectory(prefix=f'cubeon-cape-native-{version}-') as temporary:
         work = Path(temporary)
         mods = work / 'mods'; mods.mkdir()
         for artifact in (client, api, csl): shutil.copyfile(artifact, mods / artifact.name)
-        shutil.copytree(profiles / 'saves/New World', work / 'saves/Cape probe',
+        shutil.copytree(game / 'saves/New World', work / 'saves/Cape probe',
                         ignore=shutil.ignore_patterns('session.lock'))
         classes = work / 'classes'; classes.mkdir()
         source = work / 'CapeProbe.java'; source.write_text(PROBE)

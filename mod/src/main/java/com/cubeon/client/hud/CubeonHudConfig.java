@@ -38,6 +38,8 @@ public final class CubeonHudConfig {
 	/** All new HUD widgets and movement/render features are opt-in. */
 	public java.util.Map<String, ExtraOverlay> extraOverlays = new java.util.HashMap<>();
 	public boolean autoSprint = false;
+	/** Bright lightmap exposure without changing the vanilla brightness preference. */
+	public boolean fullBright = false;
 	public boolean worldClock = false;
 	public static final class ExtraOverlay {
 		public boolean enabled = false;

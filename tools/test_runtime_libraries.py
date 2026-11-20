@@ -73,6 +73,35 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.jar.read_bytes(), before)
         self.assertFalse(list(self.jar.parent.glob(".cubeon-library-*")))
 
+    def test_classifier_only_library_has_no_plain_jar_to_fetch(self):
+        # Mojang ships jinput-platform 2.0.5 with natives classifiers only: the plain
+        # coordinate has no JAR at all, so the classpath entry must be left alone.
+        self.jar.unlink()
+        self.metadata["libraries"] = [{
+            "name": "net.java.jinput:jinput-platform:2.0.5",
+            "downloads": {"classifiers": {"natives-linux": {
+                "path": "net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-linux.jar",
+                "url": "https://libraries.minecraft.net/net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-linux.jar"}}}}]
+        self.write_metadata()
+        with patch.object(libraries.net, "download_to",
+                          side_effect=AssertionError("fetched a coordinate with no artifact")):
+            self.assertEqual(libraries.ensure(self.version, self.command), 0)
+        self.assertFalse(self.jar.exists())
+
+    def test_declared_empty_artifact_with_matching_checksum_is_intact(self):
+        # Real Mojang artifact: lwjgl-platform 2.9.4-nightly-20150209 is 22 bytes, zero entries.
+        empty = b"PK\x05\x06" + b"\x00" * 18
+        self.assertEqual(len(empty), 22)
+        self.jar.write_bytes(empty)
+        self.metadata["libraries"][0]["downloads"] = {"artifact": {
+            "url": "https://maven.fabricmc.net/" + self.relative,
+            "sha1": hashlib.sha1(empty).hexdigest(), "size": len(empty)}}
+        self.write_metadata()
+        with patch.object(libraries.net, "download_to",
+                          side_effect=AssertionError("repair fetched a declared artifact")):
+            self.assertEqual(libraries.ensure(self.version, self.command), 0)
+        self.assertEqual(self.jar.read_bytes(), empty)
+
     def test_checksum_detects_readable_but_wrong_library(self):
         self.metadata["libraries"][0]["downloads"] = {"artifact": {
             "url": "https://maven.fabricmc.net/" + self.relative,

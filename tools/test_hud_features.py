@@ -43,7 +43,7 @@ public class Probe {
  public static void main(String[] args)throws Exception {
   var c=CubeonHudConfig.get();
   check(!c.showFps&&!c.showKeys&&!c.showArmor&&!c.showPing&&!c.showCps&&!c.showEnemyHealth,"Original HUDs default off");
-  check(!c.autoSprint&&!c.extrasEnabled(),"New features default off");
+  check(!c.autoSprint&&!c.fullBright&&!c.extrasEnabled(),"New features default off");
   check(c.menuAnimations,"Menu motion defaults on");
   check(!c.showOwnNameTag,"Own name tag defaults off");
   for(var f:HudFeatures.values())if(f.extra())check(!c.extra(f.slot).enabled,"Every new HUD defaults off");
@@ -53,9 +53,13 @@ public class Probe {
   check(c.showFps&&c.scaleFor("fps")==1.5f&&c.fpsX==.75f&&!c.autoSprint&&!c.extrasEnabled(),"Legacy configs retain choices and opt-in defaults");
   check(c.menuAnimations,"Old configs keep the default menu motion choice");
   c.extra("coordinates").enabled=true;c.extra("coordinates").x=.72f;c.setScaleFor("coordinates",2);
-  c.autoSprint=true;
+  c.autoSprint=true;c.fullBright=true;
   CubeonHudConfig.save();CubeonHudConfig.load();c=CubeonHudConfig.get();
-  check(c.extraEnabled("coordinates")&&c.extra("coordinates").x==.72f&&c.scaleFor("coordinates")==2&&c.autoSprint,"Selections persist independently");
+  check(c.extraEnabled("coordinates")&&c.extra("coordinates").x==.72f&&c.scaleFor("coordinates")==2&&c.autoSprint&&c.fullBright,"Selections persist independently");
+  check(FullBright.gamma(.5)==.5,"Full Bright never changes gamma outside the lightmap");
+  FullBright.beginLightmap();check(FullBright.gamma(.5)==FullBright.GAMMA,"Enabled Full Bright raises lightmap gamma");
+  FullBright.endLightmap();c.fullBright=false;FullBright.beginLightmap();
+  check(FullBright.gamma(.5)==.5,"Disabled Full Bright preserves lightmap gamma");FullBright.endLightmap();c.fullBright=true;
   String saved=Files.readString(config.resolve("cubeon-client-hud.json"));
   c.showOwnNameTag=true;c.menuAnimations=false;c.setScaleForLive("coordinates",1.37f);
   check(Files.readString(config.resolve("cubeon-client-hud.json")).equals(saved),"Live slider changes avoid disk writes");
@@ -109,7 +113,7 @@ public class Probe {
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text)
             shared = MAIN / 'java/com/cubeon/client'
-            sources = [*folder.rglob('*.java'), shared/'hud/HudFeatures.java', shared/'hud/CubeonHudConfig.java',
+            sources = [*folder.rglob('*.java'), shared/'hud/HudFeatures.java', shared/'hud/CubeonHudConfig.java', shared/'hud/FullBright.java',
                        shared/'hud/ExtraHud.java', shared/'ui/ClientTheme.java', shared/'ui/ClientUi.java', shared/'emotes/EmoteFavorites.java',
                        shared/'emotes/EmoteState.java', shared/'emotes/EmotePose.java', shared/'Bridge.java', shared/'Json.java']
             result = subprocess.run(['javac','--release','17','-cp',str(gson),'-d',str(folder),*map(str,sources)],capture_output=True,text=True,timeout=60)

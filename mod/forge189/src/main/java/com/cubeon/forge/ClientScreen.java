@@ -1,78 +1,110 @@
 package com.cubeon.forge;
 
-import com.cubeon.client.hud.*;
-import net.minecraft.client.gui.*;
-import java.io.IOException;
-import java.util.*;
+import com.cubeon.client.hud.CubeonHudConfig;
+import com.cubeon.client.hud.HudFeatures;
+import com.cubeon.client.ui.HudMenu;
+import net.minecraft.client.audio.PositionedSoundRecord;
+import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.util.ResourceLocation;
+import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
-public final class ClientScreen extends GlassScreen {
-    private int category, page;
-    private boolean blurSliding;
-    private final Map<Integer,String> toggles=new HashMap<>();
-    private final Map<Integer,HudFeatures> overlays=new HashMap<>();
-    private static final String[][] OPTIONS={
-        {"showEnemyHealth","Enemy health"},{"autoSprint","Auto sprint"},{"worldClock","World clock"},
-        {"cosmeticAnimations","Cosmetic animation"},{"wingDepth","Wing depth"},{"showOtherCosmetics","Other player cosmetics"},
-        {"showEmotes","Player emotes"},{"cameraMotionBlur","Camera motion blur"},
-        {"cameraBlurIntensity","Blur intensity"},
-        {"showArmorHelmet","Helmet"},{"showArmorChest","Chestplate"},{"showArmorLegs","Leggings"},{"showArmorFeet","Boots"}
-    };
-    public ClientScreen(GuiScreen parent) { super(parent); }
-    @Override public void initGui() {
-        buttonList.clear(); toggles.clear(); overlays.clear();
-        int w=Math.min(290,width-32), x=(width-w)/2;
-        button(1,x,36,w/3-3,"HUD"); button(2,x+w/3+2,36,w/3-3,"Settings");
-        button(8,x+2*w/3+4,36,w/3-4,"Themes");
-        int rows=Math.max(1,(height-152)/23), count=category==0?HudFeatures.ALL.length:OPTIONS.length;
-        page=Math.max(0,Math.min(page,(count-1)/rows));
-        CubeonHudConfig c=CubeonHudConfig.get();
-        for(int i=page*rows;i<Math.min(count,(page+1)*rows);i++) {
-            int y=64+(i-page*rows)*23;
-            if(category==0) {
-                HudFeatures f=HudFeatures.ALL[i]; int id=100+i; overlays.put(id,f);
-                button(id,x,y,w,Hud189.label(f)+": "+(Hud189.enabled(f)?"On":"Off"));
-            } else {
-                String field=OPTIONS[i][0]; int id=200+i;
-                if(field.equals("cameraBlurIntensity")) {
-                    buttonList.add(new net.minecraftforge.fml.client.config.GuiSlider(id,x,y,w,20,
-                            "Blur intensity: ","%",0,100,c.cameraBlurIntensity*100,false,true,
-                            slider -> CubeonHudConfig.get().cameraBlurIntensity=(float)(slider.getValue()/100)));
-                    continue;
-                }
-                toggles.put(id,field);
-                boolean on=false; try { on=CubeonHudConfig.class.getField(field).getBoolean(c); } catch(Exception ignored) { }
-                button(id,x,y,w,OPTIONS[i][1]+": "+(on?"On":"Off"));
-            }
+/**
+ * 1.8.9 host for the shared Cubeon Client menu. Layout, artwork, labels and
+ * behaviour come from {@link HudMenu}; this class only adapts native input.
+ */
+public final class ClientScreen extends GuiScreen {
+    private final GuiScreen parent;
+    private final HudMenu menu = new HudMenu();
+    private final MenuConfig settings = new MenuConfig();
+
+    public ClientScreen(GuiScreen parent) { this.parent = parent; }
+
+    @Override public void initGui() { menu.layout(width, height); }
+    @Override public boolean doesGuiPauseGame() { return false; }
+
+    @Override public void drawScreen(int mouseX, int mouseY, float partial) {
+        drawDefaultBackground();
+        menu.render(new ForgeCanvas(), width, height, mouseX, mouseY, settings);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        super.drawScreen(mouseX, mouseY, partial);
+    }
+
+    @Override protected void mouseClicked(int x, int y, int button) {
+        if (button == 1) { close(); return; }
+        if (button != 0) return;
+        if (!menu.beginScale(x, y)) choose(menu.hit(x, y));
+    }
+
+    @Override protected void mouseClickMove(int x, int y, int button, long time) {
+        if (button == 0) menu.dragScale(x);
+    }
+
+    @Override protected void mouseReleased(int x, int y, int button) { menu.finishScale(); }
+
+    @Override public void handleMouseInput() {
+        super.handleMouseInput();
+        int wheel = Mouse.getEventDWheel();
+        if (wheel != 0) menu.scroll(wheel > 0 ? -1 : 1);
+    }
+
+    @Override protected void keyTyped(char typed, int key) {
+        if (key == Keyboard.KEY_ESCAPE) { if (!menu.back()) close(); return; }
+        if (key == Keyboard.KEY_BACK) { if (!menu.backspace()) menu.back(); return; }
+        // The search field and the custom-theme hex field own printable keys.
+        if (menu.searchFocused()) {
+            if (typed >= 32 && typed != 127) menu.type(typed);
+            return;
         }
-        button(3,x,height-82,w/2-2,"‹ Previous"); button(4,x+w/2+2,height-82,w/2-2,"Next ›");
-        button(5,x,height-59,w/2-2,"Edit HUD"); button(6,x+w/2+2,height-59,w/2-2,"Friends / Chat");
-        button(7,x,height-36,w/2-2,"Zoom: "+c.zoomFactor+"×"); button(0,x+w/2+2,height-36,w/2-2,"Done");
+        if (key == Keyboard.KEY_LEFT && menu.adjustScale(-.01F)) return;
+        if (key == Keyboard.KEY_RIGHT && menu.adjustScale(.01F)) return;
+        if (key == Keyboard.KEY_SLASH) { menu.focusSearchShortcut(); return; }
+        if (key >= Keyboard.KEY_1 && key <= Keyboard.KEY_5) { choose((key - Keyboard.KEY_1) * 3); return; }
+        if (key == Keyboard.KEY_LEFT || key == Keyboard.KEY_UP) { menu.step(-1); return; }
+        if (key == Keyboard.KEY_RIGHT || key == Keyboard.KEY_DOWN || key == Keyboard.KEY_TAB) { menu.step(1); return; }
+        if (key == Keyboard.KEY_RETURN || key == Keyboard.KEY_NUMPADENTER || key == Keyboard.KEY_SPACE) {
+            choose(menu.selection()); return;
+        }
+        if (key == Keyboard.KEY_G) { choose(HudMenu.FRIENDS); return; }
+        if (key == Keyboard.KEY_E) { choose(HudMenu.EMOTES); return; }
+        if (key == Keyboard.KEY_RSHIFT) close();
     }
-    @Override protected void actionPerformed(GuiButton b) {
-        if(b.id==0) mc.displayGuiScreen(parent);
-        else if(b.id==1 || b.id==2) { category=b.id-1; page=0; initGui(); }
-        else if(b.id==3 || b.id==4) { page+=b.id==3?-1:1; initGui(); }
-        else if(b.id==5) mc.displayGuiScreen(new HudEditor(this));
-        else if(b.id==6) mc.displayGuiScreen(new FriendsScreen(this));
-        else if(b.id==7) { CubeonHudConfig c=CubeonHudConfig.get(); c.zoomFactor=c.zoomFactor>=8?1.5f:c.zoomFactor+.5f; CubeonHudConfig.save(); initGui(); }
-        else if(b.id==8) mc.displayGuiScreen(new ThemeScreen(this));
-        else if(overlays.containsKey(b.id)) { Hud189.toggle(overlays.get(b.id)); initGui(); }
-        else if(toggles.containsKey(b.id)) {
-            try { java.lang.reflect.Field f=CubeonHudConfig.class.getField(toggles.get(b.id)); f.setBoolean(CubeonHudConfig.get(),!f.getBoolean(CubeonHudConfig.get())); CubeonHudConfig.save(); }
-            catch(ReflectiveOperationException e) { throw new IllegalStateException(e); }
-            initGui();
+
+    private void choose(int action) {
+        if (action < 0 || action >= HudMenu.ACTION_COUNT) return;
+        menu.press(action);
+        mc.getSoundHandler().playSound(PositionedSoundRecord.create(
+                new ResourceLocation("gui.button.press"), 1.0F));
+        // Back, categories, paging, theme screens, search and the size slider live in HudMenu.
+        if (menu.activate(action)) return;
+        int overlay = HudMenu.overlayIndex(action);
+        if (overlay >= 0) {
+            int operation = HudMenu.overlayOperation(action);
+            if (operation == 0) Hud189.toggle(HudFeatures.ALL[overlay]);
+            else if (operation == 1) mc.displayGuiScreen(new HudEditor(this, HudFeatures.ALL[overlay]));
+            return;
+        }
+        CubeonHudConfig config = CubeonHudConfig.get();
+        switch (action) {
+            case HudMenu.HUD_EDITOR: mc.displayGuiScreen(new HudEditor(this, null)); break;
+            case HudMenu.RESET: CubeonHudConfig.resetPositions(); CubeonHudConfig.save(); break;
+            case HudMenu.EMOTES: mc.displayGuiScreen(new EmoteScreen()); break;
+            case HudMenu.FRIENDS: mc.displayGuiScreen(new FriendsScreen(this)); break;
+            case HudMenu.DONE: close(); break;
+            case HudMenu.SPRINT: config.autoSprint = !config.autoSprint; CubeonHudConfig.save(); break;
+            case HudMenu.CLOCK_MODE: config.worldClock = !config.worldClock; CubeonHudConfig.save(); break;
+            case HudMenu.HEALTH: config.showEnemyHealth = !config.showEnemyHealth; CubeonHudConfig.save(); break;
+            case HudMenu.ANIMATIONS: config.cosmeticAnimations = !config.cosmeticAnimations; CubeonHudConfig.save(); break;
+            case HudMenu.WING_DEPTH: config.wingDepth = !config.wingDepth; CubeonHudConfig.save(); break;
+            case HudMenu.OTHER_COSMETICS: config.showOtherCosmetics = !config.showOtherCosmetics; CubeonHudConfig.save(); break;
+            case HudMenu.CAMERA_BLUR: config.cameraMotionBlur = !config.cameraMotionBlur; CubeonHudConfig.save(); break;
+            case HudMenu.FULL_BRIGHT: config.fullBright = !config.fullBright; CubeonHudConfig.save(); break;
+            case HudMenu.MENU_ANIMATIONS: config.menuAnimations = !config.menuAnimations; CubeonHudConfig.save(); break;
+            case HudMenu.OWN_NAME_TAG: config.showOwnNameTag = !config.showOwnNameTag; CubeonHudConfig.save(); break;
+            default: break;
         }
     }
-    @Override protected void mouseClicked(int x,int y,int button) throws IOException {
-        if(button==0) for(GuiButton control:buttonList) {
-            if(control instanceof net.minecraftforge.fml.client.config.GuiSlider && x>=control.xPosition && x<control.xPosition+control.width
-                    && y>=control.yPosition && y<control.yPosition+control.height) blurSliding=true;
-        }
-        super.mouseClicked(x,y,button);
-    }
-    @Override protected void mouseReleased(int x,int y,int state) {
-        super.mouseReleased(x,y,state);
-        if(blurSliding) { blurSliding=false; CubeonHudConfig.save(); }
-    }
-    @Override public void drawScreen(int x,int y,float partial) { chrome("Cubeon Client · Forge 1.8.9"); super.drawScreen(x,y,partial); }
+
+    private void close() { mc.displayGuiScreen(parent); }
 }

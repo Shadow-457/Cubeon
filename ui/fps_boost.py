@@ -3,6 +3,7 @@ import flet as ft
 
 from cubeon import i18n, thread_safe_ui
 from cubeon.perf_mods import OPTIONAL_PERF_MODS
+from cubeon.theme import FONT_BODY
 
 
 def build_boost_options(cfg, save_config, set_status, *, accent, text_color):
@@ -24,7 +25,8 @@ def build_boost_options(cfg, save_config, set_status, *, accent, text_color):
     sync = ft.Checkbox(
         label=i18n.t("Sync game settings"),
         value=bool(cfg.get("fps_boost_sync_settings", False)),
-        label_style=ft.TextStyle(size=12, color=text_color), active_color=accent,
+        label_style=ft.TextStyle(size=12, color=text_color, font_family=FONT_BODY,
+                                 weight=ft.FontWeight.W_400), active_color=accent,
         visual_density=ft.VisualDensity.COMPACT,
         tooltip=i18n.t("Reapply fast video settings before every launch: 4-chunk render distance, "
                        "5-chunk simulation, VSync off and unlimited FPS. Tunes the renderer and turns off "

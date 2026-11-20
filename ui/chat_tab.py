@@ -46,6 +46,10 @@ Design rules it follows:
   - Bubbles are click-to-copy, and every bubble/roster stamp carries the
     full date on hover. The clock line is GROUPED: only the first bubble of
     a same-side run (or a new day) shows it.
+  - The first supported media link in a bubble previews in place: direct
+    GIF/image URLs and Giphy share links animate/render through Flet, while
+    YouTube links use a thumbnail card. Other HTTP(S) links use a local host/URL card. No relay
+    fields, metadata request, or media worker.
   - The roster can be filtered by name or ID (find_field, client-side over
     the last roster snapshot - the service is never queried per keystroke).
   - All service calls run on this module's own poll thread; every control write
@@ -62,6 +66,7 @@ import re
 import threading
 import time
 import unicodedata
+from urllib.parse import parse_qs, urlsplit
 
 import flet as ft
 from ui.content_states import skeleton_block
@@ -108,6 +113,10 @@ _MAX_TRANSCRIPT = 400
 _BUBBLE_MAX = 560
 _BUBBLE_MIN = 88
 _CHAR_PX = 6.8
+_LINK_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+_YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_GIPHY_ID_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
+_IMAGE_EXTENSIONS = (".gif", ".png", ".jpg", ".jpeg", ".webp")
 
 # Local text aliases only: no relay, plugin or platform emoji dependency.
 _EMOJI_GROUPS = {
@@ -131,6 +140,106 @@ _EMOJI_CODES.update({"+1": "👍", "-1": "👎", "laughing": "😆", "blush": "�
 
 def _expand_emoji_codes(text):
     return re.sub(r":([a-z0-9_+-]+):", lambda m: _EMOJI_CODES.get(m[1], m[0]), text)
+
+
+def _clean_http_url(value):
+    """Return a bounded HTTP(S) link with sentence punctuation removed."""
+    candidate = str(value or "").strip()
+    if not candidate or len(candidate) > 2048:
+        return None
+    candidate = candidate.rstrip(".,!?;:")
+    for opening, closing in (("(", ")"), ("[", "]"), ("{", "}")):
+        while candidate.endswith(closing) and candidate.count(opening) < candidate.count(closing):
+            candidate = candidate[:-1]
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+        return None
+    return candidate
+
+
+def _youtube_video_id(parsed):
+    host = (parsed.hostname or "").lower().rstrip(".")
+    parts = [part for part in parsed.path.split("/") if part]
+    video_id = None
+    if host in ("youtu.be", "www.youtu.be") and parts:
+        video_id = parts[0]
+    elif host in ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"):
+        if parsed.path.rstrip("/") == "/watch":
+            video_id = (parse_qs(parsed.query).get("v") or [None])[0]
+        elif len(parts) >= 2 and parts[0] in ("embed", "shorts", "live"):
+            video_id = parts[1]
+    elif host in ("youtube-nocookie.com", "www.youtube-nocookie.com"):
+        if len(parts) >= 2 and parts[0] == "embed":
+            video_id = parts[1]
+    return video_id if video_id and _YOUTUBE_ID_RE.fullmatch(video_id) else None
+
+
+def _giphy_gif_id(parsed):
+    """Resolve Giphy's share-page ID locally, preserving its case."""
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if host not in ("giphy.com", "www.giphy.com", "m.giphy.com"):
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2 or parts[0] not in ("gifs", "stickers", "embed"):
+        return None
+    gif_id = parts[1].rsplit("-", 1)[-1]
+    return gif_id if _GIPHY_ID_RE.fullmatch(gif_id) else None
+
+
+def _link_preview(text):
+    """Describe the best dependency-free link preview in a message.
+
+    Direct image links and Giphy share pages are rendered by Flet's image control
+    (including animated GIFs). YouTube pages use the service's stable thumbnail
+    endpoint and open the original link when activated; pinned Flet has no video/WebView control.
+    A normal HTTP(S) link falls back to a local host/URL card, without fetching
+    page metadata. Rich media wins when a message contains both kinds.
+    """
+    fallback = None
+    for match in _LINK_RE.finditer(str(text or "")):
+        url = _clean_http_url(match.group(0))
+        if not url:
+            continue
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            continue
+        video_id = _youtube_video_id(parsed)
+        if video_id:
+            return {
+                "kind": "youtube",
+                "url": url,
+                "source": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                "label": "Open YouTube video",
+            }
+        if parsed.path.lower().endswith(_IMAGE_EXTENSIONS):
+            return {
+                "kind": "gif" if parsed.path.lower().endswith(".gif") else "image",
+                "url": url,
+                "source": url,
+                "label": "Open animated GIF" if parsed.path.lower().endswith(".gif")
+                         else "Open image",
+            }
+        gif_id = _giphy_gif_id(parsed)
+        if gif_id:
+            return {
+                "kind": "gif",
+                "url": url,
+                "source": f"https://media.giphy.com/media/{gif_id}/giphy.gif",
+                "label": "Open animated GIF",
+            }
+        if fallback is None:
+            host = (parsed.hostname or "").lower().rstrip(".")
+            fallback = {
+                "kind": "link",
+                "url": url,
+                "host": host,
+                "label": f"Open {host}",
+            }
+    return fallback
 
 
 def _fmt_time(ts_ms) -> str:
@@ -1164,6 +1273,108 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         longest = max((cells(line) for line in (text or "").split("\n")), default=1)
         return min(max_w, max(_BUBBLE_MIN, int(longest * _CHAR_PX) + 6))
 
+    def _embed_width(max_w):
+        return max(48, min(420, max_w))
+
+    def _resize_link_embed(embed, max_w):
+        width = _embed_width(max_w)
+        data = embed.data or {}
+        ratio = float(data.get("ratio") or (9 / 16))
+        height = 64 if data.get("kind") == "link" else max(27, round(width * ratio))
+        embed.width = width
+        embed.height = height
+        if embed.controls:
+            visual = embed.controls[0]
+            visual.width = width
+            visual.height = height
+
+    def _open_link(url):
+        safe_url = _clean_http_url(url)
+        if not safe_url:
+            return
+        try:
+            page.run_task(ft.UrlLauncher().launch_url, safe_url)
+        except Exception:
+            pass
+
+    def _make_link_embed(text, max_w):
+        preview = _link_preview(text)
+        if not preview:
+            return None
+        width = _embed_width(max_w)
+        ratio = 0.24 if preview["kind"] == "link" else 9 / 16
+        height = 64 if preview["kind"] == "link" else max(27, round(width * ratio))
+        if preview["kind"] == "link":
+            visual = ft.Container(
+                content=ft.Row([
+                    ft.Container(
+                        ft.Icon(ft.Icons.PUBLIC_ROUNDED, size=24, color=ACCENT),
+                        width=44, height=44, bgcolor=ACCENT_TINT,
+                        border_radius=10, alignment=ft.Alignment.CENTER),
+                    ft.Column([
+                        ft.Text(preview["host"], size=13, color=TEXT,
+                                weight=ft.FontWeight.W_700,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Text(preview["url"], size=10, color=TEXT_DIM,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                    ], spacing=3, tight=True, expand=True),
+                    ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=16, color=TEXT_FAINT),
+                ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                width=width, height=height, padding=ft.Padding(10, 8, 10, 8),
+                bgcolor=SURFACE, border=ft.border.Border.all(1, CARD_BORDER),
+                border_radius=10, ink=False, tooltip=preview["label"],
+                on_click=lambda e, url=preview["url"]: _open_link(url),
+            )
+            target = keyboard_target(visual, preview["label"])
+            target.data = {"chat_link_embed": True, "ratio": ratio,
+                           "kind": preview["kind"], "url": preview["url"]}
+            return target
+        fallback = ft.Container(
+            content=ft.Column([
+                ft.Icon(ft.Icons.BROKEN_IMAGE_OUTLINED, size=24, color=TEXT_FAINT),
+                ft.Text("Preview unavailable", size=10, color=TEXT_FAINT),
+            ], spacing=6, tight=True,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=SURFACE, alignment=ft.Alignment.CENTER,
+        )
+        image = ft.Image(
+            src=preview["source"], fit=(ft.BoxFit.COVER if preview["kind"] == "youtube"
+                                        else ft.BoxFit.CONTAIN),
+            left=0, top=0, right=0, bottom=0, gapless_playback=True,
+            filter_quality=ft.FilterQuality.MEDIUM,
+            error_content=fallback,
+            semantics_label=("YouTube video thumbnail" if preview["kind"] == "youtube"
+                             else "Shared image preview"),
+        )
+        layers = [image]
+        if preview["kind"] == "youtube":
+            layers.extend([
+                ft.Container(
+                    content=ft.Container(
+                        ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=30, color=ON_ACCENT),
+                        width=52, height=40, bgcolor="#CC111111", border_radius=12,
+                        alignment=ft.Alignment.CENTER),
+                    left=0, top=0, right=0, bottom=0,
+                    alignment=ft.Alignment.CENTER, ignore_interactions=True),
+                ft.Container(
+                    ft.Text("YouTube", size=10, color="#FFFFFFFF",
+                            weight=ft.FontWeight.W_700),
+                    left=8, bottom=8, bgcolor="#CC111111", border_radius=6,
+                    padding=ft.Padding(7, 3, 7, 3), ignore_interactions=True),
+            ])
+        visual = ft.Container(
+            content=ft.Stack(layers, fit=ft.StackFit.EXPAND),
+            width=width, height=height, bgcolor=SURFACE,
+            border=ft.border.Border.all(1, CARD_BORDER), border_radius=10,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS, ink=False,
+            tooltip=preview["label"],
+            on_click=lambda e, url=preview["url"]: _open_link(url),
+        )
+        target = keyboard_target(visual, preview["label"])
+        target.data = {"chat_link_embed": True, "ratio": ratio,
+                       "kind": preview["kind"], "url": preview["url"]}
+        return target
+
     def _on_pane_size(e):
         width = getattr(e, "width", None)
         if not width or abs(width - (_pane_width["v"] or 0)) < 1:
@@ -1178,6 +1389,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 if isinstance(getattr(bubble, "content", None), ft.Column):
                     body = bubble.content.controls[0]
                     body.width = _bubble_text_width(body.value, _bubble_max_width())
+                    for child in bubble.content.controls[1:]:
+                        if (isinstance(child, ft.Stack) and isinstance(child.data, dict)
+                                and child.data.get("chat_link_embed")):
+                            _resize_link_embed(child, _bubble_max_width())
             empty_sub.width = min(340, max(100, width - 48))
             composer_hint.visible = width >= 430
             _refresh(transcript, empty_sub, composer_hint)
@@ -1261,6 +1476,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         color=TEXT_DIM if dim else TEXT,
                         width=_bubble_text_width(text, max_w),
                         tooltip="Click the bubble to copy this message")]
+        embed = _make_link_embed(text, max_w)
+        if embed:
+            rows.append(embed)
         meta = _fmt_time(ts)
         if status:
             rows.append(ft.Row(

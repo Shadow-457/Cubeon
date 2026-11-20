@@ -11,7 +11,7 @@ public final class HudMenu {
     public static final int EMOTES=15, HEALTH=16, ANIMATIONS=17, WING_DEPTH=18,
             OTHER_COSMETICS=19, CAMERA_BLUR=20, BLUR_INTENSITY=21, RESET=22,
             FRIENDS=23, DONE=24, SPRINT=53, CLOCK_MODE=54, SKINS=55, MENU_ANIMATIONS=56, OWN_NAME_TAG=57,
-            HUD_EDITOR=61, DETAIL=70, SEARCH=100, CATEGORY=101, PREVIOUS=107, NEXT=108, BACK=109,
+            FULL_BRIGHT=58, HUD_EDITOR=61, DETAIL=70, SEARCH=100, CATEGORY=101, PREVIOUS=107, NEXT=108, BACK=109,
             THEMES=60, ACTION_COUNT=124, NONE=-1;
     private static final String[] CATEGORIES={"All", "HUD", "Player", "Render", "Movement", "Cosmetics"};
     private static final HudFeatures[] OVERLAYS=HudFeatures.values();
@@ -21,6 +21,7 @@ public final class HudMenu {
         boolean cameraBlur(); float blurIntensity();
         default void setBlurIntensity(float value) { }
         default boolean sprint() { return false; }
+        default boolean fullBright() { return false; }
         default boolean worldClock() { return false; }
         default boolean ownNameTag() { return false; }
         default boolean menuAnimations() { return true; }
@@ -37,6 +38,7 @@ public final class HudMenu {
         for (HudFeatures feature:OVERLAYS) features.add(new Feature(feature.slot,feature.category,toggleAction(feature.ordinal()),feature.ordinal()));
         features.add(new Feature("sprint","Movement",SPRINT,-1));
         features.add(new Feature("camera_blur","Render",CAMERA_BLUR,-1));
+        features.add(new Feature("full_bright","Render",FULL_BRIGHT,-1));
         features.add(new Feature("health","Player",HEALTH,-1));
         features.add(new Feature("animations","Cosmetics",ANIMATIONS,-1));
         features.add(new Feature("wing_depth","Cosmetics",WING_DEPTH,-1));
@@ -237,7 +239,8 @@ public final class HudMenu {
         if(f.overlay>=0) return s.visible(f.overlay);
         return switch(f.action) { case SPRINT->s.sprint(); case HEALTH->s.health();
             case ANIMATIONS->s.animations(); case WING_DEPTH->s.wingDepth(); case OTHER_COSMETICS->s.otherCosmetics();
-            case CAMERA_BLUR->s.cameraBlur(); case MENU_ANIMATIONS->s.menuAnimations(); case OWN_NAME_TAG->s.ownNameTag(); default->false; };
+            case CAMERA_BLUR->s.cameraBlur(); case FULL_BRIGHT->s.fullBright();
+            case MENU_ANIMATIONS->s.menuAnimations(); case OWN_NAME_TAG->s.ownNameTag(); default->false; };
     }
     public void render(ClientUi.Canvas canvas,int w,int h,int mx,int my,Settings s) {
         if(featureLabels[0]==null) { for(int i=0;i<FEATURES.length;i++) featureLabels[i]=canvas.translate("cubeonclient.hud."+FEATURES[i].slot); dirty=true; } latest=s; layout(w,h);

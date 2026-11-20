@@ -28,6 +28,7 @@ public final class CubeonForge {
     public static final KeyBinding EMOTES = key("Emotes", Keyboard.KEY_B);
     public static final KeyBinding WINGS = key("Wing action", Keyboard.KEY_N);
     private Object world;
+    private Float renderGamma;
     private String room = "";
     private List<Bridge.EmoteEvent> previous = Collections.emptyList();
     private final java.util.concurrent.ArrayBlockingQueue<Bridge.Toast> toasts = new java.util.concurrent.ArrayBlockingQueue<>(32);
@@ -84,6 +85,19 @@ public final class CubeonForge {
         while (mc.thePlayer != null && (toast = toasts.poll()) != null)
             mc.thePlayer.addChatMessage(new ChatComponentText("[Cubeon] " + toast.text()));
         CosmeticSelection.refresh();
+    }
+    @SubscribeEvent public void renderTick(TickEvent.RenderTickEvent event) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (event.phase == TickEvent.Phase.START) {
+            if (CubeonHudConfig.get().fullBright && renderGamma == null) {
+                renderGamma = mc.gameSettings.gammaSetting;
+                mc.gameSettings.gammaSetting = (float)FullBright.GAMMA;
+            }
+        } else if (renderGamma != null) {
+            if (mc.gameSettings.gammaSetting == (float)FullBright.GAMMA)
+                mc.gameSettings.gammaSetting = renderGamma;
+            renderGamma = null;
+        }
     }
     public static void play(int id) {
         Minecraft mc = Minecraft.getMinecraft();

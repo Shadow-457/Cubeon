@@ -68,6 +68,9 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/hud/HudReadings.class",
                     "com/cubeon/client/ui/HudIcon.class",
                     "com/cubeon/client/mixin/AutoSprintMixin.class",
+                    "com/cubeon/client/hud/FullBright.class",
+                    "com/cubeon/client/mixin/FullBrightLightmapMixin.class",
+                    "com/cubeon/client/mixin/FullBrightOptionMixin.class",
                     "com/cubeon/client/mixin/ComboDamageMixin.class",
                     "com/cubeon/client/ChunkDistanceOptions.class",
                     "com/cubeon/client/mixin/ChunkDistanceOptionsMixin.class",
@@ -113,11 +116,15 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/skins/SkinPreview.class",
                     "com/cubeon/client/skins/CosmeticPreview.class",
                     "com/cubeon/client/skins/LiveSkin.class",
+                    "com/cubeon/client/skins/RemoteSkins.class",
+                    "com/cubeon/client/skins/RemoteSkins$Skin.class",
+                    "com/cubeon/client/skins/RemoteSkinTexture.class",
                     "com/cubeon/client/skins/LiveCape.class",
                     "com/cubeon/client/skins/LiveCapeTexture.class",
                     "com/cubeon/client/skins/CapeFrames.class",
                     "com/cubeon/client/skins/CapeAnimation.class",
                     "com/cubeon/client/skins/LiveSkinTexture.class",
+                    "com/cubeon/client/skins/CosmeticSkinTexture.class",
                     "com/cubeon/client/mixin/LiveSkinMixin.class",
                     "com/cubeon/client/hud/screen/SkinLibraryScreen.class",
     "com/cubeon/client/hud/screen/SkinNative.class",
@@ -157,6 +164,7 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/cosmetics/CosmeticView.class",
                     "com/cubeon/client/cosmetics/CosmeticElytra.class",
                     "com/cubeon/client/cosmetics/CosmeticSkinCoverage.class",
+                    "com/cubeon/client/cosmetics/CosmeticSkinCoverage$Pixels.class",
                     "com/cubeon/client/mixin/CosmeticLayersAccessor.class",
                     "com/cubeon/client/mixin/CosmeticElytraMixin.class",
                     "com/cubeon/client/mixin/CosmeticSkinVisibilityMixin.class",
@@ -365,7 +373,8 @@ def verify(jar_path, bracket=None):
     if "cubeon-client.mixins.json" not in configs or any(
             hook not in client_hooks.get("client", [])
             for hook in ("CosmeticLayersAccessor", "CosmeticElytraMixin", "SkinTitleMenuMixin", "OwnNameTagMixin",
-                         "GuiScaleDefaultMixin", "StartupLoadingMixin")):
+                         "GuiScaleDefaultMixin", "StartupLoadingMixin", "FullBrightLightmapMixin",
+                         "FullBrightOptionMixin")):
         return "cosmetic elytra hooks are not registered"
     if "cubeon-client.freelook.mixins.json" not in configs:
         return "freelook mixin config is not registered"
@@ -394,11 +403,15 @@ def verify(jar_path, bracket=None):
         return "freelook control label is missing"
     if not labels.get("cubeonclient.hud.wing_depth"):
         return "3D wing setting label is missing"
+    if not labels.get("cubeonclient.hud.full_bright"):
+        return "Full Bright setting label is missing"
     if not labels.get("key.cubeon-client.wing_flare"):
         return "dragon wing control label is missing"
     with zipfile.ZipFile(jar_path) as jar:
         if b"wingDepth" not in jar.read("com/cubeon/client/hud/CubeonHudConfig.class"):
             return "3D wing setting is missing"
+        if b"fullBright" not in jar.read("com/cubeon/client/hud/CubeonHudConfig.class"):
+            return "Full Bright setting is missing"
         if b"wing_flare" not in jar.read("com/cubeon/client/hud/CubeonHudKeybinds.class"):
             return "dragon wing key binding is missing"
         catalog_entry = "assets/cubeon-client/cosmetics/catalog.json"

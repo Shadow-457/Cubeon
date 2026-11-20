@@ -6,7 +6,7 @@ import threading
 import flet as ft
 
 from cubeon import thread_safe_ui
-from cubeon.theme import ACCENT, BG, FONT_DISPLAY, ON_ACCENT, RADIUS, TEXT, TEXT_DIM
+from cubeon.theme import ACCENT, BG, FONT_BODY, FONT_DISPLAY, ON_ACCENT, RADIUS, TEXT, TEXT_DIM
 
 STEP_COUNT = 3
 FADE_MS = 180
@@ -30,7 +30,7 @@ def _title(text, size=40):
 
 
 def _caption(text):
-    return ft.Text(text, size=9, color=TEXT_DIM, font_family=FONT_DISPLAY)
+    return ft.Text(text, size=9, color=TEXT_DIM, font_family=FONT_BODY)
 
 
 def build_onboarding(page, *, initial_name: str, friends_on: bool,
@@ -47,42 +47,42 @@ def build_onboarding(page, *, initial_name: str, friends_on: bool,
         helper='3–16 letters, numbers, or underscores.',
         border_color=ft.Colors.with_opacity(.3, TEXT_DIM), focused_border_color=ACCENT,
         bgcolor=ft.Colors.with_opacity(.86, BG), color=TEXT,
-        text_style=ft.TextStyle(size=13, font_family=FONT_DISPLAY),
-        label_style=ft.TextStyle(size=11, font_family=FONT_DISPLAY),
-        helper_style=ft.TextStyle(size=9, font_family=FONT_DISPLAY),
+        text_style=ft.TextStyle(size=13, font_family=FONT_BODY),
+        label_style=ft.TextStyle(size=11, font_family=FONT_BODY),
+        helper_style=ft.TextStyle(size=9, font_family=FONT_BODY),
         content_padding=ft.Padding(14, 16, 14, 16), border_radius=RADIUS,
         autocorrect=False, enable_suggestions=False,
         on_submit=lambda e: _next(), data='onboarding-name',
     )
     summary_name = ft.Text(name_field.value or 'Steve', size=14, color=TEXT,
-                           font_family=FONT_DISPLAY, max_lines=1,
+                           font_family=FONT_BODY, max_lines=1,
                            overflow=ft.TextOverflow.ELLIPSIS)
     welcome = ft.Column([
         _caption('WELCOME'),
         _title('Welcome\nto Cubeon.'),
         ft.Text('Set your player name, then choose a Minecraft version.',
-                size=11, color=TEXT_DIM, width=380, font_family=FONT_DISPLAY),
+                size=11, color=TEXT_DIM, width=380, font_family=FONT_BODY),
     ], spacing=20, tight=True, alignment=ft.MainAxisAlignment.CENTER)
     player = ft.Column([
         _caption('PLAYER NAME'),
         _title('Your name\nin Minecraft.', 30),
         ft.Text('This is the name other players will see.', size=11, color=TEXT_DIM,
-                font_family=FONT_DISPLAY),
+                font_family=FONT_BODY),
         name_field,
         ft.Text('You can change it later in Settings → Account.', size=10, color=TEXT_DIM,
-                font_family=FONT_DISPLAY),
+                font_family=FONT_BODY),
     ], spacing=18, tight=True, alignment=ft.MainAxisAlignment.CENTER,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
     ready = ft.Column([
         _caption('START'),
         _title('Ready to play.', 32),
         ft.Text('Open New instance on the Play tab to choose a version.',
-                size=11, color=TEXT_DIM, width=380, font_family=FONT_DISPLAY),
+                size=11, color=TEXT_DIM, width=380, font_family=FONT_BODY),
         ft.Row([
             summary_name,
             ft.TextButton('Edit name', on_click=lambda e: _go(1),
                           style=ft.ButtonStyle(color=TEXT_DIM,
-                                              text_style=ft.TextStyle(font_family=FONT_DISPLAY, size=10))),
+                                              text_style=ft.TextStyle(font_family=FONT_BODY, size=10))),
         ], spacing=14),
     ], spacing=22, tight=True, alignment=ft.MainAxisAlignment.CENTER)
     views = [welcome, player, ready]
@@ -95,11 +95,11 @@ def build_onboarding(page, *, initial_name: str, friends_on: bool,
     numbers, labels, dots = [], [], []
     progress = []
     for i, title in enumerate(('Welcome', 'Player name', 'Start')):
-        number = ft.Container(ft.Text(str(i + 1), size=9, color=TEXT_DIM, font_family=FONT_DISPLAY),
+        number = ft.Container(ft.Text(str(i + 1), size=9, color=TEXT_DIM, font_family=FONT_BODY),
                               width=24, height=24, border_radius=7,
                               alignment=ft.Alignment.CENTER,
                               bgcolor=ft.Colors.with_opacity(.55, BG))
-        label = ft.Text(title, size=10, color=TEXT_DIM, font_family=FONT_DISPLAY)
+        label = ft.Text(title, size=10, color=TEXT_DIM, font_family=FONT_BODY)
         numbers.append(number)
         labels.append(label)
         progress.append(ft.Row([number, label], spacing=8, tight=True))
@@ -107,15 +107,15 @@ def build_onboarding(page, *, initial_name: str, friends_on: bool,
                                  bgcolor=ft.Colors.with_opacity(.35, TEXT_DIM),
                                  animate=ft.Animation(FADE_MS)))
     skip_btn = ft.TextButton('Skip', data='onboarding-skip',
-                             style=ft.ButtonStyle(color=TEXT_DIM, text_style=ft.TextStyle(font_family=FONT_DISPLAY, size=10)))
+                             style=ft.ButtonStyle(color=TEXT_DIM, text_style=ft.TextStyle(font_family=FONT_BODY, size=10)))
     back_btn = ft.TextButton('Back', visible=False, data='onboarding-back',
-                             style=ft.ButtonStyle(color=TEXT_DIM, text_style=ft.TextStyle(font_family=FONT_DISPLAY, size=10)))
+                             style=ft.ButtonStyle(color=TEXT_DIM, text_style=ft.TextStyle(font_family=FONT_BODY, size=10)))
     next_btn = ft.FilledButton(
         'Continue', icon=ft.Icons.ARROW_FORWARD_ROUNDED, width=178, height=46,
         data='onboarding-next',
         style=ft.ButtonStyle(color=ON_ACCENT, bgcolor=ACCENT,
                              shape=ft.RoundedRectangleBorder(radius=RADIUS),
-                             text_style=ft.TextStyle(size=11, font_family=FONT_DISPLAY)),
+                             text_style=ft.TextStyle(size=11, font_family=FONT_BODY)),
     )
     footer = ft.Row([
         ft.Container(back_btn, width=178, alignment=ft.Alignment.BOTTOM_LEFT),

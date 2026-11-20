@@ -534,7 +534,10 @@ public final class HudIcon {
         draw(c,index,x,y,size,true,fade);
     }
     public static void draw(ClientUi.Canvas c,int index,int x,int y,int size,boolean active,float fade) {
-        pixels(c,ART[index%ART.length],x,y,size,
+        // Full Bright reuses the existing daylight/sun art. It sits after
+        // Camera Blur in HudMenu, so later feature icons retain their identity.
+        int art=index==15?11:index>15?index-1:index;
+        pixels(c,ART[art%ART.length],x,y,size,
                 ClientUi.alpha(active?MenuUi.ACCENT_HI:MenuUi.FAINT,fade));
     }
     private static void pixels(ClientUi.Canvas c,String[] rows,int x,int y,int size,int color) {

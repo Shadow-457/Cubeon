@@ -12,8 +12,10 @@ FILES = (
     "cosmetics/CosmeticAnimation.java", "cosmetics/WingAction.java",
     "emotes/EmotePose.java", "emotes/EmoteState.java", "emotes/EmoteFavorites.java",
     "emotes/EmoteRoom.java", "cosmetics/CosmeticSelection.java", "cosmetics/RemoteCosmetics.java",
-    "hud/CubeonHudConfig.java",
-    "ui/ClientTheme.java",
+    "hud/CubeonHudConfig.java", "hud/FullBright.java",
+    "ui/ClientTheme.java", "ui/ClientUi.java", "ui/MenuUi.java", "ui/HudIcon.java",
+    "ui/HudMenu.java", "ui/ThemeMenu.java", "ui/HudEditorChrome.java", "ui/FriendsPanel.java",
+    "emotes/EmoteWheel.java",
     "hud/CameraBlur.java", "hud/HealthHearts.java",
 )
 
@@ -81,7 +83,8 @@ public int hashCode() {{ return java.util.Arrays.deepHashCode(new Object[]{{{val
 
 
 def switches(text):
-    branch = re.compile(r"(?:case\s+(?:\"[^\"]*\"|'(?:\\.|[^'])+'|[\w]+)(?:\s*,\s*\w+)*|default)\s*->")
+    # Qualified enum constants (HudMenu.HUD_EDITOR) are labels too.
+    branch = re.compile(r"(?:case\s+(?:\"[^\"]*\"|'(?:\\.|[^'])+'|[\w.]+)(?:\s*,\s*[\w.]+)*|default)\s*->")
     scan = 0
     while match := re.compile(r"switch\s*\(([^()]*)\)\s*\{").search(text, scan):
         end = close_brace(text, match.end() - 1)
@@ -165,6 +168,8 @@ def generate(root, destination):
         text = text.replace("Path.of(", "java.nio.file.Paths.get(")
         text = text.replace("Files.readString(TOKEN_FILE, StandardCharsets.UTF_8)",
                             "new String(Files.readAllBytes(TOKEN_FILE), StandardCharsets.UTF_8)")
+        text = text.replace("Files.readString(external)",
+                            "new String(com.cubeon.compat.Collections8.read(external, 8 * 1024 * 1024), StandardCharsets.UTF_8)")
         text = text.replace("List.of(", "com.cubeon.compat.Collections8.list(")
         text = text.replace("List.copyOf(", "com.cubeon.compat.Collections8.copy(")
         text = text.replace("Map.of()", "java.util.Collections.emptyMap()")
@@ -176,6 +181,32 @@ def generate(root, destination):
         text = re.sub(r"(\w+)\.isBlank\(\)", r"com.cubeon.compat.Collections8.blank(\1)", text)
         text = text.replace("valid.toArray(String[]::new)", "valid.toArray(new String[0])")
         text = text.replace('"0".repeat(8 - text.length())', '"00000000".substring(text.length())')
+        # Shared UI models: explicit types instead of var, and Java 8 collection/stream forms.
+        text = text.replace('var features=new ArrayList<Feature>();',
+                            'ArrayList<Feature> features=new ArrayList<Feature>();')
+        text = text.replace('FEATURES=features.toArray(Feature[]::new);',
+                            'FEATURES=features.toArray(new Feature[0]);')
+        text = text.replace('var matches=new ArrayList<Integer>();',
+                            'ArrayList<Integer> matches=new ArrayList<Integer>();')
+        text = text.replace('var r=controls[', 'HudMenu.Rect r=controls[')
+        text = text.replace('var back=controls[HudMenu.BACK]; var apply=controls[APPLY];',
+                            'HudMenu.Rect back=controls[HudMenu.BACK]; HudMenu.Rect apply=controls[APPLY];')
+        text = text.replace('var sent = bridge.chatSent();', 'Bridge.ChatSent sent = bridge.chatSent();')
+        text = text.replace('var friends = bridge.snapshot().friends();',
+                            'List<Bridge.Friend> friends = bridge.snapshot().friends();')
+        text = text.replace('var view = bridge.chat();', 'Bridge.ChatView view = bridge.chat();')
+        text = text.replace('var selected = bridge.snapshot().friends().stream()',
+                            'Bridge.Friend selected = bridge.snapshot().friends().stream()')
+        text = text.replace('var friend = friends.get(i);', 'Bridge.Friend friend = friends.get(i);')
+        text = text.replace('var result = new ArrayList<String>();', 'List<String> result = new ArrayList<String>();')
+        text = text.replace('for (var message : messages)', 'for (Bridge.ChatMessage message : messages)')
+        text = text.replace('names.toArray(String[]::new)', 'names.toArray(new String[0])')
+        # Forge 1.8.9 has no launcher-backed skin wardrobe, so the shared toolbar drops that
+        # one tool here rather than showing a button that opens nothing.
+        text = text.replace('int[] tools={THEMES,SKINS,RESET,EMOTES,FRIENDS,DONE};',
+                            'int[] tools={THEMES,RESET,EMOTES,FRIENDS,DONE};')
+        text = text.replace('for(int id:new int[]{HUD_EDITOR,THEMES,SKINS,RESET,EMOTES,FRIENDS,DONE})',
+                            'for(int id:new int[]{HUD_EDITOR,THEMES,RESET,EMOTES,FRIENDS,DONE})')
         text = text.replace('URLEncoder.encode(before.peer(), StandardCharsets.UTF_8)',
                             'com.cubeon.compat.Collections8.encode(before.peer())')
         text = text.replace('var merged =', 'java.util.TreeMap<Long, ChatMessage> merged =')

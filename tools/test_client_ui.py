@@ -85,23 +85,24 @@ public class UiTest {
  public static void main(String[] args)throws Exception {
   Font font=Font.createFont(Font.TRUETYPE_FONT,new File(args[1])).deriveFont(10f);
   Properties labels=new Properties();try(var reader=new InputStreamReader(new FileInputStream(args[0]),StandardCharsets.UTF_8)){labels.load(reader);}
-  check(HudMenu.featureCount()==21&&HudMenu.overlayIndex(49)==-1,"Menu motion control adds no stale overlay actions");
+  check(HudMenu.featureCount()==22&&HudMenu.overlayIndex(49)==-1,"Render controls add no stale overlay actions");
   Canvas rim=new Canvas(120,80,font,labels);
   MenuUi.panel(rim,20,16,80,48,10,0xC0202020,0xCCFFFFFF,1);
   check((rim.image.getRGB(60*3+1,16*3+1)&255)>80,"Rounded panel has a visible border");
   check((rim.image.getRGB(60*3,40*3)&255)<(rim.image.getRGB(60*3+1,16*3+1)&255),"Border preserves the dark interior");
   float[] scales=new float[13];for(int i=0;i<scales.length;i++)scales[i]=new float[]{1,.75f,1.5f,1.25f,2}[i%5];
-  int[] saves={0};boolean[] motion={true};float[] blurIntensity={1};
+  int[] saves={0};boolean[] motion={true},fullBright={true};float[] blurIntensity={1};
   HudMenu.Settings settings=new HudMenu.Settings(){
    public boolean visible(int overlay){return overlay%2==0;}public float scale(int overlay){return scales[overlay];}
    public void setScale(int overlay,float value){scales[overlay]=value;}public void save(){saves[0]++;}
    public boolean menuAnimations(){return motion[0];}
+   public boolean fullBright(){return fullBright[0];}
    public float blurIntensity(){return blurIntensity[0];}public void setBlurIntensity(float value){blurIntensity[0]=value;}
    public boolean health(){return false;}public boolean animations(){return true;}public boolean wingDepth(){return true;}public boolean otherCosmetics(){return false;}public boolean cameraBlur(){return false;}
   };
   int[] featureActions=new int[HudMenu.featureCount()];
   for(int i=0;i<13;i++)featureActions[i]=HudMenu.toggleAction(i);
-  int[] extras={HudMenu.SPRINT,HudMenu.CAMERA_BLUR,HudMenu.HEALTH,HudMenu.ANIMATIONS,HudMenu.WING_DEPTH,
+  int[] extras={HudMenu.SPRINT,HudMenu.CAMERA_BLUR,HudMenu.FULL_BRIGHT,HudMenu.HEALTH,HudMenu.ANIMATIONS,HudMenu.WING_DEPTH,
                 HudMenu.OTHER_COSMETICS,HudMenu.MENU_ANIMATIONS,HudMenu.OWN_NAME_TAG};
   System.arraycopy(extras,0,featureActions,13,extras.length);
   for(int[] size:new int[][]{{320,240},{520,304},{640,360},{960,540}}) {
@@ -151,6 +152,8 @@ public class UiTest {
    check(!menu.activate(featureActions[0]),"Clicking a feature card delegates its direct toggle to the native screen");
    menu.activate(HudMenu.CATEGORY+4);menu.layout(w,h);
    check(menu.control(HudMenu.SPRINT)!=null&&menu.control(0)==null,"Movement filters to auto sprint");
+   menu.activate(HudMenu.CATEGORY+3);menu.layout(w,h);
+   check(menu.control(HudMenu.FULL_BRIGHT)!=null&&menu.control(HudMenu.CAMERA_BLUR)!=null,"Render includes Full Bright and Camera Blur");
    menu.activate(HudMenu.CATEGORY);menu.focusSearchShortcut();menu.type('/');check(menu.query().isEmpty(),"Search shortcut does not add a slash to the query");
    for(int cp:"Potion".codePoints().toArray())menu.type(cp);
    menu.layout(w,h);check(menu.control(HudMenu.toggleAction(7))!=null&&menu.control(0)==null,"Search matches translated feature titles");

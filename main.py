@@ -1418,7 +1418,7 @@ async def main(page: ft.Page):
     # The Chat tab only exists in builds that ship the social layer; a public
     # no-Friends build stays a plain launcher with no dead nav entry.
     if friends_enabled():
-        top_nav_items.insert(2, ("chat", ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+        top_nav_items.insert(2, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED,
                                  i18n.t("Chat")))
     server_group_items = [
         ("server_settings", ft.Icons.TUNE_ROUNDED, i18n.t("Settings")),
@@ -1906,7 +1906,7 @@ async def main(page: ft.Page):
             None, ROW_HOVER,
         )
         screenshots_button = ft.IconButton(
-            icon=ft.Icons.PHOTO_LIBRARY_OUTLINED, icon_size=18,
+            icon=ft.Icons.PHOTO_LIBRARY_ROUNDED, icon_size=18,
             icon_color=TEXT_DIM, width=32, height=32,
             tooltip=i18n.t("Screenshots"), data="screenshots-button",
             on_click=lambda e, k="screenshots": switch_tab(k),
@@ -1987,7 +1987,7 @@ async def main(page: ft.Page):
         width=54, height=52,
     )
     profile_dialog_username = ft.Text(
-        cfg["username"], size=16, color=TEXT, font_family=FONT_DISPLAY,
+        cfg["username"], size=16, color=TEXT, font_family=FONT_BODY,
         weight=ft.FontWeight.W_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
     )
     profile_pfp_status = ft.Text("", size=12, color=TEXT_DIM)
@@ -3628,9 +3628,8 @@ async def main(page: ft.Page):
     threading.Thread(target=_bar_loop, daemon=True, name="ux-progress-bar").start()
 
     # The main play button - its appearance changes based on state (play/download/busy)
-    play_button_icon = ft.Icon(ft.Icons.PLAY_ARROW, color=ON_ACCENT, size=20)
-    # Small Minecraftia glyphs break up under Windows' font rasterizer/DPI
-    # scaling. Keep the pixel frame, with the bundled UI face for action labels.
+    play_button_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ON_ACCENT, size=20)
+    # Action labels use Inter; Minecraftia is reserved for headings/wordmark.
     play_button_text = ft.Text(i18n.t("PLAY"), size=18, color=ON_ACCENT,
                                font_family=FONT_BODY, weight=ft.FontWeight.W_700,
                                text_align=ft.TextAlign.CENTER, expand=True, expand_loose=True,
@@ -3854,7 +3853,7 @@ async def main(page: ft.Page):
 
         if mode == "play":
             paint(ACCENT, ON_ACCENT)
-            play_button_icon.icon = ft.Icons.PLAY_ARROW
+            play_button_icon.icon = ft.Icons.PLAY_ARROW_ROUNDED
             play_button_text.value = i18n.t("PLAY")
             play_button.disabled = False
         elif mode == "download":
@@ -3923,7 +3922,7 @@ async def main(page: ft.Page):
             # same doctor work on the critical path anyway. The button keeps
             # saying PLAY and simply explains what else is happening.
             paint(ACCENT, ON_ACCENT)
-            play_button_icon.icon = ft.Icons.PLAY_ARROW
+            play_button_icon.icon = ft.Icons.PLAY_ARROW_ROUNDED
             play_button_text.value = i18n.t("PLAY")
             play_button.disabled = False
             play_button.tooltip = ("Cubeon is also checking this profile's "
@@ -6026,12 +6025,12 @@ async def main(page: ft.Page):
         _open_dialog(dlg)
 
     rename_instance_btn = ft.IconButton(
-        ft.Icons.DRIVE_FILE_RENAME_OUTLINE_ROUNDED, icon_color=TEXT_DIM, icon_size=18,
+        ft.Icons.EDIT_ROUNDED, icon_color=TEXT_DIM, icon_size=18,
         tooltip=i18n.t("Rename instance"), on_click=on_rename_instance,
         style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
     )
     delete_instance_btn = ft.IconButton(
-        ft.Icons.DELETE_OUTLINE_ROUNDED,
+        ft.Icons.DELETE_ROUNDED,
         # A quiet red (not the full DANGER flood) so the destructive affordance
         # reads as destructive before anyone hovers it.
         icon_color=ft.Colors.with_opacity(0.9, DANGER),
@@ -6071,9 +6070,10 @@ async def main(page: ft.Page):
         ft.Container(
             content=ft.Row(
                 [
-                    ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, size=15,
+                    ft.Icon(ft.Icons.FOLDER_ROUNDED, size=18,
                             color=TEXT_DIM),
-                    ft.Text(i18n.t("Folder"), size=12, color=TEXT_DIM),
+                    ft.Text(i18n.t("Folder"), size=12, color=TEXT_DIM,
+                            font_family=FONT_BODY),
                 ],
                 spacing=8,
             ),
@@ -6102,10 +6102,10 @@ async def main(page: ft.Page):
     # Hero panel widgets -----------------------------------------------------
     hero_title = ft.Text("Minecraft", size=38, color=TEXT, font_family=FONT_DISPLAY,
                          max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
-    hero_version_text = ft.Text("", size=11.5, color=ft.Colors.with_opacity(0.75, TEXT), font_family=FONT_MONO,
+    hero_version_text = ft.Text("", size=12, color=ft.Colors.with_opacity(0.75, TEXT), font_family=FONT_MONO,
                                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
-    hero_loader_chip_text = ft.Text("Vanilla", size=10.5, color=ACCENT,
-                                    weight=ft.FontWeight.W_700, font_family=FONT_MONO)
+    hero_loader_chip_text = ft.Text("Vanilla", size=12, color=ACCENT,
+                                    weight=ft.FontWeight.W_600, font_family=FONT_MONO)
     hero_loader_chip = ft.Container(
         content=hero_loader_chip_text,
         bgcolor=ACCENT_TINT, border_radius=RADIUS,
@@ -6226,9 +6226,9 @@ async def main(page: ft.Page):
     fps_boost_tile = ft.Container(
         content=ft.Row(
             [
-                ft.Icon(ft.Icons.BOLT_ROUNDED, size=16, color=ACCENT),
-                ft.Text(i18n.t("FPS boost"), size=12.5, color=TEXT,
-                        weight=ft.FontWeight.W_600),
+                ft.Icon(ft.Icons.BOLT_ROUNDED, size=18, color=ACCENT),
+                ft.Text(i18n.t("FPS boost"), size=12, color=TEXT,
+                        font_family=FONT_BODY, weight=ft.FontWeight.W_600),
                 fps_boost_switch,
                 fps_boost_options,
             ],
@@ -7384,7 +7384,7 @@ async def main(page: ft.Page):
     # animated): without it the window blinks out on `window.close()` and the
     # user sees no acknowledgement at all between the old and the new process.
     _restart_heading = ft.Text("Restarting Cubeon…", size=14, color=TEXT,
-                               font_family=FONT_DISPLAY)
+                               font_family=FONT_BODY)
     _restart_detail = ft.Text(i18n.t("Applying your settings."), size=11.5, color=TEXT_DIM)
     restart_overlay = ft.Container(
         bgcolor=ft.Colors.with_opacity(0.72, "#000000"),

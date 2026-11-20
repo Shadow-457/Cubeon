@@ -431,12 +431,13 @@ def test_removed_effect_guard():
             entries["assets/cubeon-client/lang/en_us.json"] = json.dumps({
                 "key.cubeon-client.freelook": "Hold to Freelook",
                 "cubeonclient.hud.wing_depth": "3D wings",
+                "cubeonclient.hud.full_bright": "Full Bright",
                 "cubeonclient.hud.camera_blur": "Camera motion blur",
                 "cubeonclient.hud.blur_intensity": "Blur intensity",
                 "cubeonclient.hud.blur_intensity_hint": "Click to increase intensity",
                 "key.cubeon-client.wing_flare": "Dragon Wing Flare"}).encode()
             entries["com/cubeon/client/hud/CubeonHudKeybinds.class"] = b"wing_flare"
-            entries["com/cubeon/client/hud/CubeonHudConfig.class"] = b"wingDepth cameraMotionBlur cameraBlurIntensity"
+            entries["com/cubeon/client/hud/CubeonHudConfig.class"] = b"wingDepth fullBright cameraMotionBlur cameraBlurIntensity"
             entries["assets/cubeon-client/cosmetics/catalog.json"] = Path(ROOT, "assets/cosmetics/catalog.json").read_bytes()
             names = ["back_" + wing + "_wings" + size + ".png"
                      for wing in ("ember", "frost", "leaf", "void", "aurora") for size in ("", "_small", "_flat")]

@@ -24,14 +24,21 @@ import build_rust_engine
 from publish_rust_beta import verify_archive
 
 
-def bundle(directory):
+def bundle(directory, *, manifest=None):
     directory.mkdir(parents=True)
     files = {}
     for name in (rust._exe("cubeon-rust"), rust._exe("cubeon-rust-prepare"),
                  "research-lock.json", "LICENSE", "exporters/manifest.json"):
         path = directory / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("test fixture")
+        if name == "research-lock.json" and manifest is not None:
+            path.write_text(json.dumps({"minecraft": {
+                "version": rust.VERSION,
+                "manifest_sha1": hashlib.sha1(manifest).hexdigest(),
+                "accepted_manifest_sha1": [],
+            }}))
+        else:
+            path.write_text("test fixture")
         files[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     (directory / "cubeon-runtime.json").write_text(json.dumps(
         {"engine": "rust", "build": rust.BUILD, "minecraft": rust.VERSION, "files": files}))
@@ -247,7 +254,12 @@ class RustEngineTests(unittest.TestCase):
 
     def test_official_input_and_owned_release_hosts(self):
         self.assertTrue(rust._official_url("https://piston-data.mojang.com/v1/objects/hash/server.jar"))
+        self.assertTrue(rust._official_url("https://piston-meta.mojang.com/v1/packages/hash/26.3.json"))
         self.assertFalse(rust._official_url("https://piston-data.mojang.com.attacker.test/file"))
+        self.assertFalse(rust._official_url("https://piston-meta.mojang.com.attacker.test/file"))
+        self.assertFalse(rust._official_url("http://piston-meta.mojang.com/file"))
+        self.assertFalse(rust._official_url("https://user@piston-meta.mojang.com/file"))
+        self.assertFalse(rust._official_url("https://piston-meta.mojang.com:444/file"))
         self.assertFalse(rust._download_url("https://github.com/horizon-rust/horizon/releases/download/v/test"))
         self.assertTrue(rust._download_url(rust.RELEASE_BASE + "/runtime.zip"))
         with patch.dict(os.environ, {"HORIZON_SESSION": "secret", "LIBGL_ALWAYS_SOFTWARE": "1"}):
@@ -265,7 +277,6 @@ class RustEngineTests(unittest.TestCase):
     def test_local_java_25_and_cached_server_skip_both_downloads(self):
         from cubeon import jre
         runtime = rust.runtime_dir()
-        bundle(runtime)
         java_home = self.home / "jdks/jdk-25.0.4.1+1"
         java = java_home / "bin" / rust._exe("java")
         java.parent.mkdir(parents=True)
@@ -280,6 +291,7 @@ class RustEngineTests(unittest.TestCase):
         (version_dir / "26.3.json").write_text(json.dumps({"downloads": {"server": {
             "url": "https://piston-data.mojang.com/fixture/server.jar",
             "sha1": hashlib.sha1(server_jar.read_bytes()).hexdigest()}}}))
+        bundle(runtime, manifest=(version_dir / "26.3.json").read_bytes())
         commands = []
 
         def prepare(command, **kwargs):
@@ -308,6 +320,110 @@ class RustEngineTests(unittest.TestCase):
         command = next(command for command in commands if "--prepare" in command)
         self.assertEqual(command[command.index("--java-home") + 1], str(java_home))
         self.assertFalse(rust.installed_entries()[0]["incomplete"])
+
+    def test_republished_manifest_uses_pinned_input_and_reuses_its_cache(self):
+        runtime = rust.runtime_dir()
+        inputs = self.home / "game-inputs"
+        version_dir = inputs / "versions/26.3"
+        version_dir.mkdir(parents=True)
+        server_jar = rust.root() / "inputs/server-26.3.jar"
+        server_jar.parent.mkdir(parents=True)
+        server_jar.write_bytes(b"verified cached server")
+        info = {"id": rust.VERSION, "javaVersion": {"majorVersion": 25},
+                "assetIndex": {"id": "34", "sha1": "a" * 40},
+                "downloads": {"server": {
+                    "url": "https://piston-data.mojang.com/fixture/server.jar",
+                    "sha1": hashlib.sha1(server_jar.read_bytes()).hexdigest()}}}
+        pinned = json.dumps(info).encode()
+        checksum = hashlib.sha1(pinned).hexdigest()
+        bundle(runtime, manifest=pinned)
+        info["assetIndex"]["sha1"] = "b" * 40  # Mojang's newer translations
+        source = version_dir / "26.3.json"
+        source.write_text(json.dumps(info))
+        newer = source.read_bytes()
+        commands = []
+
+        def download(destination, url, **kwargs):
+            self.assertEqual(url, f"https://piston-meta.mojang.com/v1/packages/{checksum}/26.3.json")
+            self.assertEqual(kwargs["expected_hash"], ("sha1", checksum))
+            self.assertTrue(kwargs["url_validator"](url))
+            kwargs["cancel_check"]()
+            Path(destination).write_bytes(pinned)
+
+        def prepare(command, **kwargs):
+            commands.append(command)
+            stage = Path(command[command.index("--output") + 1])
+            if "--check" in command:
+                return 0 if (stage / "cubeon-prepare.json").is_file() else 1
+            manifest = Path(command[command.index("--version-json") + 1])
+            self.assertEqual(hashlib.sha1(manifest.read_bytes()).hexdigest(), checksum)
+            stage.mkdir()
+            (stage / "cubeon-prepare.json").write_text("{}")
+            return 0
+
+        with patch.object(paths, "MINECRAFT_DIR", str(inputs)), \
+                patch.object(versions, "install_version") as install_java, \
+                patch.object(rust, "_install_runtime", return_value=runtime), \
+                patch.object(rust, "_run", side_effect=prepare), \
+                patch.object(rust, "_find_preparation_java", return_value=str(self.home / "jdk/bin/java")), \
+                patch.object(rust.net, "download_to", side_effect=download) as fetch:
+            rust.install()
+            self.assertTrue(install_java.call_args.kwargs["explicit_java"])
+            self.assertEqual(fetch.call_count, 1)
+            manifest = rust._preparation_manifest(runtime, source)
+            self.assertEqual(fetch.call_count, 1, "Verified metadata cache should work offline")
+        self.assertEqual(manifest.read_bytes(), pinned)
+        self.assertEqual(source.read_bytes(), newer, "Shared Java metadata must stay current")
+        self.assertFalse(rust.installed_entries()[0]["incomplete"])
+        command = next(command for command in commands if "--prepare" in command)
+        self.assertEqual(command[command.index("--minecraft-dir") + 1], str(inputs))
+
+    def test_preparation_reuses_all_accepted_local_manifests_without_network(self):
+        runtime = rust.runtime_dir()
+        source = self.home / "26.3.json"
+        pinned = b'{"id":"26.3","assetIndex":{"id":"34","sha1":"old"}}'
+        republished = pinned.replace(b"old", b"new")
+        bundle(runtime, manifest=pinned)
+        lock = runtime / "research-lock.json"
+        info = json.loads(lock.read_text())
+        info["minecraft"]["accepted_manifest_sha1"] = [hashlib.sha1(republished).hexdigest()]
+        lock.write_text(json.dumps(info))
+        with patch.object(rust.net, "download_to", side_effect=AssertionError("Known files must stay offline")):
+            for data in (pinned, republished):
+                source.write_bytes(data)
+                self.assertEqual(rust._preparation_manifest(runtime, source), source)
+
+    def test_failed_preparation_metadata_keeps_existing_resources_and_cancels(self):
+        runtime = rust.runtime_dir()
+        bundle(runtime, manifest=b'{"id":"26.3"}')
+        inputs = self.home / "game-inputs"
+        source = inputs / "versions/26.3/26.3.json"
+        source.parent.mkdir(parents=True)
+        source.write_text('{"id":"26.3","rewritten":true}')
+        resources = rust.resources_dir()
+        resources.mkdir(parents=True)
+        old = resources / "existing-resource.txt"
+        old.write_text("preserve on failure")
+        with patch.object(paths, "MINECRAFT_DIR", str(inputs)), \
+                patch.object(versions, "install_version"), \
+                patch.object(rust, "_install_runtime", return_value=runtime), \
+                patch.object(rust, "_run", return_value=1) as prepare, \
+                patch.object(rust.net, "download_to", side_effect=rust.net.DownloadError("Offline")):
+            with self.assertRaisesRegex(rust.net.DownloadError, "Offline"):
+                rust.install()
+            self.assertEqual(prepare.call_count, 1, "Preparation must wait for verified metadata")
+        event = threading.Event()
+
+        def cancel(destination, url, **kwargs):
+            event.set()
+            kwargs["cancel_check"]()
+
+        with patch.object(rust.net, "download_to", side_effect=cancel):
+            with self.assertRaisesRegex(rust.RustEngineError, "cancelled"):
+                rust._preparation_manifest(runtime, source, cancel=event)
+        self.assertEqual(old.read_text(), "preserve on failure")
+        self.assertEqual(source.read_text(), '{"id":"26.3","rewritten":true}')
+        self.assertFalse((rust.root() / "instance.json").exists())
 
     def test_preparation_requires_exact_25_resolves_symlinks_and_cancels(self):
         from cubeon import jre
@@ -339,7 +455,6 @@ class RustEngineTests(unittest.TestCase):
     def test_java_preparation_reports_its_own_progress_and_phase(self):
         from cubeon import jre
         runtime = rust.runtime_dir()
-        bundle(runtime)
         inputs = self.home / "game-inputs"
         version_dir = inputs / "versions/26.3"
         version_dir.mkdir(parents=True)
@@ -347,6 +462,7 @@ class RustEngineTests(unittest.TestCase):
         (version_dir / "26.3.json").write_text(json.dumps({"downloads": {"server": {
             "url": "https://piston-data.mojang.com/fixture/server.jar",
             "sha1": hashlib.sha1(server_data).hexdigest()}}}))
+        bundle(runtime, manifest=(version_dir / "26.3.json").read_bytes())
         fractions, messages, maxima = [], [], []
 
         def download(destination, *args, **kwargs):
@@ -371,6 +487,7 @@ class RustEngineTests(unittest.TestCase):
 
         with patch.object(paths, "MINECRAFT_DIR", str(inputs)), \
                 patch.object(versions, "install_version"), \
+                patch.object(rust, "_install_runtime", return_value=runtime), \
                 patch.object(rust, "_run", side_effect=prepare), \
                 patch.object(rust.net, "download_to", side_effect=download), \
                 patch.object(rust, "_find_preparation_java", return_value=None), \

@@ -1,106 +1,206 @@
 package com.cubeon.forge;
-import com.cubeon.client.*;
-import net.minecraft.client.gui.*;
-import org.lwjgl.input.Keyboard;
-import java.io.IOException;
-import java.util.*;
-import java.util.concurrent.*;
 
-public final class FriendsScreen extends GlassScreen {
-    private static final ThreadPoolExecutor ACTIONS=new ThreadPoolExecutor(1,1,10,TimeUnit.SECONDS,
-            new ArrayBlockingQueue<Runnable>(8),job->{ Thread t=new Thread(job,"cubeon-forge-actions"); t.setDaemon(true); return t; });
+import com.cubeon.client.Bridge;
+import com.cubeon.client.Json;
+import com.cubeon.client.ui.ClientUi;
+import com.cubeon.client.ui.FriendsPanel;
+import com.cubeon.client.ui.MenuUi;
+import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.gui.GuiTextField;
+import net.minecraft.client.renderer.GlStateManager;
+import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
+
+import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * 1.8.9 friends and chat screen painted by the shared {@link FriendsPanel}:
+ * the rail, conversation bubbles, drafts and composer match the Fabric client.
+ * Adding by ID and removing a friend stay available through the rail field and
+ * a right click on a friend row.
+ */
+public final class FriendsScreen extends GuiScreen {
+    private static final ThreadPoolExecutor ACTIONS = new ThreadPoolExecutor(1, 1, 10L, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<Runnable>(8), job -> {
+                Thread thread = new Thread(job, "cubeon-forge-actions");
+                thread.setDaemon(true);
+                return thread;
+            });
     static { ACTIONS.allowCoreThreadTimeOut(true); }
-    private GuiTextField input;
-    private final Map<Integer,Bridge.Friend> rows=new HashMap<>();
-    private int page;
-    private long revision=-1;
-    private volatile String status="";
+
+    private final GuiScreen parent;
+    private final FriendsPanel panel = new FriendsPanel(Bridge.get());
+    private GuiTextField composer, addField;
+    private Bridge.Friend removing;
+    private volatile String status = "";
     private volatile boolean busy;
-    public FriendsScreen(GuiScreen parent) { super(parent); }
+
+    public FriendsScreen(GuiScreen parent) { this.parent = parent; }
+
+    private int panelWidth() { return Math.min(width - 32, Math.min(660, Math.max(288, Math.round(width * .84F)))); }
+    private int panelHeight() { return Math.min(height - 24, Math.min(380, Math.max(216, Math.round(height * .84F)))); }
+    private int panelX() { return (width - panelWidth()) / 2; }
+    private int panelY() { return (height - panelHeight()) / 2; }
+    private int railWidth() { return Math.max(88, Math.min(156, panelWidth() / 4)); }
+    private int addX() { return panelX() + 8; }
+    private int addY() { return panelY() + 40; }
+    private int addWidth() { return railWidth() - 16; }
+
     @Override public void initGui() {
-        String typed=input==null?"":input.getText();
-        buttonList.clear(); rows.clear();
-        int w=Math.min(380,width-32),x=(width-w)/2;
-        input=new GuiTextField(900,fontRendererObj,x,42,w-92,18); input.setMaxStringLength(32); input.setText(typed);
-        button(1,x+w-88,41,88,"Add by ID");
-        List<Bridge.Friend> friends=Bridge.get().snapshot().friends();
-        int count=Math.max(1,(height-145)/32); page=Math.max(0,Math.min(page,Math.max(0,(friends.size()-1)/count)));
-        for(int i=page*count;i<Math.min(friends.size(),(page+1)*count);i++) {
-            int y=75+(i-page*count)*32; Bridge.Friend f=friends.get(i); rows.put(100+i,f);
-            button(100+i,x,y,w-130,f.label());
-            button(1000+i,x+w-126,y,62,f.invited()?"Join":"Invite"); rows.put(1000+i,f);
-            button(2000+i,x+w-60,y,60,"Remove"); rows.put(2000+i,f);
-        }
-        button(2,x,height-56,w/3-3,"‹ Previous"); button(3,x+w/3,height-56,w/3-3,"Next ›");
-        button(4,x+2*w/3,height-56,w/3,"Refresh"); button(0,x,height-32,w,"Back");
-        revision=Bridge.get().revision(); Keyboard.enableRepeatEvents(true);
+        String draft = composer == null ? null : composer.getText();
+        panel.ensurePeer();
+        composer = new GuiTextField(901, fontRendererObj, panel.inputX(), panel.inputY(), panel.inputWidth(), 18);
+        composer.setMaxStringLength(1000);
+        composer.setText(draft == null ? panel.draft() : draft);
+        composer.setFocused(true);
+        // The shared panels draw these fields; vanilla's own box would cover them.
+        composer.setEnableBackgroundDrawing(false);
+        addField = new GuiTextField(902, fontRendererObj, addX() + 6, addY() + 5, addWidth() - 12, 10);
+        addField.setMaxStringLength(32);
+        addField.setEnableBackgroundDrawing(false);
     }
-    private void action(String path,String body) {
-        if(busy) return; busy=true; status="Working…";
-        try { ACTIONS.execute(()->{
-            try { Bridge.Result r=Bridge.get().post(path,body); status=r.ok()?"Done":r.error(); Bridge.get().wake(); }
-            finally { busy=false; }
-        }); } catch(RejectedExecutionException e) { busy=false; status="Please wait for the current action."; }
+
+    @Override public boolean doesGuiPauseGame() { return false; }
+
+    @Override public void updateScreen() {
+        composer.updateCursorCounter();
+        addField.updateCursorCounter();
+        panel.saveDraft(composer.getText());
+        // Clear the composer only once the relay confirms this exact text.
+        if (panel.completed(composer.getText())) composer.setText("");
     }
-    @Override protected void actionPerformed(GuiButton b) {
-        if(b.id==0) mc.displayGuiScreen(parent);
-        else if(b.id==1) action("/add",Json.object("name",input.getText().trim()));
-        else if(b.id==2 || b.id==3) { page+=b.id==2?-1:1; initGui(); }
-        else if(b.id==4) Bridge.get().wake();
-        else if(rows.containsKey(b.id)) {
-            Bridge.Friend f=rows.get(b.id);
-            if(b.id>=2000) mc.displayGuiScreen(new RemoveScreen(this,f));
-            else if(b.id>=1000) action(f.invited()?"/join":"/invite",Json.object("name",f.name()));
-            else mc.displayGuiScreen(new ChatScreen(this,f));
+
+    @Override public void drawScreen(int mouseX, int mouseY, float partial) {
+        drawDefaultBackground();
+        ClientUi.Canvas ui = new ForgeCanvas();
+        panel.render(ui, width, height, mouseX, mouseY);
+
+        // Compact "add by ID" field in the friend rail, styled like the shared panels.
+        boolean addHover = inside(mouseX, mouseY, addX(), addY(), addWidth(), 18);
+        MenuUi.pixelPanel(ui, addX(), addY(), addWidth(), 18, 6, MenuUi.SURFACE_HI,
+                addField.isFocused() ? MenuUi.ACCENT : addHover ? MenuUi.BORDER_HI : MenuUi.BORDER, 1);
+        addField.drawTextBox();
+        composer.drawTextBox();
+        if (addField.getText().isEmpty() && !addField.isFocused())
+            ClientUi.left(ui, ClientUi.fit(ui, "Add by ID", addWidth() - 12),
+                    addX() + 6, addY() + 5, MenuUi.FAINT);
+        if (!status.isEmpty())
+            ClientUi.left(ui, ClientUi.fit(ui, status, panel.inputWidth()),
+                    panel.inputX(), panel.inputY() - 12, busy ? MenuUi.DIM : MenuUi.ACCENT_HI);
+        if (removing != null) drawRemoveConfirm(ui, mouseX, mouseY);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+    }
+
+    private int confirmX() { return width / 2 - 120; }
+    private int confirmY() { return height / 2 - 46; }
+
+    private void drawRemoveConfirm(ClientUi.Canvas ui, int mouseX, int mouseY) {
+        MenuUi.pixelPanel(ui, confirmX(), confirmY(), 240, 92, 10, MenuUi.SURFACE, MenuUi.BORDER_HI, 1);
+        ui.text(ClientUi.fit(ui, "Remove " + removing.displayName() + "?", 216), width / 2,
+                confirmY() + 14, MenuUi.TEXT);
+        MenuUi.pixelButton(ui, confirmX() + 12, confirmY() + 54, 100, 24, "Remove",
+                inside(mouseX, mouseY, confirmX() + 12, confirmY() + 54, 100, 24) ? 1 : 0, true, 1);
+        MenuUi.pixelButton(ui, confirmX() + 128, confirmY() + 54, 100, 24, "Cancel",
+                inside(mouseX, mouseY, confirmX() + 128, confirmY() + 54, 100, 24) ? 1 : 0, false, 1);
+    }
+
+    private static boolean inside(int x, int y, int left, int top, int w, int h) {
+        return x >= left && x < left + w && y >= top && y < top + h;
+    }
+
+    @Override protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (removing != null) {
+            if (inside(mouseX, mouseY, confirmX() + 12, confirmY() + 54, 100, 24)) {
+                remove(removing); removing = null;
+            } else if (inside(mouseX, mouseY, confirmX() + 128, confirmY() + 54, 100, 24)
+                    || button == 1 || !inside(mouseX, mouseY, confirmX(), confirmY(), 240, 92)) {
+                removing = null;
+            }
+            return;
+        }
+        if (inside(mouseX, mouseY, addX(), addY(), addWidth(), 18)) {
+            addField.setFocused(true); composer.setFocused(false);
+            addField.mouseClicked(mouseX, mouseY, button);
+            return;
+        }
+        addField.setFocused(false);
+        int hit = panel.hit(mouseX, mouseY);
+        if (hit == FriendsPanel.CLOSE) { close(); return; }
+        if (hit == FriendsPanel.SEND) { send(); return; }
+        List<Bridge.Friend> friends = Bridge.get().snapshot().friends();
+        if (hit >= 0 && hit < friends.size()) {
+            if (button == 1) removing = friends.get(hit); else panel.select(hit);
+            return;
+        }
+        composer.setFocused(true);
+        composer.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override public void handleMouseInput() {
+        super.handleMouseInput();
+        int wheel = Mouse.getEventDWheel();
+        if (wheel != 0) panel.scroll(Mouse.getEventX() * width / mc.displayWidth, wheel > 0 ? -1 : 1);
+    }
+
+    @Override protected void keyTyped(char typed, int key) {
+        if (key == Keyboard.KEY_ESCAPE) {
+            if (removing != null) { removing = null; return; }
+            close(); return;
+        }
+        if (addField.isFocused()) {
+            if (key == Keyboard.KEY_RETURN || key == Keyboard.KEY_NUMPADENTER) { add(); return; }
+            addField.textboxKeyTyped(typed, key);
+            return;
+        }
+        if (key == Keyboard.KEY_RETURN || key == Keyboard.KEY_NUMPADENTER) { send(); return; }
+        if (key == Keyboard.KEY_TAB || key == Keyboard.KEY_DOWN) { panel.step(1); return; }
+        if (key == Keyboard.KEY_UP) { panel.step(-1); return; }
+        if (!composer.textboxKeyTyped(typed, key)) super.keyTyped(typed, key);
+    }
+
+    private void send() {
+        if (composer.getText().trim().isEmpty()) return;
+        panel.send(composer.getText());
+        status = "";
+    }
+
+    private void add() {
+        String name = addField.getText().trim();
+        if (name.isEmpty()) return;
+        act("/add", Json.object("name", name));
+        addField.setText("");
+        addField.setFocused(false);
+    }
+
+    private void remove(Bridge.Friend friend) {
+        act("/remove", Json.object("name", friend.name()));
+    }
+
+    private void act(String path, String body) {
+        if (busy) { status = "Please wait for the current action."; return; }
+        busy = true;
+        status = "Working…";
+        try {
+            ACTIONS.execute(() -> {
+                try {
+                    Bridge.Result result = Bridge.get().post(path, body);
+                    status = result.ok() ? "Done" : result.error();
+                    Bridge.get().wake();
+                } finally {
+                    busy = false;
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            busy = false;
+            status = "Please wait for the current action.";
         }
     }
-    @Override public void updateScreen() { input.updateCursorCounter(); if(revision!=Bridge.get().revision()) initGui(); }
-    @Override protected void mouseClicked(int x,int y,int b) { super.mouseClicked(x,y,b); input.mouseClicked(x,y,b); }
-    @Override protected void keyTyped(char c,int key) { if(!input.textboxKeyTyped(c,key)) super.keyTyped(c,key); }
-    @Override public void onGuiClosed() { Keyboard.enableRepeatEvents(false); }
-    @Override public void drawScreen(int x,int y,float p) {
-        chrome("Cubeon Friends · "+Bridge.get().snapshot().connectionLine()); input.drawTextBox();
-        if(!status.isEmpty()) drawCenteredString(fontRendererObj,status,width/2,height-71,0xffd7e8e2);
-        if(rows.isEmpty()) drawCenteredString(fontRendererObj,"Add a friend using their eight-digit Cubeon ID",width/2,90,0xffb9ccc6);
-        super.drawScreen(x,y,p);
-    }
-    private static final class RemoveScreen extends GlassScreen {
-        private final FriendsScreen owner; private final Bridge.Friend friend;
-        RemoveScreen(FriendsScreen owner,Bridge.Friend friend) { super(owner); this.owner=owner; this.friend=friend; }
-        @Override public void initGui() { button(1,width/2-96,height/2,92,"Remove"); button(0,width/2+4,height/2,92,"Cancel"); }
-        @Override protected void actionPerformed(GuiButton b) { if(b.id==1) owner.action("/remove",Json.object("name",friend.name())); mc.displayGuiScreen(owner); }
-        @Override public void drawScreen(int x,int y,float p) { chrome("Remove "+friend.label()+" from friends?"); super.drawScreen(x,y,p); }
-    }
-    private static final class ChatScreen extends GlassScreen {
-        private final Bridge.Friend friend; private GuiTextField text;
-        private long sent;
-        ChatScreen(GuiScreen parent,Bridge.Friend friend) { super(parent); this.friend=friend; }
-        @Override public void initGui() {
-            String draft=text==null?"":text.getText(); buttonList.clear();
-            text=new GuiTextField(901,fontRendererObj,16,height-54,width-104,18); text.setMaxStringLength(1000); text.setText(draft); text.setFocused(true);
-            button(1,width-82,height-55,66,"Send"); button(0,16,height-31,width-32,"Back");
-            Bridge.get().openChat(friend.name()); Keyboard.enableRepeatEvents(true);
-        }
-        private void send() { if(sent==0) sent=Bridge.get().sendChat(friend.name(),text.getText()); }
-        @Override protected void actionPerformed(GuiButton b) { if(b.id==0) mc.displayGuiScreen(parent); else send(); }
-        @Override public void updateScreen() {
-            text.updateCursorCounter(); Bridge.ChatSent r=Bridge.get().chatSent();
-            if(sent!=0 && r.id()==sent) { if(r.result().ok() && r.text().equals(text.getText().trim())) text.setText(""); sent=0; }
-        }
-        @Override protected void mouseClicked(int x,int y,int b) { super.mouseClicked(x,y,b); text.mouseClicked(x,y,b); }
-        @Override protected void keyTyped(char c,int key) {
-            if(key==28) send(); else if(!text.textboxKeyTyped(c,key)) super.keyTyped(c,key);
-        }
-        @Override public void onGuiClosed() { Bridge.get().closeChat(); Keyboard.enableRepeatEvents(false); }
-        @Override public void drawScreen(int x,int y,float p) {
-            chrome("Chat · "+friend.label());
-            Bridge.ChatView chat=Bridge.get().chat(); List<String> lines=new ArrayList<>();
-            if(chat.peer().equals(friend.name())) for(Bridge.ChatMessage m:chat.messages())
-                lines.addAll(fontRendererObj.listFormattedStringToWidth(("out".equals(m.direction())?"You: ":friend.displayName()+": ")+m.text(),width-36));
-            int count=Math.max(1,(height-115)/11),start=Math.max(0,lines.size()-count);
-            for(int i=start;i<lines.size();i++) fontRendererObj.drawString(lines.get(i),18,40+(i-start)*11,0xffe6f1ed);
-            if(!chat.error().isEmpty()) drawCenteredString(fontRendererObj,chat.error(),width/2,height-69,0xffffbdb1);
-            text.drawTextBox(); super.drawScreen(x,y,p);
-        }
-    }
+
+    @Override public void onGuiClosed() { panel.close(); }
+
+    private void close() { mc.displayGuiScreen(parent); }
 }

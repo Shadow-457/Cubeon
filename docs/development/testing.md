@@ -43,6 +43,7 @@ catalog; the scripts in `tools/` are the current inventory.
 | Content isolation | `test_content_instance.py`, `test_instances.py` |
 | Friends and chat | `test_friends.py`, `test_friends_service.py`, `test_chat_optimistic.py` |
 | Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py` |
+| Full Bright and keystrokes | `test_full_bright.py` (`--targets` checks cached APIs, `--jars` checks shipped fixes), `test_hud_debug_visibility.py`; `capture_full_bright.py` uses isolated cached games on Xvfb |
 | Launch and downloads | `test_version_integrity.py`, `test_launch_fixes.py`, `test_net.py` |
 | Release tooling | `test_release_version.py`, `test_release_pipeline.py` |
 

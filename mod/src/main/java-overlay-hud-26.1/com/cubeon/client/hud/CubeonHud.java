@@ -30,7 +30,7 @@ public final class CubeonHud {
 
 	static final int KEY_SIZE = 20;
 	static final int GAP = 2;
-	static final int MOUSE_BUTTON_WIDTH = 26;
+	static final int MOUSE_BUTTON_WIDTH = (3 * KEY_SIZE + GAP) / 2;
 	static final int SPACE_HEIGHT = 6;
 
 	// Armour rows: a real item icon with the remaining durability next to it, the

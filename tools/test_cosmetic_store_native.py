@@ -1,4 +1,4 @@
-"""Load installed store wings/textures in an isolated cached Fabric game.
+"""Load store models and verify fitted skin copies in an isolated Fabric game.
 
 Requires the selected game's runtime, Fabric API, New World and a desktop.
 Copies the world; never changes user options, installed mods or player data.
@@ -29,6 +29,7 @@ PROBE = r'''
 package probe;
 import com.cubeon.client.Json;
 import com.cubeon.client.cosmetics.*;
+import com.cubeon.client.skins.*;
 import java.lang.reflect.*;
 import java.nio.file.*;
 import java.io.*;
@@ -44,6 +45,36 @@ public class StoreProbe implements ClientModInitializer {
         return owner.getClass().getMethod(name(key)).invoke(owner);
     }
     void check(boolean ok,String message) { checks++; if(!ok) throw new AssertionError(message); }
+    Object body(Object player) throws Exception { return call(call(player,"skin"),"body"); }
+    Object image(Object textures,Object id,Class<?> identifier) throws Exception {
+        return call(textures.getClass().getMethod(name("texture"),identifier).invoke(textures,id),"image");
+    }
+    int color(Object image,int x,int y) throws Exception {
+        return (Integer)image.getClass().getMethod(name("color"),int.class,int.class).invoke(image,x,y);
+    }
+    int polygons(Object mesh) throws Exception {
+        int result=0;
+        for(Class<?> type=mesh.getClass();type!=null;type=type.getSuperclass()) {
+            for(Field field:type.getDeclaredFields()) {
+                if(field.getName().equals("polygonAmount")) { field.setAccessible(true); result+=field.getInt(mesh); }
+                if(field.getName().equals("cubes")) { field.setAccessible(true); result+=6*((List<?>)field.get(mesh)).size(); }
+            }
+        }
+        return result;
+    }
+    int[] meshes(Object player,Object texture) throws Exception {
+        if(!Boolean.TRUE.equals(names.get("skinlayers"))) return null;
+        var settings=Class.forName("dev.tr7zw.skinlayers.accessor.PlayerSettings");
+        Method setup=Arrays.stream(Class.forName("dev.tr7zw.skinlayers.SkinUtil").getMethods())
+            .filter(method->method.getName().equals("setup3dLayers")&&method.getParameterCount()==3).findFirst().orElseThrow();
+        check((Boolean)setup.invoke(null,player,player,false),"3D Skin Layers builds the real player mesh");
+        check(settings.getMethod("getCurrentSkin").invoke(player).equals(texture),"3D Skin Layers uses the current fitted texture");
+        var data=Class.forName("dev.tr7zw.skinlayers.api.PlayerData");
+        int[] counts=new int[6];int index=0;
+        for(String part:List.of("Head","Torso","RightArm","LeftArm","RightLeg","LeftLeg"))
+            counts[index++]=polygons(data.getMethod("get"+part+"Mesh").invoke(player));
+        return counts;
+    }
     public void onInitializeClient() {
         try {
             names=Json.parseObject(Files.readString(Path.of(System.getProperty("cubeon.probe.names"))));
@@ -76,12 +107,15 @@ public class StoreProbe implements ClientModInitializer {
             for(Object raw:(List<?>)names.get("models")) {
                 Map<?,?> expected=(Map<?,?>)raw;
                 var item=catalog.get((String)expected.get("id"));
-                check(item!=null && item.wingFlare,"Real catalog loaded each full wing model");
-                check(CosmeticElytra.ready(item),"Real resource pack qualifies downloaded wings for Elytra replacement");
-                CosmeticElytra.begin(client); CosmeticElytra.drawn(item);
-                check(CosmeticElytra.consume(client),"Downloaded wings mark the same replacement pass as bundled wings");
-                check(item.boxes.stream().allMatch(box -> box.pivotX==2 && box.pivotY==2 && box.pivotZ==2.25f),
-                    "Downloaded collection uses the built-in Giant wing hinges");
+                check(item!=null,"Real catalog loaded the downloaded model");
+                if("back".equals(item.slot)) {
+                    check(item.wingFlare,"Real catalog loaded the full wing model");
+                    check(CosmeticElytra.ready(item),"Real resource pack qualifies downloaded wings for Elytra replacement");
+                    CosmeticElytra.begin(client); CosmeticElytra.drawn(item);
+                    check(CosmeticElytra.consume(client),"Downloaded wings mark the same replacement pass as bundled wings");
+                    check(item.boxes.stream().allMatch(box -> box.pivotX==2 && box.pivotY==2 && box.pivotZ==2.25f),
+                        "Downloaded collection uses the built-in Giant wing hinges");
+                }
                 for(Object rawTexture:(List<?>)expected.get("textures")) {
                     Map<?,?> expectedTexture=(Map<?,?>)rawTexture;
                     String filename=(String)expectedTexture.get("name");
@@ -106,14 +140,54 @@ public class StoreProbe implements ClientModInitializer {
             Object hat=parts.getField(name("hatPart")).get(null);
             Object jacket=parts.getField(name("jacketPart")).get(null);
             Method visible=player.getClass().getMethod(name("partVisible"),parts);
-            check(!(Boolean)visible.invoke(player,hat),"Fitted cosmetics suppress the actual game outer head layer");
+            check((Boolean)visible.invoke(player,hat),"Horns preserve the actual game outer head layer");
             check((Boolean)visible.invoke(player,jacket),"Uncovered jacket layers remain visible");
             var aura=catalog.get("aura_butterfly");
             check(aura!=null && aura.emissiveTexture!=null && aura.boxes.size()<=48,"Lightweight glowing butterfly aura loaded");
             Path selection=net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve(CosmeticSelection.FILE_NAME);
             Files.writeString(selection,"{\"aura\":\"aura_butterfly\"}"); CosmeticSelection.bind(selection);
             check((Boolean)visible.invoke(player,hat),"Removing the wearable restores the player's original layer setting");
-            System.out.println("CUBEON_STORE_NATIVE_PASS "+checks+" checks; compatible pack, real base/glow GPU textures, fitted layers and butterfly aura");
+            var sheet=new java.awt.image.BufferedImage(64,64,java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            for(int y=0;y<64;y++)for(int x=0;x<64;x++)sheet.setRGB(x,y,0xFF000000|x*3<<16|y*3<<8|90);
+            var bytes=new ByteArrayOutputStream();javax.imageio.ImageIO.write(sheet,"png",bytes);
+            LiveSkin.apply(new SkinLibrary.Skin("probe","Probe",false,"classic",bytes.toByteArray(),
+                sheet.getRGB(0,0,64,64,null,0,64),64,64,false,bytes.toByteArray(),null,null,null));
+            Object source=Class.forName("com.cubeon.client.skins.LiveSkinTexture").getMethod("texture").invoke(null);
+            check(call(body(player),"location").equals(source),"Unequipped body uses the original live skin");
+            Object originalImage=image(textures,source,identifier);
+            int[] originalMeshes=meshes(player,source);
+            for(Object raw:(List<?>)names.get("wearables")) {
+                Map<?,?> sample=(Map<?,?>)raw;
+                String slot=(String)sample.get("slot"),id=(String)sample.get("id");
+                Files.writeString(selection,Json.object(slot,id));CosmeticSelection.bind(selection);
+                Object output=call(body(player),"location");
+                Set<Integer> covered=new HashSet<>();
+                for(Object texel:(List<?>)sample.get("pixels"))covered.add(((Number)texel).intValue());
+                check(output.equals(source)==covered.isEmpty(),"Only fitted texels create a display texture: "+id);
+                Object fittedImage=image(textures,output,identifier);
+                boolean exact=true,unchanged=true;
+                for(int y=0;y<64;y++)for(int x=0;x<64;x++) {
+                    int original=sheet.getRGB(x,y),actual=color(fittedImage,x,y);
+                    exact &= covered.contains(y*64+x)?actual>>>24==0:actual==original;
+                    unchanged &= color(originalImage,x,y)==original;
+                }
+                check(exact,"Only covered outer texels change in Minecraft: "+id);
+                check(unchanged,"The original skin and its colors remain intact: "+id);
+                check(call(body(player),"location").equals(output),"Unchanged frames reuse the fitted texture: "+id);
+                int[] fittedMeshes=meshes(player,output);
+                if(fittedMeshes!=null) {
+                    if("head".equals(slot)&&covered.size()<384)check(fittedMeshes[0]>0,"Exposed hair retains its 3D mesh: "+id);
+                    check(fittedMeshes[1]==originalMeshes[1],"Uncovered 3D jacket remains intact: "+id);
+                    check(fittedMeshes[2]==originalMeshes[2]&&fittedMeshes[3]==originalMeshes[3],"Uncovered 3D sleeves remain intact: "+id);
+                    if("feet".equals(slot))check(fittedMeshes[4]>0&&fittedMeshes[5]>0,"Trousers above the shoes remain 3D");
+                }
+                Files.writeString(selection,"{}");CosmeticSelection.bind(selection);
+                check(call(body(player),"location").equals(source),"Unequip restores the original texture: "+id);
+                if(originalMeshes!=null)check(Arrays.equals(originalMeshes,meshes(player,source)),"Unequip restores all 3D meshes: "+id);
+            }
+            Field cache=CosmeticSkinTexture.class.getDeclaredField("CACHE");cache.setAccessible(true);
+            check(((Map<?,?>)cache.get(null)).isEmpty(),"Unequipping releases all fitted display textures");
+            System.out.println("CUBEON_STORE_NATIVE_PASS "+checks+" checks; compatible pack, GPU textures, precise skin coverage, preserved 3D meshes and restoration");
         } catch(Throwable error) {
             finished=true; System.out.println("CUBEON_STORE_NATIVE_FAIL "+error); error.printStackTrace();
         } finally {
@@ -130,7 +204,8 @@ def names_for(version):
                     profiles="getSelectedPacks", id="getId", compatibility="getCompatibility", compatible="isCompatible",
                     resources="getResourceManager", textures="getTextureManager", identifier="net.minecraft.resources.Identifier",
                     of="fromNamespaceAndPath", resource="getResource", packId="sourcePackId", input="open",
-                    texture="getTexture", gpu="getTexture", stop="stop",
+                    texture="getTexture", gpu="getTexture", stop="stop",skin="getSkin",body="body",location="texturePath",
+                    image="getPixels",color="getPixel",
                     playerParts="net.minecraft.world.entity.player.PlayerModelPart",hatPart="HAT",jacketPart="JACKET",partVisible="isModelPartShown")
     mapping = next((Path.home() / ".gradle/caches/fabric-loom" / version).glob("net.fabricmc.yarn*/mappings.tiny"))
     wanted = {
@@ -144,6 +219,11 @@ def names_for(version):
         "net/minecraft/resource/Resource": dict(getPackId="packId", getInputStream="input"),
         "net/minecraft/client/texture/TextureManager": dict(getTexture="texture"),
         "net/minecraft/client/texture/AbstractTexture": dict(getGlTexture="gpu"),
+        "net/minecraft/client/network/ClientPlayerLikeEntity": dict(getSkin="skin"),
+        "net/minecraft/entity/player/SkinTextures": dict(body="body"),
+        "net/minecraft/util/AssetInfo$TextureAssetInfo": dict(texturePath="location"),
+        "net/minecraft/client/texture/NativeImageBackedTexture": dict(getImage="image"),
+        "net/minecraft/client/texture/NativeImage": dict(getColorArgb="color"),
         "net/minecraft/entity/PlayerLikeEntity": dict(isModelPartVisible="partVisible"),
         "net/minecraft/entity/player/PlayerModelPart": dict(HAT="hatPart",JACKET="jacketPart")}
     result, owner = {}, None
@@ -163,12 +243,15 @@ def verify(version):
     profile = Path(storage.game_dir(loader))
     api = next((profile / "mods").glob("fabric-api-*.jar"))
     client = ROOT / "assets/jars" / f"cubeon-client-1.0.0+mc{version}.jar"
-    items = [item for item in cosmetic_packages.installed_items() if item.get("wing_flare") and item["slot"] == "back"]
+    items = [item for item in cosmetic_packages.installed_items()
+             if item["slot"] in ("head", "feet") or item.get("wing_flare") and item["slot"] == "back"]
     assert items, "Download a store wing before running the native probe"
     with tempfile.TemporaryDirectory(prefix=f"cubeon-store-native-{version}-") as temporary:
         work = Path(temporary)
         (work / "mods").mkdir()
         for artifact in (client, api): shutil.copyfile(artifact, work / "mods" / artifact.name)
+        skinlayers = next((GAME / "cache/downloads/mods").glob(f"skinlayers3d-fabric-*-mc{version}.jar"), None)
+        if skinlayers: shutil.copyfile(skinlayers, work / "mods" / skinlayers.name)
         shutil.copytree(profile / "saves/New World", work / "saves/Store probe", ignore=shutil.ignore_patterns("session.lock"))
         (work / "options.txt").write_text("maxFps:60\nenableVsync:false\nonboardAccessibility:false\n")
         all_models = []
@@ -176,7 +259,7 @@ def verify(version):
         staged_textures.mkdir()
         textures = work / "resourcepacks/cubeon-store/assets/cubeon-client/textures/cosmetics"
         for item in items:
-            cosmetics.sync_to_game(dict(last_version=loader, active_back_item=item["id"]), str(work), strict=True,
+            cosmetics.sync_to_game(dict(last_version=loader, **{f"active_{item['slot']}_item": item["id"]}), str(work), strict=True,
                                     mc_version=version, version_id=loader)
             all_models.extend(json.loads((work / "config/cubeon-store.json").read_text())["items"])
             # Normal sync prunes unequipped textures; this probe loads every
@@ -188,7 +271,7 @@ def verify(version):
         (work / "config/cubeon-store.json").write_text(json.dumps(dict(items=all_models, anchors=cosmetics.ANCHORS)))
         selection=work / "config/cubeon-cosmetics.json"
         selected=json.loads(selection.read_text())
-        selected.update(head="head_horns",aura="aura_butterfly")
+        selected.update(head="head_horns",feet=None,aura="aura_butterfly")
         selection.write_text(json.dumps(selected))
         expected = []
         for item in all_models:
@@ -199,7 +282,9 @@ def verify(version):
                         entries.append(dict(name=name, width=image.width, height=image.height))
             expected.append(dict(id=item["id"], textures=entries))
         names = work / "names.json"
-        names.write_text(json.dumps({**names_for(version), "models": expected}))
+        wearables = [cosmetics.get("head_horns"), *[item for item in items if item['slot'] in ('head', 'feet')]]
+        names.write_text(json.dumps({**names_for(version), "models": expected, "skinlayers": bool(skinlayers),
+            "wearables": [dict(id=item['id'],slot=item['slot'],pixels=sorted(cosmetics.covered_skin_pixels(item))) for item in wearables]}))
         source = work / "StoreProbe.java"; source.write_text(PROBE)
         classes = work / "classes"; classes.mkdir()
         cp = os.pathsep.join(map(str, [client, *sorted((RUNTIME / "libraries/net/fabricmc/fabric-loader").rglob("*.jar"))]))

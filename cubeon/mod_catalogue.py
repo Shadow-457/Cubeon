@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from . import local_cache, net
 
 SOURCES = ("modrinth", "curseforge")
-LABELS = {"modrinth": "Modrinth", "curseforge": "CurseForge"}
+LABELS = {"modrinth": "Modrinth", "curseforge": "CurseForge", "horizon": "Horizon"}
 LOADERS = {"forge": 1, "fabric": 4, "quilt": 5, "neoforge": 6}
 CATEGORIES = {
     "performance": 6814, "optimization": 6814, "worldgen": 406,
@@ -64,12 +64,13 @@ class ProviderPage:
             self.results[source] = [dict(hit, source=source) for hit in hits or []]
 
     def merged(self):
-        return interleave(self.results.get("modrinth", []), self.results.get("curseforge", []))
+        return (interleave(self.results.get("modrinth", []), self.results.get("curseforge", []))
+                + self.results.get("horizon", []))
 
 
 def source_of(item):
     source = item.get("source") or "modrinth"
-    if source not in SOURCES:
+    if source not in LABELS:
         raise ValueError(f"Unknown mod source: {source}")
     return source
 
@@ -81,9 +82,9 @@ def identity(item, reference=None):
 
 def resolve_ref(ref, source="modrinth"):
     ref = str(ref or "")
-    if ":" in ref and ref.split(":", 1)[0] in SOURCES:
+    if ":" in ref and ref.split(":", 1)[0] in LABELS:
         source, ref = ref.split(":", 1)
-    if source not in SOURCES:
+    if source not in LABELS:
         raise ValueError(f"Unknown mod source: {source}")
     return source, ref
 
@@ -114,6 +115,8 @@ def reference(query):
     elif host == "curseforge.com" and len(parts) >= 3 and parts[:2] == ["minecraft", "mc-mods"]:
         source, project = "curseforge", parts[2]
         file_id = parts[4] if len(parts) >= 5 and parts[3] == "files" and parts[4].isdigit() else None
+    elif host == "playhorizon.dev" and len(parts) == 2 and parts[0] == "mods":
+        source, project, file_id = "horizon", parts[1], None
     else:
         return None
     if not re.fullmatch(r"[A-Za-z0-9_-]+", project):

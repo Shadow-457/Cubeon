@@ -1,36 +1,74 @@
 package com.cubeon.forge;
-import com.cubeon.client.hud.CubeonHudConfig;
-import com.cubeon.client.emotes.*;
-import java.io.IOException;
 
-public final class EmoteScreen extends GlassScreen {
-    private int selected=-1;
-    private String[] favorites;
-    public EmoteScreen() { super(null); }
-    @Override public void initGui() { favorites=EmoteFavorites.normalize(CubeonHudConfig.get().emoteFavorites); }
-    @Override public void drawScreen(int x,int y,float partial) {
-        drawRect(0,0,width,height,0x70202a30);
-        int cx=width/2,cy=height/2; double dx=x-cx,dy=y-cy;
-        selected=dx*dx+dy*dy<225?-1:(int)Math.floor((Math.atan2(dx,-dy)+Math.PI*2+Math.PI/8)%(Math.PI*2)/(Math.PI/4));
-        int radius=Math.max(35,Math.min(75,Math.min(width,height)/3));
-        for(int i=0;i<8;i++) {
-            double a=i*Math.PI/4; int px=cx+(int)(Math.sin(a)*radius),py=cy-(int)(Math.cos(a)*radius);
-            drawRect(px-29,py-11,px+29,py+11,i==selected?0xd04e8878:0xb0283c42);
-            drawCenteredString(fontRendererObj,favorites[i],px,py-4,0xffe8f5f2);
-        }
-        drawCenteredString(fontRendererObj,"Emotes",cx,cy-4,0xffe8f5f2);
-        drawCenteredString(fontRendererObj,"Release B or click · right click changes a favorite",cx,height-18,0xffd0dfdc);
-        if(!CubeonForge.held(CubeonForge.EMOTES)) choose();
+import com.cubeon.client.Bridge;
+import com.cubeon.client.emotes.EmoteWheel;
+import com.cubeon.client.hud.CubeonHudConfig;
+import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.renderer.GlStateManager;
+import org.lwjgl.input.Keyboard;
+
+/**
+ * Circle emote picker drawn by the shared wheel. B opens it, holding B and
+ * releasing on a slot plays it; E edits favorites, Esc/right click cancels.
+ */
+public final class EmoteScreen extends GuiScreen {
+    private final EmoteWheel wheel = new EmoteWheel(CubeonHudConfig.get().emoteFavorites);
+
+    public EmoteScreen() { }
+
+    @Override public void initGui() { wheel.layout(width, height); }
+    @Override public boolean doesGuiPauseGame() { return false; }
+
+    @Override public void drawScreen(int mouseX, int mouseY, float partial) {
+        drawDefaultBackground();
+        wheel.render(new ForgeCanvas(), width, height, mouseX, mouseY,
+                CubeonHudConfig.get().showEmotes, Bridge.get().emotesReady(),
+                CubeonHudConfig.get().menuAnimations);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        // Releasing B over a slot plays it, as before the wheel was shared.
+        if (!wheel.editing() && !CubeonForge.held(CubeonForge.EMOTES)) choose(wheel.selection());
     }
-    private void choose() { if(selected>=0) CubeonForge.play(EmoteState.id(favorites[selected])); mc.displayGuiScreen(null); }
-    @Override protected void mouseClicked(int x,int y,int b) {
-        if(b==0) choose();
-        else if(b==1 && selected>=0) {
-            int id=EmoteState.id(favorites[selected]);
-            favorites[selected]=EmoteState.NAMES[(id+1)%EmoteState.NAMES.length];
-            CubeonHudConfig.get().emoteFavorites=EmoteFavorites.normalize(favorites); CubeonHudConfig.save();
-            favorites=CubeonHudConfig.get().emoteFavorites;
-        }
+
+    @Override protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (button == 1) { close(); return; }
+        if (button == 0) choose(wheel.hit(mouseX, mouseY));
     }
-    @Override protected void keyTyped(char c,int code) { if(code==1) mc.displayGuiScreen(null); }
+
+    @Override protected void keyTyped(char typed, int key) {
+        if (key == Keyboard.KEY_ESCAPE) { close(); return; }
+        if (key >= Keyboard.KEY_1 && key <= Keyboard.KEY_8) { choose(key - Keyboard.KEY_1); return; }
+        if (wheel.editing() && key == Keyboard.KEY_9) { choose(8); return; }
+        if (wheel.editing() && key == Keyboard.KEY_0) { choose(9); return; }
+        if (key == Keyboard.KEY_E) { wheel.edit(!wheel.editing()); return; }
+        if (key == Keyboard.KEY_LEFT || key == Keyboard.KEY_UP) { wheel.step(-1); return; }
+        if (key == Keyboard.KEY_RIGHT || key == Keyboard.KEY_DOWN || key == Keyboard.KEY_TAB) { wheel.step(1); return; }
+        if (key == Keyboard.KEY_RETURN || key == Keyboard.KEY_NUMPADENTER) { choose(wheel.selection()); }
+    }
+
+    private void choose(int selection) {
+        if (selection == EmoteWheel.EDIT) { wheel.edit(true); return; }
+        if (selection == EmoteWheel.DONE) { wheel.edit(false); return; }
+        if (wheel.editing()) {
+            if (selection < 0 || selection >= wheel.choices()) return;
+            if (wheel.toggleFavorite(selection)) {
+                CubeonHudConfig.get().emoteFavorites = wheel.favorites();
+                CubeonHudConfig.save();
+            }
+            return;
+        }
+        if (selection == EmoteWheel.TOGGLE) {
+            if (CubeonHudConfig.get().showEmotes) CubeonForge.play(-1);
+            CubeonHudConfig.get().showEmotes = !CubeonHudConfig.get().showEmotes;
+            CubeonHudConfig.save();
+            return;
+        }
+        if (selection < EmoteWheel.STOP || selection >= wheel.slots() || !CubeonHudConfig.get().showEmotes) return;
+        CubeonForge.play(wheel.emote(selection));
+        close();
+    }
+
+    private void close() {
+        if (wheel.editing()) { wheel.edit(false); return; }
+        mc.displayGuiScreen(null);
+    }
 }

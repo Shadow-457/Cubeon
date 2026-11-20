@@ -550,7 +550,8 @@ class SkinTests(unittest.TestCase):
                 files = [source / p for p in ("Bridge.java", "Json.java", "ui/ClientUi.java", "ui/ClientTheme.java", "ui/MenuUi.java", "ui/HudIcon.java",
                     "ui/HudMenu.java", "ui/ThemeMenu.java", "ui/SkinMenu.java", "hud/HudFeatures.java", "skins/SkinLibrary.java",
                     "skins/SkinPreview.java", "skins/CosmeticPreview.java", "cosmetics/CosmeticCatalog.java",
-                    "cosmetics/CosmeticGeometry.java", "skins/LiveSkin.java", "skins/LiveCape.java", "skins/CapeFrames.java", "skins/CapeAnimation.java")]
+                    "cosmetics/CosmeticGeometry.java", "cosmetics/CosmeticSkinCoverage.java", "cosmetics/CosmeticSelection.java",
+                    "skins/LiveSkin.java", "skins/LiveCape.java", "skins/CapeFrames.java", "skins/CapeAnimation.java")]
                 subprocess.run([javac, "--release", "17", "-d", tmp, *map(str, files), str(harness)], check=True)
                 subprocess.run([java, "-Duser.home=" + str(Path(local_api._TOKEN_FILE).parent.parent),
                                 "-cp", tmp + os.pathsep + str(ROOT / "mod/src/main/resources"), "com.cubeon.client.SkinTest"],

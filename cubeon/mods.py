@@ -366,6 +366,9 @@ def profile_key_for(mc_version: str | None, loader: str | None,
 
 def resolve_profile_dir(mc_version: str | None, loader: str | None,
                         version_id: str | None = None) -> str:
+    from . import rust_engine, rust_mods
+    if rust_engine.is_instance(version_id):
+        return str(rust_mods.mods_dir(version_id))
     from . import storage
     direct = storage.game_dir(version_id)
     if direct:
@@ -377,6 +380,9 @@ def resolve_profile_dir(mc_version: str | None, loader: str | None,
 
 def get_profile_dir(mc_version: str | None, loader: str | None,
                     version_id: str | None = None) -> str:
+    from . import rust_engine, rust_mods
+    if rust_engine.is_instance(version_id):
+        return str(rust_mods.mods_dir(version_id, create=True))
     from . import storage
     storage.assert_writable()
     if version_id:
@@ -678,7 +684,7 @@ def record_mod_source(profile_dir: str, filename: str, slug: str | None = None,
 
 def _meta_path(profile_dir: str, filename: str) -> str:
     from .file_safety import entry_name
-    entry_name(filename, extensions=(".jar", ".jar.disabled"))
+    entry_name(filename, extensions=(".jar", ".jar.disabled", ".hmod"))
     base = filename[:-len(".disabled")] if filename.endswith(".disabled") else filename
     return metadata_path(profile_dir, base + MOD_META_SUFFIX)
 
@@ -963,6 +969,9 @@ def list_mods(mc_version: str | None, loader: str | None,
     Pass profile_key to read one exact profile folder (the pack export picker
     knows the folder, not always the instance id).
     """
+    from . import rust_engine, rust_mods
+    if rust_engine.is_instance(version_id):
+        return rust_mods.list_mods(version_id)
     if profile_key:
         profile_dir = profile_dir_for_key(profile_key)
         if not profile_dir:
@@ -1012,6 +1021,9 @@ def list_mods(mc_version: str | None, loader: str | None,
 
 def toggle_mod(mc_version: str | None, loader: str | None, filename: str,
                version_id: str | None = None) -> None:
+    from . import rust_engine, rust_mods
+    if rust_engine.is_instance(version_id):
+        return rust_mods.toggle(version_id, filename)
     from .file_safety import entry_name
     entry_name(filename, extensions=(".jar", ".jar.disabled"))
     profile_dir = get_profile_dir(mc_version, loader, version_id)
@@ -1040,6 +1052,9 @@ def toggle_mod(mc_version: str | None, loader: str | None, filename: str,
 
 def delete_mod(mc_version: str | None, loader: str | None, filename: str,
                version_id: str | None = None) -> None:
+    from . import rust_engine, rust_mods
+    if rust_engine.is_instance(version_id):
+        return rust_mods.delete(version_id, filename)
     from .file_safety import entry_name
     entry_name(filename, extensions=(".jar", ".jar.disabled"))
     profile_dir = get_profile_dir(mc_version, loader, version_id)
@@ -1131,6 +1146,9 @@ def install_local_mod(src_path: str, mc_version: str | None, loader: str | None,
     going through Modrinth. The jar is stored once in the global mods store
     (a second profile wanting the same file links it, no copy) and the
     profile holds a link to it. Returns the filename it was stored as."""
+    from . import rust_engine, rust_mods
+    if rust_engine.is_instance(version_id):
+        return rust_mods.install_local(src_path, version_id, replace=replace)
     from .local_mods import review_files, import_entry
     entry = review_files([src_path], mc_version, loader, version_id=version_id)['entries'][0]
     if entry['status'] == 'blocked':
@@ -1417,6 +1435,9 @@ def search_mods(query: str, mc_version: str | None = None, loader: str | None = 
     Modrinth search with the active version/loader facets; it is never silently
     broadened to incompatible projects. Modrinth project links resolve directly.
     """
+    if source == "horizon" or loader == "rust":
+        from . import rust_mods
+        return rust_mods.search(query, mc_version, loader, categories, limit, offset, force=force)
     query = " ".join((query or "").split())
     link = mod_catalogue.reference(query)
     if link:
@@ -1593,6 +1614,10 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     cache entry so a pinned dependency cannot get an unconstrained latest jar.
     """
     source, project_id_or_slug = mod_catalogue.resolve_ref(project_id_or_slug, source)
+    if source == "horizon":
+        from . import rust_mods
+        return rust_mods.download(project_id_or_slug, mc_version, loader, file_id=file_id,
+                                  force=force, cancel_event=cancel_event)
     if source == "curseforge":
         return mod_catalogue.download(project_id_or_slug, mc_version, loader, file_id=file_id,
                                       force=force, timeout=timeout, cancel_event=cancel_event,
@@ -1649,6 +1674,9 @@ def get_mod_details(project_id_or_slug: str, *, source="modrinth", force=False) 
     already had instead of showing an empty dialog.
     """
     source, ref = mod_catalogue.resolve_ref(project_id_or_slug, source)
+    if source == "horizon":
+        from . import rust_mods
+        return rust_mods.details(ref, force=force)
     if source == "curseforge":
         return mod_catalogue.details(ref, force=force)
     if not ref:
@@ -1723,6 +1751,10 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
     callers that must never block on the network.
     """
     source, ref = mod_catalogue.resolve_ref(project_id_or_slug, source)
+    if source == "horizon":
+        from . import rust_mods
+        return rust_mods.versions(ref, mc_version, loader, file_id=file_id, offset=offset,
+                                  force=force, allow_network=allow_network)
     if source == "curseforge":
         return mod_catalogue.versions(ref, mc_version, loader, offset=offset, file_id=file_id,
                                       force=force, timeout=timeout, allow_network=allow_network)
@@ -3366,6 +3398,13 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     failures and unresolved actual JAR requirements are returned in failed.
     """
     source, project = mod_catalogue.resolve_ref(project_id or slug, source)
+    from . import rust_engine, rust_mods
+    if source == "horizon":
+        return rust_mods.install(project, version_id, mc_version=mc_version, loader=loader,
+                                 file_id=file_id, progress_cb=progress_cb, status_cb=status_cb,
+                                 cancel_event=cancel_event)
+    if rust_engine.is_instance(version_id) or loader == "rust":
+        raise ValueError("Choose a Horizon content mod for the selected Rust instance.")
     if source == "curseforge":
         return mod_catalogue.install(project, filename, mc_version, loader, file_id=file_id,
                                      version_id=version_id, progress_cb=progress_cb,

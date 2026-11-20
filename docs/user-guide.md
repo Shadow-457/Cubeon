@@ -431,6 +431,11 @@ automatic resends. Rebind G in Minecraft's Controls.
 New live messages and invitations show a compact Cubeon toast in game; an open
 conversation stays quiet, and old history does not trigger alerts.
 
+In supported Fabric builds, **K → Render → Full Bright** lights dark areas
+without changing Minecraft's saved brightness setting. It starts off; turning it
+off restores normal lighting. The keystrokes HUD keeps WASD, LMB/RMB and the space
+bar aligned at every HUD scale.
+
 Minecraft's Mod Menu title/button count shows loaded top-level mod files.
 Bundled Fabric API modules and libraries stay visible in Mod Menu's detailed list
 but do not inflate that count. Cubeon's Installed list can also include disabled

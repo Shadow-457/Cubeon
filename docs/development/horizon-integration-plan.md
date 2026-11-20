@@ -73,7 +73,16 @@ Runtime archives exclude Minecraft JARs, textures, sounds and generated data.
 The MIT engine license does not grant rights to publish Minecraft assets.
 
 The adapter reuses Cubeon's official version installer and verifies the server
-JAR against its Mojang SHA-1 before downloading. First preparation requires
+JAR against its Mojang SHA-1 before downloading. It compares the installed
+version JSON's raw SHA-1 with the bundled runtime's `research-lock.json`.
+Accepted local metadata is reused. When Mojang republishes the version JSON
+or another launcher rewrites it, the adapter downloads the runtime's pinned
+original from Mojang, verifies its SHA-1 and caches it separately under Rust's
+`inputs/`. The preparer receives that file through `--version-json`, while
+libraries and asset objects still come from the shared install. The shared
+Java version JSON stays current, and a verified pinned cache needs no download.
+
+First preparation requires
 **exact Java 25** for the pinned exporters. It checks configured Java, PATH,
 JAVA_HOME, managed Java 25 and bounded conventional local JDK directories,
 including `~/jdks`, `~/.jdks` and SDKMAN. It probes the actual executable,
@@ -103,6 +112,7 @@ Files live below `CUBEON_HOME/rust/`:
 - `builds/<build>/<platform>/`: verified engine/exporter bundle.
 - `resources/<build>/`: locally prepared resources.
 - `inputs/server-26.3.jar`: verified official server input.
+- `inputs/manifest-26.3-<sha1>.json`: verified version metadata pinned by the runtime.
 - `instances/26.3/`: isolated native worlds, settings and screenshots.
 - `instance.json`: installation/discovery marker.
 

@@ -1535,7 +1535,7 @@ _chat_path = os.path.join(_app_root, "ui", "chat_tab.py")
 check("chat tab exists and is wired into nav + lazy builders",
       os.path.exists(_chat_path)
       and "def build_chat_tab" in open(_chat_path, encoding="utf-8").read()
-      and 'ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,' in _main_src
+      and 'ft.Icons.CHAT_BUBBLE_ROUNDED,' in _main_src
       and 'i18n.t("Chat")' in _main_src
       and '"chat": _build_chat_tab' in _main_src
       and '"chat": chat_tab_host' in _main_src,

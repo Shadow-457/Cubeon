@@ -35,6 +35,7 @@ public final class CubeonHudMenuScreen extends Screen {
         public boolean wingDepth() { return CubeonHudConfig.get().wingDepth; }
         public boolean otherCosmetics() { return CubeonHudConfig.get().showOtherCosmetics; }
         public boolean cameraBlur() { return CubeonHudConfig.get().cameraMotionBlur; }
+        public boolean fullBright() { return CubeonHudConfig.get().fullBright; }
         public float blurIntensity() { return CubeonHudConfig.get().cameraBlurIntensity; }
         public void setBlurIntensity(float value) { CubeonHudConfig.get().cameraBlurIntensity=value; com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); }
         public boolean sprint() { return CubeonHudConfig.get().autoSprint; }
@@ -147,6 +148,7 @@ public final class CubeonHudMenuScreen extends Screen {
             case HudMenu.OTHER_COSMETICS -> { config.showOtherCosmetics = !config.showOtherCosmetics; CubeonHudConfig.save(); }
             case HudMenu.CAMERA_BLUR -> { config.cameraMotionBlur = !config.cameraMotionBlur;
                 com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
+            case HudMenu.FULL_BRIGHT -> { config.fullBright = !config.fullBright; CubeonHudConfig.save(); }
             case HudMenu.SPRINT -> { config.autoSprint = !config.autoSprint; CubeonHudConfig.save(); }
             case HudMenu.CLOCK_MODE -> { config.worldClock = !config.worldClock; CubeonHudConfig.save(); }
             case HudMenu.RESET -> { CubeonHudConfig.resetPositions(); CubeonHudConfig.save(); }

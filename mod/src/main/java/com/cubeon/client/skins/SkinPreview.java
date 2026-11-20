@@ -1,6 +1,8 @@
 package com.cubeon.client.skins;
 
 import com.cubeon.client.ui.ClientUi;
+import com.cubeon.client.cosmetics.CosmeticCatalog;
+import com.cubeon.client.cosmetics.CosmeticSkinCoverage;
 import java.util.Arrays;
 import java.util.List;
 
@@ -11,6 +13,7 @@ public final class SkinPreview {
     private SkinLibrary.Skin cape;
     private int capeFrame=-1;
     private int[] capePixels;
+    private int[] skinPixels;
     private int[] raster;
     private double[] depth;
     private double sin, cos, scale;
@@ -33,6 +36,16 @@ public final class SkinPreview {
         if (value != skin || selectedCape != cape || !items.equals(cosmetics) || w != width || h != height || yaw != angle || mask != layers || frame!=capeFrame) {
             skin = value; cape = selectedCape; width = w; height = h; angle = yaw; layers = mask;
             cosmetics=items;
+            skinPixels=skin.pixels().clone();
+            var catalog=CosmeticCatalog.get();
+            var wearables=new java.util.ArrayList<CosmeticCatalog.Item>();
+            for(var item:items) {
+                var wearable=catalog==null?null:catalog.get(item.id());
+                if(wearable!=null) wearables.add(wearable);
+            }
+            var coverage=CosmeticSkinCoverage.pixels(wearables,skin.slim());
+            if(!coverage.empty()) for(int row=0;row<skin.height();row++) for(int col=0;col<skin.width();col++)
+                if(coverage.covered(col,row,skin.width(),skin.height())) skinPixels[row*skin.width()+col]&=0x00FFFFFF;
             capeFrame=frame;
             capePixels=cape==null?null:frame<0?cape.pixels():cape.animation().preview(frame);
             raster = new int[w * h]; depth = new double[w * h]; Arrays.fill(depth, -Double.MAX_VALUE);
@@ -110,7 +123,7 @@ public final class SkinPreview {
         triangle(projected[0],projected[2],projected[3],shade,texture);
     }
     private void triangle(double[] a,double[] b,double[] c,double shade,SkinLibrary.Skin texture) {
-        triangle(a,b,c,shade,texture==cape?capePixels:texture.pixels(),texture.width(),texture.height());
+        triangle(a,b,c,shade,texture==cape?capePixels:texture==skin?skinPixels:texture.pixels(),texture.width(),texture.height());
     }
     private void triangle(double[] a,double[] b,double[] c,double shade,int[] pixels,int tw,int th) {
         double area=edge(a,b,c[0],c[1]); if(Math.abs(area)<.00001) return;

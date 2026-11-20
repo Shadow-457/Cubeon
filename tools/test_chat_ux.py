@@ -93,6 +93,77 @@ class ChatUXTests(unittest.TestCase):
         self.assertTrue(scope(scope(self.composer.on_focus)['_composer_focus'])['state']['chat_composing'])
         self.composer.on_blur(None)
 
+    def test_supported_links_render_bounded_media_embeds(self):
+        self.service.echo('gif https://media.tenor.com/example/cube.gif?width=640!')
+        self.service.echo('video https://youtu.be/dQw4w9WgXcQ?t=4')
+        self.service.echo('site https://ylet.online')
+        self.select('alice')
+        embeds = [control for control in walk(self.controls['transcript'])
+                  if isinstance(control, ft.Stack) and isinstance(control.data, dict)
+                  and control.data.get('chat_link_embed')]
+        self.assertEqual({embed.data['kind'] for embed in embeds}, {'gif', 'youtube', 'link'})
+        sources = {control.src for control in walk(self.controls['transcript'])
+                   if isinstance(control, ft.Image)}
+        self.assertIn('https://media.tenor.com/example/cube.gif?width=640', sources)
+        self.assertIn('https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', sources)
+        labels = {control.value for control in walk(self.controls['transcript'])
+                  if isinstance(control, ft.Text)}
+        self.assertIn('ylet.online', labels)
+        previous_widths = [embed.width for embed in embeds]
+        self.root.controls[-1].on_size_change(SimpleNamespace(width=260))
+        self.assertTrue(all(embed.width < before
+                            for embed, before in zip(embeds, previous_widths)))
+
+    def test_link_preview_parser_rejects_lookalike_hosts(self):
+        preview = chat._link_preview(
+            'site https://example.com/page then https://youtube.com/shorts/dQw4w9WgXcQ)')
+        self.assertEqual(preview['kind'], 'youtube')
+        self.assertEqual(preview['url'], 'https://youtube.com/shorts/dQw4w9WgXcQ')
+        lookalike = chat._link_preview('https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ')
+        self.assertEqual(lookalike['kind'], 'link')
+        self.assertEqual(lookalike['host'], 'youtube.com.evil.test')
+        self.assertIsNone(chat._link_preview('javascript:alert(1)'))
+
+    def test_giphy_share_link_renders_inline_and_keeps_original_link(self):
+        url = 'https://giphy.com/gifs/tim-and-eric-hacked-awesome-show-DsA5XPVvKIstEah1by'
+        self.service.echo(url)
+        self.select('alice')
+        bubble = self.controls['transcript'].controls[0].content.controls[0]
+        self.assertEqual(bubble.content.controls[0].value, url)
+        embed = bubble.content.controls[1]
+        self.assertEqual(embed.data['kind'], 'gif')
+        self.assertEqual(embed.data['url'], url)
+        image = next(control for control in walk(embed) if isinstance(control, ft.Image))
+        self.assertEqual(image.src, 'https://media.giphy.com/media/DsA5XPVvKIstEah1by/giphy.gif')
+        self.assertEqual(image.fit, ft.BoxFit.CONTAIN)
+        self.assertIsNotNone(image.error_content)
+        previous_width = embed.width
+        self.root.controls[-1].on_size_change(SimpleNamespace(width=260))
+        self.assertLess(embed.width, previous_width)
+
+    def test_giphy_share_variants_and_invalid_links(self):
+        for url in (
+            'https://giphy.com/gifs/DsA5XPVvKIstEah1by',
+            'https://www.giphy.com/gifs/show-DsA5XPVvKIstEah1by/?utm_source=share',
+            'https://m.giphy.com/stickers/show-DsA5XPVvKIstEah1by',
+            'https://giphy.com/embed/DsA5XPVvKIstEah1by',
+        ):
+            with self.subTest(url=url):
+                preview = chat._link_preview('https://ylet.online then ' + url + ')')
+                self.assertEqual(preview['kind'], 'gif')
+                self.assertEqual(preview['url'], url)
+                self.assertEqual(preview['source'],
+                                 'https://media.giphy.com/media/DsA5XPVvKIstEah1by/giphy.gif')
+        for url in (
+            'https://giphy.com.evil.test/gifs/show-DsA5XPVvKIstEah1by',
+            'https://giphy.com/search/happy',
+            'https://giphy.com/gifs/',
+            'https://giphy.com/gifs/show-',
+            'https://giphy.com/embed/id%2Fother',
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(chat._link_preview(url)['kind'], 'link')
+
     def test_empty_conversation_has_composer_and_send_tracks_connection(self):
         self.select('bob')
         self.assertTrue(scope(self.controls['_sync_empty_state'])['empty_state'].visible)

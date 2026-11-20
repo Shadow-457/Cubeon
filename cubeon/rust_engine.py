@@ -446,6 +446,46 @@ def _run(command, *, cancel=None, status_cb=lambda _: None, progress_cb=lambda _
         process.stdout.close()
 
 
+def _preparation_manifest(runtime: Path, source: Path, *, cancel=None,
+                          status_cb=lambda _: None, progress_cb=lambda _: None) -> Path:
+    """Give the bundled preparer an original version JSON accepted by its lock.
+
+    Mojang republishes asset indexes without changing the pinned game JARs.
+    Keep the shared Java metadata current, and cache the preparer's pinned
+    official copy separately when the installed JSON is newer or rewritten.
+    """
+    _check_cancel(cancel)
+    game = _read(runtime / "research-lock.json").get("minecraft")
+    if not isinstance(game, dict) or game.get("version") != VERSION:
+        raise RustEngineError("Rust resource pins are invalid. Reinstall the Rust runtime.")
+    pinned = game.get("manifest_sha1")
+    if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{40}", pinned):
+        raise RustEngineError("Rust resource pins are invalid. Reinstall the Rust runtime.")
+    accepted = {pinned}
+    known = game.get("accepted_manifest_sha1", [])
+    if isinstance(known, list):
+        accepted.update(value for value in known if isinstance(value, str))
+
+    def verified(path, checksums):
+        if not path.is_file():
+            return False
+        with path.open("rb") as stream:
+            return hashlib.file_digest(stream, "sha1").hexdigest() in checksums
+
+    if verified(source, accepted):
+        return source
+    manifest = _owned(root() / "inputs" / f"manifest-{VERSION}-{pinned}.json")
+    if not verified(manifest, {pinned}):
+        status_cb("Getting verified Minecraft 26.3 preparation metadata")
+        net.download_to(str(manifest),
+                        f"https://piston-meta.mojang.com/v1/packages/{pinned}/{VERSION}.json",
+                        expected_hash=("sha1", pinned), url_validator=_official_url,
+                        cancel_check=lambda: _check_cancel(cancel),
+                        progress_cb=lambda done, total: progress_cb(done / (total or max(done, 1))))
+    _check_cancel(cancel)
+    return manifest
+
+
 def install(*, cfg=None, cancel=None, status_cb=lambda _: None,
             progress_cb=lambda _: None, max_cb=lambda _: None):
     from .versions import _active_install
@@ -464,7 +504,10 @@ def install(*, cfg=None, cancel=None, status_cb=lambda _: None,
             versions.install_version(VERSION, progress_cb, status_cb, max_cb,
                                      cancel_event=cancel, explicit_java=True)
             version_dir = Path(storage.runtime_dir()) / "versions" / VERSION
-            info = _read(version_dir / (VERSION + ".json"))
+            max_cb(1)
+            manifest = _preparation_manifest(runtime, version_dir / (VERSION + ".json"),
+                                             cancel=cancel, status_cb=status_cb, progress_cb=progress_cb)
+            info = _read(manifest)
             server = (info.get("downloads") or {}).get("server") or {}
             server_jar = _owned(root() / "inputs" / "server-26.3.jar")
             server_jar.parent.mkdir(parents=True, exist_ok=True)
@@ -500,7 +543,8 @@ def install(*, cfg=None, cancel=None, status_cb=lambda _: None,
             with tempfile.TemporaryDirectory(prefix="prepare-", dir=resources.parent) as temp:
                 stage = Path(temp) / "resources"
                 _run([preparer, "--prepare", "--complete", "--progress", "json",
-                      "--minecraft-dir", storage.runtime_dir(), "--server-jar", str(server_jar),
+                      "--minecraft-dir", storage.runtime_dir(), "--version-json", str(manifest),
+                      "--server-jar", str(server_jar),
                       "--java-home", str(Path(java).parent.parent), "--output", str(stage)],
                      cancel=cancel, status_cb=status_cb, progress_cb=progress_cb)
                 _check_cancel(cancel)
@@ -555,5 +599,5 @@ def _official_url(url) -> bool:
         port = parsed.port
     except ValueError:
         return False
-    return (parsed.scheme == "https" and parsed.hostname == "piston-data.mojang.com"
+    return (parsed.scheme == "https" and parsed.hostname in ("piston-data.mojang.com", "piston-meta.mojang.com")
             and port in (None, 443) and not parsed.username and not parsed.password)

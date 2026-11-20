@@ -7,7 +7,7 @@ import flet as ft
 
 from cubeon import config, i18n, thread_safe_ui
 from cubeon.color_templates import CUSTOM_PALETTE_KEY, custom_palette, normalize_custom_palette
-from cubeon.theme import RADIUS, RADIUS_LG, THEME
+from cubeon.theme import FONT_BODY, RADIUS, RADIUS_LG, THEME
 from templates.color_green import PALETTE
 
 
@@ -58,7 +58,7 @@ class ColorStudio:
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS)
         self.wheel_slot = ft.Container(self.field, height=self.size,
             alignment=ft.Alignment.CENTER, on_size_change=self._resized, size_change_interval=100)
-        self.sample_label = ft.Text(size=11, font_family='Inter', rtl=False)
+        self.sample_label = ft.Text(size=11, font_family=FONT_BODY, rtl=False)
         self.preview_title = ft.Text('Cubeon', size=13, weight=ft.FontWeight.W_600)
         self.preview_hint = ft.Text(i18n.t('Ready to play'), size=11)
         self.preview_game_text = ft.Text('Minecraft', size=24, weight=ft.FontWeight.W_700)

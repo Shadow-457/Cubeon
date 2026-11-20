@@ -44,12 +44,6 @@ def _problem(path, info, *, full=False):
             return None
         sha1 = info.get("sha1")
         has_checksum = isinstance(sha1, str) and re.fullmatch(r"[0-9a-fA-F]{40}", sha1)
-        with zipfile.ZipFile(path) as archive:
-            entries = archive.infolist()
-            if not entries or sum(entry.file_size for entry in entries) > 512 * 1024 * 1024:
-                return "invalid JAR archive"
-            if (full or not has_checksum) and archive.testzip() is not None:
-                return "damaged JAR archive"
         if has_checksum:
             digest = hashlib.sha1()
             with path.open("rb") as stream:
@@ -57,6 +51,17 @@ def _problem(path, info, *, full=False):
                     digest.update(block)
             if digest.hexdigest() != sha1.lower():
                 return "checksum mismatch"
+            # A declared checksum proves the bytes are exactly the artifact Java should
+            # receive. Mojang ships some of them as legal empty archives - lwjgl-platform
+            # 2.9.4-nightly-20150209 is a 22-byte zero-entry JAR - so the entry-count
+            # heuristic below only applies when there is nothing to compare against.
+        else:
+            with zipfile.ZipFile(path) as archive:
+                entries = archive.infolist()
+                if not entries or sum(entry.file_size for entry in entries) > 512 * 1024 * 1024:
+                    return "invalid JAR archive"
+                if archive.testzip() is not None:
+                    return "damaged JAR archive"
         _CACHE[fingerprint] = True
         if len(_CACHE) > 512:
             _CACHE.popitem(last=False)
@@ -86,11 +91,18 @@ def _sources(version_id, runtime):
             downloads = library.get("downloads") or {}
             artifact = downloads.get("artifact") or {}
             info = dict(artifact)
-            if not info.get("url"):
+            if downloads and not artifact:
+                # Classifier-only library (natives, and Mojang's 1.8.9 jinput-platform
+                # 2.0.5 / lwjgl-platform 2.9.2 entries): this profile has no plain JAR
+                # for the coordinate, so the classpath entry the command builder made is
+                # not a declared artifact and must never be fetched or "repaired".
+                info = None
+            elif not info.get("url"):
                 relative = path.relative_to(runtime / "libraries").as_posix()
                 info["url"] = str(library.get("url") or "https://libraries.minecraft.net/").rstrip("/") + "/" + relative
             # Child profile entries own overrides for matching coordinates.
-            result.setdefault(str(path), info)
+            if info is not None:
+                result.setdefault(str(path), info)
             for native in (downloads.get("classifiers") or {}).values():
                 if isinstance(native, dict) and isinstance(native.get("path"), str):
                     result.setdefault(str(runtime / "libraries" / native["path"]), dict(native))

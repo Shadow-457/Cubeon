@@ -125,7 +125,7 @@ def _versions_section(versions, theme, on_install_version=None, install_feedback
         return None
     controls = [ft.Text("Recent versions", size=15, color=theme.get("TEXT"),
                         weight=ft.FontWeight.W_700,
-                        font_family=theme.get("FONT_DISPLAY")), *rows]
+                        font_family=theme.get("FONT_MONO")), *rows]
     if len(versions) > 8:
         controls.append(ft.Text(f"\u2026and {len(versions) - 8} more",
                                 size=12, color=theme.get("TEXT_FAINT"),

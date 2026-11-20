@@ -1,6 +1,6 @@
 """
 Cubeon - Mods tab UI.
-Browse Modrinth and CurseForge, and manage content for the selected instance.
+Browse mod providers and manage content for the selected instance.
 
 ModsView owns the retained controls and actions for Mods, Resource Packs and
 Shaders, and embeds the existing Modpacks host. build_mods_tab() preserves the
@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import flet as ft
 
 import launcher_core as core
-from cubeon import cubeonfriends, dialogs, i18n, mod_catalogue, net, scrolling, status_text, storage, thread_safe_ui
+from cubeon import cubeonfriends, dialogs, i18n, mod_catalogue, net, rust_engine, scrolling, status_text, storage, thread_safe_ui
 from cubeon import eta as cubeon_eta
 from cubeon import icons as _icons
 from cubeon import instances as instance_info
@@ -81,6 +81,10 @@ def batch_progress_text(value: float, total: float, eta: "str | None" = None) ->
 
 
 def mod_compatibility_note(mod: dict, mc_version: str | None, loader: str | None) -> str:
+    if mod.get("source") == "horizon":
+        if loader != "rust":
+            return "Choose a Cubeon Rust instance for Horizon content mods."
+        return mod.get("compatibility_reason") or ""
     if loader not in MOD_CAPABLE_LOADERS:
         return "Choose a mod loader on the Play tab."
     if mod.get("compatibility_target") == [mc_version, loader] and mod.get("compatible") is False:
@@ -589,8 +593,7 @@ class ModsView:
         self.mods_tab.refresh_client_preference = self.refresh_client_preference
 
     def _row_key(self, identity):
-        return (self._ct(), self.state.get("selected_mc_version"), self.state.get("mod_loader"),
-                self.version_dropdown.value, identity)
+        return (*self._installed_target(), identity)
 
     def _remember_row(self, cache, key, entry):
         cache[key] = entry
@@ -626,7 +629,7 @@ class ModsView:
 
     def _make_installed_icon(self, m):
         """Embedded pack art, stored project art or a Cubeon logo fallback."""
-        slug = (mod_catalogue.identity(m) if m.get("source") == "curseforge" else m.get("slug"))
+        slug = (mod_catalogue.identity(m) if m.get("source") in ("curseforge", "horizon") else m.get("slug"))
         holder = ft.Container(
             width=44, height=44, bgcolor=CARD_FILL, border_radius=RADIUS,
             alignment=ft.Alignment.CENTER,
@@ -658,10 +661,10 @@ class ModsView:
 
         def worker():
             try:
-                mr_slugs = [slug for slug in slugs if not slug.startswith("curseforge:")]
+                mr_slugs = [slug for slug in slugs if not slug.startswith(("curseforge:", "horizon:"))]
                 got = core.get_mod_icons(mr_slugs) if mr_slugs else {}
                 for slug in slugs:
-                    if slug.startswith("curseforge:"):
+                    if slug.startswith(("curseforge:", "horizon:")):
                         try:
                             got[slug] = (core.get_mod_details(slug) or {}).get("icon_url")
                         except Exception:
@@ -747,8 +750,12 @@ class ModsView:
         for m in items:
             if m.get("project_id") or m.get("slug"):
                 names.add(mod_catalogue.identity(m))
-                if m.get("source") == "curseforge":
+                if m.get("source") in ("curseforge", "horizon"):
                     continue
+            if self._is_rust():
+                if m.get("mod_id"):
+                    names.add("horizon:" + m["mod_id"])
+                continue
             inst_slug = (m.get("slug") or "").lower()
             if inst_slug:
                 names.add(inst_slug)
@@ -822,6 +829,8 @@ class ModsView:
         return False
 
     def _installed_target(self, kind=None):
+        if self._is_rust():
+            return (kind or self._ct(), rust_engine.VERSION, "rust", self.version_dropdown.value)
         return (kind or self._ct(), self.state.get('selected_mc_version'),
                 self.state.get('mod_loader'), self.version_dropdown.value)
 
@@ -866,6 +875,8 @@ class ModsView:
             return changed
 
     def _client_browse_entry(self):
+        if self._is_rust():
+            return None
         # A local catalogue entry shares the normal Browse grid. Never alter
         # provider pages/offsets or offer a client for an unsupported profile.
         if (not self._is_mod() or self.browse_state['page'] != 0
@@ -907,12 +918,17 @@ class ModsView:
             feedback.finish(error=f"Couldn't start Cubeon Client installation: {error}")
 
     def _mod_status(self, m):
+        if m.get("issue"):
+            return "Unavailable · " + m["issue"]
         if self._is_client_mod(m):
             return f"{'Enabled' if m['enabled'] else 'Disabled'} · Next launch · All instances"
         return f"{m['size_kb']:,.0f} KB  ·  {'Enabled' if m['enabled'] else 'Disabled'}"
 
     def _read_installed_snapshot(self, target):
         kind, mc, loader, version = target
+        if rust_engine.is_instance(version):
+            mods = core.list_mods(mc, "rust", version_id=version) if kind == 'mod' else None
+            return InstalledSnapshot(target, mods or [], mods, "rust")
         mods = core.list_mods(mc, loader, version_id=version) if kind in ('mod', 'shader') else None
         items = mods if kind == 'mod' else core.list_content(kind, mc, loader=loader, version_id=version)
         # Describe once on the worker, never once per tile while painting.
@@ -1142,6 +1158,8 @@ class ModsView:
         return ["mods"] if self._is_mod() else ["shaders" if self._ct() == "shader" else "resourcepacks"]
 
     def _check_install_issues(self, target, report=None):
+        if rust_engine.is_instance(target[3]):
+            return
         try:
             report = report if report is not None else check_content(target)
             if report.get("unfixed"):
@@ -1152,6 +1170,8 @@ class ModsView:
                                bgcolor=self.SURFACE_HI, text_color=self.TEXT)
 
     def _start_repair(self, mc, loader, version_id, sections, *, explicit=False):
+        if rust_engine.is_instance(version_id):
+            return False
         if (self.state.get("running_version") or self.state.get("installing_version")
                 or self.state.get("launching_version") or self.state.get("fixing_mods")):
             if explicit:
@@ -1205,6 +1225,8 @@ class ModsView:
         return True
 
     def run_mod_repair(self, e=None):
+        if self._is_rust():
+            return
         mc = self.state.get("selected_mc_version")
         loader = self.state.get("mod_loader") or "vanilla"
         version_id = self.version_dropdown.value
@@ -1217,6 +1239,8 @@ class ModsView:
         self._start_repair(mc, loader, version_id, self._repair_sections(), explicit=True)
 
     def auto_check(self, force=False):
+        if self._is_rust():
+            return
         mc = self.state.get("selected_mc_version")
         loader = self.state.get("mod_loader") or "vanilla"
         version_id = self.version_dropdown.value
@@ -1339,6 +1363,8 @@ class ModsView:
                     labels[1].value = self._mod_status(m)
                 if not pending and (not m.get("protected") or self._is_client_mod(m)):
                     row.content.controls[2].value = m["enabled"]
+                    row.content.controls[2].disabled = bool(m.get("issue"))
+                    row.content.controls[2].tooltip = m.get("issue")
                 row.on_click = (
                     (lambda event, metadata=metadata: self.open_mod_detail(metadata))
                     if not m.get("protected") and (m.get("project_id") or m.get("slug")) else None
@@ -1478,7 +1504,8 @@ class ModsView:
                             )]
                             if m.get("protected") else [
                                 # Toggle switch
-                                animated_switch(value=m["enabled"], active_color=self.ACCENT, on_change=on_toggle, scale=0.85),
+                                animated_switch(value=m["enabled"], active_color=self.ACCENT, on_change=on_toggle, scale=0.85,
+                                                disabled=bool(m.get("issue")), tooltip=m.get("issue")),
                                 # Delete button
                                 ft.IconButton(ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=TEXT_FAINT,
                                               icon_size=18, tooltip=i18n.t("Remove"), on_click=on_delete),
@@ -1542,7 +1569,7 @@ class ModsView:
         self.local_install_btn.disabled = True
         thread_safe_ui.refresh(self.local_install_btn)
 
-        if target[0] == 'mod':
+        if target[0] == 'mod' and not rust_engine.is_instance(target[3]):
             def release_import():
                 with thread_safe_ui.TREE_LOCK:
                     self.local_install_busy = False
@@ -1598,7 +1625,10 @@ class ModsView:
                 imported_count, failures = 0, []
                 for picked in files:
                     try:
-                        core.install_local_content(target[0], picked.path, target[1], target[3], target[2])
+                        if target[0] == 'mod':
+                            core.install_local_mod(picked.path, target[1], target[2], version_id=target[3])
+                        else:
+                            core.install_local_content(target[0], picked.path, target[1], target[3], target[2])
                         imported_count += 1
                     except Exception as error:
                         failures.append(f'{picked.name}: {error}')
@@ -1660,14 +1690,14 @@ class ModsView:
             # Vanilla can't load mods: refuse here instead of letting the
             # install land in a profile the game never reads. (install_local_
             # mod enforces the same rule at the core layer as a backstop.)
-            if self.state["mod_loader"] == "vanilla":
+            if not self._is_rust() and self.state["mod_loader"] == "vanilla":
                 self.local_install_status.value = (
                     "Vanilla can't load mods - switch the loader on the "
                     "Play tab first.")
                 self.local_install_status.visible = True
                 thread_safe_ui.refresh(self.local_install_status)
                 return
-            exts, title = ["jar"], "Choose mod JARs to import"
+            exts, title = (["hmod"], "Choose Rust content mods to import") if self._is_rust() else (["jar"], "Choose mod JARs to import")
         else:
             exts, title = ["zip"], f"Choose a {self._type_label()} .zip"
         self.picker_target = self._installed_target()
@@ -1719,6 +1749,9 @@ class ModsView:
     def _is_mod(self) -> bool:
         return self.active_content["type"] == "mod"
 
+    def _is_rust(self) -> bool:
+        return rust_engine.is_instance(self.version_dropdown.value)
+
     def _instance_mod_capable(self, *, verify=True):
         """Does the SELECTED INSTANCE really have a mod loader?
 
@@ -1754,6 +1787,8 @@ class ModsView:
 
     def _can_install(self, content_type=None, *, verify=True):
         kind = content_type or self._ct()
+        if self._is_rust():
+            return kind == "mod"
         if kind == "resourcepack":
             # Texture packs work in plain Vanilla - always allowed.
             return True
@@ -1767,7 +1802,7 @@ class ModsView:
         Vanilla instance gets its own set of packs instead of sharing the
         modded instance's (which matters because a shader is only usable where
         Iris/OptiFine is actually installed)."""
-        return self.state.get("mod_loader")
+        return "rust" if self._is_rust() else self.state.get("mod_loader")
 
     def _type_label(self) -> str:
         """Singular human label for the active non-mod type, e.g. 'resource pack'."""
@@ -1776,15 +1811,15 @@ class ModsView:
     def _sync_client_preference(self):
         self.client_preference_switch.value = bool(self.cfg.get('client_mod_enabled', True))
         self.client_preference_row.visible = (
-            self._is_mod() and bool(self.state.get('selected_mc_version'))
+            self._is_mod() and not self._is_rust() and bool(self.state.get('selected_mc_version'))
             and self.state.get('mod_loader') in MOD_CAPABLE_LOADERS
             and not any(self._is_client_mod(item) for item in self._cached_installed()))
         thread_safe_ui.refresh(self.client_preference_row)
 
     def _sync_content_notices(self):
         for notice, visible in (
-            (self.vanilla_mods_notice, self._is_mod() and self.state.get('mod_loader') == 'vanilla'),
-            (self.shader_notice, self._ct() == 'shader' and not self.shader_requirement_installed()),
+            (self.vanilla_mods_notice, self._is_mod() and not self._is_rust() and self.state.get('mod_loader') == 'vanilla'),
+            (self.shader_notice, self._ct() == 'shader' and not self._is_rust() and not self.shader_requirement_installed()),
         ):
             if notice.visible != visible:
                 notice.visible = visible
@@ -1799,7 +1834,8 @@ class ModsView:
     def _sync_local_install_action(self):
         allowed = self._can_install(verify=False)
         disabled = self.local_install_busy or self.picker_target is not None or not allowed
-        tooltip = None if allowed else 'Choose a mod loader on the Play tab first.'
+        tooltip = None if allowed else ('This Rust beta supports Horizon content mods.' if self._is_rust()
+                                       else 'Choose a mod loader on the Play tab first.')
         if (self.local_install_btn.disabled, self.local_install_btn.tooltip) != (disabled, tooltip):
             self.local_install_btn.disabled, self.local_install_btn.tooltip = disabled, tooltip
             thread_safe_ui.refresh(self.local_install_btn)
@@ -1809,13 +1845,15 @@ class ModsView:
         self._sync_client_preference()
         self._sync_content_notices()
         self._sync_local_install_action()
+        self.check_repair_btn.visible = not self._is_rust()
         self.installed_filter_field.hint_text = ('Search installed mods...' if self._is_mod()
                                             else 'Search installed resource packs...' if self._ct() == 'resourcepack'
                                             else 'Search installed shaders...')
         self.header_title.value = dict(self.CONTENT_TABS)[self._ct()]
         if self._is_mod():
             self.header_subtitle.value = "Choose a mod loader on Play to install mods." if not self._can_install(verify=False) else ''
-            self.mod_search_field.hint_text = "Search mods or paste a Modrinth / CurseForge link..."
+            self.mod_search_field.hint_text = ("Search Horizon content mods or paste a Horizon link..." if self._is_rust()
+                                               else "Search mods or paste a Modrinth / CurseForge link...")
         elif self._ct() == "resourcepack":
             self.header_subtitle.value = "Texture packs work in vanilla and modded Minecraft."
             self.mod_search_field.hint_text = "Search resource packs... e.g. faithful, stay true"
@@ -1883,13 +1921,15 @@ class ModsView:
         v = self.version_dropdown.value
         if not v:
             return None
+        if rust_engine.is_instance(v):
+            return rust_engine.VERSION
         return self.state.get('selected_mc_version') or core.extract_mc_version(v)
 
     def browse_loader(self) -> str:
         """The loader to filter Modrinth results by. Vanilla can't load mods
         at all, so default that case to Fabric (the most commonly supported
         loader) rather than sending an invalid facet."""
-        loader = self.state.get("mod_loader") or "vanilla"
+        loader = self.loader_for_content() or "vanilla"
         return loader if loader != "vanilla" else "fabric"
 
     def _search_all_modrinth(self, event=None):
@@ -1898,7 +1938,10 @@ class ModsView:
         self.run_mod_search() if self.mod_search_field.value.strip() else self.load_recommended_mods()
 
     def _refresh_browse_scope(self):
-        if self._is_mod() and not self.search_scope["compatible"]:
+        if self._is_rust():
+            label = (f"Horizon · Rust {rust_engine.VERSION} · Content mods" if self._is_mod()
+                     else f"Rust {rust_engine.VERSION} · Horizon content mods are supported in this beta")
+        elif self._is_mod() and not self.search_scope["compatible"]:
             label = "All Minecraft versions · all loaders"
         else:
             version = self.current_mc_version_for_search() or "all versions"
@@ -1919,7 +1962,7 @@ class ModsView:
 
     def _browse_key(self):
         return (self.mod_search_field.value.strip(), self.current_mc_version_for_search(),
-                self.version_dropdown.value, self.state.get("mod_loader"), self._ct(),
+                self.version_dropdown.value, self.loader_for_content(), self._ct(),
                 self.active_category["value"], self.search_scope["compatible"], self.BROWSE_PAGE_SIZE)
 
     def _begin_browse(self):
@@ -1967,6 +2010,10 @@ class ModsView:
         thread. May return fewer than BROWSE_PAGE_SIZE hits, which the caller
         treats as the last page."""
         query, mc_version, version, loader, content_type, cat, compatible, page_size = key or self._browse_key()
+        if content_type == "mod" and rust_engine.is_instance(version):
+            return core.search_mods(query, mc_version=rust_engine.VERSION, loader="rust", source="horizon",
+                                    categories=[cat] if cat else None, limit=page_size,
+                                    offset=page_num * page_size, **({"force": True} if force else {}))
         loader = loader if loader and loader != 'vanilla' else 'fabric'
         if content_type == "mod" and not compatible:
             mc_version, loader = None, None
@@ -2001,7 +2048,8 @@ class ModsView:
             return
         self.browse_inflight.add(request)
         link = mod_catalogue.reference(token[1][0])
-        sources = (link["source"],) if link else mod_catalogue.SOURCES
+        sources = (("horizon",) if rust_engine.is_instance(token[1][2]) else
+                   (link["source"],) if link else mod_catalogue.SOURCES)
         progress = mod_catalogue.ProviderPage(sources)
         session["provider_pending"] = progress.pending
         retained_rows = [row for row in self.browse_results_view.controls
@@ -2278,7 +2326,7 @@ class ModsView:
             rows.append(
                 empty_state(self.browse_state.get("empty_msg") or "No results",
                             "Try a different search or adjust the filters."))
-            if self._is_mod() and self._browse_query() and (self.search_scope["compatible"] or self.active_category["value"]):
+            if self._is_mod() and not self._is_rust() and self._browse_query() and (self.search_scope["compatible"] or self.active_category["value"]):
                 rows.append(quiet_chip("Search all versions and loaders", on_click=self._search_all_modrinth))
         else:
             # Snapshot the mode once: a background recommend/search worker can
@@ -2337,7 +2385,7 @@ class ModsView:
             if errors:
                 self.browse_retry.opacity, self.browse_retry.disabled = 1, False
             if errors and not displayed_results:
-                self.browse_results_view.controls[:] = [empty_state("Search unavailable", "Couldn't check both catalogues. Retry the search."),
+                self.browse_results_view.controls[:] = [empty_state("Search unavailable", "Couldn't load the mod catalogue. Retry the search."),
                                                   quiet_chip("Retry", on_click=self._retry_search)]
                 layout_tiles(self.browse_results_view, False)
         # Results often land moments after the tab switch, while the user is
@@ -2368,7 +2416,8 @@ class ModsView:
 
     def _provider_icon(self, source):
         label = mod_catalogue.LABELS[source]
-        return ft.Image(src=f'provider-icons/{source}.svg', width=16, height=16,
+        asset = 'loader-icons/rust.png' if source == 'horizon' else f'provider-icons/{source}.svg'
+        return ft.Image(src=asset, width=16, height=16,
                         fit=ft.BoxFit.CONTAIN, tooltip=label, semantics_label=label)
 
     def _detail_badge(self, text, tone="dim"):
@@ -2412,15 +2461,13 @@ class ModsView:
 
         content_type = content_type or self._ct()
         detail_source = mod_catalogue.source_of(mod)
-        lookup_ref = mod_catalogue.identity(mod, ref) if detail_source == "curseforge" else ref
-        detail_mc = self.state["selected_mc_version"]
-        detail_version = self.version_dropdown.value
+        lookup_ref = mod_catalogue.identity(mod, ref) if detail_source != "modrinth" else ref
+        _, detail_mc, detail_loader, detail_version = self._installed_target(content_type)
         detail_search_mc = self.current_mc_version_for_search()
-        detail_loader = self.state.get("mod_loader")
         feedback = self.install_registry.project(
             (content_type, detail_mc, detail_loader, detail_version, detail_source), ref, mod.get("slug"))
         title = mod.get("title") or mod.get("display_name") or "Mod"
-        icon_url = mod.get("icon_url") or self.installed_icon_urls.get(lookup_ref if detail_source == 'curseforge' else mod.get('slug'))
+        icon_url = mod.get("icon_url") or self.installed_icon_urls.get(lookup_ref if detail_source != 'modrinth' else mod.get('slug'))
         blurb = (mod.get("description") or "").strip()
 
         self.detail_navigation["generation"] += 1
@@ -2479,6 +2526,12 @@ class ModsView:
         except Exception:
             installed_now = {}
 
+        def release_installed(version):
+            installed = installed_now.get(version.get("filename"))
+            if detail_source == "horizon" and installed:
+                return (installed.get("file_id") or installed.get("version")) == (version.get("file_id") or version.get("version_number"))
+            return bool(installed)
+
         # --- Shared install plumbing ---------------------------------------
         # One path for the top "Install latest" button and every row in the
         # version list, so their states can never drift apart.
@@ -2533,7 +2586,7 @@ class ModsView:
                             status_cb=on_status, progress_cb=_install_progress,
                             cancel_event=feedback.cancel_event,
                             **({"source": detail_source, "file_id": v.get("file_id") or v.get("id")}
-                               if detail_source == "curseforge" else {"file_id": v.get("id")}),
+                               if detail_source != "modrinth" else {"file_id": v.get("id")}),
                         )
                     else:
                         core.download_content(
@@ -2553,7 +2606,9 @@ class ModsView:
                         return
                     self._refresh_after_install((content_type, detail_mc, detail_loader, detail_version))
                     with thread_safe_ui.TREE_LOCK:
-                        installed_now[v["filename"]] = {"filename": v["filename"]}
+                        installed_now[v["filename"]] = {"filename": v["filename"],
+                                                       "file_id": v.get("file_id") or v.get("id"),
+                                                       "version": v.get("version_number")}
                         on_done(0)
                     self._check_install_issues((content_type, detail_mc, detail_loader, detail_version), result.get("compatibility"))
                 except Exception as ex:
@@ -2583,13 +2638,15 @@ class ModsView:
             """An Install button that owns its busy / done / error states."""
             if v.get("compatible") and not v.get("url") and v.get("website_url"):
                 return _external_action(v["website_url"])
-            done = {"v": bool(installed_now.get(v.get("filename")))}
+            done = {"v": release_installed(v)}
+            rust_target = content_type == "mod" and detail_source == "horizon" and rust_engine.is_instance(detail_version)
             blocked = (not detail_mc or not detail_loader or not detail_version
                        or not v.get('url') or not v.get('filename')
-                       or (content_type != "resourcepack" and detail_loader not in MOD_CAPABLE_LOADERS)
+                       or (content_type != "resourcepack" and detail_loader not in MOD_CAPABLE_LOADERS and not rust_target)
+                       or (rust_engine.is_instance(detail_version) and not rust_target)
                        or v.get('compatible') is False)
             blocked_note = ('This release has no downloadable file.' if not v.get('url') or not v.get('filename') else
-                            "This build doesn't match this instance's Minecraft version or loader."
+                            (v.get('compatibility_reason') or "This build doesn't match this instance's Minecraft version or loader.")
                             if v.get('compatible') is False else
                             'Choose a compatible mod loader on the Play tab first.')
             fg = ON_ACCENT if big else self.ACCENT
@@ -2616,8 +2673,8 @@ class ModsView:
                 if seen["result"] != job.result_id:
                     seen["result"] = job.result_id
                     if job.result == "success" and job.filename:
-                        installed_now[job.filename] = {"filename": job.filename}
-                done["v"] = bool(installed_now.get(v.get("filename")))
+                        installed_now.setdefault(job.filename, {"filename": job.filename})
+                done["v"] = release_installed(v)
                 btn.disabled = job.cancelling if job.busy and job.cancellable else job.busy or done["v"] or blocked
                 text.value = action_text(job) if job.busy else (
                     i18n.t("Installed") if done["v"] else "Try again" if job.result == "error" else label)
@@ -2707,7 +2764,8 @@ class ModsView:
                 elif not compat:
                     message = ("Couldn't check compatible releases." if release_state["error"]
                                or not release_state["checked"] else
-                               "No matching build for this Minecraft version and loader.")
+                               next((v.get("compatibility_reason") for v in versions if v.get("compatibility_reason")),
+                                    "No matching build for this Minecraft version and loader."))
                     holder.content = ft.Column([
                         ft.Text(message, size=12.5, color=self.TEXT_DIM,
                                 tooltip=release_state["error"]),
@@ -2717,7 +2775,7 @@ class ModsView:
                     best = compat[0]
                     vnum = str(best.get("version_number")
                                or best.get("name") or "").split("+", 1)[0]
-                    if installed_now.get(best.get("filename")):
+                    if release_installed(best):
                         holder.content = ft.Row(
                             [ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=20,
                                      color=self.ACCENT),
@@ -2737,7 +2795,7 @@ class ModsView:
                                          color=ft.Colors.with_opacity(0.7, self.TEXT), font_family=self.FONT_MONO),
                                  ft.Text(vnum, size=16, color=self.TEXT,
                                          weight=ft.FontWeight.W_800,
-                                         font_family=self.FONT_DISPLAY)],
+                                         font_family=self.FONT_MONO)],
                                 spacing=4, expand=True),
                              _install_button(best, details,
                                              label="Install", big=True)],
@@ -2863,7 +2921,7 @@ class ModsView:
             quick_state["repaints"].append(_paint)
             return ft.Column(
                 [ft.Text(i18n.t("Versions"), size=15, color=self.TEXT,
-                         weight=ft.FontWeight.W_700, font_family=self.FONT_DISPLAY),
+                         weight=ft.FontWeight.W_700, font_family=self.FONT_MONO),
                  list_holder, more],
                 spacing=8)
 
@@ -2896,7 +2954,7 @@ class ModsView:
             thread_safe_ui.refresh(hero)
             sidebar = ft.Column(spacing=10)
             sidebar.controls.append(ft.Text(i18n.t("About this mod"), color=self.ACCENT, size=13,
-                                            font_family=self.FONT_DISPLAY))
+                                            font_family=self.FONT_MONO))
             for label, value in (("Downloads", f"{details.get('downloads', 0):,}"),
                                  ("License", details.get("license") or "Not specified"),
                                  ("Categories", ", ".join(details.get("categories") or []) or "Not specified"),
@@ -2904,10 +2962,14 @@ class ModsView:
                 sidebar.controls.append(ft.Column([
                     ft.Text(i18n.t(label), color=self.TEXT_DIM, size=10.5),
                     ft.Text(str(value), color=self.TEXT, size=11.5, selectable=True)], spacing=4))
-            sidebar.controls.append(ft.Text(i18n.t("Links"), color=self.ACCENT, size=13, font_family=self.FONT_DISPLAY))
+            sidebar.controls.append(ft.Text(i18n.t("Links"), color=self.ACCENT, size=13, font_family=self.FONT_MONO))
             from urllib.parse import quote
             project_link = (("Project on CurseForge", details.get("website_url")) if detail_source == "curseforge" else
+                            ("Project on Horizon", details.get("website_url")) if detail_source == "horizon" else
                             ("Project on Modrinth", f"https://modrinth.com/{content_type}/{quote(details.get('slug') or ref, safe='')}"))
+            if detail_source == "horizon":
+                sidebar.controls.append(ft.Text(details.get("verification") or "Registry checksum · Unsigned package",
+                                               size=11, color=self.TEXT_DIM))
             for label, url in (project_link,
                                ("Source code", details.get("source_url")), ("Report an issue", details.get("issues_url")),
                                ("Wiki", details.get("wiki_url")), ("Discord", details.get("discord_url"))):
@@ -2950,7 +3012,7 @@ class ModsView:
         def _build_version_row(v, details):
             vnum = str(v.get("version_number") or v.get("name")
                        or "version").split("+", 1)[0]
-            already = installed_now.get(v.get("filename"))
+            already = release_installed(v)
 
             tags = list(v.get("loaders") or [])
             gv = v.get("game_versions") or []
@@ -3034,7 +3096,7 @@ class ModsView:
                              else None)
                 if items is None:
                     snapshot = self._read_installed_snapshot(target)
-                    _target, items, _mods = snapshot
+                    items = snapshot.items
                     with thread_safe_ui.TREE_LOCK:
                         self._apply_installed_snapshot(snapshot)
                 with thread_safe_ui.TREE_LOCK:
@@ -3094,12 +3156,12 @@ class ModsView:
         builtin = bool(mod.get('builtin_client'))
         row_content_type = self._ct()
         if mod.get('slug') and mod.get('icon_url'):
-            self.installed_icon_urls[mod_catalogue.identity(mod) if mod.get("source") == "curseforge" else mod["slug"]] = mod["icon_url"]
+            self.installed_icon_urls[mod_catalogue.identity(mod) if mod.get("source") != "modrinth" and mod.get("source") else mod["slug"]] = mod["icon_url"]
         row_target = self._installed_target(row_content_type)
         compatibility_note = ""
         if row_content_type == "mod" and not mod.get("facet_compatible"):
             compatibility_note = mod_compatibility_note(
-                mod, self.current_mc_version_for_search(), self.state.get("mod_loader"))
+                mod, self.current_mc_version_for_search(), self.loader_for_content())
         row_source = mod_catalogue.source_of(mod)
         key = self._row_key(mod_catalogue.identity(mod))
         feedback = self.install_registry.project(key[:4] + (row_source,), mod.get("project_id") or mod.get("slug") or mod.get("title"), mod.get("slug"))
@@ -3152,10 +3214,8 @@ class ModsView:
                 return
             if not self._can_install(content_type) or (content_type == "mod" and compatibility_note):
                 return
-            selected_mc = self.state["selected_mc_version"]
-            selected_version = self.version_dropdown.value
+            _, selected_mc, selected_loader, selected_version = row_target
             search_mc_version = self.current_mc_version_for_search()
-            selected_loader = self.state.get("mod_loader")
             force_lookup = feedback.result == "error"
             if row_state["installed"] or not feedback.start(cancellable=True):
                 return
@@ -3241,7 +3301,7 @@ class ModsView:
                             status_cb=_dep_status, progress_cb=_batch_progress,
                             cancel_event=feedback.cancel_event,
                             **({"source": row_source, "file_id": file_info.get("file_id") or file_info.get("id")}
-                               if row_source == "curseforge" else {"file_id": file_info.get("modrinth_version_id")}),
+                               if row_source != "modrinth" else {"file_id": file_info.get("modrinth_version_id")}),
                         )
                         deps_note = f" +{len(result['installed']) - 1} deps" \
                             if len(result["installed"]) > 1 else ""
@@ -3276,7 +3336,8 @@ class ModsView:
                     self._refresh_after_install((content_type, selected_mc, selected_loader, selected_version))
                     # Automatic repair: catch a duplicate/missing dependency
                     # introduced by this install before it can crash a launch.
-                    if (content_type == "mod" and selected_mc == self.state["selected_mc_version"]
+                    if (content_type == "mod" and not rust_engine.is_instance(selected_version)
+                            and selected_mc == self.state["selected_mc_version"]
                             and selected_loader == self.browse_loader()
                             and selected_version == self.version_dropdown.value):
                         self.run_mod_repair()

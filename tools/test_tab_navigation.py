@@ -149,7 +149,7 @@ check("Mods uses Flet's extension icon", isinstance(mods_icon, ft.Icon)
 for key, glyph in {'play': ft.Icons.PLAY_ARROW_ROUNDED, 'profile': ft.Icons.PALETTE_ROUNDED,
                    'stats': ft.Icons.BAR_CHART_ROUNDED, 'server': ft.Icons.DNS_ROUNDED,
                    'settings': ft.Icons.SETTINGS_ROUNDED,
-                   'chat': ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED}.items():
+                   'chat': ft.Icons.CHAT_BUBBLE_ROUNDED}.items():
     button = nav_buttons.get(key)
     if button is None:
         continue

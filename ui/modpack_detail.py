@@ -193,7 +193,7 @@ class ModpackDetailPage:
                                     ft.TextButton(content="Retry", on_click=retry)])
                 sidebar = ft.Column([
                     ft.Text(i18n.t("About this modpack"), color=theme["ACCENT"], size=13,
-                            font_family=theme["FONT_DISPLAY"])], spacing=10)
+                            font_family=theme["FONT_MONO"])], spacing=10)
                 values = [("Provider", source.title()),
                           ("Downloads", f"{details.get('downloads') or 0:,}"),
                           ("Minecraft", ", ".join(details.get("game_versions") or []) or "Declared by the pack"),

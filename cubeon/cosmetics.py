@@ -103,15 +103,105 @@ def items(slot: str | None = None, directory: str | None = None) -> list[dict]:
     return [item for item in entries if item.get("slot") == slot]
 
 
-def covered_skin_layers(item):
-    """Match CosmeticSkinCoverage's fitted outer-layer suppression in game."""
+def _skin_surfaces(slim=False):
+    """Outer atlas rectangles and their unposed Minecraft model coordinates."""
+    arm = 3 if slim else 4
+    parts = (
+        ("head", (32, 0), (-4, -8, -4), (8, 8, 8)),
+        ("body", (16, 32), (-4, 0, -2), (8, 12, 4)),
+        ("right_arm", (40, 32), (-4 - arm, 0, -2), (arm, 12, 4)),
+        ("left_arm", (48, 48), (4, 0, -2), (arm, 12, 4)),
+        ("right_leg", (0, 32), (-4, 12, -2), (4, 12, 4)),
+        ("left_leg", (0, 48), (0, 12, -2), (4, 12, 4)),
+    )
+    for name, (u, v), origin, (w, h, d) in parts:
+        # atlas x/y/width/height, normal axis/sign, horizontal axis/sign,
+        # vertical axis/sign. These orientations match appearance._box.
+        for surface in (
+            (u+d, v+d, w, h, 2, -1, 0, 1, 1, 1),
+            (u+2*d+w, v+d, w, h, 2, 1, 0, -1, 1, 1),
+            (u, v+d, d, h, 0, -1, 2, -1, 1, 1),
+            (u+d+w, v+d, d, h, 0, 1, 2, 1, 1, 1),
+            (u+d, v, w, d, 1, -1, 0, 1, 2, -1),
+            (u+d+w, v, w, d, 1, 1, 0, 1, 2, 1),
+        ):
+            yield name, origin, (w, h, d), surface
+
+
+def covered_skin_pixels(item, *, slim=False):
+    """Covered outer texels in the 64px skin atlas; base pixels never enter it.
+
+    Project fitted, unposed boxes onto the nearby skin surfaces. Small ornaments
+    only trim their attachment points; footwear only trims the matching leg below
+    its cuff. Floating/animated decorations have no coverage. Keep this contract
+    aligned with CosmeticSkinCoverage instead of flattening an entire body part.
+    """
     slot = item.get("slot")
-    if slot in ("head", "face"):
-        for box in item.get("boxes", []):
-            x, y, z = box["origin"]; w, h, d = box["size"]
-            if x < 4.75 and x + w > -4.75 and y < .75 and y + h > -8.75 and z < 4.75 and z + d > -4.75:
-                return {"head"}
-    return {"feet": {"left_leg", "right_leg"}, "hand": {"right_arm"}, "waist": {"body"}}.get(slot, set())
+    target = {"head": {"head"}, "face": {"head"}, "feet": {"left_leg", "right_leg"},
+              "hand": {"right_arm"}, "waist": {"body"}}.get(slot, set())
+    if not target:
+        return frozenset()
+    pixels = set()
+    surfaces = [surface for surface in _skin_surfaces(slim) if surface[0] in target]
+    for box in item.get("boxes", ()):
+        motion = box.get("motion", "none")
+        if ((slot == "feet" and motion not in ("left_leg", "right_leg"))
+                or (slot != "feet" and motion != "none")):
+            continue
+        if not box.get("faces", ("front", "back", "left", "right", "top", "bottom")):
+            continue
+        for mirrored in ((False, True) if box.get("mirror") else (False,)):
+            low = list(box["origin"])
+            high = [a + b for a, b in zip(low, box["size"])]
+            if mirrored:
+                low[0], high[0] = 2 * ANCHORS[slot][0] - high[0], 2 * ANCHORS[slot][0] - low[0]
+            for name, origin, dimensions, surface in surfaces:
+                if slot == "feet" and name != motion:
+                    continue
+                u, v, width, height, axis, sign, across, across_sign, down, down_sign = surface
+                plane = origin[axis] + (dimensions[axis] if sign > 0 else 0)
+                if sign < 0:
+                    nearby = low[axis] < plane + 1e-5 and high[axis] > plane - 1
+                else:
+                    nearby = high[axis] > plane - 1e-5 and low[axis] < plane + 1
+                if not nearby:
+                    continue
+                for row in range(height):
+                    first_y = origin[down] + (row if down_sign > 0 else dimensions[down] - row - 1)
+                    if high[down] <= first_y + 1e-5 or low[down] >= first_y + 1 - 1e-5:
+                        continue
+                    for column in range(width):
+                        first_x = origin[across] + (column if across_sign > 0 else dimensions[across] - column - 1)
+                        if high[across] > first_x + 1e-5 and low[across] < first_x + 1 - 1e-5:
+                            pixels.add((v + row) * 64 + u + column)
+    return frozenset(pixels)
+
+
+def covered_skin_layers(item, *, slim=False):
+    """Only fully enclosed parts may use the whole-layer visibility fallback."""
+    pixels = covered_skin_pixels(item, slim=slim)
+    if not pixels:
+        return set()
+    parts = {}
+    for name, _, _, (u, v, w, h, *_) in _skin_surfaces(slim):
+        parts.setdefault(name, set()).update((v+y)*64+u+x for y in range(h) for x in range(w))
+    return {name for name, texels in parts.items() if texels <= pixels}
+
+
+def apply_skin_coverage(sheet, worn, *, slim=False):
+    """Trim a display copy, preserving the supplied skin and all base artwork."""
+    pixels = set().union(*(covered_skin_pixels(item, slim=slim) for item in worn))
+    result = sheet.convert("RGBA")
+    if not pixels or result.width % 64 or result.height not in (result.width, result.width // 2):
+        return result
+    scale = result.width // 64
+    for texel in pixels:
+        x, y = texel % 64, texel // 64
+        for row in range(y * scale, min((y + 1) * scale, result.height)):
+            for column in range(x * scale, (x + 1) * scale):
+                r, g, b, _ = result.getpixel((column, row))
+                result.putpixel((column, row), (r, g, b, 0))
+    return result
 
 
 def get(item_id: str | None, directory: str | None = None) -> dict | None:

@@ -208,14 +208,15 @@ class CharacterModel:
             with Image.open(cape_path) as source:
                 cape = source.convert("RGBA")
         worn = []
-        hidden_layers = set()
+        wearables = []
         for slot in cosmetics.SLOTS:
             item = cosmetics.get(cfg.get(f"active_{slot}_item"), cosmetics_dir)
             if item is not None:
-                hidden_layers.update(cosmetics.covered_skin_layers(item))
+                wearables.append(item)
                 worn.extend(cosmetics.preview_faces(item, cosmetics_dir, simplify=True))
                 worn.extend(cosmetics.preview_faces(item, cosmetics_dir, simplify=True, emissive=True))
-        return cls(sheet, slim=slim, cape=cape, cosmetics_faces=worn, hidden_layers=hidden_layers)
+        sheet = cosmetics.apply_skin_coverage(sheet, wearables, slim=slim)
+        return cls(sheet, slim=slim, cape=cape, cosmetics_faces=worn)
 
     def project(self, yaw=25, pitch=10, size=(320, 440), *, detail=True):
         yaw, pitch = math.radians(yaw), math.radians(pitch)

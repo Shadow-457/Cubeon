@@ -333,6 +333,12 @@ Chat
   a Python scroll callback or a latest button. Opening or sending requests
   offset zero. Queued jumps check conversation generation
   and tab visibility, and own their asynchronous listener completion.
+- Link previews reuse the responsive inline image control for direct image/GIF
+  URLs and Giphy `gifs`, `stickers`, and `embed` share pages. Giphy IDs resolve
+  locally to its GIF CDN; preview activation opens the original shared URL.
+  YouTube uses a thumbnail card, and other HTTP(S) links use a host/URL card.
+  Rich media takes precedence over a plain link in the same message, with no
+  page-metadata fetch or relay change.
 - Built lazily; only exists in `features.friends_enabled()` builds. In a public
   build `service is None` and the tab returns a static notice.
 - Polls on its own daemon thread (`_POLL_SECONDS = 1.5`) via
