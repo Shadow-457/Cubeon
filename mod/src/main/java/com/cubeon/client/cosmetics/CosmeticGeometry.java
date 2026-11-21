@@ -39,6 +39,7 @@ public final class CosmeticGeometry {
         public FeatherWeight[] feathers;
         public int featherVertexCount;
         public int feather = -1;
+        public int orbit = -1;
     }
 
     private static final Map<CosmeticCatalog.Item, List<Quad>> CACHE =
@@ -118,6 +119,15 @@ public final class CosmeticGeometry {
                 quad.pivotX = quad.mirrored ? 2 * anchorX - box.pivotX : box.pivotX;
                 quad.pivotY = box.pivotY;
                 quad.pivotZ = box.pivotZ;
+                if (box.motion.startsWith("orbit")) {
+                    for (int rig = 0; rig < item.orbitRigs.size(); rig++) {
+                        var pivot = item.orbitRigs.get(rig);
+                        if (pivot.x == box.pivotX && pivot.y == box.pivotY && pivot.z == box.pivotZ) {
+                            quad.orbit = rig;
+                            break;
+                        }
+                    }
+                }
                 if (item.separateFeathers && box.feather >= 0 && box.feather < item.feathers.size())
                     curveRest(quad, item.feathers.get(box.feather), anchorX);
                 if (parent != null) {

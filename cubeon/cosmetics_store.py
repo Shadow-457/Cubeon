@@ -25,6 +25,8 @@ from .paths import user_agent
 DEFAULT_API = "https://www.ylet.online/api/cosmetics"
 PAGE_SIZE = 12
 CATALOG_BYTES = 450000
+BUNDLED_CATALOG_BYTES = 4 * 1024 * 1024
+BUNDLED_CATALOG_PATH = Path(__file__).resolve().parent.parent / "assets/cosmetics/store-catalog.json"
 CATALOG_AGE = 24 * 60 * 60
 _CACHE_NS = "cosmetics_catalog_v2"
 MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -122,13 +124,17 @@ def cached_page(offset=0, *, max_age=CATALOG_AGE, bundled=True):
         pass
     if bundled and endpoint == DEFAULT_API:
         try:
-            path = Path(__file__).resolve().parent.parent / "assets/cosmetics/store-catalog.json"
-            with path.open() as source:
-                raw = source.read(CATALOG_BYTES + 1)
-            if len(raw) > CATALOG_BYTES:
+            # The bundled file contains many pages; retain the smaller limit
+            # for each selected page and every network/cache response.
+            with BUNDLED_CATALOG_PATH.open("rb") as source:
+                raw = source.read(BUNDLED_CATALOG_BYTES + 1)
+            if len(raw) > BUNDLED_CATALOG_BYTES:
                 return None
             pages = json.loads(raw)
-            return _page(pages[str(offset)], offset)
+            page = pages[str(offset)]
+            if len(json.dumps(page)) > CATALOG_BYTES:
+                return None
+            return _page(page, offset)
         except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
             pass
     return None

@@ -96,6 +96,11 @@ public final class CosmeticCatalog {
     }
 
     /** One catalogue entry. {@code texture} is a file name, not a resource id. */
+    public static final class OrbitRig {
+        public final float x, y, z;
+        OrbitRig(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
+    }
+
     public static final class Item {
         public final String id;
         public final String slot;
@@ -109,6 +114,8 @@ public final class CosmeticCatalog {
         public final boolean separateFeathers;
         public final Item flatVariant;
         public final String emissiveTexture;
+        public final boolean floatingHead;
+        public final List<OrbitRig> orbitRigs;
 
         Item(String id, String slot, String name, String texture,
              int texWidth, int texHeight, List<Box> boxes, List<Feather> feathers,
@@ -125,6 +132,16 @@ public final class CosmeticCatalog {
             this.separateFeathers = separateFeathers;
             this.flatVariant = flatVariant;
             this.emissiveTexture = emissiveTexture;
+            floatingHead = "head".equals(slot) && boxes.stream().anyMatch(box -> "float".equals(box.motion));
+            var rigs = new ArrayList<OrbitRig>();
+            if ("aura_butterfly".equals(id)) {
+                for (var box : boxes) {
+                    if (!box.motion.startsWith("orbit")) continue;
+                    if (rigs.stream().noneMatch(rig -> rig.x == box.pivotX && rig.y == box.pivotY && rig.z == box.pivotZ))
+                        rigs.add(new OrbitRig(box.pivotX, box.pivotY, box.pivotZ));
+                }
+            }
+            orbitRigs = Collections.unmodifiableList(rigs);
         }
 
         /** Resolve once before queued rendering so a setting change cannot mix meshes. */

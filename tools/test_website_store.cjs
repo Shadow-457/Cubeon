@@ -34,7 +34,12 @@ async function browserChecks() {
   const png = fs.readFileSync(path.join(web, 'assets/favicon.png')).toString('base64');
   const snapshot = [...html.matchAll(/data-id="([^"]+)" data-sha="([^"]+)" data-kind="([^"]+)" data-name="([^"]+)" data-description="([^"]*)"/g)]
     .map(m => ({id:m[1],sha256:m[2],kind:m[3],name:decode(m[4]),description:decode(m[5]),preview_png:png}));
-  assert.equal(snapshot.length, 27);
+  const bundled = Object.values(JSON.parse(fs.readFileSync(path.join(root, 'assets/cosmetics/store-catalog.json'), 'utf8')))
+    .flatMap(page => page.items);
+  const revisions = items => items.map(({id, kind, sha256}) => ({id, kind, sha256}))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(revisions(snapshot), revisions(bundled), 'website posters match every bundled Store revision');
+  assert.ok(snapshot.length >= 27, 'existing owner collection remains available');
   for (const id of ['cubeon-morpho-orbit', 'cubeon-zephyr-sprite', 'cubeon-dune-runner-cap',
                     'cubeon-cloudlet-headwings', 'cubeon-dawnflare-halo']) {
     assert.ok(!snapshot.some(item => item.id === id));
@@ -75,7 +80,7 @@ async function browserChecks() {
       assert.ok(await image.evaluate(img=>img.naturalWidth===420));
     }
     await page.locator('[data-store-kind="wing"]').click();
-    assert.equal(await page.locator('.store-card:visible').count(),16);
+    assert.equal(await page.locator('.store-card:visible').count(),snapshot.filter(item => item.kind === 'wing').length);
     await page.locator('#storeSearch').fill('Obsidian');
     assert.equal(await page.locator('.store-card:visible').count(),1);
     await page.locator('.store-card:visible .store-view').click();
@@ -126,6 +131,6 @@ async function browserChecks() {
   assert.ok(!(await plain.locator('#storeTools').isVisible()));
   assert.ok(await plain.evaluate(()=>document.documentElement.scrollWidth <= innerWidth+1));
   await browser.close();
-  console.log('PASS live Store, 27 posters, retired entries removed, two masks and Christmas hat, filters/search/dialogs, new uploads, malformed/offline fallback, quiet keyboard-accessible credit, and 1440/768/390/320px layouts');
+  console.log(`PASS live Store, ${snapshot.length} posters, matching bundled revisions, retired entries removed, two masks and Christmas hat, filters/search/dialogs, new uploads, malformed/offline fallback, quiet keyboard-accessible credit, and 1440/768/390/320px layouts`);
 }
 if (process.argv.includes('--browser')) browserChecks().catch(error=>{console.error(error);process.exitCode=1;});

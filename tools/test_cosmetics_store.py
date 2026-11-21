@@ -127,14 +127,31 @@ class Downloads(unittest.TestCase):
     def test_first_open_snapshot_works_without_network_or_saved_cache(self):
         items = []
         with patch.object(store, "_bytes", side_effect=AssertionError("first paint waited for network")):
-            for offset in (0, 12, 24):
+            offset = 0
+            while True:
                 page = store.cached_page(offset)
                 self.assertIsNotNone(page)
                 items.extend(page["items"])
+                if not page["has_more"]:
+                    break
+                offset += store.PAGE_SIZE
+                self.assertLess(offset, 600)
         ids = {item["id"] for item in items}
         self.assertEqual(len(ids), len(items))
         self.assertFalse(ids & store.STORE_IDS)
         self.assertTrue({"cubeon-midnight-cowl", "cubeon-crimson-web-mask", "cubeon-winter-snowcap"} <= ids)
+
+    def test_bundled_snapshot_and_individual_pages_keep_separate_size_limits(self):
+        with patch.object(store, "BUNDLED_CATALOG_BYTES", 1):
+            self.assertIsNone(store.cached_page())
+        page = {"schema": 1, "offset": 0, "page_size": 12, "has_more": False,
+                "items": [self.item], "extra": "x" * store.CATALOG_BYTES}
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "store-catalog.json"
+            path.write_text(json.dumps({"0": page}))
+            self.assertLess(path.stat().st_size, store.BUNDLED_CATALOG_BYTES)
+            with patch.object(store, "BUNDLED_CATALOG_PATH", path):
+                self.assertIsNone(store.cached_page())
 
     def test_gif_animation_survives_import(self):
         stream = io.BytesIO()

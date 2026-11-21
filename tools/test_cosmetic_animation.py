@@ -83,6 +83,47 @@ public class AnimationTest {
             }
         }
     }
+    static void verifyAmbientAnimations(CosmeticCatalog.Catalog catalog) {
+        var halo = catalog.get("head_halo");
+        check(halo.floatingHead, "Floating headwear is recognized once from its authored rig");
+        check(difference(points(halo, CosmeticAnimation.sample(0, 0, false)),
+                points(halo, CosmeticAnimation.sample(.8f, 0, false))) > .3f, "Halo has visible floating motion");
+        var aura = catalog.get("aura_butterfly");
+        check(aura.orbitRigs.size() == 8 && aura.boxes.size() == 40, "Eight coherent butterfly rigs keep the lightweight mesh");
+        var quads = CosmeticGeometry.quads(aura, 0);
+        check(quads.stream().allMatch(q -> q.orbit >= 0), "Every butterfly part has an orbit rig");
+        var frame = CosmeticAnimation.sample(.8f, 0, false).forItem(aura);
+        check(frame.forItem(aura) == frame, "Aura snapshot is prepared once and remains immutable");
+        var posed = new CosmeticAnimation.PosedQuad();
+        float firstBob = 0;
+        for (int i = 0; i < aura.orbitRigs.size(); i++) {
+            var rig = aura.orbitRigs.get(i);
+            float[] centre = null;
+            for (String motion : List.of("orbit", "orbit_wing_left", "orbit_wing_right")) {
+                var q = pivot(motion, rig.x, rig.y, rig.z); q.orbit = i;
+                posed.set(q, frame);
+                if (centre == null) centre = new float[]{posed.x[0], posed.y[0], posed.z[0]};
+                else {
+                    near(posed.x[0], centre[0], "Butterfly wing stays attached in X");
+                    near(posed.y[0], centre[1], "Butterfly wing stays attached in Y");
+                    near(posed.z[0], centre[2], "Butterfly wing stays attached in Z");
+                }
+            }
+            float bob = centre[1] - rig.y;
+            if (i == 0) firstBob = bob;
+            if (i == 1) check(Math.abs(bob-firstBob) > .1f, "Butterflies have independent bobbing phases");
+        }
+        check(difference(points(aura, frame), points(aura, frame)) == 0, "Paused aura reuses identical geometry");
+        check(difference(points(aura, null), points(aura, new CosmeticAnimation.Tracker().disabled())) == 0,
+                "Cosmetic motion OFF returns the authored rest pose");
+        for (int tick = 0; tick < 400; tick++) {
+            var haloFrame = CosmeticAnimation.sample(tick / 20f, 0, false).forItem(halo);
+            for (var q : CosmeticGeometry.quads(halo, 0)) {
+                posed.set(q, haloFrame);
+                for (float y : posed.y) check(y < -8.5f, "Floating halo clears the outer head layer");
+            }
+        }
+    }
     static void verifyAttachments(CosmeticCatalog.Item wings) {
         var body = pivot("body", -6, 1, 0);
         var hinge = wings.boxes.get(0);
@@ -409,6 +450,7 @@ public class AnimationTest {
     public static void main(String[] args) throws Exception {
         var catalog = CosmeticCatalog.Catalog.parse(Files.readString(Path.of(args[0])));
         verifyFrames(catalog);
+        verifyAmbientAnimations(catalog);
         verifyAttachments(catalog.get("back_void_wings"));
         verifyTime(catalog.get("back_void_wings"));
         verifyTime(catalog.get("back_void_wings_small"));

@@ -17,6 +17,8 @@ keep the saved cards usable; downloads still verify the current pinned checksum.
 Catalog reads are bounded and malformed snapshots are ignored. Ownership checks
 read only the selected revision's manifest and texture presence, without preparing
 its rendering geometry. Opening Store does not download or equip models.
+The complete bundled snapshot is capped at 4 MB; each selected page, saved page
+and API response retains the separate 450,000-byte limit.
 
 **Aura → Celestial Butterfly Aura** is bundled with Cubeon Client. Eight blue
 butterflies orbit at different heights around the body, flutter independently,
@@ -24,6 +26,13 @@ and carry an emissive mask. It attaches to the torso so crouching and swimming
 follow the player; Cosmetic motion off freezes the rig. Its small wings use
 two-sided cutout textures to keep the mesh at 40 boxes. Auras equip independently
 of pets, wings, headwear and shoes.
+Each butterfly shares one pivot across its body, antennae and wings; the client
+prepares eight independent poses with faster wing beats, gentle banking, bobbing
+and radial drift. Base artwork and glow use the same pose. Floating headwear
+with `motion: "float"`, including Sunward Halo and Tidal Crown, has a visible
+bob and a slow sway. Fixed headwear keeps its existing pose. Both animations
+use interpolated entity age, pause with the game, and draw their rest geometry
+when Cosmetic motion is off. These changes require an updated client JAR.
 The skins Worker's bundled-ID catalog accepts `aura_butterfly` for peer
 sharing. Deploy the updated skins Worker when introducing a new bundled ID;
 the Neon website deployment does not update this separate service.
@@ -85,6 +94,10 @@ Put PNG or GIF capes in `cosmetics/capes/`, then run:
 ./publish-cosmetics.sh --dry-run  # validate without credentials or uploads
 ./publish-cosmetics.sh            # publish new/changed cosmetics to Neon
 ```
+
+Model recipes and their textures can use nested folders such as
+`cosmetics/wings/7x7/` and `cosmetics/feet/7x7/`; sync scans these recursively.
+Sibling review folders outside the five kind folders are not upload sources.
 
 The script uses the checkout's `.venv` or `.venv-build`, falling back to
 `python3`. Set `CUBEON_PYTHON` to select another interpreter. The same commands
@@ -157,7 +170,7 @@ in the matching `head/` and `feet/` folders. Footwear boxes must use
 `motion: "left_leg"` or `"right_leg"` so each shoe follows its native leg.
 Boxes use
 `origin`, `size`, `uv`, `px`, and optionally `pivot`/`motion` for the existing
-animation rig. `float` adds gentle hovering; `hover_body` and `hover_head`
+animation rig. `float` adds gentle hovering and headwear sway; `hover_body` and `hover_head`
 compose hovering with the pet's breathing and glances. `orbit` and
 `orbit_wing_left`/`orbit_wing_right` provide a slow head-centred butterfly orbit
 and local wing beats. `aura` rotates around the box pivot while hovering.
@@ -168,6 +181,8 @@ layout. The client renders it over the same animated geometry at full brightness
 so glows remain visible in dark scenes. Preview bloom is included in the launcher;
 Minecraft bloom depends on the user's shader setup. Use `flat_emissive_texture`
 for a flat variant's mask. Complete packages allow up to four embedded PNGs.
+Use the exact `emissive_texture` spelling. Opaque black pixels in this overlay
+cover the base artwork; nonluminous mask areas need zero alpha.
 `separate_feathers: true` preserves each feather's curved rest geometry and rig;
 include it when using per-box `feather` indices. `flat_texture` supplies the optional flat wing variant's PNG.
 The publisher embeds textures and geometry into a data-only package; it never

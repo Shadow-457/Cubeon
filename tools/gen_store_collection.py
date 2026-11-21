@@ -406,11 +406,11 @@ def butterfly_aura():
         radius=9.5+(i%3)*.5
         cx=round(math.cos(angle)*radius*4)/4
         cz=round(math.sin(angle)*radius*4)/4
-        aura.box((cx-.125,cy-.875,cz-.125),(.25,1.75,.375),'#172640',motion="orbit")
+        aura.box((cx-.125,cy-.875,cz-.125),(.25,1.75,.375),'#172640',motion="orbit",pivot=(cx,cy,cz))
         for flip,motion in ((False,"orbit_wing_right"),(True,"orbit_wing_left")):
             aura.panel(wing,(cx,cy-1.25,cz),px=16,depth=.125,motion=motion,pivot=(cx,cy,cz),flip=flip)
         for side in (-1,1):
-            aura.box((cx+side*.25,cy-1.25,cz),(.125,.5,.125),'#385f7d',motion="orbit")
+            aura.box((cx+side*.25,cy-1.25,cz),(.125,.5,.125),'#385f7d',motion="orbit",pivot=(cx,cy,cz))
     return aura.item()
 
 

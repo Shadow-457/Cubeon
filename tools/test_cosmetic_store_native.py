@@ -113,9 +113,24 @@ public class StoreProbe implements ClientModInitializer {
                     check(CosmeticElytra.ready(item),"Real resource pack qualifies downloaded wings for Elytra replacement");
                     CosmeticElytra.begin(client); CosmeticElytra.drawn(item);
                     check(CosmeticElytra.consume(client),"Downloaded wings mark the same replacement pass as bundled wings");
-                    check(item.boxes.stream().allMatch(box -> box.pivotX==2 && box.pivotY==2 && box.pivotZ==2.25f),
-                        "Downloaded collection uses the built-in Giant wing hinges");
                 }
+                List<?> pivots=(List<?>)expected.get("pivots");
+                List<?> origins=(List<?>)expected.get("origins");
+                check(item.boxes.size()==pivots.size(),"Real catalog retained every authored box");
+                for(int index=0;index<item.boxes.size();index++) {
+                    var box=item.boxes.get(index); List<?> pivot=(List<?>)pivots.get(index);
+                    List<?> origin=(List<?>)origins.get(index);
+                    check(box.x==((Number)origin.get(0)).floatValue()
+                        && box.y==((Number)origin.get(1)).floatValue()
+                        && box.z==((Number)origin.get(2)).floatValue(),
+                        "Real catalog retained the prepared box placement");
+                    check(box.pivotX==((Number)pivot.get(0)).floatValue()
+                        && box.pivotY==((Number)pivot.get(1)).floatValue()
+                        && box.pivotZ==((Number)pivot.get(2)).floatValue(),
+                        "Real catalog retained the prepared attachment rig");
+                }
+                check((item.emissiveTexture!=null)==Boolean.TRUE.equals(expected.get("emissive")),
+                    "Real catalog retained the authored glow layer");
                 for(Object rawTexture:(List<?>)expected.get("textures")) {
                     Map<?,?> expectedTexture=(Map<?,?>)rawTexture;
                     String filename=(String)expectedTexture.get("name");
@@ -280,7 +295,10 @@ def verify(version):
                 if name:
                     with Image.open(textures / name) as image:
                         entries.append(dict(name=name, width=image.width, height=image.height))
-            expected.append(dict(id=item["id"], textures=entries))
+            expected.append(dict(id=item["id"], textures=entries,
+                pivots=[box.get("pivot", [0, 0, 0]) for box in item["boxes"]],
+                origins=[box["origin"] for box in item["boxes"]],
+                emissive=bool(item.get("emissive_texture"))))
         names = work / "names.json"
         wearables = [cosmetics.get("head_horns"), *[item for item in items if item['slot'] in ('head', 'feet')]]
         names.write_text(json.dumps({**names_for(version), "models": expected, "skinlayers": bool(skinlayers),
@@ -309,7 +327,7 @@ def verify(version):
         assert result == 0 and "CUBEON_STORE_NATIVE_PASS" in text and "CUBEON_STORE_NATIVE_FAIL" not in text, log
         print(version, next(line for line in text.splitlines() if "CUBEON_STORE_NATIVE_PASS" in line))
         assert "Removed resource pack file/cubeon-store" not in text, log
-        print(f"Verified {len(items)} store wings with resource format {packformat.resource_format_for(version, loader)}")
+        print(f"Verified {len(items)} store models with resource format {packformat.resource_format_for(version, loader)}")
 
 
 if __name__ == "__main__":

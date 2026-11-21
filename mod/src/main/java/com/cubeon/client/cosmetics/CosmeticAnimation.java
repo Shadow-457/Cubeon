@@ -67,6 +67,9 @@ public final class CosmeticAnimation {
         private final float time, movement, flight, sprinting, wingPhase, dragon, hover;
         private final float[] feathers;
         private final CosmeticCatalog.Item featherItem;
+        private final Transform floatingHead;
+        private final float floatingHover;
+        private final OrbitPose[] orbitPoses;
 
         private Frame(float t, float move, float gliding, float sprint, float phase, float dragonElapsed) {
             time = t; movement = move; flight = gliding; sprinting = sprint;
@@ -77,6 +80,7 @@ public final class CosmeticAnimation {
             flutterLeft = new Transform(0, flutter, 0, 1);
             flutterRight = new Transform(0, -flutter, 0, 1);
             wingPhase = phase; dragon = dragonElapsed; feathers = null; featherItem = null;
+            floatingHead = null; floatingHover = hover; orbitPoses = null;
             float breath = 0.018f * sin(t * 2.2f);
             body = new Transform(0, 0, 0.012f * sin(t * 1.1f)
                     + move * 0.025f * sin(t * 9), 1 + breath);
@@ -125,6 +129,12 @@ public final class CosmeticAnimation {
             hover = source.hover;
             sprinting = source.sprinting; wingPhase = source.wingPhase; dragon = source.dragon;
             featherItem = item;
+            floatingHead = item.floatingHead
+                    ? new Transform(.025f * sin(time * .9f), .16f * sin(time * .6f), .025f * sin(time * 1.2f), 1) : null;
+            floatingHover = item.floatingHead ? .5f * sin(time * 1.8f) + .08f * sin(time * .6f) : hover;
+            orbitPoses = item.orbitRigs.isEmpty() ? null : new OrbitPose[item.orbitRigs.size()];
+            if (orbitPoses != null)
+                for (int i = 0; i < orbitPoses.length; i++) orbitPoses[i] = new OrbitPose(time, i);
             feathers = new float[item.feathers.size() * 3];
             float action = item.wingFlare && Float.isFinite(dragon) && dragon >= 0 && dragon < WingAction.DURATION
                     ? smooth(dragon / .35f) * smooth((WingAction.DURATION - dragon) / .65f) : 0;
@@ -154,7 +164,26 @@ public final class CosmeticAnimation {
             // even before the next input tick cancels it.
             if (!item.wingFlare && Float.isFinite(dragon) && dragon >= 0 && dragon < WingAction.DURATION)
                 return new Frame(time, movement, flight, sprinting, wingPhase, -1).forItem(item);
-            return item.feathers.isEmpty() || item == featherItem ? this : new Frame(this, item);
+            return item == featherItem || item.feathers.isEmpty() && !item.floatingHead && item.orbitRigs.isEmpty()
+                    ? this : new Frame(this, item);
+        }
+    }
+
+    /** One coherent pose per butterfly, shared by its body, antennae and wing passes. */
+    private static final class OrbitPose {
+        final Transform orbit, bank, left, right;
+        final float bob, radius;
+        OrbitPose(float time, int index) {
+            float phase = index * 2.39996f;
+            float beat = time * (14.5f + (index % 3) * .8f) + phase;
+            float flutter = .62f * sin(beat) + .10f * sin(beat * 2 - .45f);
+            left = new Transform(0, -flutter, 0, 1);
+            right = new Transform(0, flutter, 0, 1);
+            orbit = new Transform(0, time * (.32f + .018f * sin(phase)) % TAU, 0, 1);
+            bank = new Transform(.08f * sin(time * 1.6f + phase),
+                    .10f * sin(time * .8f + phase), .10f * sin(time * 1.1f + phase), 1);
+            bob = .45f * sin(time * 1.4f + phase) + .12f * sin(time * 2.7f + phase * .7f);
+            radius = .28f * sin(time * .9f + phase);
         }
     }
 
@@ -198,13 +227,16 @@ public final class CosmeticAnimation {
                 normalX = quad.normalX; normalY = quad.normalY; normalZ = quad.normalZ;
                 return;
             }
+            OrbitPose butterfly = frame.orbitPoses != null && quad.orbit >= 0
+                    ? frame.orbitPoses[quad.orbit] : null;
             Transform inner = switch (quad.motion) {
                 case "head", "hover_head" -> frame.head;
                 case "wing" -> quad.mirrored ? frame.rightWing : frame.leftWing;
                 case "pack" -> frame.pack;
                 case "aura" -> frame.aura;
-                case "orbit_wing_left" -> frame.flutterLeft;
-                case "orbit_wing_right" -> frame.flutterRight;
+                case "float" -> frame.floatingHead;
+                case "orbit_wing_left" -> butterfly == null ? frame.flutterLeft : butterfly.left;
+                case "orbit_wing_right" -> butterfly == null ? frame.flutterRight : butterfly.right;
                 default -> null;
             };
             boolean pet = "head".equals(quad.motion) || "body".equals(quad.motion)
@@ -245,10 +277,20 @@ public final class CosmeticAnimation {
                         quad.motion.endsWith("body") ? quad.pivotX : quad.parentPivotX,
                         quad.motion.endsWith("body") ? quad.pivotY : quad.parentPivotY,
                         quad.motion.endsWith("body") ? quad.pivotZ : quad.parentPivotZ);
-                if (orbiting) point(frame.orbit, 0, -11, 0);
+                if (butterfly != null) {
+                    point(butterfly.bank, quad.pivotX, quad.pivotY, quad.pivotZ);
+                    float radius = (float)Math.hypot(quad.pivotX, quad.pivotZ);
+                    if (radius > .001f) {
+                        px += butterfly.radius * quad.pivotX / radius;
+                        pz += butterfly.radius * quad.pivotZ / radius;
+                    }
+                }
+                if (orbiting) point(butterfly == null ? frame.orbit : butterfly.orbit, 0, -11, 0);
                 x[vertex] = px; y[vertex] = py; z[vertex] = pz;
                 if ("float".equals(quad.motion) || "aura".equals(quad.motion)
-                        || quad.motion.startsWith("hover_") || orbiting) y[vertex] += frame.hover;
+                        || quad.motion.startsWith("hover_") || orbiting)
+                    y[vertex] += butterfly != null ? butterfly.bob
+                            : "float".equals(quad.motion) ? frame.floatingHover : frame.hover;
             }
             if (feather) {
                 // Lighting follows the flexed surface. The catalogue's outward winding
@@ -265,7 +307,8 @@ public final class CosmeticAnimation {
             px = quad.normalX; py = quad.normalY; pz = quad.normalZ;
             if (inner != null) normal(inner);
             if (pet) normal(frame.body);
-            if (orbiting) normal(frame.orbit);
+            if (butterfly != null) normal(butterfly.bank);
+            if (orbiting) normal(butterfly == null ? frame.orbit : butterfly.orbit);
             float length = (float) Math.sqrt(px * px + py * py + pz * pz);
             normalX = px / length; normalY = py / length; normalZ = pz / length;
         }
