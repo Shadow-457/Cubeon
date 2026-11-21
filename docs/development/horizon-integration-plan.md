@@ -185,7 +185,9 @@ The native client shares Fabric's menu artwork, HUD settings and client themes.
 K opens its searchable feature menu and HUD editor, G opens launcher-backed
 friends/chat, B opens the emote wheel, C holds zoom and Left Alt holds freelook.
 These inputs can be changed in the native Controls settings; Right Shift remains
-an alias for the default menu binding. Messages and friend actions wait for exact
+an alias for the default menu binding. All menu entry paths release the gameplay
+cursor; closing the client restores mouse capture only when returning to gameplay.
+Messages and friend actions wait for exact
 launcher results, preserving drafts when a send fails or the account changes.
 Camera motion blur uses the current world image before the HUD. Enemy health
 shows a heart and rounded-up heart count beneath visible enemy names.

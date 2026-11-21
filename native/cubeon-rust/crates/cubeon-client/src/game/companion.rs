@@ -518,6 +518,8 @@ impl Game<'_> {
                 .set_value(&format!("{:06X}", c.theme_custom.0[c.role]));
         }
         self.screen = Screen::Friends;
+        // Shortcuts return before the normal screen input path releases the mouse.
+        self.capture(false);
     }
     pub(super) fn cubeon_back(&mut self) {
         let c = &mut self.companion;
@@ -539,6 +541,9 @@ impl Game<'_> {
         c.controls.clear();
         c.focus = None;
         c.opened = Instant::now();
+        if !self.companion.open {
+            self.capture(self.screen == Screen::Playing && !self.screen_over_playing());
+        }
     }
     pub(super) fn cubeon_hit(&mut self, target: u32) {
         let c = &mut self.companion;
