@@ -9,8 +9,8 @@
   var search = document.getElementById('storeSearch');
   var buttons = document.querySelectorAll('[data-store-kind]');
   var dialog = document.getElementById('storeDialog');
-  var kinds = {cape: 'Capes', pet: 'Pets', wing: 'Wings', head: 'Headwear', feet: 'Footwear'};
-  var library = {cape: 'Cape', pet: 'Pets', wing: 'Back', head: 'Head', feet: 'Feet'};
+  var kinds = {cape: 'Capes', pet: 'Pets', wing: 'Wings', head: 'Headwear', feet: 'Footwear', aura: 'Auras'};
+  var library = {cape: 'Cape', pet: 'Pets', wing: 'Back', head: 'Head', feet: 'Feet', aura: 'Aura'};
   var selected = 'all';
   var known = new Map();
   Array.from(grid.children).forEach(function (card) {
@@ -100,7 +100,7 @@
     var timeout = setTimeout(function () { controller.abort(); }, 20000);
     try {
       for (var offset = 0; offset < 600; offset += 12) {
-        var response = await fetch('/api/cosmetics?kind=all&models=2&offset=' + offset,
+        var response = await fetch('/api/cosmetics?kind=all&models=3&offset=' + offset,
           {headers: {Accept: 'application/json'}, signal: controller.signal});
         if (!response.ok) throw new Error('catalog_unavailable');
         var page = await response.json();

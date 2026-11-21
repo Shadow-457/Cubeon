@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 from PIL import Image
 from cubeon import appearance, cosmetic_packages, cosmetics
 
-KINDS = {"wing": "Wings", "pet": "Pets", "head": "Headwear", "feet": "Footwear", "cape": "Capes"}
+KINDS = {"wing": "Wings", "pet": "Pets", "head": "Headwear", "feet": "Footwear", "cape": "Capes", "aura": "Auras"}
 
 
 def preview(values):

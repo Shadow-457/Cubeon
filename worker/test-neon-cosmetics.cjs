@@ -41,23 +41,32 @@ const body = res => JSON.parse(res.body.toString());
   assert.equal(reads, 3, 'expanded model catalogs have a separate cache');
   await call(handler, '/api/cosmetics?kind=all&models=2');
   assert.equal(reads, 3, 'expanded metadata is cached');
-  assert.deepEqual(calls[0].params, [0, false, false]);
-  assert.deepEqual(calls[1].params, [0, true, false]);
-  assert.deepEqual(calls[2].params, [0, true, true]);
+  await call(handler, '/api/cosmetics?kind=all&models=3');
+  assert.equal(reads, 4, 'Aura catalogs have a separate cache');
+  assert.deepEqual(calls[0].params, [0, false, false, false]);
+  assert.deepEqual(calls[1].params, [0, true, false, false]);
+  assert.deepEqual(calls[2].params, [0, true, true, false]);
+  assert.deepEqual(calls[3].params, [0, true, true, true]);
   assert.ok(calls[0].sql.includes("kind = 'cape'"), 'old clients only see compatible capes');
   assert.match(calls[0].sql, /\$2::boolean AND kind IN \('pet', 'wing'\)/);
   assert.match(calls[0].sql, /\$3::boolean AND kind IN \('head', 'feet'\)/);
-  const kinds = ['cape', 'pet', 'wing', 'head', 'feet'];
-  const compatible = createHandler({query: async (sql, [, all, expanded]) =>
+  assert.match(calls[0].sql, /\$4::boolean AND kind = 'aura'/);
+  const kinds = ['cape', 'pet', 'wing', 'head', 'feet', 'aura'];
+  const compatible = createHandler({query: async (sql, [, all, expanded, auras]) =>
     kinds.filter(kind => kind === 'cape' || (all && ['pet', 'wing'].includes(kind)) ||
-      (expanded && ['head', 'feet'].includes(kind))).map(kind => ({...item, id: 'test-' + kind, kind}))});
+      (expanded && ['head', 'feet'].includes(kind)) || (auras && kind === 'aura')).map(kind => ({...item, id: 'test-' + kind, kind}))});
   assert.deepEqual(body(await call(compatible)).items.map(entry => entry.kind), ['cape']);
   const originalPath = '/api/cosmetics?kind=all';
   const expandedPath = originalPath + '&models=2';
   const original = await call(compatible, originalPath);
   const expanded = await call(compatible, expandedPath);
   assert.deepEqual(body(original).items.map(entry => entry.kind), ['cape', 'pet', 'wing']);
-  assert.deepEqual(body(expanded).items.map(entry => entry.kind), kinds);
+  assert.deepEqual(body(expanded).items.map(entry => entry.kind), kinds.slice(0, 5));
+  const withAura = await call(compatible, originalPath + '&models=3');
+  assert.deepEqual(body(withAura).items.map(entry => entry.kind), kinds);
+  assert.notEqual(withAura.headers.etag, expanded.headers.etag);
+  assert.deepEqual((await call(compatible, expandedPath)).body, expanded.body,
+    'Aura requests cannot contaminate older expanded catalogs');
   assert.notEqual(original.headers.etag, expanded.headers.etag);
   assert.deepEqual((await call(compatible, originalPath)).body, original.body,
     'expanded requests cannot contaminate older client catalogs');

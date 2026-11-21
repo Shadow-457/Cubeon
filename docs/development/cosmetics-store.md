@@ -3,8 +3,8 @@
 # Neon cosmetics store
 
 Cubeon's **Cosmetics → Store** downloads capes, animated GIF capes, pets,
-wings, headwear and footwear from the public website API. Downloads appear in
-**Cape**, **Pets**, **Back**, **Head** or **Feet**; the user explicitly selects an item to equip it. Custom capes use the
+wings, headwear, footwear and auras from the public website API. Downloads appear in
+**Cape**, **Pets**, **Back**, **Head**, **Feet** or **Aura**; the user explicitly selects an item to equip it. Custom capes use the
 existing importer and animation support. Pets and wings use Cubeon's existing
 box/feather geometry, texture atlas and animation rig.
 
@@ -46,6 +46,11 @@ when Cosmetic motion is off. These changes require an updated client JAR.
 The skins Worker's bundled-ID catalog accepts `aura_butterfly` for peer
 sharing. Deploy the updated skins Worker when introducing a new bundled ID;
 the Neon website deployment does not update this separate service.
+
+Celestial Butterfly Aura is also published as a downloadable Aura Store model,
+reusing the bundled geometry, PNG and emissive mask. Aura Store downloads need
+the updated launcher and `kind=all&models=3` API. Older launchers keep their
+existing Store categories; the bundled Aura choice remains available.
 
 Fitted wearables suppress the outer skin parts they cover. The preview and
 client share the same coverage rules: fitted head/face geometry hides the hat
@@ -95,7 +100,7 @@ folder**. Initialize a new checkout once:
 ```
 
 This creates the existing sample in `cosmetics/capes/`, empty `pets/`,
-`wings/`, `head/` and `feet/` folders, and example recipes under `examples/`. It preserves existing
+`wings/`, `head/`, `feet/` and `auras/` folders, and example recipes under `examples/`. It preserves existing
 files. The examples are not uploaded.
 
 Put PNG or GIF capes in `cosmetics/capes/`, then run:
@@ -107,7 +112,7 @@ Put PNG or GIF capes in `cosmetics/capes/`, then run:
 
 Model recipes and their textures can use nested folders such as
 `cosmetics/wings/7x7/` and `cosmetics/feet/7x7/`; sync scans these recursively.
-Sibling review folders outside the five kind folders are not upload sources.
+Sibling review folders outside these six kind folders are not upload sources.
 
 The published Bough Wings and Sunward Halo variants live under
 `cosmetics/wings/bough-wings-12-flowers/` and
@@ -184,6 +189,9 @@ and optional `feathers`/`flat`. Pets use `shoulder`; wings use `back`;
 headwear uses `head`; footwear uses `feet`. Headwear and footwear recipes go
 in the matching `head/` and `feet/` folders. Footwear boxes must use
 `motion: "left_leg"` or `"right_leg"` so each shoe follows its native leg.
+Auras use the `aura` slot and `cosmetics/auras/`. The Butterfly Aura recipe
+uses `based_on: "aura_butterfly"`; omitting texture/glow overrides reuses
+bundled artwork without duplicating PNG files in the owner workspace.
 Boxes use
 `origin`, `size`, `uv`, `px`, and optionally `pivot`/`motion` for the existing
 animation rig. `float` adds gentle hovering and headwear sway; `hover_body` and `hover_head`
@@ -309,12 +317,13 @@ contain no credentials or query string.
 | `GET /api/cosmetics?offset=0` | Schema 1, up to 12 cape entries and `has_more`, for older clients |
 | `GET /api/cosmetics?offset=0&kind=all` | Schema 1, up to 12 cape/pet/wing entries and `has_more`, for original store-model clients |
 | `GET /api/cosmetics?offset=0&kind=all&models=2` | Schema 1, up to 12 entries including headwear/footwear and `has_more` |
+| `GET /api/cosmetics?offset=0&kind=all&models=3` | Schema 1, up to 12 entries including auras and `has_more`; separate cache from older catalogs |
 | `GET /api/cosmetics?id=ID&sha256=SHA256` | Published PNG/GIF or model-package bytes pinned to the advertised checksum |
 | `HEAD` on either route | The same headers, without a body |
 | Any write method | 405; there is no public upload or database query route |
 
 Catalogs cache for 60 seconds; checksum-pinned downloads cache immutably.
-The three catalog variants have separate caches. `models=2` is accepted only
+The four catalog variants have separate caches. `models=2` and `models=3` are accepted only
 with `kind=all` on catalog requests. Deploy this API update before publishing
 headwear/footwear or releasing the expanded client so older clients retain a
 usable catalog.

@@ -110,6 +110,35 @@ class Packages(unittest.TestCase):
         cosmetics.sync_to_game(cfg, str(game), strict=True)
         self.assertEqual((game / "options.txt").read_text(), options)
 
+    def test_butterfly_aura_reuses_bundled_art_and_roundtrips_to_aura_slot(self):
+        recipe = self.folder / 'auras/butterfly.json'
+        recipe.write_text(json.dumps(dict(id='test-butterfly-aura', name='Butterfly Aura', based_on='aura_butterfly')))
+        values = publisher.prepare_model(recipe, 'aura')
+        package = packages.read(base64.b64decode(values[4]))
+        original = cosmetics.get('aura_butterfly')
+        self.assertEqual(package['item']['boxes'], original['boxes'])
+        textures = packages.validate(package)
+        self.assertEqual(textures['texture.png'], Path(cosmetics.texture_path(original)).read_bytes())
+        self.assertEqual(textures['glow.png'], (Path(cosmetics.texture_path(original)).parent / original['emissive_texture']).read_bytes())
+        metadata = dict(id=values[0], name=values[1], description=values[2], mime_type=values[3],
+                        byte_size=values[5], sha256=values[6], preview_png=values[7], kind='aura')
+        with patch.object(cosmetics_store, '_bytes', return_value=base64.b64decode(values[4])):
+            saved = cosmetics_store.download(metadata)
+        self.assertEqual(saved['slot'], 'aura')
+        self.assertTrue(any(item['id'] == saved['id'] for item in cosmetics.items('aura')))
+        self.assertTrue(any(v[-1] == 'aura' for v in publisher.prepare_folder(self.folder) if len(v) == 9))
+        game = self.root / 'aura-game'
+        game.mkdir()
+        cfg = dict(last_version='26.3', active_aura_item=saved['id'])
+        cosmetics.sync_to_game(cfg, str(game), strict=True)
+        selection = json.loads((game / 'config/cubeon-cosmetics.json').read_text())
+        models = json.loads((game / 'config/cubeon-store.json').read_text())['items']
+        self.assertEqual(selection['aura'], saved['id'])
+        self.assertEqual(models[0]['slot'], 'aura')
+        self.assertEqual(models[0]['boxes'], original['boxes'])
+        for key in ('texture', 'emissive_texture'):
+            self.assertTrue((game / 'resourcepacks/cubeon-store/assets/cubeon-client/textures/cosmetics' / models[0][key]).is_file())
+
     def test_revisions_preserve_equipped_models_and_bundled_assets(self):
         payload, metadata = self.model()
         original = packages.install(payload, metadata)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish local capes, pets and wings to Neon. Credentials stay owner-only."""
+"""Publish local cosmetic collections to Neon. Credentials stay owner-only."""
 from __future__ import annotations
 
 import argparse
@@ -117,7 +117,7 @@ def publish(connection, values):
 
 def setup(folder):
     """Create the ignored owner workspace without overwriting artwork."""
-    for name in ("capes", "pets", "wings", "head", "feet", "examples"):
+    for name in ("capes", "pets", "wings", "head", "feet", "auras", "examples"):
         (folder / name).mkdir(parents=True, exist_ok=True)
     sample = folder / "capes/cubeon-cape-sample.png"
     if not sample.exists():
@@ -164,11 +164,15 @@ def prepare_model(path, kind):
             continue
         if model.get("emissive_texture"):
             glow_key = "emissive_texture" if model is item else "flat_emissive_texture"
-            filename = Path(value.get(glow_key, model["emissive_texture"]))
-            if filename.is_absolute() or ".." in filename.parts:
-                raise ValueError("Glow texture paths must stay inside their cosmetic folder.")
-            source = path.parent / filename
-            if not source.resolve().is_relative_to(path.parent.resolve()) or not source.is_file() or source.stat().st_size > MAX_BYTES:
+            bundled_glow = template is not None and 'model' not in value and glow_key not in value
+            if bundled_glow:
+                source = Path(cosmetics.texture_path(model)).parent / model['emissive_texture']
+            else:
+                filename = Path(value.get(glow_key, model["emissive_texture"]))
+                if filename.is_absolute() or ".." in filename.parts:
+                    raise ValueError("Glow texture paths must stay inside their cosmetic folder.")
+                source = path.parent / filename
+            if (not bundled_glow and not source.resolve().is_relative_to(path.parent.resolve())) or not source.is_file() or source.stat().st_size > MAX_BYTES:
                 raise ValueError("Missing or invalid glow texture.")
             model["emissive_texture"] = "glow.png" if model is item else "flat_glow.png"
             textures[model["emissive_texture"]] = base64.b64encode(source.read_bytes()).decode()
@@ -216,7 +220,7 @@ def prepare_folder(folder):
         value = _metadata(path.with_suffix(".json")) if path.with_suffix(".json").is_file() else {}
         prepared.append(prepare_cape(path, value.get("id", path.stem.lower().replace("_", "-")),
             value.get("name", path.stem.replace("-", " ").replace("_", " ").title()), value.get("description", "")))
-    for directory, kind in (("pets", "pet"), ("wings", "wing"), ("head", "head"), ("feet", "feet")):
+    for directory, kind in (("pets", "pet"), ("wings", "wing"), ("head", "head"), ("feet", "feet"), ("auras", "aura")):
         for path in sorted((folder / directory).rglob("*.json")):
             prepared.append(prepare_model(path, kind))
     ids = [value[0] for value in prepared]

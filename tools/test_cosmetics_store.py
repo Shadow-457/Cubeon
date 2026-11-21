@@ -80,7 +80,7 @@ class Downloads(unittest.TestCase):
             self.assertEqual(store.fetch_page()["items"], [self.item])
             from urllib.parse import parse_qs, urlsplit
             self.assertEqual(parse_qs(urlsplit(fetch.call_args.args[0]).query),
-                {"offset": ["0"], "kind": ["all"], "models": ["2"]})
+                {"offset": ["0"], "kind": ["all"], "models": ["3"]})
         for changes in ({"items": [self.item, self.item]}, {"schema": 2}, {"has_more": "yes"}):
             with patch.object(store, "_bytes", return_value=json.dumps({**page, **changes}).encode()), self.assertRaises(ValueError):
                 store.fetch_page()

@@ -1,7 +1,7 @@
 -- Owner-managed public cape catalog. No player identities or credentials live here.
 CREATE TABLE IF NOT EXISTS cubeon_cosmetics (
     id text PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9_-]{2,63}$'),
-    kind text NOT NULL DEFAULT 'cape' CHECK (kind IN ('cape', 'pet', 'wing', 'head', 'feet')),
+    kind text NOT NULL DEFAULT 'cape' CHECK (kind IN ('cape', 'pet', 'wing', 'head', 'feet', 'aura')),
     name text NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
     description text NOT NULL DEFAULT '' CHECK (length(description) <= 400),
     mime_type text NOT NULL CHECK (mime_type IN ('image/png', 'image/gif', 'application/vnd.cubeon.cosmetic+json')),
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS cubeon_cosmetics (
 -- Idempotent upgrade of the original cape-only table. Preserve all existing rows.
 DO $$ BEGIN
 ALTER TABLE cubeon_cosmetics DROP CONSTRAINT IF EXISTS cubeon_cosmetics_kind_check;
-ALTER TABLE cubeon_cosmetics ADD CONSTRAINT cubeon_cosmetics_kind_check CHECK (kind IN ('cape', 'pet', 'wing', 'head', 'feet'));
+ALTER TABLE cubeon_cosmetics ADD CONSTRAINT cubeon_cosmetics_kind_check CHECK (kind IN ('cape', 'pet', 'wing', 'head', 'feet', 'aura'));
 ALTER TABLE cubeon_cosmetics DROP CONSTRAINT IF EXISTS cubeon_cosmetics_mime_type_check;
 ALTER TABLE cubeon_cosmetics ADD CONSTRAINT cubeon_cosmetics_mime_type_check CHECK (mime_type IN ('image/png', 'image/gif', 'application/vnd.cubeon.cosmetic+json'));
 END $$;

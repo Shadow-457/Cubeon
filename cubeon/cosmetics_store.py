@@ -28,8 +28,8 @@ CATALOG_BYTES = 450000
 BUNDLED_CATALOG_BYTES = 4 * 1024 * 1024
 BUNDLED_CATALOG_PATH = Path(__file__).resolve().parent.parent / "assets/cosmetics/store-catalog.json"
 CATALOG_AGE = 24 * 60 * 60
-_CACHE_NS = "cosmetics_catalog_v2"
-_INDEX_NS = "cosmetics_search_v1"
+_CACHE_NS = "cosmetics_catalog_v3"
+_INDEX_NS = "cosmetics_search_v2"
 _INDEX_LOCK = threading.Lock()
 MAX_FILE_BYTES = 2 * 1024 * 1024
 _IMPORT_LOCK = threading.Lock()
@@ -147,7 +147,7 @@ def fetch_page(offset=0):
     _offset(offset)
     endpoint = api_url()
     data = _page(json.loads(_bytes(endpoint + "?" + urlencode(
-        {"offset": offset, "kind": "all", "models": 2}), CATALOG_BYTES)), offset)
+        {"offset": offset, "kind": "all", "models": 3}), CATALOG_BYTES)), offset)
     local_cache.set(_CACHE_NS, [endpoint, offset], data)
     return data
 
@@ -214,7 +214,7 @@ def search_page(catalog, query, offset=0):
     """Filter the full collection, then paginate matches for the retained cards."""
     _offset(offset)
     terms = str(query).casefold().split()
-    kinds = {"cape": "capes", "pet": "pets", "wing": "wings", "head": "headwear", "feet": "footwear"}
+    kinds = {"cape": "capes", "pet": "pets", "wing": "wings", "head": "headwear", "feet": "footwear", "aura": "auras"}
     matches = [item for item in catalog["items"] if all(term in
         " ".join((item["id"], item["name"], item["description"], item["kind"], kinds[item["kind"]])).casefold()
         for term in terms)]

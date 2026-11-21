@@ -21,7 +21,7 @@ from .atomicio import write_json
 
 DIRECTORY = Path(CUBEON_HOME) / "cosmetics-store"
 MIME = "application/vnd.cubeon.cosmetic+json"
-KIND_SLOTS = {"pet": "shoulder", "wing": "back", "head": "head", "feet": "feet"}
+KIND_SLOTS = {"pet": "shoulder", "wing": "back", "head": "head", "feet": "feet", "aura": "aura"}
 MAX_BYTES = 2 * 1024 * 1024
 _LOCK = threading.RLock()
 _NAME = re.compile(r"[a-z0-9_-]+\.png")
@@ -73,7 +73,7 @@ def _vector(value, length, bound=256):
 def validate(package):
     """Reject scripts, paths, oversized meshes and invalid texture/UV data."""
     if not isinstance(package, dict) or package.get("schema") != 1 or package.get("kind") not in KIND_SLOTS:
-        raise ValueError("Use a Cubeon pet, wing, headwear or footwear model package.")
+        raise ValueError("Use a Cubeon pet, wing, headwear, footwear or aura model package.")
     item, textures = package.get("item"), package.get("textures")
     if not isinstance(item, dict) or not isinstance(textures, dict) or not 1 <= len(textures) <= 4:
         raise ValueError("Model packages need an item and PNG textures.")

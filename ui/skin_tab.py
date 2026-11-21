@@ -875,7 +875,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         def work():
             try:
                 cosmetics_store.download(item)
-                destination = {'cape': 'Cape', 'pet': 'Pets', 'wing': 'Back', 'head': 'Head', 'feet': 'Feet'}[item['kind']]
+                destination = {'cape': 'Cape', 'pet': 'Pets', 'wing': 'Back', 'head': 'Head', 'feet': 'Feet', 'aura': 'Aura'}[item['kind']]
                 message = f"Downloaded {item['name']}. Open {destination} to equip it."
                 success = True
             except Exception as error:

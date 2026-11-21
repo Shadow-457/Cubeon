@@ -54,7 +54,7 @@ async function browserChecks() {
     const url = new URL(request.request().url());
     if (url.hostname !== 'cubeon.test') return request.abort();
     if (url.pathname === '/api/cosmetics') {
-      assert.equal(url.searchParams.get('models'), '2');
+      assert.equal(url.searchParams.get('models'), '3');
       const offset = Number(url.searchParams.get('offset'));
       if (mode === 'error') return request.fulfill({status:503,json:{error:'store_unavailable'}});
       const rows = mode === 'duplicate' ? [items[0], items[0]] : items.slice(offset,offset+12);
@@ -109,6 +109,15 @@ async function browserChecks() {
   }
   const page=await browser.newPage();
   await page.route('**/*',route);
+  items=[...snapshot,{...snapshot[0],id:'test-butterfly-aura',sha256:'b'.repeat(64),name:'Celestial Butterfly Aura',kind:'aura'}];
+  await page.goto('https://cubeon.test/store');
+  await page.waitForFunction(()=>document.querySelector('#storeStatus').textContent.includes('Available in Cubeon'));
+  await page.locator('[data-store-kind="aura"]').click();
+  assert.equal(await page.locator('.store-card:visible').count(),1);
+  await page.locator('.store-card:visible .store-view').click();
+  assert.equal(await page.locator('#storeDialogTitle').textContent(),'Celestial Butterfly Aura');
+  assert.ok((await page.locator('#storeDialogEquip').textContent()).includes('equip it in Aura'));
+  await page.keyboard.press('Escape');
   items=[...snapshot,{...snapshot[0],id:'new-item',sha256:'a'.repeat(64),name:'<svg onload="alert(1)">',kind:'pet'}];
   await page.goto('https://cubeon.test/store');
   await page.waitForFunction(count=>document.querySelectorAll('.store-card').length===count,snapshot.length+1);
