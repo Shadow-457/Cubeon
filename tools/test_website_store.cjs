@@ -49,7 +49,7 @@ async function browserChecks() {
   }
   const captures = path.join(root, 'archive/ui-captures/store');
   fs.mkdirSync(captures, {recursive:true});
-  let mode = 'live', items = snapshot;
+  let mode = 'live', items = snapshot, catalogGate;
   const route = async request => {
     const url = new URL(request.request().url());
     if (url.hostname !== 'cubeon.test') return request.abort();
@@ -57,6 +57,8 @@ async function browserChecks() {
       assert.equal(url.searchParams.get('models'), '3');
       const offset = Number(url.searchParams.get('offset'));
       if (mode === 'error') return request.fulfill({status:503,json:{error:'store_unavailable'}});
+      if (offset > 0 && mode === 'late-error') return request.fulfill({status:503,json:{error:'store_unavailable'}});
+      if (offset > 0 && catalogGate) await catalogGate;
       const rows = mode === 'duplicate' ? [items[0], items[0]] : items.slice(offset,offset+12);
       return request.fulfill({json:{schema:1,offset,page_size:12,has_more:mode !== 'duplicate' && items.length>offset+12,items:rows}});
     }
@@ -131,6 +133,27 @@ async function browserChecks() {
     await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('latest availability'));
     assert.equal(await page.locator('.store-card').count(),snapshot.length,'failed catalog leaves fallback intact');
   }
+  items=[{...snapshot[0],id:'test-butterfly-aura',sha256:'b'.repeat(64),name:'Celestial Butterfly Aura',kind:'aura'},...snapshot];
+  mode='live';
+  let releaseCatalog;
+  catalogGate=new Promise(resolve=>{releaseCatalog=resolve;});
+  await page.reload();
+  await page.locator('[data-store-kind="aura"]').click();
+  await page.locator('[data-id="test-butterfly-aura"]').waitFor({state:'visible'});
+  assert.ok(!(await page.locator('#storeStatus').textContent()).includes('Available in Cubeon'));
+  await page.locator('.store-card:visible .store-view').click();
+  assert.equal(await page.locator('#storeDialogTitle').textContent(),'Celestial Butterfly Aura','Aura is usable before later pages complete');
+  await page.keyboard.press('Escape');
+  releaseCatalog();
+  catalogGate=null;
+  await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('Available in Cubeon'));
+  assert.equal(await page.locator('.store-card').count(),items.length);
+  mode='late-error';
+  await page.reload();
+  await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('latest availability'));
+  await page.locator('[data-store-kind="aura"]').click();
+  assert.equal(await page.locator('.store-card:visible').count(),1,'later failure retains a validated Aura');
+  assert.equal(await page.locator('.store-card').count(),snapshot.length+1,'later failure retains the offline collection');
   await page.close();
   const plain=await browser.newPage({javaScriptEnabled:false,viewport:{width:390,height:800}});
   await plain.route('**/*',route);

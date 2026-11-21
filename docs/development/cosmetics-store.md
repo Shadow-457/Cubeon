@@ -51,6 +51,9 @@ Celestial Butterfly Aura is also published as a downloadable Aura Store model,
 reusing the bundled geometry, PNG and emissive mask. Aura Store downloads need
 the updated launcher and `kind=all&models=3` API. Older launchers keep their
 existing Store categories; the bundled Aura choice remains available.
+The shipped client selects the eight independent butterfly poses only for the
+bundled `aura_butterfly` ID. Downloaded Store IDs use the generic orbit/flutter
+motion; publishing the matching artwork does not change that Java behavior.
 
 Fitted wearables suppress the outer skin parts they cover. The preview and
 client share the same coverage rules: fitted head/face geometry hides the hat
@@ -274,9 +277,12 @@ Normal client builds regenerate the bundled art only.
 ## Website gallery
 
 The public `/store` page reads the same Neon catalog as the launcher, including
-headwear and footwear. Category filters, search and item previews work in the
+headwear, footwear and auras. Category filters, search and item previews work in the
 browser; downloads and equipping stay in Cubeon. New uploads appear through the
 API without a website deployment.
+Validated pages update the gallery as they arrive, within a 60-second overall
+loading deadline. If a later page fails, confirmed items remain alongside the
+offline collection. Only a complete catalog removes outdated fallback entries.
 
 For larger public previews of the owner collection, run:
 

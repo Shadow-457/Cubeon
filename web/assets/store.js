@@ -13,8 +13,10 @@
   var library = {cape: 'Cape', pet: 'Pets', wing: 'Back', head: 'Head', feet: 'Feet', aura: 'Aura'};
   var selected = 'all';
   var known = new Map();
+  var cards = new Map();
   Array.from(grid.children).forEach(function (card) {
     known.set(card.dataset.id + ':' + card.dataset.sha, card);
+    cards.set(card.dataset.id, card);
   });
 
   function filter() {
@@ -97,7 +99,7 @@
   async function refresh() {
     var items = [], ids = new Set();
     var controller = new AbortController();
-    var timeout = setTimeout(function () { controller.abort(); }, 20000);
+    var timeout = setTimeout(function () { controller.abort(); }, 60000);
     try {
       for (var offset = 0; offset < 600; offset += 12) {
         var response = await fetch('/api/cosmetics?kind=all&models=3&offset=' + offset,
@@ -107,17 +109,28 @@
         if (page.schema !== 1 || page.offset !== offset || page.page_size !== 12 ||
             typeof page.has_more !== 'boolean' || !Array.isArray(page.items) || page.items.length > 12)
           throw new Error('invalid_catalog');
+        var pageIds = new Set();
         page.items.forEach(function (item) {
-          if (!valid(item) || ids.has(item.id)) throw new Error('invalid_cosmetic');
+          if (!valid(item) || ids.has(item.id) || pageIds.has(item.id)) throw new Error('invalid_cosmetic');
+          pageIds.add(item.id);
+        });
+        // Keep confirmed uploads visible while the remaining catalog loads.
+        // A failed later page must not remove these or the offline collection.
+        page.items.forEach(function (item) {
           ids.add(item.id);
           items.push(item);
+          var card = makeCard(item), previous = cards.get(item.id);
+          if (previous) previous.replaceWith(card);
+          else grid.appendChild(card);
+          cards.set(item.id, card);
         });
+        filter();
         if (!page.has_more) break;
         if (offset === 588) throw new Error('catalog_too_large');
       }
       items.sort(function (a, b) { return a.name.localeCompare(b.name); });
       var fragment = document.createDocumentFragment();
-      items.forEach(function (item) { fragment.appendChild(makeCard(item)); });
+      items.forEach(function (item) { fragment.appendChild(cards.get(item.id)); });
       grid.replaceChildren(fragment);
       status.textContent = 'Available in Cubeon. All cosmetics are free.';
       filter();
