@@ -153,6 +153,40 @@ class Downloads(unittest.TestCase):
             with patch.object(store, "BUNDLED_CATALOG_PATH", path):
                 self.assertIsNone(store.cached_page())
 
+    def test_search_reaches_later_pages_and_reuses_the_complete_catalog(self):
+        golden = [{**self.item, "id": f"golden-cape-{i:02}", "name": f"Golden Cape {i:02}"} for i in range(18)]
+        other = [{**self.item, "id": f"forest-cape-{i:02}", "name": f"Forest Cape {i:02}"} for i in range(9)]
+        entries = other[:8] + golden + other[8:]
+        def page(offset):
+            return dict(schema=1, offset=offset, page_size=12,
+                        items=entries[offset:offset+12], has_more=offset+12 < len(entries))
+        with patch.object(store, "cached_page", return_value=None), patch.object(store, "fetch_page", side_effect=page) as fetch:
+            catalog = store.fetch_catalog()
+            self.assertEqual([call.args[0] for call in fetch.call_args_list], [0, 12, 24])
+            first = store.search_page(catalog, "GOLDEN cape")
+            second = store.search_page(catalog, "golden cape", 12)
+            self.assertEqual(first["total"], 18)
+            self.assertTrue(first["has_more"])
+            self.assertEqual([item["id"] for item in first["items"] + second["items"]], [item["id"] for item in golden])
+            self.assertFalse(second["has_more"])
+            self.assertEqual(store.search_page(catalog, "missing")['items'], [])
+            self.assertEqual(store.fetch_catalog(), catalog)
+            self.assertEqual(fetch.call_count, 3)
+            store.fetch_catalog(force=True)
+            self.assertEqual(fetch.call_count, 6)
+
+    def test_search_uses_the_entire_offline_bundle_and_marks_partial_saved_pages(self):
+        with patch.object(store, "_bytes", side_effect=AssertionError("offline search used network")):
+            catalog = store.cached_catalog()
+            result = store.search_page(catalog, "sunward halo headwear")
+            self.assertTrue(catalog["complete"])
+            self.assertEqual([item["id"] for item in result["items"]], ["cubeon-sunward-halo"])
+        first = dict(items=[self.item], has_more=True)
+        with patch.object(store, "cached_page", side_effect=lambda offset, **kwargs: first if offset == 0 else None):
+            partial = store.cached_catalog()
+            self.assertFalse(partial["complete"])
+            self.assertEqual(store.search_page(partial, "sample")["total"], 1)
+
     def test_gif_animation_survives_import(self):
         stream = io.BytesIO()
         Image.new("RGBA", (64, 32), "red").save(stream, "GIF", save_all=True,
@@ -188,6 +222,86 @@ class Downloads(unittest.TestCase):
 
 
 class Picker(unittest.TestCase):
+    def test_search_debounces_paginates_and_discards_an_older_query_response(self):
+        import _fuzz_common as fz
+        from app_driver import DriverPage
+        import flet as ft
+        from cubeon import thread_safe_ui
+        from cubeon.theme import THEME, section_label, pixel_divider
+        import ui.skin_tab as skin_ui
+        from ui.appearance_preview import AppearancePreview
+        fz.install_safe_stubs()
+        jobs, timers = [], []
+        class QueuedThread:
+            def __init__(self, target, args=(), **kwargs): self.target = lambda: target(*args)
+            def start(self): jobs.append(self.target)
+        class Timer:
+            def __init__(self, delay, target): self.target, self.cancelled = target, False
+            def start(self): timers.append(self)
+            def cancel(self): self.cancelled = True
+            def fire(self):
+                if not self.cancelled: self.target()
+        item = entry(png(Image.new("RGBA", (64, 32), "green")))
+        normal = dict(items=[item], offset=0, has_more=False)
+        golden = [{**item, "id": f"golden-cape-{i:02}", "name": f"Golden Cape {i:02}"} for i in range(15)]
+        forest = {**item, "id": "forest-cape", "name": "Forest Cape"}
+        catalog = dict(schema=1, complete=True, items=golden+[forest])
+        calls = []
+        def index(**kwargs):
+            if kwargs.get("max_age") == 60 and not calls: return None
+            return catalog
+        def fetch_index(**kwargs):
+            calls.append(kwargs)
+            # A newer query paints while the first query's transport is delayed.
+            field.value = "forest"
+            field.on_change(None)
+            timers[-1].fire()
+            jobs[-1]()
+            return catalog
+        with patch.object(skin_ui, "threading", SimpleNamespace(**{**vars(threading), "Thread": QueuedThread, "Timer": Timer})), \
+                patch.object(thread_safe_ui, "refresh"), patch.object(AppearancePreview, "refresh"), \
+                patch.object(store, "cached_page", return_value=normal), patch.object(store, "fetch_page") as fetch_page, \
+                patch.object(store, "cached_catalog", side_effect=index), patch.object(store, "fetch_catalog", side_effect=fetch_index), \
+                patch.object(store, "has_installed", return_value=False):
+            page = DriverPage()
+            root = skin_ui.build_skin_section(page, {}, section_label=section_label, pixel_divider=pixel_divider,
+                **THEME, assets_dir=str(ROOT / "assets"), mc_version="1.21.11", mc_loader="fabric",
+                file_picker=ft.FilePicker(), cape_file_picker=ft.FilePicker())
+            next(c for c in fz.walk(root) if callable(getattr(c, "on_click", None))
+                 and any(getattr(t, "value", None) == "Store" for t in fz.walk(c))).on_click(None)
+            jobs[-1]()
+            field = next(c for c in fz.walk(root) if c.data == "cosmetics-store-search")
+            field.value = "golden"
+            field.on_submit(None)
+            jobs[-1]()
+            self.assertIn("forest cape", fz.subtree_text(root))
+            self.assertNotIn("golden cape 00", fz.subtree_text(root))
+            self.assertEqual(len(calls), 1)
+            field.value = "GOLDEN"
+            field.on_change(None)
+            field.value = "Golden"
+            field.on_change(None)
+            self.assertTrue(timers[-2].cancelled)
+            timers[-1].fire()
+            jobs[-1]()
+            self.assertIn("golden cape 00", fz.subtree_text(root))
+            images = [c for c in fz.walk(root) if isinstance(c, ft.Image)]
+            field.value = "golden"
+            field.on_submit(None)
+            jobs[-1]()
+            self.assertEqual(images, [c for c in fz.walk(root) if isinstance(c, ft.Image)])
+            next(c for c in fz.walk(root) if getattr(c, "tooltip", None) == "Next store page").on_click(None)
+            jobs[-1]()
+            self.assertIn("golden cape 14", fz.subtree_text(root))
+            self.assertNotIn("golden cape 00", fz.subtree_text(root))
+            field.value = ""
+            field.on_submit(None)
+            jobs[-1]()
+            self.assertIn("sample cape", fz.subtree_text(root))
+            self.assertNotIn("golden cape 14", fz.subtree_text(root))
+            fetch_page.assert_not_called()
+            self.assertEqual(page.update_calls, 0)
+
     def test_store_is_lazy_downloads_without_equipping_and_retains_images(self):
         import _fuzz_common as fz
         from app_driver import DriverPage

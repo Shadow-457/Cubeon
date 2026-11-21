@@ -20,6 +20,16 @@ its rendering geometry. Opening Store does not download or equip models.
 The complete bundled snapshot is capped at 4 MB; each selected page, saved page
 and API response retains the separate 450,000-byte limit.
 
+The launcher Store searches the full collection by name, description, ID and
+category. Typing waits briefly before searching; Enter searches immediately.
+Matching results retain the normal 12-item pagination, and clearing the field
+returns to the first unfiltered page. Search assembles the existing API pages on
+a worker and shares a complete index for 60 seconds. Its saved index has the
+same 4 MiB bound as the bundled snapshot and allows up to 1,024 items. Offline
+search uses saved or bundled data; incomplete saved pages are identified in the
+status message. Request generations prevent older results from replacing a
+new query, and typing never downloads or equips cosmetics.
+
 **Aura → Celestial Butterfly Aura** is bundled with Cubeon Client. Eight blue
 butterflies orbit at different heights around the body, flutter independently,
 and carry an emissive mask. It attaches to the torso so crouching and swimming

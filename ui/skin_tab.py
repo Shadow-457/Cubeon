@@ -844,13 +844,15 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     store_status = ft.Text("", size=12, color=TEXT_DIM, visible=False)
     store_page = ft.Text("Page 1", size=12, color=TEXT_DIM)
     store_state = {"loaded": False, "loading": False, "offset": 0, "more": False,
-                   "signature": None, "downloads": set(), "cards": {}, "items": {}, "request": 0}
+                   "signature": None, "downloads": set(), "cards": {}, "items": {}, "request": 0,
+                   "query": "", "timer": None}
 
     def sync_store_buttons():
         busy = store_state["loading"] or bool(store_state["downloads"])
         store_refresh.disabled = busy
         store_previous.disabled = busy or store_state["offset"] == 0
         store_next.disabled = busy or not store_state["more"]
+        store_search.disabled = bool(store_state["downloads"])
         store_page.value = f"Page {store_state['offset'] // cosmetics_store.PAGE_SIZE + 1}"
 
     def download_store_cape(item):
@@ -898,13 +900,15 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     def load_store(offset=None, *, force=False):
         with thread_safe_ui.TREE_LOCK:
-            if store_state["loading"] or store_state["downloads"]:
+            query = (store_search.value or "").strip()
+            if store_state["downloads"] or (store_state["loading"] and query == store_state["query"]):
                 return
-            if store_state["loaded"] and offset is None and not force:
+            if store_state["loaded"] and offset is None and not force and query == store_state["query"]:
                 return
-            requested = store_state["offset"] if offset is None else offset
+            requested = 0 if query != store_state["query"] else store_state["offset"] if offset is None else offset
             store_state["request"] += 1
             request = store_state["request"]
+            store_state["query"] = query
             store_state["loading"] = True
             store_status.value = "Loading cosmetics…"
             sync_store_buttons()
@@ -940,7 +944,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                             card.set_sublabel("Downloaded" if owned[item_id] else "Free cosmetic")
                     store_state["items"] = {item["id"]: item for item in data["items"]}
                     store_state.update(loaded=True, offset=requested, more=data["has_more"])
-                    store_status.value = message or ("" if data["items"] else "No cosmetics are available yet.")
+                    store_status.value = message or ("" if data["items"] else
+                        f'No cosmetics match “{query}”.' if query else "No cosmetics are available yet.")
                 else:
                     store_status.value = message or "The cosmetics store is unavailable. Try Refresh."
                 sync_store_buttons()
@@ -950,8 +955,14 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
         def work():
             try:
-                cached = cosmetics_store.cached_page(requested)
-                fresh = None if force else cosmetics_store.cached_page(requested, max_age=60, bundled=False)
+                if query:
+                    saved = cosmetics_store.cached_catalog()
+                    recent = None if force else cosmetics_store.cached_catalog(max_age=60, bundled=False)
+                    cached = cosmetics_store.search_page(saved, query, requested) if saved else None
+                    fresh = cosmetics_store.search_page(recent, query, requested) if recent else None
+                else:
+                    cached = cosmetics_store.cached_page(requested)
+                    fresh = None if force else cosmetics_store.cached_page(requested, max_age=60, bundled=False)
             except Exception:
                 cached, fresh = None, None
             if cached is not None:
@@ -959,10 +970,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             if fresh is not None:
                 return
             try:
-                data = cosmetics_store.fetch_page(requested)
+                data = cosmetics_store.search_page(cosmetics_store.fetch_catalog(force=force), query, requested) \
+                    if query else cosmetics_store.fetch_page(requested)
             except Exception:
                 if cached is not None:
-                    paint(cached, message="Showing saved cosmetics. Try Refresh for the latest collection.")
+                    paint(cached, message="Showing matches from saved pages. Refresh when online to search the full collection."
+                        if query and not cached["complete"] else
+                        "Showing saved cosmetics. Try Refresh for the latest collection.")
                 else:
                     paint(None)
             else:
@@ -970,14 +984,43 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
         threading.Thread(target=work, daemon=True, name="cubeon-store-catalog").start()
 
+    def search_store_now(e=None):
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if store_state["timer"] is not None:
+                store_state["timer"].cancel()
+                store_state["timer"] = None
+        load_store(0)
+
+    def schedule_store_search(e=None):
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            if store_state["timer"] is not None:
+                store_state["timer"].cancel()
+            store_state["request"] += 1
+            store_state["loading"] = False
+            store_state["timer"] = threading.Timer(.2, lambda: load_store(0))
+            store_state["timer"].daemon = True
+            store_state["timer"].start()
+            sync_store_buttons()
+        thread_safe_ui.refresh(store_toolbar)
+
+    store_search = ft.TextField(hint_text="Search cosmetics…", prefix_icon=ft.Icons.SEARCH_ROUNDED,
+        border_color=CARD_BORDER, focused_border_color=ACCENT_DIM, color=TEXT,
+        hint_style=ft.TextStyle(color=TEXT_DIM, size=13), text_style=ft.TextStyle(size=13),
+        bgcolor=CARD_FILL, border_radius=RADIUS, height=40, dense=True,
+        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
+        on_change=schedule_store_search, on_submit=search_store_now, data="cosmetics-store-search")
+
     store_refresh = ft.TextButton("Refresh", icon=ft.Icons.REFRESH_ROUNDED,
                                  on_click=lambda e: load_store(force=True))
     store_previous = ft.IconButton(ft.Icons.CHEVRON_LEFT_ROUNDED, tooltip="Previous store page",
         disabled=True, on_click=lambda e: load_store(store_state["offset"] - cosmetics_store.PAGE_SIZE))
     store_next = ft.IconButton(ft.Icons.CHEVRON_RIGHT_ROUNDED, tooltip="Next store page",
         disabled=True, on_click=lambda e: load_store(store_state["offset"] + cosmetics_store.PAGE_SIZE))
-    store_toolbar = ft.Row([store_refresh, ft.Container(expand=True), store_previous,
-                            store_page, store_next], spacing=4)
+    store_toolbar = ft.Column([store_search,
+        ft.Row([store_refresh, ft.Container(expand=True), store_previous, store_page, store_next], spacing=4)],
+        spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
     store_pane = ft.Column([store_toolbar,
         ft.Text("Download cosmetics, then equip them in Cape, Pets, Back, Head or Feet.", size=12, color=TEXT_DIM),
         _scroll_cards(store_grid), store_status], spacing=8, expand=True,

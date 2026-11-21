@@ -29,6 +29,8 @@ BUNDLED_CATALOG_BYTES = 4 * 1024 * 1024
 BUNDLED_CATALOG_PATH = Path(__file__).resolve().parent.parent / "assets/cosmetics/store-catalog.json"
 CATALOG_AGE = 24 * 60 * 60
 _CACHE_NS = "cosmetics_catalog_v2"
+_INDEX_NS = "cosmetics_search_v1"
+_INDEX_LOCK = threading.Lock()
 MAX_FILE_BYTES = 2 * 1024 * 1024
 _IMPORT_LOCK = threading.Lock()
 _ID = re.compile(r"[a-z][a-z0-9_-]{2,63}")
@@ -148,6 +150,77 @@ def fetch_page(offset=0):
         {"offset": offset, "kind": "all", "models": 2}), CATALOG_BYTES)), offset)
     local_cache.set(_CACHE_NS, [endpoint, offset], data)
     return data
+
+
+def _catalog(data):
+    if (not isinstance(data, dict) or data.get("schema") != 1 or
+            data.get("complete") is not True or not isinstance(data.get("items"), list) or
+            len(data["items"]) > 1024 or len(json.dumps(data)) > BUNDLED_CATALOG_BYTES):
+        raise ValueError("The store returned an invalid search catalog.")
+    entries = [_entry(item) for item in data["items"]]
+    if len({item["id"] for item in entries}) != len(entries):
+        raise ValueError("The store returned duplicate cosmetics.")
+    return {**data, "items": [item for item in entries if item["id"] not in STORE_IDS]}
+
+
+def cached_catalog(*, max_age=CATALOG_AGE, bundled=True):
+    """Read the searchable collection on a worker, without network requests."""
+    try:
+        data = local_cache.get(_INDEX_NS, [api_url()], max_age,
+                               max_bytes=BUNDLED_CATALOG_BYTES + 1000)
+        if data is not None:
+            return _catalog(data)
+    except (OSError, ValueError, TypeError, AttributeError, RecursionError):
+        pass
+    if not bundled:
+        return None
+    entries = {}
+    for offset in range(0, 1024, PAGE_SIZE):
+        page = cached_page(offset, max_age=max_age)
+        if page is None:
+            break
+        updated = {**entries, **{item["id"]: item for item in page["items"]}}
+        if len(updated) > 1024 or len(json.dumps(list(updated.values()))) > BUNDLED_CATALOG_BYTES:
+            break
+        entries = updated
+        if not page["has_more"]:
+            return {"schema": 1, "complete": True, "items": list(entries.values())}
+    return {"schema": 1, "complete": False, "items": list(entries.values())} if entries else None
+
+
+def fetch_catalog(*, force=False):
+    """Collect existing paged API responses; coalesce concurrent search workers."""
+    with _INDEX_LOCK:
+        if not force:
+            fresh = cached_catalog(max_age=60, bundled=False)
+            if fresh is not None:
+                return fresh
+        entries = {}
+        for offset in range(0, 1024, PAGE_SIZE):
+            page = None if force else cached_page(offset, max_age=60, bundled=False)
+            if page is None:
+                page = fetch_page(offset)
+            entries.update((item["id"], item) for item in page["items"])
+            if len(entries) > 1024 or len(json.dumps(list(entries.values()))) > BUNDLED_CATALOG_BYTES:
+                raise ValueError("The searchable cosmetics collection is too large.")
+            if not page["has_more"]:
+                data = {"schema": 1, "complete": True, "items": list(entries.values())}
+                local_cache.set(_INDEX_NS, [api_url()], data)
+                return data
+        raise ValueError("The searchable cosmetics collection has too many pages.")
+
+
+def search_page(catalog, query, offset=0):
+    """Filter the full collection, then paginate matches for the retained cards."""
+    _offset(offset)
+    terms = str(query).casefold().split()
+    kinds = {"cape": "capes", "pet": "pets", "wing": "wings", "head": "headwear", "feet": "footwear"}
+    matches = [item for item in catalog["items"] if all(term in
+        " ".join((item["id"], item["name"], item["description"], item["kind"], kinds[item["kind"]])).casefold()
+        for term in terms)]
+    return {"schema": 1, "offset": offset, "page_size": PAGE_SIZE,
+            "items": matches[offset:offset + PAGE_SIZE], "has_more": offset + PAGE_SIZE < len(matches),
+            "total": len(matches), "complete": catalog["complete"]}
 
 
 def has_installed(item):
