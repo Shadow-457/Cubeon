@@ -566,11 +566,13 @@ jobs:
         shell: bash
         run: python tools/write_cf_key.py
 
-      - name: Test Windows installer transactions
-        run: python tools/test_launcher_installers.py --native-windows
-
+      # Run the updater fixture first on a fresh registry. The installer suite
+      # deliberately tests preserving a second installation's registration.
       - name: Test Windows update handoff
         run: python tools/test_auto_update.py --native-windows
+
+      - name: Test Windows installer transactions
+        run: python tools/test_launcher_installers.py --native-windows
 
       - name: Build Windows installer payload
         run: python packaging/build_windows.py

@@ -126,6 +126,9 @@ check("Windows packaging verifies the actual installer transactions",
       "test_launcher_installers.py --native-windows" in job_block("build-windows-exe"))
 check("Windows packaging verifies the native update handoff",
       "test_auto_update.py --native-windows" in job_block("build-windows-exe"))
+check("native updater executes before installer registry fixtures",
+      job_block("build-windows-exe").index("Test Windows update handoff")
+      < job_block("build-windows-exe").index("Test Windows installer transactions"))
 check("publication verifies manifest digests and referenced patches",
       "build_updates.py verify" in pub)
 check("Mac packages must pass native startup", "test_macos_package.py --native" in job_block("build-macos"))

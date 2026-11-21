@@ -48,7 +48,13 @@ def metadata(payload=None, kind="linux", version="1.4.11"):
 
 
 def elf_fixture(suffix=b""):
-    binary = bytearray(Path(shutil.which("sh")).read_bytes())
+    if sys.platform == "win32":
+        # Git for Windows supplies a PE sh.exe, not an ELF executable. Portable
+        # patch tests need only a valid AppImage header, never a runnable shell.
+        binary = bytearray(2048)
+        binary[:6], binary[18:20] = b"\x7fELF\x02\x01", b"\x3e\x00"
+    else:
+        binary = bytearray(Path(shutil.which("sh")).read_bytes())
     binary[8:11] = b"AI\x02"
     return bytes(binary) + suffix
 
