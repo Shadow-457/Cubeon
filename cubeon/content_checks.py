@@ -7,6 +7,36 @@ from .mod_dependencies import run_dependency_doctor
 
 _runtime_lock = threading.Lock()
 _runtime_cache = {}
+_run_once_lock = threading.Lock()
+_run_once = None
+
+
+def _issue_signature(report):
+    return tuple(sorted((str(p.get('kind')), str(p.get('dependency')), str(p.get('detail')))
+                        for p in report.get('unfixed') or []))
+
+
+def allow_run_once(target, report):
+    """Remember explicit consent for the reviewed instance and mod snapshot."""
+    global _run_once
+    if target[0] != 'mod' or not report.get('unfixed') or 'profile_snapshot' not in report:
+        raise ValueError('Check mod compatibility again before running anyway.')
+    snapshot = tuple(tuple(entry) for entry in report['profile_snapshot'])
+    with _run_once_lock:
+        _run_once = (tuple(target), snapshot, _issue_signature(report), time.monotonic() + 300)
+
+
+def consume_run_once(target, report):
+    """Consume even rejected consent; changed mods/issues require a new review."""
+    global _run_once
+    with _run_once_lock:
+        allowed, _run_once = _run_once, None
+    if allowed is None:
+        return False
+    expected_target, snapshot, signature, expires = allowed
+    actual = tuple(tuple(entry) for entry in report.get('profile_snapshot', ()))
+    return (tuple(target) == expected_target and time.monotonic() < expires
+            and actual == snapshot and _issue_signature(report) == signature)
 
 
 def _java_fingerprint(path):

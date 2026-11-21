@@ -60,6 +60,7 @@ base { archivesName = 'cubeon-client' }
 
 repositories {
     mavenCentral()
+    maven { url = 'https://api.modrinth.com/maven'; content { includeGroup 'maven.modrinth' } }
 }
 
 dependencies {
@@ -87,6 +88,11 @@ dependencies {
     // does not exist". Compile-only: the annotations are CLASS retention and
     // the loader ships the real mixin at runtime.
     compileOnly "net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7"
+    if (bracket.overlays.contains('lod-26.3')) {
+        // Optional APIs, never bundled or installed by the client. These releases are mutually compatible.
+        compileOnly "maven.modrinth:sodium:mc26.3-0.9.2-fabric"
+        compileOnly "maven.modrinth:iris:1.11.7+26.3-fabric"
+    }
 }
 
 // Every jar targets Java 17 bytecode regardless of which Minecraft it is built
@@ -187,6 +193,9 @@ processResources {
             health_mixins     : health ? ',\n    {\n      "config": "cubeon-client.health.mixins.json",\n' +
                             '      "environment": "client"\n    }' : '',
             health_world_mixin: healthWorldLabel ? ', "EnemyHealthWorldLabelMixin"' : '',
+            lod_entrypoint: bracket.overlays.contains('lod-26.3') ? ',\n      "com.cubeon.client.lod.LodClient"' : '',
+            lod_config: bracket.overlays.contains('lod-26.3') ? ',\n    "sodium:config_api_user": ["com.cubeon.client.lod.SodiumLodOptions"]' : '',
+            lod_mixins: bracket.overlays.contains('lod-26.3') ? ',\n    {"config": "cubeon-client.lod.mixins.json", "environment": "client"}' : '',
     ]
     inputs.properties replacements
     filesMatching('fabric.mod.json') {

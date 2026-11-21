@@ -79,6 +79,8 @@ def run_dependency_doctor(mc_version, loader, *, version_id=None, status_cb=None
                         time.monotonic() + REPAIR_SECONDS, MAX_REPAIRS,
                         check_online, _stage, _scan, status_cb, snapshot=snapshot, directory=directory)
     result = resolver.run(auto_fix)
+    if result['unfixed']:
+        result['profile_snapshot'] = mods._doctor_profile_snapshot(directory) if auto_fix else snapshot
     from .mod_resolver import _descriptors, _providers
     providers, _owners = _providers(resolver.initial, runtime)
     unverified = sorted({identity for choice in resolver.initial.values()

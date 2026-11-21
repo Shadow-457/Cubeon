@@ -309,6 +309,14 @@ def verify(jar_path, bracket=None):
     """Checks a built jar is one Fabric will actually load. Returns an error."""
     required = list(REQUIRED_ENTRIES)
     overlays = set(bracket.get("overlays", [])) if bracket else set()
+    if "lod-26.3" in overlays:
+        required.extend(["cubeon-client.lod.mixins.json", "com/cubeon/client/lod/LodClient.class",
+                         "com/cubeon/client/lod/SodiumLodOptions.class", "com/cubeon/client/lod/LodRenderer.class",
+                         "com/cubeon/client/lod/core/TilePlan.class",
+                         "assets/cubeon-client/shaders/core/lod_terrain.vsh",
+                         "assets/cubeon-client/shaders/core/lod_terrain.fsh",
+                         "assets/cubeon-client/shaders/core/lod_compose.vsh",
+                         "assets/cubeon-client/shaders/core/lod_compose.fsh"])
     if overlays.intersection({"health-legacy", "health-counter", "health-progress"}):
         required.append("com/cubeon/client/hud/LegacyHealthProjection.class")
     if overlays.intersection({"health-camera-classic", "health-camera-final"}):
@@ -333,6 +341,8 @@ def verify(jar_path, bracket=None):
     try:
         with zipfile.ZipFile(jar_path) as zf:
             names = set(zf.namelist())
+            if bracket and "lod-26.3" not in overlays and any(n.startswith("com/cubeon/client/lod/") for n in names):
+                return "LOD engine leaked into an unsupported overlay"
             missing = [e for e in required if e not in names]
             if missing:
                 return "jar is missing " + ", ".join(missing)

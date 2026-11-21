@@ -39,11 +39,13 @@ catalog; the scripts in `tools/` are the current inventory.
 | Artwork and avatars | `test_mod_ui_stability.py`, `test_chat_avatar_stability.py`, `test_faces.py` |
 | Cosmetics | `test_appearance_preview.py`, `test_cosmetic_preview.py`, `test_cosmetic_packages.py`, `test_capes.py`, `test_skins_net.py`, `test_cosmetics_store.py`; installed-game probe: `test_cosmetic_store_native.py` |
 | Mods and packs | `test_modpacks.py`, `test_mod_store.py`, `test_loader_content_rules.py`, `test_perf_mod_removal.py` |
+| Mod compatibility and launch override | `test_content_checks.py`, `test_mod_prelaunch_dependencies.py`, `test_mod_resolver.py`, `test_launch_claim.py`, `test_play_backend_audit.py` |
 | Combined mod catalogue | `test_mod_catalogue.py`, `test_mod_search.py`, `test_mod_detail.py`, `test_content_install_feedback.py`, `test_mods_management_ui.py` |
 | Horizon content mods for Rust | `test_rust_mods.py`; `test_rust_engine_native.py --content-mod /path/to/adapted.hmod` with a matching installed binary/resources |
 | Content isolation | `test_content_instance.py`, `test_instances.py` |
 | Friends and chat | `test_friends.py`, `test_friends_service.py`, `test_chat_optimistic.py` |
 | Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py` |
+| Fabric 26.3 LOD | `test_lod.py` for core algorithms/settings, transparent boundaries and bounded cache residency; `test_lod_native.py` for CPU/GPU terrain, planted-ground coverage, composition, near occlusion, fog, live status, freeze and disable |
 | Full Bright and keystrokes | `test_full_bright.py` (`--targets` checks cached APIs, `--jars` checks shipped fixes), `test_hud_debug_visibility.py`; `capture_full_bright.py` uses isolated cached games on Xvfb |
 | Launch and downloads | `test_version_integrity.py`, `test_launch_fixes.py`, `test_net.py` |
 | Release tooling | `test_release_version.py`, `test_release_pipeline.py` |
@@ -52,6 +54,15 @@ Keep declared client mixins in `tools/build_mod_jars.py`'s `REQUIRED_ENTRIES`.
 `test_mod_compile.py` checks this contract, and `test_mod_matrix.py` audits the
 shipped archives. Rebuild through the mod builder after changing game sources
 so packaged JARs carry the new hooks.
+
+The compatibility suites exercise the real guarded launch block: default
+checks block before staging, while **Run anyway** consumes one in-memory
+approval for the exact instance, mod snapshot and issue list. Changed files,
+new runtime issues, expired approvals and another instance must fail that
+match. Forge/NeoForge bracket ranges use `cubeon/maven_versions.py`, following
+Apache Maven 3.8.8 `ComparableVersion`; Fabric operator predicates retain
+their semantic prerelease rules. Include a real descriptor fixture for fixed
+build suffixes such as LionfishAPI `2.4-Fix`, plus exact/upper-bound failures.
 
 For example:
 
@@ -106,7 +117,7 @@ script. Its explicit exclusions require separate local fixtures:
 | Excluded checks | Prerequisites |
 | --- | --- |
 | `test_visual_*.py`, `test_wedge_watchdog.py` | A graphical desktop and the native Flet client; these inspect actual windows and recovery behavior. |
-| `test_cosmetic_elytra_native.py`, `test_live_cape_native.py`, `test_client_263_native.py`, `test_gif_capes_native.py` | Installed compatible Minecraft/Fabric, built companion JARs, a matching JDK, cached game dependencies and a graphical display/OpenGL driver. Use isolated game fixtures. |
+| `test_cosmetic_elytra_native.py`, `test_live_cape_native.py`, `test_client_263_native.py`, `test_gif_capes_native.py`, `test_lod_native.py` | Installed compatible Minecraft/Fabric, built companion JARs, a matching JDK, cached game dependencies and a graphical display/OpenGL driver. Use isolated game fixtures. |
 | `test_rust_engine_native.py` | Built native Rust executables, matching prepared local resources and a working graphics backend. Resource preparation needs Java 25. |
 | `test_rust_profile_native.py` | Compiled Rust libraries for the selected `--profile` (`fast` or `release`) and `rustc` matching their build toolchain. |
 | `test_camera_blur_gpu.py` | Linux EGL/OpenGL with a working driver and PyOpenGL; it executes production shaders and reads back pixels. |
@@ -122,3 +133,31 @@ Report exact commands, failures, and skips. A passing headless run does not
 establish desktop frame rate, window visibility, or platform packaging.
 Use [Windows smoke testing](../release/windows-smoke-test.md) and the
 [release checklist](../release/release-checklist.md) for those checks.
+
+The interim LOD engine is restricted to the `lod-26.3` source/resource overlays.
+Its native probe copies a complete save and uses separate settings/cache paths;
+it does not edit the installed world or replace installed renderer mods. Select
+the profile, runtime, Java home, save name, Sodium and candidate client with its
+CLI options. This pixel test is not an FPS benchmark. Iris shader integration
+and performance certification remain unfinished.
+Use `--no-sodium` to verify normal world startup with LOD inactive when that
+optional renderer is absent.
+
+Minecraft 26.3's RenderPearl `RenderPass.draw` takes `(vertexCount,
+instanceCount, firstVertex, firstInstance)`. Use `AtlasIds.BLOCKS` for block-atlas
+lookup, and include `GpuTexture.USAGE_COPY_DST` on textures cleared by command
+encoders. Compiling with an older draw-call convention can succeed while
+submitting zero vertices; native colour/depth readback guards this failure.
+
+LOD's nearby full-detail radius is a horizontal terrain cutoff, separate from
+the camera-space near clipping plane. Preserve the camera projection's X/Y
+mapping and use a close near plane for the far projection. The native planted
+ground fixture checks visible points outside the horizontal cutoff but inside
+the former clipping plane, and requires complete CPU/GPU depth parity.
+
+Transparent plants and fluids cannot hide an adjacent opaque horizontal face.
+When LOD has terrain ready, its fog hook extends only the render-distance fog;
+weather, environmental, sky and cloud fog retain their vanilla values. LOD uses
+the same environmental fog in its shader, and disabling it restores the normal
+render-distance fog. Cache residency evicts the farthest summaries first and
+defers their disk reload until the camera moves, preventing stationary churn.

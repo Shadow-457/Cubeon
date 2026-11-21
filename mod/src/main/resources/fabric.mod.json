@@ -12,8 +12,8 @@
     "main": [${emotes_main}],
     "client": [
       "com.cubeon.client.CubeonClient",
-      "com.cubeon.client.hud.CubeonHudClient"${emotes_entrypoint}
-    ]
+      "com.cubeon.client.hud.CubeonHudClient"${emotes_entrypoint}${lod_entrypoint}
+    ]${lod_config}
   },
   "mixins": [
     {
@@ -27,7 +27,7 @@
     {
       "config": "cubeon-client.camera-blur.mixins.json",
       "environment": "client"
-    }${mixins_extra}${zoom_mixins}${emotes_mixins}${health_mixins}
+    }${mixins_extra}${zoom_mixins}${emotes_mixins}${health_mixins}${lod_mixins}
   ],
   "depends": {
     "minecraft": "${minecraft_range}",

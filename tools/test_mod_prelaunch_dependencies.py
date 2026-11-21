@@ -433,6 +433,17 @@ class DependencyTests(unittest.TestCase):
         self.assertEqual(self.downloads, [])
         self.assertEqual(failure.exception.target, ("mod", self.mc, "fabric", self.instance))
         self.assertTrue(failure.exception.report["unfixed"][0]["missing"])
+        # Explicit Run anyway reaches the same staging/spawn path exactly once.
+        import logging
+        scope['logging'] = logging
+        content_checks.allow_run_once(failure.exception.target, failure.exception.report)
+        with patch.object(content, 'sync_content_to_game', side_effect=lambda *a: events.append('content')):
+            exec(compile(module, '<actual launch gate>', 'exec'), scope)
+        self.assertEqual(events, ['content', 'sync', 'spawn'])
+        events.clear()
+        with self.assertRaises(deps.ModCompatibilityError):
+            exec(compile(module, '<actual launch gate>', 'exec'), scope)
+        self.assertEqual(events, [])
         self.assertFalse(self.run_doctor()["unfixed"])
         with patch.object(content, "sync_content_to_game", side_effect=lambda *a:events.append("content")):
             exec(compile(module, "<actual launch gate>", "exec"), scope)

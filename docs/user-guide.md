@@ -376,7 +376,12 @@ as disabled backups, and failed resolution stays retryable rather than pretendin
 the profile is compatible. Downloads can take longer than the local check.
 
 Play uses the same offline mod gate before starting Minecraft. If issues exist,
-it stops and offers the results popup; resolve them, then press Play again.
+it stops and offers the results popup. Resolve them and press Play again, or
+choose **Run anyway** to launch the displayed instance once with the reviewed
+issues. This action does not resolve or disable mods; Minecraft's loader can
+still reject them. It applies only to that instance and the checked mod files,
+expires after five minutes, and never becomes a saved preference. Changed mods
+or newly detected issues require another review. Close does not authorize a launch.
 Checks reuse the Java version verified during Play. Until Java is verified, the
 status explicitly says runtime checks are pending. A Java requirement can be
 resolved by finding a mod build compatible with the current runtime; the action
@@ -397,6 +402,10 @@ edits. This is an optional workaround, not a diagnosis of every rendering bug.
 Compatibility checks cannot detect arbitrary bugs or undeclared gameplay conflicts
 inside a mod. Launch-time configuration checks stay non-interactive; declared mod
 issues stop launch without holding a launch worker open while you review them.
+
+Forge and NeoForge ranges use Maven version ordering. For example,
+LionfishAPI `2.4-Fix` satisfies `[2.4,)`; Fabric semantic prerelease rules
+remain unchanged. Exact pins and upper bounds still apply.
 
 ### Website crash Doctor
 

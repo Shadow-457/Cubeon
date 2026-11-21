@@ -1691,8 +1691,14 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
                     mc_version, loader, version_id=version_id, status_cb=status_cb,
                     check_online=False, auto_fix=False,
                     runtime_versions=runtime_versions)
-                if dependency_report["unfixed"]:
+                from .content_checks import consume_run_once
+                run_anyway = consume_run_once(("mod", mc_version, loader, version_id), dependency_report)
+                if dependency_report["unfixed"] and not run_anyway:
                     raise ModCompatibilityError(dependency_report, mc_version, loader, version_id, runtime_versions)
+                if run_anyway:
+                    logging.getLogger(__name__).warning('Running %s with reviewed mod compatibility issues', version_id)
+                    if status_cb:
+                        status_cb('Running anyway with the reviewed mods')
                 try:
                     from .content import sync_content_to_game
                     sync_content_to_game(mc_version, loader, version_id)

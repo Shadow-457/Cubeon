@@ -153,6 +153,17 @@ with patch('main.threading.Thread', HeldThread), \
     assert not state.get('installing_version') and page.opened
     page.close(page.opened[-1])
 
+    # Compatibility retry must keep its reviewed instance even if selection changes.
+    reset()
+    select('1.21.11', 'vanilla')
+    with patch.object(stubs.core, 'launch_game', side_effect=immediate_exit) as spawn:
+        assert state['run_content_anyway'](('mod', '1.20.1', 'vanilla', '1.20.1')) is True
+        assert state['installing_version'] == '1.20.1'
+        assert len(jobs) == 1
+        jobs.pop()()
+        assert spawn.call_args.args[0] == '1.20.1'
+    assert not state.get('installing_version') and not state.get('launching_version')
+
     # A healthy installed loader remains playable when its online catalogue is down.
     fabric = 'fabric-loader-0.19.5-1.20.1'
     installed.append({'id': fabric, 'type': 'release'})

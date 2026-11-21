@@ -4661,7 +4661,7 @@ async def main(page: ft.Page):
 
         return True
 
-    def on_play_click():
+    def on_play_click(*, compatibility_target=None):
         if instance_storage.blocked() or state.get("java_runtime_busy"):
             return False
         """
@@ -4676,7 +4676,7 @@ async def main(page: ft.Page):
             _show_snack(f"{err} Change your username in Settings → Account.", duration=5000)
             return False
 
-        version_id = version_dropdown.value
+        version_id = compatibility_target[3] if compatibility_target else version_dropdown.value
         if not version_id:
             # A silent no-op here reads as a dead button. Say what is missing.
             _show_snack("Pick an instance first, then press Play", duration=4000)
@@ -4758,7 +4758,10 @@ async def main(page: ft.Page):
                 logging.getLogger(__name__).debug("username reconciliation failed", exc_info=True)
 
         # The worker checks Java before installing files; the UI stays responsive.
-        return _begin_install_and_launch(version_id, username)
+        return _begin_install_and_launch(version_id, username,
+            install_loader=compatibility_target[2] if compatibility_target else None)
+
+    state['run_content_anyway'] = lambda target: on_play_click(compatibility_target=target)
 
     _launch_state_lock = threading.RLock()
     _running_liveness = {"stop": None}

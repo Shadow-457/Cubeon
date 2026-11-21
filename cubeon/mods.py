@@ -1928,18 +1928,21 @@ def _match_wildcard(version: str, pattern: str) -> bool:
 
 
 def _satisfies_range(version: str, expr: str) -> bool:
+    # Forge uses Maven ordering: unknown qualifiers (e.g. 2.4-Fix) follow
+    # releases; Fabric's semantic prerelease ordering remains separate.
+    from .maven_versions import compare
     if re.fullmatch(r"\[[^,\[\]]+\]", expr.strip()):
-        return _cmp_versions(version, expr.strip()[1:-1]) == 0
+        return compare(version, expr.strip()[1:-1]) == 0
     for m in re.finditer(r"([\[\(])([^,\)]*),?([^\]\)]*)([\]\)])", expr):
         lo_inc = m.group(1) == "["
         hi_inc = m.group(4) == "]"
         lo, hi = m.group(2).strip(), m.group(3).strip()
         if lo:
-            c = _cmp_versions(version, lo)
+            c = compare(version, lo)
             if not (c >= 0 if lo_inc else c > 0):
                 continue
         if hi:
-            c = _cmp_versions(version, hi)
+            c = compare(version, hi)
             if not (c <= 0 if hi_inc else c < 0):
                 continue
         return True

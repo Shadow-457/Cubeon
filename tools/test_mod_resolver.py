@@ -250,6 +250,37 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(report["unfixed"], [], report)
         self.assertTrue(self.profile.joinpath("a-1.jar").exists())
 
+    def test_forge_fixed_builds_satisfy_maven_ranges_offline(self):
+        for loader in ('forge', 'neoforge'):
+            with self.subTest(loader=loader):
+                for path in self.profile.glob('*.jar*'):
+                    path.unlink()
+                descriptor = 'META-INF/neoforge.mods.toml' if loader == 'neoforge' else 'META-INF/mods.toml'
+                for identity, version, dependency in (
+                        ('cataclysm', '2.0', '[[dependencies.cataclysm]]\nmodId="lionfishapi"\nmandatory=true\ntype="required"\nversionRange="[2.4,)"\nside="BOTH"\n'),
+                        ('lionfishapi', '2.4-Fix', '')):
+                    with zipfile.ZipFile(self.profile / (identity + '.jar'), 'w') as archive:
+                        archive.writestr(descriptor, 'modLoader="javafml"\nloaderVersion="[1,)"\n'
+                            + f'[[mods]]\nmodId="{identity}"\nversion="{version}"\n' + dependency)
+                before = mods._doctor_profile_snapshot(str(self.profile))
+                with patch.object(mods, 'get_mod_download', side_effect=AssertionError('network')), \
+                        patch.object(net, 'download_to', side_effect=AssertionError('download')):
+                    report = deps.run_dependency_doctor(self.mc, loader, version_id=self.instance,
+                                                        auto_fix=False, check_online=False)
+                self.assertEqual(report['unfixed'], [])
+                self.assertEqual(before, mods._doctor_profile_snapshot(str(self.profile)))
+
+    def test_maven_qualifiers_ranges_and_fabric_prereleases_stay_distinct(self):
+        for version in ('2.4-Fix', '2.4-fix', '2.4-sp', '2.4-final', '2.4-release', '2.4.0'):
+            self.assertTrue(mods.version_satisfies(version, '[2.4,)'), version)
+        for version in ('2.4-alpha1', '2.4-beta2', '2.4-rc1', '2.4-SNAPSHOT', '2.3-Fix'):
+            self.assertFalse(mods.version_satisfies(version, '[2.4,)'), version)
+        self.assertFalse(mods.version_satisfies('2.4-Fix', '[2.4]'))
+        self.assertFalse(mods.version_satisfies('2.4-Fix', '[2.3,2.4]'))
+        self.assertTrue(mods.version_satisfies('1.20-2.13.82', '[1.20-2.11.33,)'))
+        self.assertFalse(mods.version_satisfies('2.4-Fix', '>=2.4'))
+        self.assertFalse(mods.version_satisfies('2.4-rc.1', '^2.4'))
+
     def test_universal_forge_bootstrap_ignores_fabric_entrypoint_requirements(self):
         path = self.profile / "universal.jar"
         with zipfile.ZipFile(path, "w") as archive:

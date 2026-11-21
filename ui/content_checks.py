@@ -5,18 +5,25 @@ import threading
 import flet as ft
 
 from cubeon import dialogs, i18n, thread_safe_ui
-from cubeon.content_checks import check_content, disable_problem_mod, is_missing_dependency
+from cubeon.content_checks import (allow_run_once, check_content, consume_run_once,
+                                   disable_problem_mod, is_missing_dependency)
 from cubeon.theme import THEME, RADIUS, ON_ACCENT
 from ui.install_feedback import any_busy
 
 
-def show_content_issues(page, state, target, report, *, on_done=None, on_status=None, runtime_versions=None):
+def show_content_issues(page, state, target, report, *, on_done=None, on_status=None,
+                        runtime_versions=None, on_run_anyway=None):
     palette = THEME
     result_rows = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO)
     status = ft.Text("", size=12, color=palette["TEXT_DIM"], selectable=True)
     action = ft.FilledButton(content=i18n.t("Resolve"), data="content-resolve")
     close = ft.TextButton(content=i18n.t("Close"), data="content-check-close")
+    run = ft.TextButton(content=i18n.t("Run anyway"), data="content-run-anyway",
+                       tooltip="Launch this instance once with the listed issues. Minecraft may still refuse to start.",
+                       style=ft.ButtonStyle(color=palette['ACCENT']))
     busy = {"value": False}
+    reviewed = {"report": report, "dismissed": False}
+    launch_callback = on_run_anyway or state.get('run_content_anyway')
     action_label = {"value": i18n.t("Resolve")}
     busy_label = ft.Text(i18n.t("Resolving…"), color=ON_ACCENT)
     busy_content = ft.Row([
@@ -29,13 +36,16 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
     def sync_actions():
         action.content = busy_content if busy["value"] else action_label["value"]
         action.disabled = close.disabled = busy["value"]
+        run.disabled = busy['value']
         for button in disable_buttons:
             button.disabled = busy["value"]
             thread_safe_ui.refresh(button)
         thread_safe_ui.refresh(action)
         thread_safe_ui.refresh(close)
+        thread_safe_ui.refresh(run)
 
     def paint(current):
+        reviewed['report'] = current
         problems = current.get("unfixed") or []
         missing = [problem for problem in problems if is_missing_dependency(problem)]
         others = [problem for problem in problems if not is_missing_dependency(problem)]
@@ -70,6 +80,7 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
                         padding=12, border_radius=RADIUS, bgcolor=palette["SURFACE_HI"]))
         action_label["value"] = i18n.t("Install & resolve" if missing and others else "Install" if missing else "Resolve")
         action.visible = bool(problems)
+        run.visible = target[0] == 'mod' and bool(problems) and callable(launch_callback)
         if not problems:
             status.value = i18n.t("Mod dependencies checked. Runtime will be verified on Play."
                                  if current.get("runtime_unverified") else "Everything is compatible. You can press Play.")
@@ -79,7 +90,31 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
 
     def dismiss(event=None):
         if not busy["value"]:
+            reviewed['dismissed'] = True
             dialogs.close_dialog(page, dialog)
+
+    def run_anyway(event=None):
+        from cubeon import storage
+        with thread_safe_ui.TREE_LOCK:
+            if busy['value'] or reviewed['dismissed'] or not run.visible:
+                return
+            if storage.blocked() or any_busy() or any(state.get(key) for key in
+                    ('running_version', 'installing_version', 'launching_version', 'fixing_mods', 'java_runtime_busy')):
+                update_status('Close the game and finish installs before running this instance.')
+                return
+            try:
+                allow_run_once(target, reviewed['report'])
+            except ValueError as error:
+                update_status(str(error))
+                return
+            reviewed['dismissed'] = True
+            dialogs.close_dialog(page, dialog)
+        try:
+            if launch_callback(target) is False:
+                consume_run_once(target, {})
+        except Exception:
+            consume_run_once(target, {})
+            raise
 
     def update_status(text):
         with thread_safe_ui.TREE_LOCK:
@@ -90,7 +125,7 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
 
     def apply(event=None, *, disable_option=None):
         with thread_safe_ui.TREE_LOCK:
-            if busy["value"] or not lock.acquire(blocking=False):
+            if busy["value"] or reviewed['dismissed'] or not lock.acquire(blocking=False):
                 return
             from cubeon import storage
             if storage.blocked() or any_busy() or any(state.get(key) for key in ("running_version", "installing_version", "launching_version", "fixing_mods")):
@@ -147,6 +182,7 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
     action.on_click = apply
     action.style = ft.ButtonStyle(bgcolor=palette["ACCENT"], color=ON_ACCENT)
     close.on_click = dismiss
+    run.on_click = run_anyway
     dialog = ft.AlertDialog(
         modal=True, bgcolor=palette["SURFACE"], data="content-compatibility-results",
         title=ft.Text(i18n.t("Compatibility check"), color=palette["TEXT"], size=20),
@@ -158,7 +194,9 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
                     "Nothing changes until you click the action below. It finds a compatible set for all listed issues; replaced files are kept as backups.",
                     color=palette["TEXT_DIM"], size=12),
             ft.Container(content=result_rows, height=min(360, max(140, len(report.get("unfixed") or []) * 120))),
-            status], spacing=12, tight=True)), actions=[close, action])
+            *([ft.Text('Run anyway launches this instance once without resolving or disabling mods. Minecraft may still reject these issues.',
+                       color=palette['TEXT_DIM'], size=12)] if target[0] == 'mod' and callable(launch_callback) else []),
+            status], spacing=12, tight=True)), actions=[close, action, run])
     with thread_safe_ui.TREE_LOCK:
         paint(report)
         dialogs.open_dialog(page, dialog)

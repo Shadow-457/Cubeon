@@ -23,6 +23,40 @@ class LocalCheckTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.target = ('mod', self.fixture.mc, 'fabric', self.fixture.instance)
+        self.addCleanup(content_checks.consume_run_once, self.target, {})
+
+    def test_run_anyway_is_explicit_single_use_and_does_not_modify_mods(self):
+        report = check_content(self.target)
+        before = mods._doctor_profile_snapshot(str(self.fixture.profile))
+        self.assertFalse(content_checks.consume_run_once(self.target, report))
+        content_checks.allow_run_once(self.target, report)
+        self.assertTrue(content_checks.consume_run_once(self.target, check_content(self.target)))
+        self.assertFalse(content_checks.consume_run_once(self.target, report))
+        self.assertEqual(before, mods._doctor_profile_snapshot(str(self.fixture.profile)))
+
+    def test_run_anyway_rejects_changed_instance_mods_issues_and_expired_consent(self):
+        report = check_content(self.target)
+        for target, current in (
+                (('mod', self.fixture.mc, 'fabric', 'another-instance'), report),
+                (self.target, dict(report, profile_snapshot=[])),
+                (self.target, dict(report, unfixed=[dict(kind='required', dependency='java', detail='Requires Java 25')]))):
+            content_checks.allow_run_once(self.target, report)
+            self.assertFalse(content_checks.consume_run_once(target, current))
+            self.assertFalse(content_checks.consume_run_once(self.target, report))
+        content_checks.allow_run_once(self.target, report)
+        self.fixture.profile.joinpath('new.jar').write_bytes(fixtures.jar('new', '1'))
+        self.assertFalse(content_checks.consume_run_once(self.target, check_content(self.target)))
+        with patch.object(content_checks.time, 'monotonic', return_value=100):
+            content_checks.allow_run_once(self.target, report)
+        with patch.object(content_checks.time, 'monotonic', return_value=401):
+            self.assertFalse(content_checks.consume_run_once(self.target, report))
+
+    def test_run_anyway_requires_reviewed_mod_issues(self):
+        for target, report in ((self.target, {'unfixed': []}),
+                (self.target, {'unfixed': [{'detail': 'unreviewed'}]}),
+                (('shader', *self.target[1:]), check_content(self.target))):
+            with self.assertRaises(ValueError):
+                content_checks.allow_run_once(target, report)
 
     def test_missing_detection_is_read_only_offline_and_repeatable(self):
         before = mods._doctor_profile_snapshot(str(self.fixture.profile))
@@ -213,6 +247,59 @@ class ResultsUITests(unittest.TestCase):
         for control in walk(dialog):
             if str(getattr(control, 'data', '')).startswith('content-disable-'):
                 self.assertTrue(control.disabled)
+
+    def test_run_anyway_launches_captured_instance_once_without_resolution(self):
+        launched = []
+        dialog = self.open(on_run_anyway=launched.append)
+        run = dialog.actions[2]
+        self.assertEqual(run.content, 'Run anyway')
+        self.assertTrue(run.visible)
+        self.state['selected_version'] = 'instance-B'
+        with patch.object(checks_ui, 'allow_run_once') as allow, \
+                patch.object(checks_ui, 'check_content') as resolve:
+            run.on_click(None)
+            run.on_click(None)
+            dialog.actions[1].on_click(None)
+        allow.assert_called_once()
+        self.assertEqual(allow.call_args.args[0], self.target)
+        self.assertEqual(launched, [self.target])
+        self.assertFalse(resolve.called)
+        self.assertFalse(dialog.open)
+        self.assertEqual(QueuedThread.jobs, [])
+
+    def test_run_anyway_is_hidden_without_launcher_and_close_is_not_consent(self):
+        self.assertFalse(self.open().actions[2].visible)
+        with patch.object(checks_ui, 'allow_run_once') as allow:
+            dialog = self.open(on_run_anyway=lambda target: None)
+            dialog.actions[0].on_click(None)
+            dialog.actions[2].on_click(None)
+        allow.assert_not_called()
+
+    def test_run_anyway_is_blocked_during_resolution_and_other_activity(self):
+        launched = []
+        dialog = self.open(on_run_anyway=launched.append)
+        with patch.object(checks_ui, 'check_content', side_effect=[self.clean, self.clean]), \
+                patch.object(checks_ui, 'allow_run_once') as allow:
+            dialog.actions[1].on_click(None)
+            self.assertTrue(dialog.actions[2].disabled)
+            dialog.actions[2].on_click(None)
+            allow.assert_not_called()
+            QueuedThread.jobs.pop()()
+            self.assertFalse(dialog.actions[2].visible)
+        for key in ('running_version', 'installing_version', 'launching_version', 'fixing_mods', 'java_runtime_busy'):
+            self.state.clear()
+            dialog = self.open(on_run_anyway=launched.append)
+            self.state[key] = 'instance-B'
+            with patch.object(checks_ui, 'allow_run_once') as allow:
+                dialog.actions[2].on_click(None)
+                allow.assert_not_called()
+        self.assertEqual(launched, [])
+
+    def test_failed_launch_clears_run_anyway_and_keeps_recheck_available(self):
+        dialog = self.open(on_run_anyway=lambda target: False)
+        with patch.object(checks_ui, 'allow_run_once'), patch.object(checks_ui, 'consume_run_once') as consume:
+            dialog.actions[2].on_click(None)
+        consume.assert_called_once_with(self.target, {})
 
     def test_resolve_shows_busy_feedback_before_worker_and_blocks_repeat_actions(self):
         from _fuzz_common import walk

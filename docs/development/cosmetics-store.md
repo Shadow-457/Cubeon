@@ -109,6 +109,12 @@ Model recipes and their textures can use nested folders such as
 `cosmetics/wings/7x7/` and `cosmetics/feet/7x7/`; sync scans these recursively.
 Sibling review folders outside the five kind folders are not upload sources.
 
+The published Bough Wings and Sunward Halo variants live under
+`cosmetics/wings/bough-wings-12-flowers/` and
+`cosmetics/head/sunward-halo-12-colors/`. Their original paths directly under
+`cosmetics/` remain symlink aliases. Sync sees each stable ID once; retain
+the supplied PNG artwork and emissive masks when updating these collections.
+
 The script uses the checkout's `.venv` or `.venv-build`, falling back to
 `python3`. Set `CUBEON_PYTHON` to select another interpreter. The same commands
 are available as `python worker/manage-cosmetics.py setup` and `sync`.

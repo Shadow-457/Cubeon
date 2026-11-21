@@ -787,7 +787,8 @@
         "skin-native-mojang",
         "name-tag-mojang",
         "tab-logo-mojang",
-        "loading-pearl"
+        "loading-pearl",
+        "lod-26.3"
       ],
       "java": ">=25",
       "min": "26.3",
