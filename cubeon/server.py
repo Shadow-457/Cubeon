@@ -1043,14 +1043,17 @@ def start_server(version_id: str, ram_mb: int, java_path: str | None = None,
                 on_output(line.rstrip("\n"))
         threading.Thread(target=_pump_output, daemon=True).start()
 
-    if on_exit:
-        def _watch():
-            process.wait()
-            with _server_processes_lock:
-                if _server_processes.get(version_id) is process:
-                    _server_processes.pop(version_id, None)
+    from .update_activity import changed
+    changed()
+    def _watch():
+        process.wait()
+        with _server_processes_lock:
+            if _server_processes.get(version_id) is process:
+                _server_processes.pop(version_id, None)
+        changed()
+        if on_exit:
             on_exit(process.returncode)
-        threading.Thread(target=_watch, daemon=True).start()
+    threading.Thread(target=_watch, daemon=True).start()
 
     return process
 

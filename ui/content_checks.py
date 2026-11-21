@@ -135,6 +135,8 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
             busy["value"] = True
             busy_label.value = i18n.t("Disabling…" if disable_option else "Resolving…")
             state["fixing_mods"] = target[3]
+            from cubeon.update_activity import changed
+            changed()
             sync_actions()
 
         def worker():
@@ -162,6 +164,7 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
                 with thread_safe_ui.TREE_LOCK:
                     if state.get("fixing_mods") == target[3]:
                         state["fixing_mods"] = None
+                        changed()
                     busy["value"] = False
                     sync_actions()
                 lock.release()
@@ -174,6 +177,7 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
         except Exception as error:
             with thread_safe_ui.TREE_LOCK:
                 state["fixing_mods"] = None
+                changed()
                 busy["value"] = False
                 sync_actions()
             lock.release()

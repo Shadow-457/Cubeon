@@ -47,8 +47,8 @@ catalog; the scripts in `tools/` are the current inventory.
 | Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py` |
 | Fabric 26.3 LOD | `test_lod.py` for core algorithms/settings, transparent boundaries and bounded cache residency; `test_lod_native.py` for CPU/GPU terrain, planted-ground coverage, composition, near occlusion, fog, live status, freeze and disable |
 | Full Bright and keystrokes | `test_full_bright.py` (`--targets` checks cached APIs, `--jars` checks shipped fixes), `test_hud_debug_visibility.py`; `capture_full_bright.py` uses isolated cached games on Xvfb |
-| Launch and downloads | `test_version_integrity.py`, `test_launch_fixes.py`, `test_net.py` |
-| Release tooling | `test_release_version.py`, `test_release_pipeline.py` |
+| Launch and downloads | `test_version_integrity.py`, `test_launch_fixes.py`, `test_net.py`, `test_auto_update.py` (`--native-windows` also executes Windows helper transactions) |
+| Release tooling | `test_release_version.py`, `test_release_pipeline.py`, `test_update_assets.py`; `test_macos_package.py --native --arch arm64` or `x64` on its matching Mac runner |
 
 Keep declared client mixins in `tools/build_mod_jars.py`'s `REQUIRED_ENTRIES`.
 `test_mod_compile.py` checks this contract, and `test_mod_matrix.py` audits the

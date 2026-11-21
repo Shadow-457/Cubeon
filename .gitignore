@@ -88,3 +88,6 @@ discord-bot/
 
 !tools/prepare_store_gallery.py
 !tools/test_website_store.cjs
+
+!/tools/test_macos_package.py
+!/tools/test_update_assets.py

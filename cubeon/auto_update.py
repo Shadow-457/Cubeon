@@ -31,6 +31,8 @@ log = logging.getLogger(__name__)
 REPOSITORY = "Shadow-457/Cubeon"
 LATEST_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
 ASSETS = {"windows": "Cubeon-Windows-x64-Setup.exe", "linux": "Cubeon-x86_64.AppImage"}
+MAX_MANIFEST = 64 * 1024
+MANIFESTS = {"windows": "Cubeon-Windows-x64-update.json", "linux": "Cubeon-Linux-x64-update.json"}
 MAX_METADATA = 1024 * 1024
 MAX_ASSET = 1024 * 1024 * 1024
 ATTEMPTS = 3
@@ -61,6 +63,22 @@ class Target:
 
 
 @dataclass(frozen=True)
+class Asset:
+    name: str
+    url: str
+    size: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class DownloadStatus:
+    asset: Asset
+    done: int
+    total: int
+    resumed: bool
+
+
+@dataclass(frozen=True)
 class Release:
     version: str
     tag: str
@@ -68,6 +86,8 @@ class Release:
     url: str
     size: int
     sha256: str
+    manifest: Asset | None = None
+    patches: tuple[Asset, ...] = ()
 
 
 def version_tuple(value: str) -> tuple[int, int, int]:
@@ -110,7 +130,42 @@ def parse_release(data, kind: str, current: str = APP_VERSION) -> Release | None
     expected_url = f"https://github.com/{REPOSITORY}/releases/download/{quote(tag, safe='')}/{name}"
     if asset.get("browser_download_url") != expected_url:
         raise UpdateError("The release download does not belong to Cubeon.")
-    return Release(".".join(map(str, latest)), tag, name, expected_url, size, sha256)
+    manifest = None
+    patches = []
+    for optional in assets:
+        if not isinstance(optional, dict):
+            continue
+        optional_name = optional.get("name", "")
+        if optional_name != MANIFESTS[kind] and not re.fullmatch(
+                rf"Cubeon-{kind}-x64-from-v[0-9]+\.[0-9]+\.[0-9]+\.bsdiff", str(optional_name)):
+            continue
+        limit = MAX_MANIFEST if optional_name == MANIFESTS[kind] else size * 7 // 10
+        ref = asset_reference(optional, tag, limit)
+        if ref is None:
+            continue
+        if ref.name == MANIFESTS[kind]:
+            if manifest is not None:
+                manifest = None
+                break
+            manifest = ref
+        else:
+            patches.append(ref)
+    return Release(".".join(map(str, latest)), tag, name, expected_url, size, sha256,
+                   manifest, tuple(patches[:3]))
+
+
+def asset_reference(data, tag, limit):
+    """Pin optional update metadata/patches to GitHub's exact asset digest."""
+    name, size, digest = data.get("name"), data.get("size"), data.get("digest")
+    if (not isinstance(name, str) or data.get("state") != "uploaded"
+            or type(size) is not int or not 32 <= size <= limit
+            or not isinstance(digest, str) or not digest.startswith("sha256:")
+            or not _HASH.fullmatch(digest[7:].lower())):
+        return None
+    url = f"https://github.com/{REPOSITORY}/releases/download/{quote(tag, safe='')}/{name}"
+    if data.get("browser_download_url") != url:
+        return None
+    return Asset(name, url, size, digest[7:].lower())
 
 
 def trusted_url(url: str, *, metadata=False) -> bool:
@@ -135,17 +190,17 @@ def _check_cancel(cancel):
         raise Cancelled("Update cancelled because Cubeon is closing.")
 
 
-def _get(url, cancel, *, metadata=False):
+def _get(url, cancel, *, metadata=False, headers=None):
     # Use Cubeon's pooled TLS transport, but keep this update's retry and size
     # bounds here. In particular, an unbounded Retry-After must not hang exit.
     from . import net
     from .paths import user_agent
     _check_cancel(cancel)
     return net.get_with_retry(
-        url, attempts=1, timeout=(5, 15),
+        url, attempts=1, timeout=(5, 15 if metadata else 2),
         headers={"User-Agent": user_agent("auto-update"), "Accept-Encoding": "identity",
                  "Accept": "application/vnd.github+json" if metadata else "application/octet-stream",
-                 "X-GitHub-Api-Version": "2022-11-28"},
+                 "X-GitHub-Api-Version": "2022-11-28", **(headers or {})},
         url_validator=lambda value: trusted_url(value, metadata=metadata),
         cancel_check=lambda: _check_cancel(cancel),
     )
@@ -191,13 +246,15 @@ def _regular(path: Path):
     return info
 
 
-def file_hash(path: Path, *, cancel=None) -> str:
+def file_hash(path: Path, *, cancel=None, activity=None) -> str:
     _regular(path)
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             if cancel is not None:
                 _check_cancel(cancel)
+            if activity:
+                activity.checkpoint()
             digest.update(block)
     return digest.hexdigest()
 
@@ -236,67 +293,233 @@ def _space(directory: Path, required: int):
         raise UpdateError("Not enough free space to safely install the Cubeon update.")
 
 
-def download_release(release: Release, target: Target, cache: Path, *, cancel=None, progress=None) -> Path:
-    """Publish only complete, verified bytes; a failed attempt cannot replace them."""
-    cancel = cancel or threading.Event()
-    final = cache / f"{release.sha256}-{release.name}"
+def _verify_asset(path, asset, cancel, activity=None):
+    if _regular(path).st_size != asset.size or file_hash(path, cancel=cancel, activity=activity) != asset.sha256:
+        raise UpdateError("The update file size or SHA-256 checksum does not match.")
+
+
+def _body(response):
+    # read1 performs one network read, unlike iter_content which may wait to
+    # fill a large block from a trickling connection. Each read has a 2s bound.
+    raw = getattr(response, "raw", None)
+    if raw is not None and callable(getattr(raw, "read1", None)):
+        while True:
+            block = raw.read1(64 * 1024, decode_content=False)
+            if not block:
+                return
+            yield block
+    else:
+        yield from response.iter_content(64 * 1024)
+
+
+def download_asset(asset, cache, *, cancel, progress=None, status=None, activity=None):
+    """Keep an owned, checksum-keyed prefix across retries and process exits."""
+    from .update_activity import Paused
+    final = cache / f"{asset.sha256}-{asset.name}"
+    part = Path(str(final) + ".part")
     if final.exists() or final.is_symlink():
         try:
-            verify_download(final, release, target.kind, cancel=cancel)
+            _verify_asset(final, asset, cancel, activity)
             return final
         except Cancelled:
             raise
         except (OSError, UpdateError):
-            if not final.is_symlink():
-                final.unlink(missing_ok=True)
-            else:
-                raise UpdateError("The update cache contains a redirected file.")
-    _space(cache, release.size)
-    deadline = time.monotonic() + DOWNLOAD_SECONDS
+            _regular(final)  # redirected cache entries must never be removed
+            final.unlink()
+    failures = 0
+    active_seconds = 0.0
     last_error = None
-    for attempt in range(ATTEMPTS):
+    while failures < ATTEMPTS:
         _check_cancel(cancel)
-        fd, temp_name = tempfile.mkstemp(prefix="download-", suffix=".part", dir=cache)
-        temp = Path(temp_name)
+        if activity:
+            activity.checkpoint()
+        offset = 0
+        if part.exists() or part.is_symlink():
+            offset = _regular(part).st_size
+            if offset > asset.size:
+                part.unlink()
+                offset = 0
+            elif offset == asset.size:
+                try:
+                    _verify_asset(part, asset, cancel, activity)
+                    os.replace(part, final)
+                    return final
+                except Cancelled:
+                    raise
+                except UpdateError:
+                    part.unlink()
+                    offset = 0
+        _space(cache, asset.size - offset)
+        started = time.monotonic()
         try:
-            with os.fdopen(fd, "wb") as stream, _get(release.url, cancel) as response:
-                if response.status_code != 200:
-                    raise UpdateError("The download server did not return a complete file.")
+            request_headers = {"Range": f"bytes={offset}-"} if offset else {}
+            with _get(asset.url, cancel, headers=request_headers) as response:
+                if activity:
+                    activity.checkpoint(block=False)
+                if response.status_code == 206 and offset:
+                    expected = f"bytes {offset}-{asset.size - 1}/{asset.size}"
+                    if response.headers.get("Content-Range") != expected:
+                        raise UpdateError("The update server returned an invalid byte range.")
+                elif response.status_code == 200:
+                    offset = 0  # Range ignored: replace, never append the body
+                else:
+                    raise UpdateError("The update server returned an invalid response.")
                 length = response.headers.get("Content-Length")
-                if length is not None and (not str(length).isdigit() or int(length) != release.size):
+                if length is not None and (not str(length).isdigit() or int(length) != asset.size - offset):
                     raise UpdateError("The download size does not match GitHub's release.")
                 if response.headers.get("Content-Encoding", "identity").lower() != "identity":
                     raise UpdateError("The update server returned unexpected compression.")
-                received = 0
-                for block in response.iter_content(128 * 1024):
-                    _check_cancel(cancel)
-                    if time.monotonic() > deadline:
-                        raise UpdateError("The update download timed out.")
-                    received += len(block)
-                    if received > release.size:
-                        raise UpdateError("The update download is larger than GitHub's release.")
-                    stream.write(block)
-                    if progress:
-                        progress(received, release.size)
-                stream.flush()
-                os.fsync(stream.fileno())
-            verify_download(temp, release, target.kind, cancel=cancel)
-            _check_cancel(cancel)
-            os.replace(temp, final)
+                flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if offset else os.O_TRUNC)
+                fd = os.open(part, flags | getattr(os, "O_NOFOLLOW", 0), 0o600)
+                with os.fdopen(fd, "wb", buffering=0) as stream:
+                    info = os.fstat(stream.fileno())
+                    if not stat.S_ISREG(info.st_mode) or info.st_ino != _regular(part).st_ino:
+                        raise UpdateError("The update partial file was redirected.")
+                    received = offset
+                    flushed = offset
+                    last_progress = 0.0
+                    try:
+                        if progress:
+                            progress(received, asset.size)
+                        if status:
+                            status(DownloadStatus(asset, received, asset.size, bool(offset)))
+                        for block in _body(response):
+                            _check_cancel(cancel)
+                            if activity:
+                                activity.checkpoint(block=False)
+                            if active_seconds + time.monotonic() - started > DOWNLOAD_SECONDS:
+                                raise UpdateError("The update download timed out.")
+                            if received + len(block) > asset.size:
+                                raise UpdateError("The update download is larger than GitHub's release.")
+                            if stream.write(block) != len(block):
+                                raise OSError("The update cache could not write the complete block.")
+                            received += len(block)
+                            if received - flushed >= 1024 * 1024:
+                                os.fsync(stream.fileno())
+                                flushed = received
+                            if progress:
+                                progress(received, asset.size)
+                            if status and (time.monotonic() - last_progress >= 1 or received == asset.size):
+                                status(DownloadStatus(asset, received, asset.size, bool(offset)))
+                                last_progress = time.monotonic()
+                    finally:
+                        stream.flush()
+                        os.fsync(stream.fileno())
+            if received != asset.size:
+                raise OSError("The update connection ended before the file was complete.")
+            # All network timing ends before checksum work can pause for a game.
+            active_seconds += time.monotonic() - started
+            started = None
+            _verify_asset(part, asset, cancel, activity)
+            os.replace(part, final)
             return final
         except Cancelled:
             raise
+        except Paused:
+            pass  # close the response before waiting; pauses spend no retry
         except Exception as error:
+            if activity:
+                try:
+                    activity.checkpoint(block=False)
+                except Paused:
+                    continue
             last_error = error
             from .net import HTTPStatusError
-            if isinstance(error, (UpdateError, HTTPStatusError)) or attempt == ATTEMPTS - 1:
+            if isinstance(error, UpdateError):
+                # Header failures leave a previously valid prefix untouched;
+                # complete wrong bytes can never become an install candidate.
+                if part.exists() and _regular(part).st_size == asset.size:
+                    part.unlink()
                 break
-            if time.monotonic() > deadline or cancel.wait(1.5 * (2 ** attempt)):
+            failures += 1
+            if isinstance(error, HTTPStatusError) or failures >= ATTEMPTS:
+                break
+            if cancel.wait(1.5 * (2 ** (failures - 1))):
                 _check_cancel(cancel)
-                break
         finally:
-            temp.unlink(missing_ok=True)
+            if started is not None:
+                active_seconds += time.monotonic() - started
+        if active_seconds > DOWNLOAD_SECONDS:
+            break
     raise UpdateError("Could not download a verified Cubeon update.") from last_error
+
+
+def parse_manifest(data, release, kind):
+    if (not isinstance(data, dict) or type(data.get("schema")) is not int
+            or data.get("schema") != 1 or data.get("platform") != kind
+            or data.get("version") != release.version or data.get("format") != "BSDIFF40"
+            or data.get("target") != {"name": release.name, "size": release.size, "sha256": release.sha256}
+            or not isinstance(data.get("patches"), list) or len(data["patches"]) > 3):
+        raise UpdateError("Invalid incremental update manifest.")
+    refs = {asset.name: asset for asset in release.patches}
+    result = []
+    seen = set()
+    for patch in data["patches"]:
+        if not isinstance(patch, dict):
+            raise UpdateError("Invalid update patch.")
+        ref = refs.get(patch.get("name"))
+        if (ref is None or ref.name in seen or patch.get("size") != ref.size
+                or patch.get("sha256") != ref.sha256 or ref.size * 10 >= release.size * 7
+                or type(patch.get("base_size")) is not int or not 1024 <= patch["base_size"] <= MAX_ASSET
+                or not isinstance(patch.get("base_sha256"), str) or not _HASH.fullmatch(patch["base_sha256"])):
+            raise UpdateError("Invalid update patch reference.")
+        seen.add(ref.name)
+        result.append((ref, patch["base_size"], patch["base_sha256"]))
+    return sorted(result, key=lambda item: item[0].size)
+
+
+def download_release(release: Release, target: Target, cache: Path, *, cancel=None,
+                     progress=None, status=None, activity=None) -> Path:
+    """Prefer a matching patch; both routes publish the same verified installer."""
+    cancel = cancel or threading.Event()
+    final = cache / f"{release.sha256}-{release.name}"
+    if final.exists() or final.is_symlink():
+        try:
+            _verify_asset(final, release, cancel, activity)
+            _executable_header(final, target.kind)
+            return final
+        except Cancelled:
+            raise
+        except (OSError, UpdateError):
+            _regular(final)
+            final.unlink()
+    if release.manifest:
+        try:
+            manifest = download_asset(release.manifest, cache, cancel=cancel, activity=activity)
+            patches = parse_manifest(json.loads(manifest.read_bytes()), release, target.kind)
+            for ref, base_size, base_sha in patches:
+                base = (target.path if target.kind == "linux" else cache / f"{base_sha}-{release.name}")
+                if not base.exists() or _regular(base).st_size != base_size:
+                    continue
+                if file_hash(base, cancel=cancel, activity=activity) != base_sha:
+                    continue
+                patch = download_asset(ref, cache, cancel=cancel, progress=progress, status=status, activity=activity)
+                from .update_patch import apply_patch
+                _space(cache, release.size)
+                reconstructed = cache / f"reconstruction-{uuid.uuid4().hex}.part"
+                try:
+                    def checkpoint():
+                        _check_cancel(cancel)
+                        if activity:
+                            activity.checkpoint()
+                    apply_patch(base, patch, reconstructed, release.size, checkpoint=checkpoint)
+                    _verify_asset(reconstructed, release, cancel, activity)
+                    _executable_header(reconstructed, target.kind)
+                    os.replace(reconstructed, final)
+                    return final
+                finally:
+                    reconstructed.unlink(missing_ok=True)
+        except Cancelled:
+            raise
+        except Exception:
+            log.info("Incremental update unavailable; using the complete artifact", exc_info=True)
+    final = download_asset(release, cache, cancel=cancel, progress=progress, status=status, activity=activity)
+    try:
+        _executable_header(final, target.kind)
+    except UpdateError:
+        final.unlink()
+        raise
+    return final
 
 
 def _registered_windows_dir() -> Path | None:
@@ -616,16 +839,36 @@ def acknowledge_startup() -> bool:
         return False
 
 
-def _clean_cache(cache: Path, keep: Path):
-    """Prune only our known file shapes, under the target lock."""
-    for path in cache.iterdir():
-        if path == keep or path.is_symlink():
+def _clean_cache(cache: Path, keep: Path, release=None):
+    """Retain one base, current prefixes and one pending patch under the lock."""
+    full = re.compile(r"[0-9a-f]{64}-(Cubeon-x86_64\.AppImage|Cubeon-Windows-x64-Setup\.exe)")
+    patch = re.compile(r"[0-9a-f]{64}-Cubeon-(linux|windows)-x64-from-v[0-9]+\.[0-9]+\.[0-9]+\.bsdiff")
+    paths = [p for p in cache.iterdir() if not p.is_symlink()]
+    bases = [p for p in paths if p != keep and p.is_file() and full.fullmatch(p.name)]
+    base = max(bases, key=lambda p: p.stat().st_mtime, default=None)
+    keep_paths = {keep, Path(str(keep) + ".part"), base}
+    if release and release.manifest:
+        manifest = cache / f"{release.manifest.sha256}-{release.manifest.name}"
+        keep_paths.update((manifest, Path(str(manifest) + ".part")))
+        candidates = {f"{p.sha256}-{p.name}" for p in release.patches}
+        pending = [p for p in paths if p.name.removesuffix(".part") in candidates]
+        if pending:
+            latest = max(pending, key=lambda p: p.stat().st_mtime)
+            name = latest.name.removesuffix(".part")
+            keep_paths.update((cache / name, cache / (name + ".part")))
+    for path in paths:
+        if path in keep_paths:
             continue
         age = time.time() - path.stat().st_mtime
-        if path.is_file() and (re.fullmatch(r"[0-9a-f]{64}-(Cubeon-x86_64\.AppImage|Cubeon-Windows-x64-Setup\.exe)", path.name)
-                               or (path.name.startswith("download-") and path.suffix == ".part")):
+        name = path.name.removesuffix(".part")
+        known = (full.fullmatch(name) or patch.fullmatch(name)
+                 or re.fullmatch(r"[0-9a-f]{64}-Cubeon-(Linux|Windows)-x64-update\.json", name)
+                 or re.fullmatch(r"reconstruction-[0-9a-f]{32}\.part", path.name)
+                 or (path.name.startswith("download-") and path.suffix == ".part"))
+        if path.is_file() and known:
             path.unlink()
         elif path.is_dir() and re.fullmatch(r"job-[0-9a-f]{32}", path.name) and age > 7 * 24 * 60 * 60:
+            # Existing recovery jobs are never treated as update payloads.
             shutil.rmtree(path)
         elif path.is_file() and re.fullmatch(r"failed-[0-9a-f]{64}", path.name) and age > FAILED_COOLDOWN:
             path.unlink()
@@ -634,7 +877,9 @@ def _clean_cache(cache: Path, keep: Path):
 class AutoUpdater:
     """One startup attempt; busy state or the user's Later choice defers it."""
     def __init__(self, *, prepare, request_exit, resume, notice=None, confirm=None,
-                 current=APP_VERSION):
+                 current=APP_VERSION, busy=None, progress=None):
+        self.busy = busy
+        self.progress = progress
         self.prepare = prepare
         self.request_exit = request_exit
         self.resume = resume
@@ -663,6 +908,8 @@ class AutoUpdater:
 
     def stop(self):
         self.cancel_event.set()
+        from .update_activity import changed
+        changed()
 
     def run(self):
         lock = None
@@ -691,14 +938,29 @@ class AutoUpdater:
                 self._notice("previous-failure", release)
                 return
             final = cache / f"{release.sha256}-{release.name}"
-            _clean_cache(cache, final)
+            _clean_cache(cache, final, release)
+            from .update_activity import ActivityGate
+            last_pause = [None]
+            def paused(reason):
+                if reason != last_pause[0]:
+                    last_pause[0] = reason
+                    self._notice("paused-game" if reason == "game" else "paused", release)
+            activity = ActivityGate(self.busy, self.cancel_event, paused)
+            activity.checkpoint()
             self._notice("downloading", release)
-            download = download_release(release, target, cache, cancel=self.cancel_event)
+            def progress(status):
+                last_pause[0] = None
+                if self.progress:
+                    self.progress(status)
+            download = download_release(release, target, cache, cancel=self.cancel_event,
+                                        activity=activity, status=progress)
+            _clean_cache(cache, final, release)
             self._notice("verified", release)
             _check_cancel(self.cancel_event)
             if other_launcher_running(target):
                 self._notice("deferred", release)
                 return
+            activity.checkpoint()
             if self.confirm is not None and not self.confirm(release, self.cancel_event):
                 _check_cancel(self.cancel_event)
                 self._notice("postponed", release)

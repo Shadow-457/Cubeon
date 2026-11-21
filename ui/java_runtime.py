@@ -96,6 +96,8 @@ class JavaRuntimePane:
             self.status.color = theme.DANGER if failed else theme.TEXT_DIM
             self.busy = False
             self.state["java_runtime_busy"] = False
+            from cubeon.update_activity import changed
+            changed()
             self._busy_changed()
             if path and self.on_ready:
                 try:
@@ -130,6 +132,8 @@ class JavaRuntimePane:
                 return
             self.busy = True
             self.state["java_runtime_busy"] = True
+            from cubeon.update_activity import changed
+            changed()
             self.cancel_event.clear()
             self.progress.value = None
             self.status.value = i18n.t("Checking Java…")

@@ -96,6 +96,8 @@ class InstallFeedback:
             if self.busy:
                 return False
             self.busy = True
+            from cubeon.update_activity import changed
+            changed()
             self.cancellable = cancellable
             self.cancel_event.clear()
             self.result = None
@@ -130,6 +132,8 @@ class InstallFeedback:
     def finish(self, filename=None, error=None, *, note=None):
         with thread_safe_ui.TREE_LOCK:
             self.busy = False
+            from cubeon.update_activity import changed
+            changed()
             self.filename = filename or self.filename
             cancelled = ((self.cancellable and self.cancel_event.is_set())
                          or isinstance(error, net.DownloadCancelled))

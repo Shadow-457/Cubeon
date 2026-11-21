@@ -129,13 +129,19 @@ A successful Wine launch does not replace testing on Windows; follow the
 bash packaging/build_macos.sh
 ```
 
-The local script produces `dist/Cubeon/` and
-`dist/Cubeon-macOS.tar.gz`. The release workflow produces the separately
-packaged `Cubeon-macOS.zip` asset. Check the workflow for its current bundle
-steps rather than assuming the local script creates an identical artifact.
+The script produces `dist/Cubeon.app` and the native architecture's ZIP:
+`Cubeon-macOS-arm64.zip` on Apple Silicon, `Cubeon-macOS-x64.zip` on Intel.
+It reuses the bundled Cubeon icon and stages the same companion JARs as the
+other platforms. `ditto` preserves app-bundle symlinks and executable modes.
 
-Code signing and notarization require their own credentials and are not
-provided by a local PyInstaller build.
+CI builds on `macos-15` (arm64) and `macos-15-intel` (x86_64), verifies native
+slices in Python and the bundled universal Flet client, verifies the ad hoc
+signature, and starts the packaged launcher through its existing first-paint
+marker. Both jobs must succeed before the draft release is published.
+These are preview distributions with manual upgrades. They are ad hoc signed;
+Developer ID signing and Apple notarization require separate credentials.
+The website's Mac routes use the newest published preview release. Windows
+and Linux downloads retain their existing stable channel.
 
 ## Public builds
 
@@ -194,13 +200,45 @@ the release, and no existing tag is overwritten.
 The test jobs run separately; successful publishing does not imply that
 every test passed.
 
-Launcher upgrades are manual: download the new installer and rerun it for the
-existing installation folder. Startup does not check releases or start an
-automatic update. Windows packaging verifies the real NSIS installation,
-upgrade and rollback transactions before building the installer; it does not
-depend on the retained automatic-update helper tests. Those legacy fixtures
-use an explicit starting version so a release stamp cannot invalidate them.
-The downloads Worker retains update feeds for previously released launchers.
+Installed Windows x64 copies and user-owned Linux x64 AppImages check for
+newer stable releases after startup. Cubeon downloads and verifies the final
+installer, then preserves the existing Update now / Later confirmation and
+transactional installation with rollback. macOS and Debian packages upgrade
+manually. Existing installations need one full upgrade to receive resumable
+and incremental downloads.
+
+Transfers pause before and during Minecraft sessions, hosted servers, game
+installation and content downloads. Activity-change signals resume them without
+polling the UI or blocking Play. Pauses consume neither network retry attempts
+nor the 15-minute active transfer budget. Checksum-keyed `.part` files survive
+launcher closure and resume via HTTP Range; unexpected ranges are rejected,
+and servers ignoring Range restart that transfer safely. Later keeps the
+verified candidate and offers installation on the next startup.
+
+Updater state remains under `~/.cubeon_launcher/updates/v1/<target-key>`.
+The target lock covers cache pruning and installation preparation. Retain one
+previous verified artifact, the current candidate/prefix, its manifest and one
+patch/prefix. Installation recovery jobs keep their separate lifecycle.
+Windows uses a cached installer as its patch base; Linux verifies its installed
+AppImage. Never patch the live executable in place.
+
+`packaging/build_updates.py` generates schema-1, SHA-256-pinned platform manifests
+(maximum 64 KiB) and BSDIFF40 patches against the three newest earlier published
+stable releases with valid assets. `bsdiff4==1.4.4` is installed only after
+freezing and stays out of runtime dependencies. Windows uses per-file LZMA,
+rather than solid compression, to retain useful unchanged patch material.
+Only patches strictly smaller than 70% of the full artifact are published.
+The runtime picks the smallest patch matching a verified local base. Its stdlib
+streaming decoder uses 64 KiB blocks, bounded compression/control streams and
+an active reconstruction time limit. The reconstructed installer must match
+GitHub's full SHA-256, size and executable header. Failed reconstruction falls
+back to a resumable full download while idle. An empty manifest permits that
+same fallback when no worthwhile patch exists.
+
+CI verifies manifest checksums, target metadata and all referenced uploaded
+patches before publication. Linux and Windows packaging run the updater/helper
+checks; Windows also executes the real NSIS install, upgrade and rollback
+transactions. Version fixtures are independent of release stamps.
 
 The download Worker depends on these release asset names:
 
@@ -208,7 +246,7 @@ The download Worker depends on these release asset names:
 | --- | --- |
 | Linux | `Cubeon-x86_64.AppImage`, `Cubeon-Linux-x86_64-Setup.AppImage`, `Cubeon-Linux-x86_64-Setup.sh`, `cubeon_<version>_amd64.deb` |
 | Windows | `Cubeon-Windows-x64-Setup.exe` |
-| macOS | Disabled while desktop verification is pending |
+| macOS | `Cubeon-macOS-arm64.zip`, `Cubeon-macOS-x64.zip` |
 
 Renaming an asset requires corresponding changes to the workflow and
 `worker/cubeon-downloads.js`.

@@ -1254,6 +1254,7 @@ async def main(page: ft.Page):
     _inspector_enabled = _insp_enabled(cfg)
 
     # --- Disk hygiene: tidy Cubeon's own folders, off the UI thread ---
+    from cubeon.update_activity import changed as _update_activity_changed
     from cubeon import storage as instance_storage
     try:
         instance_storage.initialize()
@@ -4525,6 +4526,7 @@ async def main(page: ft.Page):
             _reconcile_running_button()
             return
         state["ending_session"] = rec.get("session_id")
+        _update_activity_changed()
         set_button_mode("ending")
         set_status("Stopping", busy=True)
 
@@ -4537,6 +4539,7 @@ async def main(page: ft.Page):
             # none, and optional exit cleanup can fail or finish later.
             with thread_safe_ui.TREE_LOCK:
                 state["ending_session"] = None
+                _update_activity_changed()
                 _reconcile_running_button()
                 _sync_play_button()
                 if not stopped and state.get("running_version"):
@@ -4611,6 +4614,7 @@ async def main(page: ft.Page):
                                state.get("pending_instance_icon") or {})
             _cancel_event(version_id).clear()
             state["installing_version"] = version_id
+            _update_activity_changed()
 
         # Update UI to "busy" state. progress_label is reset explicitly: it may
         # still be holding the previous launch's crash message, and leaving a
@@ -4651,6 +4655,7 @@ async def main(page: ft.Page):
         except Exception:
             if state.get("installing_version") == version_id:
                 state["installing_version"] = None
+                _update_activity_changed()
             progress_bar.visible = False
             progress_spinner.visible = False
             progress_stage.value = "FAILED"
@@ -4747,6 +4752,7 @@ async def main(page: ft.Page):
                 _show_snack("That version is already running", duration=4000)
                 return False
             state["running_version"] = None  # stale claim - clear and proceed
+            _update_activity_changed()
 
         # Save the last selected version without changing the Settings username.
         cfg["last_version"] = version_id
@@ -4811,6 +4817,7 @@ async def main(page: ft.Page):
 
         _deleted_versions.discard(version_id)  # explicit reinstall
         state["installing_version"] = version_id
+        _update_activity_changed()
 
         try:
             target_version = version_id
@@ -5057,7 +5064,9 @@ async def main(page: ft.Page):
             cancellable["on"] = False
             with _launch_state_lock:
                 state["installing_version"] = None
+                _update_activity_changed()
                 state["launching_version"] = version_id
+                _update_activity_changed()
             set_button_mode("launching")
 
             # Launch the game
@@ -5207,6 +5216,7 @@ async def main(page: ft.Page):
                     try:
                         with _launch_state_lock:
                             state["running_version"] = None
+                            _update_activity_changed()
                         progress_bar.visible = False
                         progress_spinner.visible = False
                         progress_percent.visible = False
@@ -5219,6 +5229,7 @@ async def main(page: ft.Page):
                 try:
                     with _launch_state_lock:
                         state["running_version"] = None  # version is safe to delete again
+                        _update_activity_changed()
                         progress_bar.visible = False
                         progress_spinner.visible = False
                         progress_percent.visible = False
@@ -5372,7 +5383,9 @@ async def main(page: ft.Page):
                         if exited["done"]:
                             return
                         state["launching_version"] = None
+                        _update_activity_changed()
                         state["running_version"] = target_version
+                        _update_activity_changed()
                         previous_watch = _running_liveness["stop"]
                         if previous_watch is not None:
                             previous_watch.set()
@@ -5540,11 +5553,13 @@ async def main(page: ft.Page):
             with _launch_state_lock:
                 if state.get("installing_version") == version_id:
                     state["installing_version"] = None
+                    _update_activity_changed()
                 # On the successful path running_version took over before this
                 # (see above); any other exit - cancel, error, or a game that
                 # died before the spawn - must release the launch claim here.
                 if state.get("launching_version") == version_id:
                     state["launching_version"] = None
+                    _update_activity_changed()
             _reset_button_after_worker(version_id)
             if compatibility_issue is not None:
                 from ui.content_checks import show_content_issues
@@ -5871,6 +5886,7 @@ async def main(page: ft.Page):
                     set_status(blocker)
                     return
                 _deleting_versions.add(vid)
+                _update_activity_changed()
             # Only the explicit checkbox authorizes private-profile removal.
             remove_profile = bool(delete_profile_cb and delete_profile_cb.value)
             set_status(f"Deleting {label}", busy=True)
@@ -5884,12 +5900,14 @@ async def main(page: ft.Page):
                 finally:
                     with _launch_state_lock:
                         _deleting_versions.discard(vid)
+                        _update_activity_changed()
 
             try:
                 threading.Thread(target=work, daemon=True, name="delete-instance").start()
             except Exception:
                 with _launch_state_lock:
                     _deleting_versions.discard(vid)
+                    _update_activity_changed()
                 set_status("Couldn't start deleting the instance. Try again.")
 
         def _delete_confirmed(remove_profile):
@@ -7677,7 +7695,9 @@ async def main(page: ft.Page):
             # honest mode. (A different selected version already owns its
             # own correct mode from on_version_selected.)
             state["running_version"] = None
+            _update_activity_changed()
             state["ending_session"] = None
+            _update_activity_changed()
             progress_card.visible = False
             progress_bar.visible = False
             progress_spinner.visible = False
@@ -8471,13 +8491,13 @@ async def main(page: ft.Page):
         if _client_closing.is_set() or instance_storage.application_busy(state):
             return False
         from ui.install_feedback import any_busy
-        from cubeon import versions, modpacks
+        from cubeon import versions, modpacks, net
         with thread_safe_ui.TREE_LOCK, _launch_state_lock:
             relaunch = _relaunch.get("request")
             if (_client_closing.is_set() or _auto_updates.cancel_event.is_set()
                     or (relaunch is not None and relaunch.is_set()) or _app_root.disabled
                     or _deleting_versions or any_busy() or versions.active_installs()
-                    or modpacks.active_pack_installs()
+                    or modpacks.active_pack_installs() or net.active_downloads()
                     or any(state.get(key) for key in ("running_version", "installing_version",
                                                       "launching_version", "ending_session", "fixing_mods"))
                     or (_storage_prompt is not None and _storage_prompt.phase in ("migrating", "restart"))):
@@ -8535,11 +8555,29 @@ async def main(page: ft.Page):
             _window_gone["dismissed_at"] = None
             raise
 
+    from ui.toast import ProgressNotice
+    _update_progress_notice = ProgressNotice(page)
+
+    def _update_progress(status):
+        if not _auto_updates.cancel_event.is_set():
+            prefix = "Resuming" if status.resumed else "Downloading"
+            _update_progress_notice.update(
+                f"{prefix} Cubeon update · {status.done / 1048576:.1f} / "
+                f"{status.total / 1048576:.1f} MB ({status.done * 100 // status.total}%)")
+
     def _update_notice(phase, release):
         if _auto_updates.cancel_event.is_set():
             return
+        if phase in ("paused-game", "paused"):
+            _update_progress_notice.update("Paused while Minecraft is running." if phase == "paused-game"
+                                           else "Update paused while game or content downloads are active.")
+            return
+        if phase == "verified":
+            _update_progress_notice.update("Cubeon update downloaded and verified.")
+        if phase in ("failed", "postponed", "deferred"):
+            _update_progress_notice.close()
         messages = {
-            "downloading": f"Downloading Cubeon {release.version} update…" if release else "",
+            "downloading": f"Preparing Cubeon {release.version} update…" if release else "",
             "deferred": "Cubeon update verified. It will install on a startup when no game or downloads are active.",
             "postponed": "Cubeon update postponed. It will be offered again on the next startup.",
             "previous-failure": "The last Cubeon update failed. Your recovery files are kept; automatic retry is paused for 24 hours.",
@@ -8548,9 +8586,38 @@ async def main(page: ft.Page):
         if phase in messages:
             _show_snack(messages[phase], duration=6000)
 
+    def _update_busy():
+        from pathlib import Path
+        from cubeon import net, versions, modpacks, watchdog, server
+        from cubeon.update_activity import watch_process
+        from ui.install_feedback import any_busy
+        with thread_safe_ui.TREE_LOCK, _launch_state_lock:
+            snapshot = dict(state)
+            if any(snapshot.get(key) for key in ("running_version", "launching_version", "ending_session")):
+                return "game"
+            if (_deleting_versions or any_busy() or versions.active_installs()
+                    or modpacks.active_pack_installs() or net.active_downloads()
+                    or instance_storage.operations_busy() or snapshot.get("fixing_mods")):
+                return "downloads"
+        leftover = watchdog.stale_session()
+        if leftover:
+            watch_process(leftover["pid"])
+            return "game"
+        if instance_storage.application_busy(snapshot):
+            root = Path(server.SERVERS_DIR)
+            if root.is_dir():
+                for folder in root.iterdir():
+                    if folder.is_dir():
+                        pid = server.is_server_orphaned(folder.name)
+                        if pid:
+                            watch_process(pid)
+            return "downloads"
+        return None
+
     _auto_updates = AutoUpdater(prepare=_prepare_update, request_exit=_close_for_update,
                                resume=_resume_after_update, notice=_update_notice,
-                               confirm=_confirm_update)
+                               confirm=_confirm_update, busy=_update_busy,
+                               progress=_update_progress)
     _auto_updates.start()
 
     # -----------------------------------------------------------------

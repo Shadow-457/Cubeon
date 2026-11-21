@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import bz2
 import hashlib
 import json
 import os
@@ -179,7 +180,10 @@ class DownloadTests(unittest.TestCase):
             with self.subTest(response=response), mock.patch.object(update, "_get", return_value=response):
                 with self.assertRaises(update.UpdateError):
                     update.download_release(self.release, self.target, self.cache)
-                self.assertEqual(list(self.cache.iterdir()), [])
+                self.assertFalse(list(self.cache.glob("*.AppImage")))
+                for part in self.cache.glob("*.part"):
+                    self.assertLess(part.stat().st_size, self.release.size)
+                    part.unlink()
 
     def test_valid_hash_does_not_make_html_an_installer(self):
         payload = b"<html>not an AppImage</html>" * 100
@@ -188,12 +192,14 @@ class DownloadTests(unittest.TestCase):
             update.download_release(release, self.target, self.cache)
         self.assertEqual(list(self.cache.iterdir()), [])
 
-    def test_network_retry_discards_partial_bytes(self):
+    def test_network_retry_resumes_partial_bytes(self):
         cancel = threading.Event()
         with mock.patch.object(cancel, "wait", return_value=False), mock.patch.object(update, "_get", side_effect=[
-                Response(self.payload[:1234], error=OSError("connection dropped")), Response(self.payload)]) as get:
+                Response(self.payload[:1234], error=OSError("connection dropped")),
+                Response(self.payload[1234:], status=206, headers={"Content-Range": f"bytes 1234-{len(self.payload)-1}/{len(self.payload)}"})]) as get:
             path = update.download_release(self.release, self.target, self.cache, cancel=cancel)
         self.assertEqual(get.call_count, 2)
+        self.assertEqual(get.call_args.kwargs["headers"]["Range"], "bytes=1234-")
         self.assertEqual(path.read_bytes(), self.payload)
         self.assertFalse(list(self.cache.glob("*.part")))
 
@@ -216,10 +222,280 @@ class DownloadTests(unittest.TestCase):
             update.download_release(self.release, self.target, self.cache)
         cancel = threading.Event()
         def progress(_done, _total):
-            cancel.set()
+            if _done:
+                cancel.set()
         with mock.patch.object(update, "_get", return_value=Response(self.payload)), self.assertRaises(update.Cancelled):
             update.download_release(self.release, self.target, self.cache, cancel=cancel, progress=progress)
-        self.assertEqual(list(self.cache.iterdir()), [])
+        parts = list(self.cache.glob("*.part"))
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0].read_bytes(), self.payload)
+
+
+def patch_fixture(base, new):
+    def number(value):
+        return ((abs(value) | (1 << 63 if value < 0 else 0))).to_bytes(8, "little")
+    count = min(len(base), len(new))
+    control = bz2.compress(number(count) + number(len(new)-count) + number(0))
+    diff = bz2.compress(bytes((new[n] - base[n]) & 255 for n in range(count)))
+    extra = bz2.compress(new[count:])
+    return b"BSDIFF40" + number(len(control)) + number(len(diff)) + number(len(new)) + control + diff + extra
+
+
+class ResumeTests(DownloadTests):
+    def test_restart_resumes_from_disk_without_in_memory_state(self):
+        part = self.cache / f"{self.release.sha256}-{self.release.name}.part"
+        part.write_bytes(self.payload[:777])
+        response = Response(self.payload[777:], status=206, headers={
+            "Content-Range": f"bytes 777-{len(self.payload)-1}/{len(self.payload)}",
+            "Content-Length": str(len(self.payload)-777)})
+        statuses = []
+        with mock.patch.object(update, "_get", return_value=response) as get:
+            result = update.download_release(self.release, self.target, self.cache, status=statuses.append)
+        self.assertEqual(get.call_args.kwargs["headers"], {"Range":"bytes=777-"})
+        self.assertEqual(result.read_bytes(), self.payload)
+        self.assertTrue(statuses[0].resumed)
+        self.assertEqual(statuses[0].done, 777)
+
+    def test_ignored_range_replaces_prefix_and_invalid_range_never_appends(self):
+        part = self.cache / f"{self.release.sha256}-{self.release.name}.part"
+        part.write_bytes(self.payload[:777])
+        with mock.patch.object(update, "_get", return_value=Response(self.payload)):
+            result = update.download_release(self.release, self.target, self.cache)
+        self.assertEqual(result.read_bytes(), self.payload)
+        result.unlink()
+        for content_range in (None, "bytes 0-10/20", f"bytes 776-{len(self.payload)-1}/{len(self.payload)}"):
+            part.write_bytes(self.payload[:777])
+            with mock.patch.object(update, "_get", return_value=Response(self.payload[777:], status=206,
+                    headers={"Content-Range":content_range})), self.assertRaises(update.UpdateError):
+                update.download_release(self.release, self.target, self.cache)
+            self.assertEqual(part.read_bytes(), self.payload[:777])
+
+    def test_redirected_partial_is_refused_without_network(self):
+        protected = self.cache / "protected"
+        protected.write_bytes(b"keep")
+        part = self.cache / f"{self.release.sha256}-{self.release.name}.part"
+        part.symlink_to(protected)
+        with mock.patch.object(update, "_get") as get, self.assertRaises(update.UpdateError):
+            update.download_release(self.release, self.target, self.cache)
+        self.assertEqual(protected.read_bytes(), b"keep")
+        get.assert_not_called()
+
+    def test_pause_closes_response_then_resumes_without_spending_attempts(self):
+        from cubeon.update_activity import ActivityGate, changed
+        busy = threading.Event()
+        cancel = threading.Event()
+        paused = threading.Event()
+        activity = ActivityGate(lambda: "game" if busy.is_set() else None, cancel,
+                                lambda reason: paused.set())
+        first = Response(b"")
+        def chunks(size):
+            yield self.payload[:500]
+            busy.set(); changed()
+            yield self.payload[500:]
+        first.iter_content = chunks
+        result, errors = [], []
+        def run():
+            try:
+                result.append(update.download_release(self.release, self.target, self.cache,
+                                                      cancel=cancel, activity=activity))
+            except Exception as error:
+                errors.append(error)
+        tail = Response(self.payload[500:], status=206, headers={
+            "Content-Range": f"bytes 500-{len(self.payload)-1}/{len(self.payload)}"})
+        with mock.patch.object(update, "_get", side_effect=[first, tail]) as get:
+            thread = threading.Thread(target=run)
+            thread.start()
+            try:
+                self.assertTrue(paused.wait(2))
+                self.assertTrue(first.closed)
+                self.assertEqual(get.call_count,1)
+                self.assertEqual(next(self.cache.glob("*.part")).read_bytes(),self.payload[:500])
+            finally:
+                busy.clear(); changed()
+                thread.join(3)
+                if thread.is_alive(): cancel.set(); changed(); thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors,[])
+        self.assertEqual(result[0].read_bytes(),self.payload)
+        self.assertEqual(get.call_count,2)
+
+    def test_close_while_initially_paused_never_opens_network(self):
+        from cubeon.update_activity import ActivityGate, changed
+        cancel, paused = threading.Event(), threading.Event()
+        activity = ActivityGate(lambda: "game", cancel, lambda reason: paused.set())
+        errors=[]
+        def run():
+            try: update.download_release(self.release,self.target,self.cache,cancel=cancel,activity=activity)
+            except update.Cancelled: errors.append("cancelled")
+        with mock.patch.object(update,"_get") as get:
+            thread=threading.Thread(target=run); thread.start()
+            try: self.assertTrue(paused.wait(2)); get.assert_not_called()
+            finally: cancel.set(); changed(); thread.join(2)
+        self.assertEqual(errors,["cancelled"])
+
+
+class PatchTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name)
+        self.old=elf_fixture(b"old code")
+        self.new=elf_fixture(b"new code and additional data")
+        self.base=self.root/"base"; self.base.write_bytes(self.old)
+        self.patch=self.root/"patch"; self.patch.write_bytes(patch_fixture(self.old,self.new))
+
+    def test_streaming_reconstruction_append_shrink_and_seek(self):
+        from cubeon.update_patch import apply_patch
+        for n, new in enumerate((self.new,self.old[:1000],b"begin"+self.old+b"tail")):
+            self.patch.write_bytes(patch_fixture(self.old,new))
+            output=self.root/str(n)
+            apply_patch(self.base,self.patch,output,len(new))
+            self.assertEqual(output.read_bytes(),new)
+            self.assertEqual(self.base.read_bytes(),self.old)
+
+    def test_malformed_truncated_and_oversized_patch_never_changes_base(self):
+        from cubeon.update_patch import apply_patch,PatchError
+        good=self.patch.read_bytes()
+        for n, broken in enumerate((b"bad",good[:-1],good+b"extra",good[:24]+(len(self.new)+1).to_bytes(8,"little")+good[32:])):
+            self.patch.write_bytes(broken)
+            with self.assertRaises(PatchError): apply_patch(self.base,self.patch,self.root/str(n),len(self.new))
+            self.assertEqual(self.base.read_bytes(),self.old)
+
+    def test_patch_cancel_preserves_base_and_refuses_existing_output(self):
+        from cubeon.update_patch import apply_patch
+        def stop():raise update.Cancelled("closing")
+        with self.assertRaises(update.Cancelled):apply_patch(self.base,self.patch,self.root/"new",len(self.new),checkpoint=stop)
+        output=self.root/"protected";output.write_bytes(b"keep")
+        with self.assertRaises(FileExistsError):apply_patch(self.base,self.patch,output,len(self.new))
+        self.assertEqual(output.read_bytes(),b"keep")
+
+    def test_negative_base_seek_and_control_resource_bounds(self):
+        from cubeon.update_patch import apply_patch, PatchError
+        number = lambda n: (abs(n) | (1 << 63 if n < 0 else 0)).to_bytes(8, "little")
+        control = bz2.compress(b"".join(number(n) for n in (4, 0, -8, 4, 0, 0)))
+        delta = bz2.compress(b"\0" * 4 + b"ABCD")
+        self.patch.write_bytes(b"BSDIFF40" + number(len(control)) + number(len(delta))
+                              + number(8) + control + delta + bz2.compress(b""))
+        output = self.root / "negative"
+        apply_patch(self.base, self.patch, output, 8)
+        self.assertEqual(output.read_bytes(), self.old[:4] + b"ABCD")
+        control = bz2.compress(number(0) * (3 * 1025))
+        delta = bz2.compress(b"")
+        self.patch.write_bytes(b"BSDIFF40" + number(len(control)) + number(len(delta))
+                              + number(1) + control + delta + delta)
+        with self.assertRaises(PatchError):
+            apply_patch(self.base, self.patch, self.root / "no-progress", 1)
+
+    def test_reconstruction_active_time_is_bounded(self):
+        from cubeon import update_patch
+        with mock.patch.object(update_patch, "MAX_ACTIVE_SECONDS", -1), self.assertRaises(update_patch.PatchError):
+            update_patch.apply_patch(self.base, self.patch, self.root / "timeout", len(self.new))
+
+    def release(self, kind="linux"):
+        release=update.parse_release(metadata(self.new,kind=kind),kind,"1.4.9")
+        patch=self.patch.read_bytes()
+        ref=update.Asset("Cubeon-"+kind+"-x64-from-v1.4.9.bsdiff", "https://github.com/Shadow-457/Cubeon/releases/download/v1.4.11/patch",len(patch),hashlib.sha256(patch).hexdigest())
+        manifest={"schema":1,"platform":kind,"version":release.version,"format":"BSDIFF40",
+                  "target":{"name":release.name,"size":release.size,"sha256":release.sha256},
+                  "patches":[{"name":ref.name,"size":ref.size,"sha256":ref.sha256,"base_size":len(self.old),"base_sha256":hashlib.sha256(self.old).hexdigest()}]}
+        body=json.dumps(manifest).encode()
+        asset=update.Asset(update.MANIFESTS[kind],"https://github.com/Shadow-457/Cubeon/releases/download/v1.4.11/manifest",len(body),hashlib.sha256(body).hexdigest())
+        from dataclasses import replace
+        return replace(release,manifest=asset,patches=(ref,)),body,patch
+
+    def test_matching_patch_downloads_only_patch_and_verifies_full_output(self):
+        release,manifest,patch=self.release()
+        calls=[]
+        def get(url,*args,**kwargs):
+            calls.append(url)
+            return Response(manifest if url==release.manifest.url else patch)
+        target=update.Target("linux",self.base)
+        with mock.patch.object(update,"_get",side_effect=get):
+            final=update.download_release(release,target,self.root)
+        self.assertEqual(final.read_bytes(),self.new)
+        self.assertEqual(calls,[release.manifest.url,release.patches[0].url])
+        with mock.patch.object(update,"_get") as get:
+            self.assertEqual(update.download_release(release,target,self.root),final)
+            get.assert_not_called()
+
+    def test_wrong_base_and_bad_patch_use_full_fallback(self):
+        release,manifest,patch=self.release()
+        for wrong_base in (True,False):
+            with tempfile.TemporaryDirectory() as folder:
+                cache=Path(folder);base=cache/"installed"
+                base.write_bytes(b"wrong base" if wrong_base else self.old)
+                calls=[]
+                def get(url,*args,**kwargs):
+                    calls.append(url)
+                    return Response(manifest if url==release.manifest.url else b"broken" if url==release.patches[0].url else self.new)
+                with mock.patch.object(update,"_get",side_effect=get):
+                    final=update.download_release(release,update.Target("linux",base),cache)
+                self.assertEqual(final.read_bytes(),self.new)
+                self.assertEqual(calls[-1],release.url)
+                self.assertEqual(base.read_bytes(),b"wrong base" if wrong_base else self.old)
+                self.assertFalse(list(cache.glob("reconstruction-*.part")))
+
+    def test_windows_patch_requires_retained_verified_installer(self):
+        header = bytearray(128)
+        header[:2], header[60:64], header[64:70] = b"MZ", (64).to_bytes(4, "little"), b"PE\0\0\x4c\x01"
+        self.old, self.new = bytes(header) + b"old code" * 1024, bytes(header) + b"new code" * 1024
+        self.patch.write_bytes(patch_fixture(self.old, self.new))
+        release, manifest, patch = self.release("windows")
+        cache = self.root / "cache"
+        cache.mkdir()
+        retained = cache / f"{hashlib.sha256(self.old).hexdigest()}-{release.name}"
+        retained.write_bytes(self.old)
+        target = update.Target("windows", self.root / "Cubeon.exe")
+        target.path.write_bytes(b"installed launcher is not the installer")
+        with mock.patch.object(update, "_get", side_effect=[Response(manifest), Response(patch)]) as get:
+            final = update.download_release(release, target, cache)
+        self.assertEqual(final.read_bytes(), self.new)
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(retained.read_bytes(), self.old)
+
+    def test_reconstructed_checksum_failure_resumes_full_download(self):
+        release, manifest, patch = self.release()
+        final = self.root / f"{release.sha256}-{release.name}.part"
+        final.write_bytes(self.new[:500])
+        def wrong_result(base, patch, destination, size, **kwargs):
+            destination.write_bytes(b"wrong" * (size // 5) + b"x" * (size % 5))
+        tail = Response(self.new[500:], status=206, headers={
+            "Content-Range": f"bytes 500-{len(self.new)-1}/{len(self.new)}"})
+        with mock.patch.object(update, "_get", side_effect=[Response(manifest), Response(patch), tail]) as get, \
+                mock.patch("cubeon.update_patch.apply_patch", side_effect=wrong_result):
+            result = update.download_release(release, update.Target("linux", self.base), self.root)
+        self.assertEqual(result.read_bytes(), self.new)
+        self.assertEqual(get.call_args.kwargs["headers"], {"Range": "bytes=500-"})
+
+    def test_manifest_rejects_wrong_platform_target_unknown_asset_and_large_patch(self):
+        release,body,_=self.release(); data=json.loads(body)
+        for field,value in (("platform","windows"),("version","1.0.0"),("format","other"),("target",{})):
+            invalid=copy.deepcopy(data);invalid[field]=value
+            with self.assertRaises(update.UpdateError):update.parse_manifest(invalid,release,"linux")
+        data["patches"][0]["name"]="unknown.bsdiff"
+        with self.assertRaises(update.UpdateError):update.parse_manifest(data,release,"linux")
+
+
+class CacheTests(unittest.TestCase):
+    def test_pruning_keeps_base_candidate_and_current_transfer_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            old = cache / ("a" * 64 + "-Cubeon-x86_64.AppImage")
+            base = cache / ("b" * 64 + "-Cubeon-x86_64.AppImage")
+            candidate = cache / ("c" * 64 + "-Cubeon-x86_64.AppImage")
+            stale = cache / ("d" * 64 + "-Cubeon-x86_64.AppImage.part")
+            keep = cache / (candidate.name + ".part")
+            for file in (old, base, stale, keep):
+                file.write_bytes(b"payload")
+            os.utime(old, (1, 1))
+            other = cache / "unrelated"
+            other.write_bytes(b"keep")
+            link = cache / ("e" * 64 + "-Cubeon-x86_64.AppImage")
+            link.symlink_to(other)
+            update._clean_cache(cache, candidate)
+            self.assertTrue(base.exists() and keep.exists() and link.is_symlink())
+            self.assertEqual(other.read_bytes(), b"keep")
+            self.assertFalse(old.exists() or stale.exists())
+
 
 
 class UpdateGateTests(unittest.TestCase):
@@ -315,6 +591,28 @@ class ControllerTests(unittest.TestCase):
         update.spawn_helper.assert_not_called()
         self.close.assert_not_called()
         self.notice.assert_any_call("postponed", self.release)
+
+    def test_initial_activity_pauses_then_automatically_resumes(self):
+        from cubeon.update_activity import changed
+        busy, paused = threading.Event(), threading.Event()
+        busy.set()
+        self.controller.busy = lambda: "downloads" if busy.is_set() else None
+        self.notice.side_effect = lambda phase, *args: paused.set() if phase == "paused" else None
+        thread = threading.Thread(target=self.controller.run)
+        thread.start()
+        try:
+            self.assertTrue(paused.wait(2))
+            update.download_release.assert_not_called()
+            self.prepare.assert_not_called()
+            busy.clear()
+            changed()
+            thread.join(3)
+            self.assertFalse(thread.is_alive())
+            update.download_release.assert_called_once()
+            self.close.assert_called_once()
+        finally:
+            self.controller.stop()
+            thread.join(2)
 
     def test_readiness_failure_or_rejected_close_cancels_and_restores(self):
         for failure in ("ready", "close"):

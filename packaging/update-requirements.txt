@@ -1,0 +1,2 @@
+# Build-only patch generator; install after freezing the launcher payload.
+bsdiff4==1.4.4

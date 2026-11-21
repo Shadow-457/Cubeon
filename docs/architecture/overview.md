@@ -30,7 +30,7 @@ configurations. Vanilla launches do not require that integration.
 | `launcher_core.py` | Compatibility facade for the underlying Python modules |
 | `mod/` | Fabric client integration and Minecraft version brackets |
 | `worker/` | Skins, invites, friends, downloads, and waitlist services |
-| `packaging/` | Platform build and installer scripts |
+| `packaging/` | Platform builds, transactional installers and incremental release assets |
 | `tools/` | Regression checks, development harnesses, and release tools |
 
 Most game and service logic can run without a Flet page. The `cubeon/`
@@ -159,3 +159,15 @@ the build marker and configuration override. See [Friends](friends.md),
 Worker source and Wrangler configuration live in `worker/`. Configuration
 in the repository is not proof of a currently healthy deployment. Follow
 the [Worker guide](../../worker/README.md) for deployment and verification.
+
+## Launcher updates
+
+`cubeon/auto_update.py` owns checksum-pinned resumable transfers, patch selection,
+the target cache lock and the existing two-phase installer handoff.
+`cubeon/update_activity.py` wakes downloads on existing game/install/content
+ownership transitions; every claim and release must signal `changed()` so a paused transfer
+cannot miss the final ownership edge. `cubeon/update_patch.py` is a bounded stdlib BSDIFF40 decoder;
+patch generation stays in build-only `packaging/build_updates.py`. Neither path
+modifies the live installation before the verified helper handoff. The
+`updates/v1` cache path is part of Linux first-paint health acknowledgment and
+must remain compatible. See [release builds](../release/build.md).

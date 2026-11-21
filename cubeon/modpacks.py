@@ -367,6 +367,8 @@ def _unmark_pack_install(mc_version: str, loader: str | None = None) -> None:
 
 
 def _notify_install_listeners() -> None:
+    from .update_activity import changed
+    changed()
     for callback in list(_INSTALL_LISTENERS):
         try:
             callback()

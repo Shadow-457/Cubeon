@@ -82,7 +82,7 @@ def _ensure_host(page):
     return host
 
 
-def _build(text, action, action_label, dismissed):
+def _build(text, action, action_label, dismissed, text_control=None):
     kind = _kind(text)
     color = {"error": DANGER, "ok": ACCENT, "info": INFO}[kind]
     icon = {"error": ft.Icons.ERROR_OUTLINE_ROUNDED,
@@ -99,7 +99,8 @@ def _build(text, action, action_label, dismissed):
         except Exception:
             log.warning("toast action failed", exc_info=True)
 
-    body = [ft.Text(str(text), size=13, color=TEXT, max_lines=5,
+    body = [text_control if text_control is not None else
+            ft.Text(str(text), size=13, color=TEXT, max_lines=5,
                     overflow=ft.TextOverflow.ELLIPSIS, selectable=False)]
     if action and action_label:
         body.append(ft.Container(
@@ -150,6 +151,37 @@ def _build(text, action, action_label, dismissed):
         animate_offset=ft.Animation(SLIDE_MS, ft.AnimationCurve.EASE_OUT_CUBIC),
         animate_opacity=ft.Animation(SLIDE_MS, ft.AnimationCurve.EASE_OUT_CUBIC),
     )
+
+
+class ProgressNotice:
+    """One retained toast; changing progress repaints its text, not its tree."""
+    def __init__(self, page):
+        self.page = page
+        self.text = ft.Text("", size=13, color=TEXT, max_lines=5,
+                            overflow=ft.TextOverflow.ELLIPSIS, selectable=False)
+        self.dismissed = threading.Event()
+        self.started = False
+
+    def update(self, message):
+        with thread_safe_ui.TREE_LOCK:
+            if self.dismissed.is_set():
+                return
+            self.text.value = message
+            if self.started:
+                thread_safe_ui.refresh(self.text)
+                return
+            host = _ensure_host(self.page)
+            key = (id(self.page), "cubeon-update-progress")
+            with _lock:
+                _active[key] = self.dismissed
+            wrap = _build(message, None, None, self.dismissed, self.text)
+            wrap.data = self.dismissed
+            self.started = True
+            threading.Thread(target=_life, args=(host, wrap, key, 0), daemon=True,
+                             name="cubeon-update-toast").start()
+
+    def close(self):
+        self.dismissed.set()
 
 
 def _life(host, wrap, key, duration):

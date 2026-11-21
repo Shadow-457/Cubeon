@@ -66,6 +66,8 @@ const REPOSITORY = "Shadow-457/Cubeon";
 // cubeon_1.0.0_amd64.deb, so /linuxdeb 404'd on every request.
 const FILES = {
   "/windowsdownload": "Cubeon-Windows-x64-Setup.exe",
+  "/macosarm64download": "Cubeon-macOS-arm64.zip",
+  "/macosx64download": "Cubeon-macOS-x64.zip",
   "/linuxdownload": "Cubeon-x86_64.AppImage",
   "/linuxdeb": { prefix: "cubeon_", suffix: "_amd64.deb" },
   "/linuxsetup": "Cubeon-Linux-x86_64-Setup.sh",
@@ -427,7 +429,9 @@ export default {
     }
 
     // One edge-cached lookup, however many people are pressing Download.
-    const release = await latestRelease(env);
+    // Mac preview bundles follow the newest published build. Existing platforms
+    // keep their stable channel; drafts never become downloadable.
+    const release = await latestRelease(env, url.pathname.startsWith("/macos") ? "beta" : "stable");
     if (!release) {
       return new Response("release unavailable", { status: 502 });
     }

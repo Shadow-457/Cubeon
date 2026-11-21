@@ -153,11 +153,19 @@ def update_operation():
         if _launcher_update:
             raise RuntimeError("Cubeon is closing to install an update. Wait for it to finish.")
         _update_jobs += 1
+    from .update_activity import changed
+    changed()
     try:
         yield
     finally:
         with _update_mutex:
             _update_jobs -= 1
+        changed()
+
+
+def operations_busy():
+    with _update_mutex:
+        return bool(_update_jobs)
 
 
 def claim_launcher_update() -> bool:

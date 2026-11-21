@@ -115,15 +115,20 @@ for builder in ("build-linux-appimage", "build-windows-exe", "build-macos"):
     check(f"{builder} uploads to the path the version job set",
           "RELEASE_TAG: ${{ needs.release.outputs.tag }}" in block)
 pub = job_block("publish")
-check("the untested macOS builder is disabled", "if: ${{ false }}" in job_block("build-macos"))
-check("publish does not wait for the disabled macOS builder", "build-macos" not in pub)
+check("both Mac architectures build on native runners",
+      all(label in job_block("build-macos") for label in ("macos-15-intel", "macos-15", "arch: arm64", "arch: x64"))
+      and "if: ${{ false }}" not in job_block("build-macos"))
+check("publish waits for both Mac builds", "build-macos" in pub)
 check("publish waits for supported builders",
       all(f"- {b}" in pub.split("needs:")[1].split("\n")[0] or b in pub
           for b in ("build-linux-appimage", "build-windows-exe")))
 check("Windows packaging verifies the actual installer transactions",
       "test_launcher_installers.py --native-windows" in job_block("build-windows-exe"))
-check("Windows packaging has no dependency on the removed automatic updater",
-      "test_auto_update.py" not in job_block("build-windows-exe"))
+check("Windows packaging verifies the native update handoff",
+      "test_auto_update.py --native-windows" in job_block("build-windows-exe"))
+check("publication verifies manifest digests and referenced patches",
+      "build_updates.py verify" in pub)
+check("Mac packages must pass native startup", "test_macos_package.py --native" in job_block("build-macos"))
 windows_tests = extract_run("Run startup-critical tests")
 windows_loop = windows_tests.split("foreach ($t in $tests) {", 1)[-1]
 check("Windows startup suites cannot share an instance storage registry",
@@ -526,6 +531,8 @@ try:
     COMPLETE = ["Cubeon-Windows-x64-Setup.exe",
                 "Cubeon-x86_64.AppImage",
                 "Cubeon-Linux-x86_64-Setup.sh", "Cubeon-Linux-x86_64-Setup.AppImage",
+                "Cubeon-macOS-arm64.zip", "Cubeon-macOS-x64.zip",
+                "Cubeon-Windows-x64-update.json", "Cubeon-Linux-x64-update.json",
                 "cubeon_1.1.3_amd64.deb"]
     (sim.state / "assets" / "v1.1.3").write_text(
         "Cubeon-macOS.zip\n", encoding="utf-8")

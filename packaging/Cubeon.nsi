@@ -41,7 +41,8 @@ OutFile "${OUTPUT_DIR}\Cubeon-Windows-x64-Setup.exe"
 InstallDir "$LOCALAPPDATA\Cubeon"
 InstallDirRegKey HKCU "Software\Cubeon" "InstallDir"
 RequestExecutionLevel user
-SetCompressor /SOLID lzma
+; Independent file streams preserve unchanged runtime bytes for incremental updates.
+SetCompressor lzma
 ; Keep the file-details panes collapsed: the default "show" turned every
 ; install into a terminal-like scroll of extracted paths.
 ShowInstDetails hide

@@ -430,6 +430,9 @@ jobs:
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
         run: python3 tools/write_cf_key.py
 
+      - name: Test Linux update transfers and handoff
+        run: python tools/test_auto_update.py
+
       - name: Build Linux AppImage
         env:
           CUBEON_REQUIRE_CPU_CHECK: "1"
@@ -437,6 +440,18 @@ jobs:
           chmod +x packaging/build_appimage.sh
           ./packaging/build_appimage.sh
           python packaging/build_linux_installers.py
+
+      - name: Build and attach linux incremental update assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -m pip install -r packaging/update-requirements.txt
+          python packaging/build_updates.py build --platform linux --version "$RELEASE_VERSION" --target dist/Cubeon-x86_64.AppImage --output dist/updates --published-bases
+          shopt -s nullglob
+          assets=(dist/updates/*-update.json dist/updates/*.bsdiff)
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
 
       - name: Upload Linux AppImage Artifact
         # Publish artifacts only for tagged releases. A single run's
@@ -554,11 +569,26 @@ jobs:
       - name: Test Windows installer transactions
         run: python tools/test_launcher_installers.py --native-windows
 
+      - name: Test Windows update handoff
+        run: python tools/test_auto_update.py --native-windows
+
       - name: Build Windows installer payload
         run: python packaging/build_windows.py
 
       - name: Build Windows installer (NSIS)
         run: python packaging/build_windows_installer.py
+
+      - name: Build and attach windows incremental update assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -m pip install -r packaging/update-requirements.txt
+          python packaging/build_updates.py build --platform windows --version "$RELEASE_VERSION" --target dist/Cubeon-Windows-x64-Setup.exe --output dist/updates --published-bases
+          shopt -s nullglob
+          assets=(dist/updates/*-update.json dist/updates/*.bsdiff)
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
 
       - name: Publish Windows installer to the release
         shell: bash
@@ -567,11 +597,17 @@ jobs:
         run: gh release upload "$RELEASE_TAG" dist/Cubeon-Windows-x64-Setup.exe --clobber
 
   build-macos:
-    name: Build macOS app
-    # Untested: retain the build recipe, but do not offer macOS releases yet.
-    if: ${{ false }}
+    name: Build macOS (${{ matrix.arch }})
     needs: release
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
     env:
@@ -611,22 +647,44 @@ jobs:
           chmod +x packaging/build_macos.sh
           ./packaging/build_macos.sh
 
+      - name: Verify macOS bundle and native startup
+        run: python tools/test_macos_package.py --native --arch "${{ matrix.arch }}"
+
       - name: Publish macOS app to the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ditto -c -k --sequesterRsrc --keepParent dist/Cubeon Cubeon-macOS.zip
-          gh release upload "$RELEASE_TAG" Cubeon-macOS.zip --clobber
+          gh release upload "$RELEASE_TAG" "dist/Cubeon-macOS-${{ matrix.arch }}.zip" --clobber
 
   publish:
     name: Verify assets + publish the release
-    needs: [ release, build-linux-appimage, build-windows-exe ]
+    needs: [ release, build-linux-appimage, build-windows-exe, build-macos ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Checkout release verification tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Set up Python for release verification
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify incremental update assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python -m pip install requests
+          python packaging/build_updates.py verify --tag "$TAG"
+
       - name: Verify every asset landed
         # A release that goes public missing a binary is worse than a late
         # release: /releases/latest feeds the in-app updater AND
@@ -642,6 +700,8 @@ jobs:
           missing=0
           for want in Cubeon-Windows-x64-Setup.exe \
                       Cubeon-x86_64.AppImage \
+                      Cubeon-macOS-arm64.zip Cubeon-macOS-x64.zip \
+                      Cubeon-Windows-x64-update.json Cubeon-Linux-x64-update.json \
                       Cubeon-Linux-x86_64-Setup.sh Cubeon-Linux-x86_64-Setup.AppImage; do
             if ! grep -qxF "$want" <<<"$have"; then
               echo "::error::$TAG is missing $want"

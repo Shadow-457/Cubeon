@@ -42,6 +42,23 @@ log = logging.getLogger(__name__)
 MAX_CONCURRENT_DOWNLOADS = 4
 DOWNLOAD_GATE = threading.BoundedSemaphore(MAX_CONCURRENT_DOWNLOADS)
 
+_DOWNLOAD_COUNT = 0
+_DOWNLOAD_COUNT_LOCK = threading.Lock()
+
+
+def active_downloads():
+    with _DOWNLOAD_COUNT_LOCK:
+        return _DOWNLOAD_COUNT
+
+
+def _download_activity(delta):
+    global _DOWNLOAD_COUNT
+    with _DOWNLOAD_COUNT_LOCK:
+        _DOWNLOAD_COUNT += delta
+    from .update_activity import changed
+    changed()
+
+
 DEFAULT_ATTEMPTS = 3
 BACKOFF_BASE = 1.5  # seconds; doubled each retry: 1.5s, 3s, 6s...
 
@@ -330,6 +347,7 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
         DOWNLOAD_GATE.acquire()
     elif not DOWNLOAD_GATE.acquire(timeout=max(0, deadline - time.monotonic())):
         raise DownloadError("Download time limit reached while waiting; retry the download")
+    _download_activity(1)
     try:
         for attempt in range(attempts):
             if cancel_check is not None:
@@ -406,4 +424,5 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
         raise
     finally:
         DOWNLOAD_GATE.release()
+        _download_activity(-1)
     raise DownloadError(human(f"Couldn't download {url}: {last_err}"))
