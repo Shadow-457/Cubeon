@@ -251,11 +251,45 @@ author|body|createdAt|publishedAt|tarballUrl|zipballUrl|targetCommitish|uploadUr
 esac
 '''
 
+GIT_STUB = r'''#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = push ] && [[ " $* " == *":refs/tags/"* ]] && [ -n "${TAG_PUSH_FAULT:-}" ]; then
+  attempts=0
+  [ ! -f "$RELSTATE/tag-attempts" ] || read -r attempts < "$RELSTATE/tag-attempts"
+  attempts=$((attempts + 1))
+  echo "$attempts" > "$RELSTATE/tag-attempts"
+  printf '%s\n' "$*" >> "$RELSTATE/tag-attempt-refs"
+  case "$TAG_PUSH_FAULT" in
+    transient)
+      if [ "$attempts" -le 2 ]; then
+        echo "remote: fatal: unable to rename temporary '*.pack' file" >&2
+        echo "! [remote rejected] release -> tag (missing necessary objects)" >&2
+        exit 1
+      fi;;
+    lost-response)
+      if [ "$attempts" -eq 1 ]; then
+        "$REAL_GIT" "$@"
+        echo "fatal: the remote end hung up unexpectedly" >&2
+        exit 1
+      fi;;
+    exhausted)
+      echo "remote: fatal: unable to rename temporary '*.pack' file" >&2
+      exit 1;;
+    denied)
+      echo "remote: Permission denied" >&2
+      exit 1;;
+  esac
+fi
+exec "$REAL_GIT" "$@"
+'''
+
 
 class Sim:
     """A throwaway git repo + gh stand-in that can run the workflow's steps."""
 
     def __init__(self) -> None:
+        self.real_git = shutil.which("git")
+        assert self.real_git, "git is required for release workflow checks"
         self.dir = Path(tempfile.mkdtemp(prefix="cubeon-release-pipeline-"))
         self.origin = self.dir / "origin.git"
         self.work = self.dir / "work"
@@ -287,6 +321,14 @@ class Sim:
         gh = self.bin / "gh"
         gh.write_text(GH_STUB, encoding="utf-8")
         gh.chmod(gh.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        git = self.bin / "git"
+        git.write_text(GIT_STUB, encoding="utf-8")
+        git.chmod(0o755)
+        # Exercise the real retry loop without spending its backoff time.
+        sleep = self.bin / "sleep"
+        sleep.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$1" >> "$RELSTATE/tag-backoffs"\n',
+                         encoding="utf-8")
+        sleep.chmod(0o755)
 
         self.git("init", "--bare", "-q", str(self.origin), cwd=self.dir)
         self.git("init", "-q", "-b", "main", cwd=self.work)
@@ -317,6 +359,7 @@ class Sim:
             "PATH": f"{self.bin}:{env.get('PATH', '')}",
             "HOME": str(self.home),
             "GH_TOKEN": "fake",
+            "REAL_GIT": self.real_git,
             "RELSTATE": str(self.state),
             "GITHUB_REPOSITORY": "fake/repo",
             "GITHUB_OUTPUT": str(self.dir / "gh_output"),
@@ -549,6 +592,35 @@ try:
           not sim.has("prerelease", "v1.5.0"))
 finally:
     sim.cleanup()
+
+section("9. GitHub tag-write failures do not change the reserved version")
+for fault, expected_attempts, succeeds in (
+        ("transient", 3, True), ("lost-response", 1, True),
+        ("exhausted", 5, False), ("denied", 1, False)):
+    sim = Sim()
+    try:
+        pushed = sim.push("tag-write regression")
+        rc = sim.run_step(RELEASE_STEP, "refs/heads/main", pushed, TAG_PUSH_FAULT=fault)
+        log = sim.log.read_text()
+        check(f"{fault}: expected workflow outcome", (rc == 0) == succeeds, log[-600:])
+        check(f"{fault}: bounded tag write attempts",
+              int((sim.state / "tag-attempts").read_text()) == expected_attempts)
+        refs = (sim.state / "tag-attempt-refs").read_text().splitlines()
+        check(f"{fault}: every attempt uses the same tag and commit", len(set(refs)) == 1)
+        check(f"{fault}: no version skipped or unrelated tag changed",
+              sim.tags() == (["v1.1.2", "v1.1.3"] if succeeds else ["v1.1.2"]))
+        if succeeds:
+            check(f"{fault}: tag targets the stamped source commit",
+                  sim.released("") == "1.1.3"
+                  and sim.git("rev-parse", "v1.1.3^{commit}", cwd=sim.origin)
+                  == sim.git("rev-parse", "HEAD"))
+        else:
+            check(f"{fault}: no draft opened after failure", not sim.has("releases", "v1.1.3"))
+        if fault == "exhausted":
+            check("exhausted: retries use bounded exponential backoff",
+                  (sim.state / "tag-backoffs").read_text().splitlines() == ["1", "2", "4", "8"])
+    finally:
+        sim.cleanup()
 
 print()
 if failed:

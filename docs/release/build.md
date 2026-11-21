@@ -187,6 +187,10 @@ use the current workflow if a rebuild is needed.
 The [release workflow](../../.github/workflows/build.yml) creates a draft,
 builds the platform assets from its tag, and verifies the assets before
 publishing. Betas are prereleases and must not replace the stable download.
+Tag reservation retries failed GitHub writes up to five times at the same commit
+and version. A tag already pointing at that commit counts as success; only a
+confirmed different target advances the version. Permission failures still stop
+the release, and no existing tag is overwritten.
 The test jobs run separately; successful publishing does not imply that
 every test passed.
 

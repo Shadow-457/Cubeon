@@ -201,6 +201,36 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch --tags --force --quiet
 
+          # GitHub can fail a ref write after accepting the branch's objects, or
+          # accept the tag and lose the response. Retry the same tag and commit;
+          # only a confirmed different target is a version collision.
+          reserve_tag() {
+            local commit="$1" tag="$2" remote attempt
+            for attempt in 1 2 3 4 5; do
+              if git push origin "$commit:refs/tags/$tag" >/tmp/tagpush.log 2>&1; then
+                return 0
+              fi
+              remote="$(git ls-remote --refs origin "refs/tags/$tag" 2>/dev/null)" || remote=""
+              remote="${remote%%$'\t'*}"
+              if [ "$remote" = "$commit" ]; then
+                echo "$tag already points at the intended commit"
+                return 0
+              elif [ -n "$remote" ]; then
+                return 2
+              fi
+              if grep -qiE 'authentication failed|permission.*denied|repository not found|protected tag|GH013' /tmp/tagpush.log; then
+                break
+              fi
+              if [ "$attempt" -lt 5 ]; then
+                echo "::warning::tag write failed; retrying $tag at the same commit (attempt $attempt/5)"
+                sleep "$((1 << (attempt - 1)))"
+              fi
+            done
+            cat /tmp/tagpush.log >&2
+            echo "::error::could not create the tag $tag"
+            return 1
+          }
+
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             # A human cut this tag on purpose: it is the version, no maths.
             VERSION="${GITHUB_REF_NAME#v}"
@@ -266,14 +296,12 @@ jobs:
                   exit 1
                 fi
                 TAG="v$VERSION"
-                if git push origin "$SHA:refs/tags/$TAG" >/tmp/tagpush.log 2>&1; then
+                if reserve_tag "$SHA" "$TAG"; then
                   echo "tagged $SHA as $TAG"
                   break
-                fi
-                if ! grep -qi "already exists" /tmp/tagpush.log; then
-                  cat /tmp/tagpush.log >&2
-                  echo "::error::could not create the tag $TAG"
-                  exit 1
+                else
+                  result=$?
+                  [ "$result" -eq 2 ] || exit 1
                 fi
                 echo "::warning::$TAG was taken meanwhile; trying the next version"
                 VERSION="$(python3 tools/release_version.py bump "$VERSION")"
