@@ -808,6 +808,8 @@ pub struct Frame<'a> {
     /// `Screen.extractBlurredBackground`: blur the frame by this radius
     /// (`menuBackgroundBlurriness`) before the screen is drawn over it.
     pub menu_blur: Option<f32>,
+    /// A current-scene camera exposure vector in UV units, before all GUI draws.
+    pub camera_blur: Option<[f32; 2]>,
     /// `Options.chunkSectionFadeInTime`, in seconds: how long a section takes to fade in once
     /// uploaded (0 draws it whole at once).
     pub chunk_fade: f32,
@@ -1205,6 +1207,7 @@ pub struct Renderer {
     pub hud: HudRenderer,
     /// Vanilla's menu background blur, made on first use.
     menu_blur: Option<crate::menu_blur::MenuBlur>,
+    camera_blur: Option<crate::menu_blur::MenuBlur>,
     /// `post_effect` chains, made on first use.
     post_effects: Option<crate::post_chain::PostEffects>,
     /// Where a screenshot's frame is drawn when the swapchain cannot be read back.
@@ -4425,6 +4428,7 @@ impl Renderer {
             separate_ao: false,
             hud,
             menu_blur: None,
+            camera_blur: None,
             post_effects: None,
             readback: readback::Readback::default(),
             info,
@@ -10184,6 +10188,30 @@ impl Renderer {
                 &frame.post_effects,
                 timing.as_mut(),
             );
+        }
+        if let Some(vector) = frame.camera_blur.filter(|_| {
+            !frame.title
+                && target_texture
+                    .usage()
+                    .contains(wgpu::TextureUsages::COPY_SRC)
+        }) {
+            let device = &self.device;
+            self.camera_blur
+                .get_or_insert_with(|| {
+                    crate::menu_blur::MenuBlur::new(device, self.frame_format, false)
+                })
+                .exposure(
+                    device,
+                    &self.queue,
+                    encoder,
+                    target_texture,
+                    view_target,
+                    [self.config.width, self.config.height],
+                    vector,
+                    timing.as_mut(),
+                );
+        } else {
+            self.camera_blur = None;
         }
         if !frame.screen.is_empty() {
             let attachments = [Some(wgpu::RenderPassColorAttachment {

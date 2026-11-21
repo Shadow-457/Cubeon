@@ -7,6 +7,11 @@ use winit::{event::MouseButton, keyboard::KeyCode};
 
 /// (name, default key, category) in Options.keyMappings order.
 pub const MAPPINGS: &[(&str, &str, &str)] = &[
+    ("key.cubeon.menu", "key.keyboard.k", "cubeon"),
+    ("key.cubeon.chat", "key.keyboard.g", "cubeon"),
+    ("key.cubeon.emotes", "key.keyboard.b", "cubeon"),
+    ("key.cubeon.zoom", "key.keyboard.c", "cubeon"),
+    ("key.cubeon.freelook", "key.keyboard.left.alt", "cubeon"),
     ("key.attack", "key.mouse.left", "gameplay"),
     ("key.use", "key.mouse.right", "gameplay"),
     ("key.forward", "key.keyboard.w", "movement"),
@@ -79,7 +84,7 @@ pub fn is_toggle(name: &str) -> bool {
     matches!(name, "key.sneak" | "key.sprint" | "key.use" | "key.attack")
 }
 /// KeyMapping.Category sort order.
-pub const CATEGORIES: [&str; 8] = [
+pub const CATEGORIES: [&str; 9] = [
     "movement",
     "misc",
     "multiplayer",
@@ -88,6 +93,7 @@ pub const CATEGORIES: [&str; 8] = [
     "creative",
     "spectator",
     "debug",
+    "cubeon",
 ];
 
 /// InputConstants key names <-> winit physical keys.
@@ -395,7 +401,7 @@ impl KeyBinds {
     fn translated_mappings<'a>(&'a self, key: &'a str) -> impl Iterator<Item = &'static str> + 'a {
         MAPPINGS
             .iter()
-            .filter(|m| m.2 != "debug")
+            .filter(|m| m.2 != "debug" && m.2 != "cubeon")
             .map(|m| m.0)
             .filter(move |n| self.get(n) == key)
     }
@@ -404,7 +410,7 @@ impl KeyBinds {
     fn default_moved(&self, key: &str) -> bool {
         MAPPINGS
             .iter()
-            .any(|(n, d, c)| *d == key && *c != "debug" && !self.is_default(n))
+            .any(|(n, d, c)| *d == key && *c != "debug" && *c != "cubeon" && !self.is_default(n))
     }
     /// Translate a physical key into the default key of the mapping it is
     /// bound to, so game code written against vanilla defaults follows the

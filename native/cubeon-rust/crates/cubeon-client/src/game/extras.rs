@@ -211,9 +211,13 @@ impl Game<'_> {
     /// A mod's zoom in effect (`native_zoom`): (factor, smooth, turning
     /// scale); none is 1.
     fn zoom_now(&self) -> (f32, bool, f64) {
-        if self.companion.enabled && self.screen == super::Screen::Playing && self.title.is_none()
-            && self.player.is_some() && !self.screen_over_playing()
-            && self.physical_keys.contains(&winit::keyboard::KeyCode::KeyC) {
+        if self.companion.enabled
+            && self.screen == super::Screen::Playing
+            && self.title.is_none()
+            && self.player.is_some()
+            && !self.screen_over_playing()
+            && self.cubeon_binding_down("key.cubeon.zoom")
+        {
             let factor = self.companion.number("zoomFactor", 4., 1.25, 8.);
             return (factor, true, f64::from(1. / factor));
         }

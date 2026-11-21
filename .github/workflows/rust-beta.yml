@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'native/cubeon-rust/**'
+      - 'mod/src/main/java/com/cubeon/client/ui/HudIcon.java'
+      - 'mod/src/main/resources/assets/cubeon-client/lang/**'
+      - 'mod/src/main/resources/assets/cubeon-client/textures/ui/**'
+      - 'assets/icon_128.png'
       - 'cubeon/rust_engine.py'
       - 'tools/build_rust_engine.py'
       - 'tools/fetch_rust_build_inputs.py'

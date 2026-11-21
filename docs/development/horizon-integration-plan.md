@@ -42,14 +42,15 @@ public Cubeon skins/capes, with explicit slim models and transparent hidden cape
 It honors the launcher's skin-management preference. This implements the native
 appearance loader; it does not install or execute the Java CustomSkinLoader JAR.
 
-The native Cubeon Client opens with **Right Shift** or the pause-menu button.
+The native Cubeon Client opens with **K** or the pause-menu button; **Right Shift**
+remains an alias while the menu binding is unchanged.
 It provides HUD overlays, a drag/resize editor, auto sprint, enemy health,
 **C** zoom, **Left Alt** freelook and a **B** emote wheel. Controls wait until
 world loading finishes. HUD preferences use `config/cubeon-client-hud.json`.
 Friends, messages and emotes use Cubeon's authenticated launcher loopback bridge,
 and the existing native sharing screen remains available. The launcher client
-preference controls the companion. Full cosmetic geometry and camera motion blur
-remain outside the native implementation.
+preference controls the companion. Camera motion blur uses the current world image
+before the HUD. Full cosmetic geometry remains outside the native implementation.
 
 The UI labels **1000 FPS as a target**. The smoke captures establish working
 native rendering, not measured FPS or a guarantee for any computer.
@@ -178,7 +179,27 @@ x64 artifacts and merges verified platform manifests. It does not publish.
 The published Linux/Windows artifacts passed CI and archive verification;
 Windows gameplay remains unverified.
 
+## Native Cubeon Client
+
+The native client shares Fabric's menu artwork, HUD settings and client themes.
+K opens its searchable feature menu and HUD editor, G opens launcher-backed
+friends/chat, B opens the emote wheel, C holds zoom and Left Alt holds freelook.
+These inputs can be changed in the native Controls settings; Right Shift remains
+an alias for the default menu binding. Messages and friend actions wait for exact
+launcher results, preserving drafts when a send fails or the account changes.
+Camera motion blur uses the current world image before the HUD. Enemy health
+shows a heart and rounded-up heart count beneath visible enemy names.
+
+In-game wardrobe and additional cosmetic rendering are excluded from this change.
+GUI verification of this revision is intentionally left to the user. A source push
+builds CI artifacts; it does not replace the separately published Rust runtime.
+The local source launcher can use a verified same-beta bundle built from this checkout.
+
 ## Verification and remaining work
+
+The checks below include earlier native releases and content-mod integration.
+This client revision has non-GUI checks only; its interactive controls and rendering
+remain for the user to verify.
 
 Completed checks:
 

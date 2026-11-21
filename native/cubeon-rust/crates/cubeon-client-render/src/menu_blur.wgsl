@@ -21,6 +21,14 @@ struct Out {
     return out;
 }
 @fragment fn fs_main(in: Out) -> @location(0) vec4<f32> {
+    // Cubeon's 8 ms camera exposure: current scene only, before every HUD layer.
+    if blur.radius.y > 0.0 {
+        var color = vec3(0.0);
+        for (var i = 0; i < 12; i += 1) {
+            color += textureSampleLevel(src, samp, in.uv + blur.size_dir.zw * (f32(i) / 11.0 - 0.5), 0.0).rgb;
+        }
+        return vec4(color / 12.0, 1.0);
+    }
     let step = blur.size_dir.zw / blur.size_dir.xy;
     let radius = round(blur.radius.x);
     var blurred = vec4(0.0);

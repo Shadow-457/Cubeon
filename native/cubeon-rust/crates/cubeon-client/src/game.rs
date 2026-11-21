@@ -126,6 +126,8 @@ mod extras;
 mod companion;
 mod companion_emotes;
 mod companion_hud;
+mod companion_menu;
+mod companion_social;
 mod falling_damage;
 mod fangs;
 mod fireworks;
@@ -8436,6 +8438,7 @@ impl Game<'_> {
         self.draw_pad_cursor(&mut batch);
         self.resolve_inline_profiles(&batch.inline_profiles);
         self.cubeon_hud(&mut batch, false);
+        self.cubeon_notices(&mut batch);
         batch
     }
     fn hud_layers(&mut self, size: [u32; 2]) -> HudBatch {
@@ -11002,6 +11005,7 @@ impl Game<'_> {
         let mut see_through = std::mem::take(&mut self.see_through_vertices);
         see_through.clear();
         self.name_tag_geometry(camera, alpha, &mut out, &mut see_through);
+        self.cubeon_enemy_health(camera, alpha, &mut out);
         self.test_instance_marker_geometry(camera, &mut out, &mut see_through);
         self.debug_renderer_geometry(camera, &mut out);
         self.text_display_geometry(camera, alpha, &mut out, &mut see_through);
@@ -15994,6 +15998,22 @@ impl Game<'_> {
         let glowing = std::mem::take(self.glowing_vertices.get_mut());
         let shadow_only = std::mem::take(self.shadow_only_vertices.get_mut());
         let skin = std::mem::take(self.skin_frame.get_mut());
+        let blur_enabled = self.companion.enabled
+            && self.companion.boolean("cameraMotionBlur", false)
+            && self.screen == Screen::Playing
+            && !title
+            && !self.remote_loading();
+        let intensity = self.companion.number("cameraBlurIntensity", 1., 0., 1.) as f64;
+        let camera_blur = self.companion.camera_blur.update(
+            self.companion.blur_clock.elapsed().as_secs_f64(),
+            yaw as f64,
+            pitch as f64,
+            fov_degrees as f64,
+            self.gui_size().0 as f64 / self.gui_size().1.max(1.) as f64,
+            self.dim as u64,
+            blur_enabled,
+            intensity,
+        );
         let frame = Frame {
             weather: &weather,
             weather_time: cubeon_client::weather::Time::new(self.world.game_time, alpha as f32),
@@ -16126,6 +16146,7 @@ impl Game<'_> {
                 .boss_overlay
                 .darken_amount(self.clock.fraction() as f32),
             menu_blur: self.menu_blur(),
+            camera_blur,
             post_effects: cubeon_client::post_chain::Request {
                 effects: &requested_post_effects,
                 root: &self.options.resources,
@@ -17507,6 +17528,7 @@ impl Game<'_> {
             return;
         }
         let result: Result<()> = (|| {
+            if let WindowEvent::MouseInput {state,button,..}=&event && self.cubeon_mouse_shortcut(*button,*state==ElementState::Pressed) {return Ok(());}
             if let WindowEvent::MouseInput { state, button, .. } = &event
                 && !self.pad_synthetic_input()
             {
@@ -17684,7 +17706,7 @@ impl Game<'_> {
                     };
                     let d = scaled(raw_y) as f32;
                     if (self.screen != Screen::Friends || self.companion.open)
-                        && self.companion.scroll(d, self.screen) {
+                        && self.companion.scroll(d, self.screen, self.cursor) {
                         return Ok(());
                     }
                     // ScreenEvent.MouseScrolled.Pre: the open screen hears of
@@ -20749,6 +20771,7 @@ fn loading_frame(hud: &HudBatch) -> Frame<'_> {
         chunk_fade: 0.0,
         post_effects: cubeon_client::post_chain::Request::none(),
         menu_blur: None,
+        camera_blur: None,
     }
 }
 

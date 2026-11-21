@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import threading
 from unittest.mock import patch
 
@@ -46,7 +47,9 @@ fn main() {
     wait(||bridge.snapshot().chat["messages"].as_array().is_some_and(|m|!m.is_empty()) && bridge.snapshot().emotes["room"]=="a".repeat(64));
     let mut body=bridge.snapshot().friends.clone();body.as_object_mut().unwrap().clear();
     body["to"]="Peer&x".into();body["text"]="native fixture".into();
-    assert!(bridge.action("/dm",body));
+    let id=bridge.submit("/dm",body.clone()).expect("Message queued");
+    assert!(bridge.submit("/dm",body).is_none(),"Duplicate queued DM accepted");
+    wait(||bridge.snapshot().results.iter().any(|r|r.id==id&&r.ok));
     wait(||root.join("sent.json").exists());
     bridge.chat(String::new());wait(||root.join("closed.json").exists());
     println!("Compiled native local/remote appearance, slim model, cape hiding, opt-out and authenticated friends/chat/emotes passed.");
@@ -115,12 +118,14 @@ def main():
                 elif self.headers.get("X-Cubeon-Token") != token:
                     self.reply({"error": "unauthorized"}, 401)
                 elif self.path == "/friends":
-                    self.reply({"friends": [{"name": "Peer&x", "online": True}]})
+                    self.reply({"you":"Fixture", "connected":True, "friends": [{"name": "Peer&x", "online": True}]})
+                elif self.path.startswith("/events?"):
+                    self.reply({"events":[], "cursor":0})
                 elif self.path == "/players":
                     self.reply({"players": []})
                 elif self.path == "/emotes":
                     self.reply({"room": "a" * 64, "active": []})
-                elif self.path == "/chat?friend=Peer%26x&after=0":
+                elif self.path.startswith("/chat?friend=Peer%26x&after="):
                     seen.append("chat")
                     self.reply({"messages": [{"seq": 1, "text": "fixture"}]})
                 else:
@@ -129,6 +134,8 @@ def main():
             def do_POST(self):
                 assert self.headers.get("X-Cubeon-Token") == token
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if self.path == "/dm":
+                    time.sleep(.2)
                 if self.path in ("/dm", "/chatclose"):
                     (directory / ("sent.json" if self.path == "/dm" else "closed.json")).write_text(json.dumps(body))
                 self.reply({"ok": True})

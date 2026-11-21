@@ -498,5 +498,11 @@
   "cubeon.extras.cosmetics_auras.tooltip": "Auras and trails other players wear. Off by default.",
   "cubeon.extras.cosmetics.shown": "Shown",
   "cubeon.extras.cosmetics.hidden": "Hidden",
-  "cubeon.extras.cosmetics.name_tags": "Name tags only"
+  "cubeon.extras.cosmetics.name_tags": "Name tags only",
+  "key.category.minecraft.cubeon": "Cubeon Client",
+  "key.cubeon.menu": "Cubeon menu",
+  "key.cubeon.chat": "Cubeon friends and chat",
+  "key.cubeon.emotes": "Emote wheel",
+  "key.cubeon.zoom": "Zoom",
+  "key.cubeon.freelook": "Freelook"
 }

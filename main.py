@@ -5330,6 +5330,25 @@ async def main(page: ft.Page):
                     server = _session_watch["server"] or "That server"
                     _explain_offline_kick(server, username)
 
+            # Java is prepared when an instance is *installed*, but Play can be
+            # reached with nothing suitable: a profile copied from another PC, a
+            # managed runtime folder that was cleared, or Settings pointing at a
+            # JDK too new for an old version. Prepare it here too, so a first
+            # play on this machine is a download - never a Java error loop where
+            # pressing Play again can only repeat the same failure.
+            if not native:
+                with thread_safe_ui.TREE_LOCK:
+                    progress_stage.value = "JAVA"
+                    progress_label.value = "Preparing Java"
+                    progress_label.visible = True
+                thread_safe_ui.refresh(progress_card)
+                resolved_java = core.jre.prepare_launch_java(
+                    target_version, cfg.get("java_path"), status_cb=status_cb)
+                with thread_safe_ui.TREE_LOCK:
+                    progress_stage.value = "LAUNCHING"
+                    progress_label.value = "Launching"
+                thread_safe_ui.refresh(progress_card)
+
             game = core.launch_game(
                 target_version, username, cfg["ram_mb"], cfg["width"], cfg["height"],
                 cfg.get("java_path") if native else resolved_java, on_exit=on_exit,

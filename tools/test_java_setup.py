@@ -148,6 +148,70 @@ class JavaSelectionTests(unittest.TestCase):
         self.assertEqual(install.call_args.args[0], 8)
 
 
+class LaunchJavaTests(unittest.TestCase):
+    """Play on an instance that is already installed must never fail on Java.
+
+    The installer prepares Java, but the launch path used to trust the machine:
+    a copied profile, a cleared runtime folder or a too-new JDK in Settings made
+    every Play end in "Java could not be started", and pressing Play again - the
+    thing the message asked for - repeated it, because nothing on the launch path
+    ever downloaded a runtime.
+    """
+
+    def setUp(self):
+        import _sandbox_home  # noqa: F401  (isolates CUBEON_HOME)
+        self.root = Path(tempfile.mkdtemp(prefix="cubeon-launch-java-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+
+    def java(self, name, major=None, code=0):
+        path = self.root / name / "bin" / "java"
+        path.parent.mkdir(parents=True)
+        if code:
+            path.write_text(f"#!/bin/sh\nexit {code}\n")
+        else:
+            path.write_text(f"#!/bin/sh\necho 'openjdk version \"1.{major}.0\"' >&2\n"
+                            if major == 8 else f"#!/bin/sh\necho 'openjdk version \"{major}.0.1\"' >&2\n")
+        path.chmod(0o755)
+        return str(path)
+
+    def _no_usable_java(self, required=16):
+        """Pin "this machine has nothing this version can run" (real JDKs vary)."""
+        return patch.object(jre, "java_status",
+                            return_value={"ok": False, "required": required, "found": 21})
+
+    def test_missing_or_newer_java_is_downloaded_before_the_game_starts(self):
+        modern = self.java("modern", 21)
+        with self._no_usable_java(8), \
+                patch.object(jre, "install_jre", return_value="managed-java8") as install:
+            chosen = jre.prepare_launch_java("1.8.9-forge-11.15.1.2318-1.8.9", modern)
+        self.assertEqual(chosen, "managed-java8")
+        self.assertEqual(install.call_args.args[0], 8)
+
+    def test_a_working_java_is_reused_without_another_download(self):
+        java = self.java("system", 21)
+        with patch.object(jre, "install_jre") as install:
+            self.assertEqual(jre.prepare_launch_java("1.20.1", java), java)
+        install.assert_not_called()
+
+    def test_a_java_that_cannot_be_prepared_explains_the_next_step(self):
+        broken = self.java("broken", code=1)
+        with self._no_usable_java(), \
+                patch.object(jre, "install_jre", side_effect=jre.JreError("no network")):
+            with self.assertRaises(jre.JreError) as caught:
+                jre.prepare_launch_java("1.17.1", broken)
+        message = str(caught.exception)
+        self.assertIn("Java 16", message)
+        self.assertIn("press Play again", message)
+        self.assertIn("no network", message)
+
+    def test_cancellation_is_not_reported_as_a_java_failure(self):
+        broken = self.java("broken-cancel", code=1)
+        with self._no_usable_java(), \
+                patch.object(jre, "install_jre", side_effect=InterruptedError("cancelled")):
+            with self.assertRaises(InterruptedError):
+                jre.prepare_launch_java("1.17.1", broken)
+
+
 class JavaPlatformAndCancellationTests(unittest.TestCase):
     def test_native_cpu_architecture_is_used(self):
         for system, machine, expected in (("darwin", "arm64", "aarch64"),

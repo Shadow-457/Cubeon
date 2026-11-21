@@ -5946,7 +5946,7 @@ impl Game<'_> {
             right: held(KeyCode::KeyD),
             jump: held(KeyCode::Space),
             shift: held(KeyCode::ShiftLeft),
-            sprint: held(KeyCode::ControlLeft),
+            sprint: held(KeyCode::ControlLeft) || (playing && self.companion.enabled && self.companion.boolean("autoSprint", false)),
             analog: None,
         }
         .with_stick(stick.filter(|_| playing));

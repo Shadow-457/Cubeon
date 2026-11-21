@@ -75,11 +75,14 @@ impl Game<'_> {
     /// name, while that model shows in third person. Vanilla never names the
     /// camera entity (`LivingEntityRenderer.shouldShowName`).
     fn own_name_tag(&self) -> Option<(&Mob, String)> {
-        if !self.settings.extras.own_name_tag
+        if !(self.settings.extras.own_name_tag
+            || (self.companion.enabled && self.companion.boolean("showOwnNameTag", false)))
             || self.camera_type.first_person()
             || self.sleeping.is_some()
             || self.spectator()
             || self.own_invisible()
+            || self.ui.hide_gui
+            || self.riding.is_some()
         {
             return None;
         }
@@ -423,6 +426,156 @@ impl Game<'_> {
         }
         tags
     }
+    /// Fabric's heart + rounded-up heart count beneath visible enemy names.
+    pub(super) fn cubeon_enemy_health(
+        &mut self,
+        camera: glam::DVec3,
+        alpha: f64,
+        out: &mut Vec<Vertex>,
+    ) {
+        if !self.companion.enabled
+            || !self.companion.boolean("showEnemyHealth", false)
+            || self.ui.hide_gui
+            || self.player.is_none()
+        {
+            return;
+        }
+        let player = self.player.as_ref().unwrap();
+        let origin = glam::DVec3::new(player.position.x, player.position.y, player.position.z);
+        let viewer = self.player_team();
+        let target = self.mob_hit().map(|(i, _)| self.mobs[i].id);
+        let players = self.other_players();
+        let names: std::collections::HashMap<u32, String> =
+            players.into_iter().map(|(m, n)| (m.id, n)).collect();
+        let mut enemies: Vec<_> = self
+            .mobs
+            .iter()
+            .filter_map(|m| {
+                let is_player = names.contains_key(&m.id);
+                let team = if is_player {
+                    self.score.board.players_team(&names[&m.id])
+                } else {
+                    self.mob_team_of(m)
+                };
+                let allied = team.zip(viewer).is_some_and(|(a, b)| a.name == b.name);
+                let hidden = team.is_some_and(|t| {
+                    is_player
+                        && matches!(
+                            t.nametag_visibility,
+                            sb::Visibility::Never | sb::Visibility::HideForOtherTeams
+                        )
+                });
+                let distance = glam::DVec3::new(m.position.x, m.position.y, m.position.z)
+                    .distance_squared(origin);
+                if (!is_player && !m.hostile())
+                    || !m.health.is_finite()
+                    || !m.alive()
+                    || m.invisible
+                    || m.has_effect("minecraft:invisibility")
+                    || m.extra.spectator
+                    || m.extra.crouching
+                    || allied
+                    || hidden
+                    || distance > 24. * 24.
+                {
+                    return None;
+                }
+                let anchor = name_tag_at(m, alpha);
+                let eye = anchor + glam::DVec3::Y * (m.eye_height() - f64::from(m.height()) - 0.5);
+                let fallback = if !is_player
+                    && (!m.name_visible && Some(m.id) != target || m.custom_name.is_none())
+                {
+                    Some(
+                        Text::literal(m.custom_name.clone().unwrap_or_else(|| {
+                            cubeon_client::lang::get(&format!(
+                                "entity.{}",
+                                m.kind.id.replace(':', ".")
+                            ))
+                        }))
+                        .resolve_legacy(),
+                    )
+                } else {
+                    None
+                };
+                Some((
+                    distance,
+                    anchor,
+                    eye,
+                    ((m.health / 2.).ceil() as u32).min(9999),
+                    fallback,
+                ))
+            })
+            .collect();
+        enemies.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let forward = glam::DVec3::from_array(view_vector(self.view.y_rot, self.view.x_rot));
+        let right = forward.cross(glam::DVec3::Y).normalize_or_zero();
+        let up = right.cross(forward).normalize_or_zero();
+        let mut drawn = 0;
+        for (_, anchor, eye, hearts, fallback) in enemies {
+            if drawn >= 32 {
+                break;
+            }
+            if (anchor - camera).dot(forward) <= 0.05 || !self.cubeon_visible(camera, eye) {
+                continue;
+            }
+            self.mark_entity(out.len(), "minecraft:name_tag");
+            if let Some(name) = fallback {
+                let patches = self.name_tag_quads(
+                    anchor - camera,
+                    &[(name, 0.)],
+                    255,
+                    false,
+                    0,
+                    vertex_light(0xff),
+                    NAME_TAG_UNIT,
+                    out,
+                );
+                self.map_patches.extend(patches);
+            }
+            let number = hearts.to_string();
+            let width = 11. + HudBatch::text_width(&self.gui.atlas, &number);
+            let left = -width / 2.;
+            let mut batch = HudBatch::new([1, 1]);
+            batch.sprite_scaled(
+                &self.gui.atlas,
+                "gui/sprites/hud/heart/container",
+                left,
+                11.,
+                9.,
+                9.,
+                u32::MAX,
+            );
+            batch.sprite_scaled(
+                &self.gui.atlas,
+                "gui/sprites/hud/heart/full",
+                left,
+                11.,
+                9.,
+                9.,
+                u32::MAX,
+            );
+            batch.text(&self.gui.atlas, &number, left + 11., 11., u32::MAX, false);
+            let at = |x: f32, y: f32| {
+                (anchor - camera).as_vec3() + right.as_vec3() * (x * NAME_TAG_UNIT)
+                    - up.as_vec3() * (y * NAME_TAG_UNIT)
+            };
+            for quad in batch.vertices.as_chunks::<6>().0 {
+                for v in [quad[5], quad[2], quad[1], quad[0]] {
+                    out.push(Vertex {
+                        pos: at(v.pos[0], v.pos[1]).to_array(),
+                        uv: v.uv,
+                        normal: [0; 4],
+                        layer: 0,
+                        color: v.color,
+                        light: vertex_light(0xff),
+                        glint_uv: [0.; 2],
+                    });
+                }
+            }
+            self.map_patches.extend(batch.patches);
+            drawn += 1;
+        }
+    }
     /// `SubmitNodeCollection.submitNameTag`: a discrete name is drawn once,
     /// faded, on its background; any other in full over the world, its faded
     /// copy and background in `see_through`, over everything.
@@ -527,13 +680,7 @@ impl Game<'_> {
         const BACKGROUND: u32 = 0x3F00_0000;
         // The camera's facing (Camera.rotation()), turned round in third-person
         // front view, so the text reads the right way from where it is seen.
-        let (view_yaw, view_pitch) =
-            if self.camera_type == super::perspective::CameraType::ThirdPersonFront {
-                (self.yaw + 180.0, -self.pitch)
-            } else {
-                (self.yaw, self.pitch)
-            };
-        let forward = glam::DVec3::from_array(view_vector(view_yaw, view_pitch));
+        let forward = glam::DVec3::from_array(view_vector(self.view.y_rot, self.view.x_rot));
         let right = forward.cross(glam::DVec3::Y).normalize_or_zero();
         let up = right.cross(forward).normalize_or_zero();
         let away = forward.as_vec3() * 0.002;

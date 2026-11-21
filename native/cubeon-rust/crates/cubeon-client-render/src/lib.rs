@@ -94,6 +94,8 @@ pub mod signs;
 pub mod skins;
 pub mod cubeon_skins;
 pub mod cubeon_bridge;
+pub mod cubeon_blur;
+pub mod cubeon_ui;
 pub mod sound_engine;
 pub mod sound_events;
 pub mod sound_preview;

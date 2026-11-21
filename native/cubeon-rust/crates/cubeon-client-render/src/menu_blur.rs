@@ -41,6 +41,7 @@ pub struct MenuBlur {
     format: wgpu::TextureFormat,
     /// Blur at half size (`new`'s `software`).
     half: bool,
+    single: bool,
 }
 impl MenuBlur {
     /// `format` is the swapchain's; the blur works in its non-sRGB view. `software`:
@@ -140,6 +141,7 @@ impl MenuBlur {
             size: [0, 0],
             format,
             half: software,
+            single: false,
         }
     }
     /// The size the blur's rounds run at for a frame of `size`.
@@ -156,7 +158,9 @@ impl MenuBlur {
         }
         self.size = size;
         let work = self.work_size(size);
-        let sizes = if self.half {
+        let sizes = if self.single {
+            vec![size]
+        } else if self.half {
             vec![work, work, size]
         } else {
             vec![work, work]
@@ -189,6 +193,45 @@ impl MenuBlur {
     /// screen that does, which makes them again.
     pub fn release(&mut self) {
         self.targets.clear();
+    }
+    /// Reuse the post-process pipeline for one directional current-scene pass.
+    #[allow(clippy::too_many_arguments)]
+    pub fn exposure(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        frame: &wgpu::Texture,
+        target: &wgpu::TextureView,
+        size: [u32; 2],
+        vector: [f32; 2],
+        timing: Option<&mut crate::gfx::pack_timing::PassTiming>,
+    ) {
+        self.single = true;
+        self.half = false;
+        self.ensure(device, size);
+        encoder.copy_texture_to_texture(
+            frame.as_image_copy(),
+            self.targets[0].0.as_image_copy(),
+            wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+        );
+        self.pass(
+            device,
+            queue,
+            encoder,
+            0,
+            Uniform {
+                size_dir: [size[0] as f32, size[1] as f32, vector[0], vector[1]],
+                radius: [0., 1., 0., 0.],
+            },
+            &self.targets[0].1,
+            target,
+            timing,
+        );
     }
     /// Blur `frame` (the swapchain texture) in place through `target`, its
     /// non-sRGB view, by `radius` pixels (`menuBackgroundBlurriness`).

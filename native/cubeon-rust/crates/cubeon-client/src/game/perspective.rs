@@ -228,6 +228,26 @@ fn wrap(d: f32) -> f32 {
     }
 }
 impl Game<'_> {
+    pub(super) fn cubeon_visible(&self, from: glam::DVec3, to: glam::DVec3) -> bool {
+        let mut rays = VisualRays {
+            scene: SceneCollisions {
+                world: &self.world,
+                binding: self.collision,
+                subject: None,
+            },
+            facts: self.res.facts(),
+            context: CollisionContext::empty(false),
+        };
+        clip_world(
+            &mut rays,
+            Vec3::new(from.x, from.y, from.z),
+            Vec3::new(to.x, to.y, to.z),
+            RayBlockMode::Visual,
+            RayFluidMode::None,
+            4096,
+        )
+        .is_ok_and(|hit| hit.miss)
+    }
     /// `key.togglePerspective`.
     pub(super) fn cycle_camera(&mut self) {
         let previous = self.camera_type;

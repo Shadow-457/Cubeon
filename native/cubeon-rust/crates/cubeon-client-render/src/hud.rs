@@ -1285,6 +1285,7 @@ impl HudAtlas {
         images.push(("cubeon/logo".into(), width, height, pixels));
         images.push(("cubeon/white".into(), 4, 4, vec![255; 64]));
         if full {
+            images.extend(crate::cubeon_ui::images()?);
             Self::slots(&mut images, crate::trims::slot_size(root), mod_image);
             // MissingTextureAtlasSprite.generateMissingImage: 16x16, magenta
             // and black quarters.

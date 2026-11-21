@@ -464,4 +464,31 @@ def ensure_java_for_version(mc_version: str, java_path: str | None = None, *,
                        cancel_check=cancel_check)
 
 
+def prepare_launch_java(version_id: str, java_path: str | None = None, *,
+                        status_cb=None, progress_cb=None) -> str:
+    """The Java an already-installed instance should start with, prepared if needed.
+
+    The installer runs ensure_java_for_version before downloading game files, so
+    a fresh install is covered. Play can still be reached with nothing suitable:
+    the profile was copied from another PC, the managed runtime folder was
+    cleared (or swept by a disk cleaner), or Settings still points at a JDK too
+    new for an old version. Resolving it here turns that into a download on the
+    next Play instead of a "Java could not be started" loop - pressing Play
+    again cannot help while the launch path never prepared a runtime itself.
+    """
+    from .launch import exact_java_major, required_java_major
+    required = exact_java_major(version_id) or required_java_major(version_id)
+    try:
+        return ensure_java_for_version(version_id, java_path, progress_cb=progress_cb,
+                                       status_cb=status_cb)
+    except InterruptedError:
+        raise
+    except Exception as error:
+        raise JreError(
+            f"Java {required} is needed to play this instance, and Cubeon couldn't "
+            f"prepare it ({error}). Check the internet connection, then press Play "
+            f"again - or point Settings at a Java {required} installation."
+        ) from error
+
+
 

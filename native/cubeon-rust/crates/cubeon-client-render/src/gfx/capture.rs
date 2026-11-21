@@ -569,6 +569,7 @@ impl Scene {
             chunk_fade: 0.0,
             post_effects: crate::post_chain::Request::none(),
             menu_blur: None,
+            camera_blur: None,
         }
     }
 }

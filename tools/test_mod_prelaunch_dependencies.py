@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -29,6 +30,41 @@ def jar(identity, version, depends=None, nested=None, breaks=None):
         for key, child in (nested or {}).items():
             archive.writestr(f"META-INF/jars/{key}.jar", child)
     return buffer.getvalue()
+
+
+class FirstInstallCompatibilityTests(unittest.TestCase):
+    """A brand-new profile holds only Cubeon's own jar, and that must be clean.
+
+    The launch gate raises when the dependency doctor reports anything unfixed,
+    so if the bundled jar reading as broken (or as needing something the launcher
+    does not install) every first launch of a modded profile would stop at a
+    "review mod compatibility" screen the player never caused. Offline, because a
+    fresh install may well be offline.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = Path(self.temp.name) / "profiles"
+        self.folder.mkdir()
+        self.context = patch.object(mods, "PROFILES_DIR", str(self.folder))
+        self.context.start()
+        self.addCleanup(self.context.stop)
+
+    def test_bundled_client_jar_is_clean_for_every_loader_it_ships_for(self):
+        from cubeon import cubeonfriends
+        for mc, loader in (("1.21.1", "fabric"), ("1.21.1", "quilt"), ("1.8.9", "forge")):
+            with self.subTest(loader=loader):
+                bundled = cubeonfriends.find_jar(mc, loader=loader)
+                self.assertTrue(bundled, f"no bundled jar for {loader}")
+                profile = Path(mods.get_profile_dir(mc, loader))
+                shutil.rmtree(profile, ignore_errors=True)
+                profile.mkdir(parents=True)
+                shutil.copy(bundled, profile)
+                report = deps.run_dependency_doctor(mc, loader, check_online=False,
+                                                    auto_fix=False)
+                self.assertEqual(report["unfixed"], [], report)
+                self.assertEqual(report["checked"], 1, report)
 
 
 class DependencyTests(unittest.TestCase):
