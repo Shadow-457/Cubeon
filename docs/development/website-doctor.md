@@ -9,6 +9,9 @@ JVM flags, duplicate mods, required dependency versions and conflicts, Fabric
 entrypoints/mixins, Forge/NeoForge failure sections, missing classes/methods,
 corrupt archives, config syntax, file access/locks, connection/certificate
 errors, sessions, graphics contexts, stack overflow and native crashes.
+Java module export conflicts are recognized as installation errors, including
+Forge loading both its transformed Minecraft module and a vanilla client.
+The module after `to module` is a consumer, not a confirmed broken mod.
 Specific underlying errors take priority over generic loading wrappers. Mod
 targets come from explicit loader ownership or the report's suspected-mod
 section; class packages, mixin filename prefixes and loaded-mod tables never
@@ -44,7 +47,11 @@ its retry. Missing Groq configuration skips directly to Kilo; Groq alone can
 also serve a request, but both secrets are needed for the complete fallback.
 The application never accepts a client-selected provider, model or prompt.
 Both providers use the same evidence and safe-instruction validator. The
-client preserves the actual selected provider/model. It retains its local guide on failure and can cancel
+providers request JSON output; Kilo permits 4,096 output tokens with low
+reasoning effort so its router can finish the guide rather than returning
+empty content or a truncated JSON object. Groq's GPT-OSS models also use low
+reasoning effort. Output still must pass evidence and instruction validation.
+The client preserves the actual selected provider/model. It retains its local guide on failure and can cancel
 the request. Provider computation may continue after a disconnected client.
 
 The endpoint returns bounded failure codes distinguishing missing server
@@ -61,7 +68,11 @@ a limited Markdown subset (bold, inline code and paragraphs); raw HTML never ren
 Origin checks, **three analysis requests per rolling 30 minutes per address hash**,
 and eight simultaneous requests per function instance limit repeated calls.
 Provider fallback attempts count within one analysis. Denied requests do not
-extend the window; visitor HTTP 429 responses include `scope: "visitor"`, bounded
+consume a slot; failed or cancelled analyses refund their reserved slot, so
+provider errors do not exhaust a visitor's three successful guides. Pending
+analyses still reserve slots to bound concurrent requests. Provider limits apply
+to the site's shared credentials and are separate from the visitor window.
+Denied requests do not extend the window; visitor HTTP 429 responses include `scope: "visitor"`, bounded
 `retry_after` seconds and an accurate `Retry-After` header. Capacity saturation
 returns HTTP 503 `ai_busy` without consuming a visitor slot. The page distinguishes
 visitor limits from upstream provider limits and retains the local guide.

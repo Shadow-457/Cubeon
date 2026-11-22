@@ -23,7 +23,9 @@ async function main() {
     assert.equal(url,'https://ai-gateway.kilo.ai/api/v1/chat/completions');
     assert.equal(options.headers.Authorization,'Bearer synthetic-secret');
     const body=JSON.parse(options.body);assert.equal(body.model,'kilo-auto/free');
-    assert.equal(body.stream,false);assert.ok(body.max_tokens<=3000);
+    assert.equal(body.stream,false);assert.ok(body.max_tokens<=4096);
+    assert.deepEqual(body.response_format,{type:'json_object'});
+    assert.equal(body.reasoning.effort,'low');
     assert.ok(body.messages[0].content.includes('untrusted'));
     assert.doesNotMatch(options.body,/private|ignore instructions|synthetic-secret/);
   }
@@ -77,6 +79,20 @@ async function main() {
   assert.equal((await call(limited,fixed)).statusCode,200,'Oldest request expires at exactly 30 minutes');
   assert.equal((await call(limited,fixed)).statusCode,429,'Rolling window retains the other two requests');
   assert.equal((await call(limited,req({log},{'x-vercel-forwarded-for':'another-visitor'}))).statusCode,200);
+  let succeeds = false;
+  const refundable = createHandler({env:{KILO_API_KEY:'test'},fetch:async()=>succeeds
+    ? Response.json({choices:[{message:{content:JSON.stringify(guide)}}]})
+    : new Response('{}',{status:429})});
+  const retrying = req({log},{'x-vercel-forwarded-for':'failed-analysis-test'});
+  for (let i=0;i<4;i++) {
+    const failed = await call(refundable,retrying);
+    assert.equal(failed.statusCode,429);
+    assert.equal(failed.body.provider,'kilo');
+    assert.notEqual(failed.body.scope,'visitor');
+  }
+  succeeds = true;
+  for (let i=0;i<3;i++) assert.equal((await call(refundable,retrying)).statusCode,200);
+  assert.equal((await call(refundable,retrying)).body.scope,'visitor');
   // Saturation must not spend the waiting visitor's three analysis slots.
   const release=[];
   const congested=createHandler({env:{KILO_API_KEY:'test'},timeout:1000,

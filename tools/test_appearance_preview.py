@@ -19,7 +19,7 @@ from PIL import Image, ImageChops
 from cubeon import skins
 from cubeon import cosmetics
 from cubeon.appearance import CharacterModel, Face, RenderCancelled, render_faces
-from ui.appearance_preview import AppearancePreview, render_frame
+from ui.appearance_preview import AppearancePreview, RENDER_SIZE, render_frame
 from ui.settings_tab import SECTIONS
 from _fuzz_common import every_control, walk
 import app_driver
@@ -62,6 +62,15 @@ for yaw in range(0, 360, 30):
     scales.append(round(abs((face.points[2][1] - face.points[0][1])
                             / (face.vertices[2][1] - face.vertices[0][1])), 6))
 check("turning giant wings keeps one fixed camera scale", len(set(scales)) == 1)
+visible_textures = {index: face.texture for index, face in enumerate(giant.faces) if face.texture.getbbox()}
+reference_points = giant.project(25, 10, detail=False)
+low_points = giant.project(25, 10, size=RENDER_SIZE, padding=12, detail=False, textures=visible_textures)
+check("low-resolution fitting keeps the original scale and visible surfaces",
+      [face.index for face in low_points] == [face.index for face in reference_points]
+      and all(abs(low * 2 - high) < .000001
+              for small, full in zip(low_points, reference_points)
+              for low_point, high_point in zip(small.points, full.points)
+              for low, high in zip(low_point, high_point)))
 
 # Launcher turntables use the generated cutout texture; the full feather mesh
 # remains the default for geometry/game comparisons above.
@@ -279,7 +288,7 @@ def load_model(cfg, default_cape_path, cosmetics_dir=None):
 # Camera/mesh geometry is checked above. These fixtures focus on lifecycle
 # and the real Flet patch size without rasterising sixty full-size images.
 with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
-     patch("ui.appearance_preview.render_frame", return_value=Image.new("RGBA", (320, 440), "white")) as raster, \
+     patch("ui.appearance_preview.render_frame", return_value=Image.new("RGBA", RENDER_SIZE, "white")) as raster, \
      patch.object(CharacterModel, "from_config", side_effect=load_model), \
      patch("ui.appearance_preview.thread_safe_ui.refresh", side_effect=paints.append):
     stage.refresh(invalidate=True)
@@ -288,7 +297,9 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
     check("a stale asset load never replaces the selected skin",
           len(loads) == 2 and loads[-1]["active_skin"] == "newest.png" and len(stage._frames) == 1)
     check("opening renders only the visible angle and makes rotation ready",
-          raster.call_count == 2 and "Drag to rotate" in stage.note.value)
+          raster.call_count == 1 and "Drag to rotate" in stage.note.value)
+    check("opening uses the low-resolution canvas without a second render",
+          raster.call_args.kwargs["size"] == RENDER_SIZE and not stage._running)
     check("the asset worker exits once frames are ready", not stage._running)
     stage.turn(30)
     check("an uncached turn requests one worker without a glide thread", len(jobs) == 1)
@@ -333,10 +344,11 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
     check("rapid drag requests coalesce into one worker", len(jobs) == 1)
     jobs.pop(0)()
     check("drag follows the latest yaw and pitch", stage._shown == stage._camera_key() and stage.pitch == 16)
-    check("drag renders at native resolution", raster.call_args.args[2] == 1)
+    check("drag keeps the low-resolution canvas", raster.call_args.kwargs["size"] == RENDER_SIZE)
+    drag_render_count = raster.call_count
     stage._drag_end()
-    jobs.pop(0)()
-    check("release refines the same visible image", raster.call_args.args[2] == 2 and stage.image.visible and id(stage.image) == image_id)
+    check("release keeps the cached image without expensive refinement",
+          not jobs and raster.call_count == drag_render_count and stage.image.visible and id(stage.image) == image_id)
 
     # A pointer update landing mid-render must not discard every completed
     # interactive frame. The next request still follows the latest position.
@@ -348,7 +360,7 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
         if not completed:
             stage._drag_update(point(180, 120))
         completed.append(stage._camera_key())
-        return Image.new("RGBA", (320, 440), "red" if len(completed) == 1 else "blue")
+        return Image.new("RGBA", RENDER_SIZE, "red" if len(completed) == 1 else "blue")
     frame_keys = []
     def capture_frame(control):
         if control is stage.image:
@@ -363,12 +375,12 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
     if jobs:
         jobs.pop(0)()
 
-    # Starting another drag interrupts a costly settled-frame refinement.
-    cancelled_refine = threading.Event()
-    stage._refine_cancel = cancelled_refine
+    # Starting another drag interrupts an obsolete render, retaining its image.
+    cancelled_render = threading.Event()
+    stage._render_cancel = cancelled_render
     stage._drag_start(point(100, 100))
-    check("starting a drag interrupts background detail refinement", cancelled_refine.is_set())
-    stage._refine_cancel = None
+    check("starting a drag interrupts an obsolete background render", cancelled_render.is_set())
+    stage._render_cancel = None
     stage._drag_end()
     before_resize = raster.call_count
     stage.resize(180)

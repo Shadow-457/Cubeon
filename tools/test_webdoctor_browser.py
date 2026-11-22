@@ -110,7 +110,7 @@ def main():
             expect(page.locator('#result-source')).to_have_text('On-device check')
         print('PASS distinct configuration, credential, quota, timeout and invalid-response messages')
 
-        for mode,message in [('visitor_limit','3 AI requests'),('ai_busy','AI is busy'),('provider_limit','AI is busy')]:
+        for mode,message in [('visitor_limit','3 AI requests'),('ai_busy','AI is busy'),('provider_limit','shared provider quota')]:
             ai_mode[0]=mode
             page.locator('#ai-check').click()
             expect(page.locator('#doctor-status')).to_contain_text(message)

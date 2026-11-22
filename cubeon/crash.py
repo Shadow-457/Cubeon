@@ -29,6 +29,12 @@ _MARKERS = (
 )
 
 _RULES = (
+    ("installation", (
+        r"resolutionexception:\s*modules .+ export package",
+    ), "Two Java modules contain the same Minecraft packages, so Forge cannot start.",
+       "Update Cubeon and restart the launcher, then try the same instance. "
+       "Keep the full error if it repeats; the module after 'to module' is "
+       "not evidence that that mod is broken."),
     ("memory", (
         r"outofmemoryerror", r"java heap space", r"gc overhead limit",
         r"unable to allocate", r"not enough memory",

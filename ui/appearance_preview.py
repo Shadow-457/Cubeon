@@ -1,7 +1,7 @@
 """A responsive drag orbit with one persistent, gapless character image.
 
-A single worker coalesces camera/appearance requests. Drag frames render at native
-resolution; release refines the current angle. Cached angles never render again.
+A single worker coalesces camera/appearance requests. Every frame stays at low
+resolution, including after a drag. Cached angles never render again.
 """
 from collections import OrderedDict
 from io import BytesIO
@@ -20,15 +20,16 @@ from cubeon.theme import TEXT_DIM
 from ui.content_states import skeleton_block
 
 STAGE_W, STAGE_H = 320, 440
+RENDER_SIZE = (160, 220)
 STEPS = 360
-SUPERSAMPLE = 2
+SUPERSAMPLE = 1
 HOME_YAW, PITCH = 25.0, 10.0
 MAX_FRAMES = 64
 
 
-def render_frame(faces, textures, supersample=SUPERSAMPLE, *, cancel=None):
+def render_frame(faces, textures, supersample=SUPERSAMPLE, *, size=(STAGE_W, STAGE_H), cancel=None):
     """Keep the reference renderer's skin-layer and transparent-texel depth tests."""
-    return render_faces(faces, textures, size=(STAGE_W, STAGE_H), supersample=supersample, cancel=cancel)
+    return render_faces(faces, textures, size=size, supersample=supersample, cancel=cancel)
 
 
 def _png(image):
@@ -52,7 +53,6 @@ class AppearancePreview:
         self._pending = None
         self._running = False
         self._frames = OrderedDict()
-        self._quality = {}
         self._frames_generation = -1
         self._model = None
         self._textures = {}
@@ -61,7 +61,7 @@ class AppearancePreview:
         self._revision = 0
         self._shown_revision = -1
         self._target_key = self._camera_key()
-        self._refine_cancel = None
+        self._render_cancel = None
         self._drag = None
         self._page = page
         self._available_width = STAGE_W
@@ -74,7 +74,7 @@ class AppearancePreview:
         self.image = ft.Image(
             src=EMPTY_FRAME, width=STAGE_W, height=STAGE_H,
             fit=ft.BoxFit.FILL, gapless_playback=True,
-            filter_quality=ft.FilterQuality.MEDIUM, data="appearance-image",
+            filter_quality=ft.FilterQuality.LOW, data="appearance-image",
         )
         self.shadow = ft.Container(
             left=STAGE_W / 2 - 42, top=STAGE_H - 30, width=84, height=10,
@@ -139,13 +139,13 @@ class AppearancePreview:
                 self._target_key = key
                 self._revision += 1
                 self._requested_step = None
-                if self._refine_cancel is not None:
-                    self._refine_cancel.set()
+                if self._render_cancel is not None and self._drag is None:
+                    self._render_cancel.set()
             if self._frames_generation == self._generation:
                 data = self._frames.get(key)
             if data is not None:
                 self._frames.move_to_end(key)
-            if data is None or self._drag is None and self._quality.get(key, 0) < SUPERSAMPLE:
+            if data is None:
                 if self._model is not None or self._pending is not None:
                     self._requested_step = key
                     if not self._running:
@@ -207,8 +207,8 @@ class AppearancePreview:
         position = event.local_position
         with self._lock:
             self._drag = (position.x, position.y, self.yaw, self.pitch)
-            if self._refine_cancel is not None:
-                self._refine_cancel.set()
+            if self._render_cancel is not None:
+                self._render_cancel.set()
         with thread_safe_ui.TREE_LOCK:
             self.gesture.mouse_cursor = ft.MouseCursor.GRABBING
         thread_safe_ui.refresh(self.gesture)
@@ -266,8 +266,8 @@ class AppearancePreview:
         start = False
         with self._lock:
             if invalidate or not self._frames and not self._running:
-                if self._refine_cancel is not None:
-                    self._refine_cancel.set()
+                if self._render_cancel is not None:
+                    self._render_cancel.set()
                 self._generation += 1
                 self._shown_revision = -1
                 self._pending = (self._generation, dict(self.cfg))
@@ -312,7 +312,6 @@ class AppearancePreview:
                             continue
                         self._model, self._textures = model, textures
                         self._frames.clear()
-                        self._quality.clear()
                         self._frames_generation = generation
                         key = self._camera_key()
                         revision = self._revision
@@ -321,18 +320,19 @@ class AppearancePreview:
                 with self._lock:
                     if model is None or generation != self._generation:
                         continue
-                    quality = 1 if request is not None or self._drag is not None else SUPERSAMPLE
-                    cached = self._frames.get(key) if self._quality.get(key, 0) >= quality else None
-                    cancel = threading.Event() if quality > 1 else None
-                    self._refine_cancel = cancel
+                    cached = self._frames.get(key)
+                    cancel = threading.Event()
+                    self._render_cancel = cancel
                 if cached is not None:
                     self._publish(generation, key, cached, revision)
                     continue
                 step, pitch = key if isinstance(key, tuple) else (key, PITCH)
-                # Preserve raised skin caps, texture alpha, cape and cosmetics;
-                # tiny voxel side walls return when the camera settles.
-                faces = model.project(step * 360 / STEPS, pitch, detail=quality > 1)
-                frame = render_frame([face for face in faces if face.index in textures], textures, quality, cancel=cancel)
+                # Keep raised skin caps, depth/alpha, cape and solid cosmetic
+                # surfaces; subpixel walls and supersampling cost too much here.
+                faces = model.project(step * 360 / STEPS, pitch, size=RENDER_SIZE, detail=False,
+                                      padding=12, textures=textures)
+                frame = render_frame(faces, textures,
+                                     size=RENDER_SIZE, cancel=cancel)
                 if not frame.getchannel("A").getbbox():
                     raise ValueError("empty model")
                 data = _png(frame)
@@ -341,13 +341,9 @@ class AppearancePreview:
                         continue
                     self._frames[key] = data
                     self._frames.move_to_end(key)
-                    self._quality[key] = quality
                     while len(self._frames) > MAX_FRAMES:
                         oldest = next(candidate for candidate in self._frames if candidate != self._camera_key())
                         self._frames.pop(oldest)
-                        self._quality.pop(oldest, None)
-                    if quality == 1 and self._drag is None and self._requested_step is None:
-                        self._requested_step = self._camera_key()
                 self._publish(generation, key, data, revision)
             except RenderCancelled:
                 continue
@@ -362,4 +358,4 @@ class AppearancePreview:
                 thread_safe_ui.refresh(self.note)
             finally:
                 with self._lock:
-                    self._refine_cancel = None
+                    self._render_cancel = None

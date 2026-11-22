@@ -109,6 +109,10 @@ jobs:
               tools/test_startup.py
               tools/test_source_runtime.py
               tools/test_desktop_runtime.py
+              tools/test_runtime_libraries.py
+              tools/test_webdoctor.py
+              tools/test_cosmetics_picker.py
+              tools/test_skin_loading.py
               tools/test_fuzzy_search.py
               tools/test_modpack_search.py
               tools/test_mod_search.py

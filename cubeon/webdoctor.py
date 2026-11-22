@@ -27,7 +27,7 @@ def redact_log(text: str) -> str:
     text = re.sub(
         r'''(?ix)((?:--)?(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|
              api[_-]?key|client[_-]?secret|password|passwd|secret|--username)
-             ["']?\s*(?:[:=]\s*|\s+))["']?[^\s,"';}]+["']?''',
+             ["']?\s*(?:[:,=]\s*|\s+))["']?[^\s,"';}]+["']?''',
         r"\1[redacted]", text)
     text = re.sub(r"(?i)\b(?:C:|[A-Z]:)[\\/]Users[\\/][^\\/\s\"']+",
                   r"C:\\Users\\[user]", text)

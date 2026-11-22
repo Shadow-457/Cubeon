@@ -247,6 +247,22 @@ class InheritedClient(unittest.TestCase):
         self.child.write_text(json.dumps(data))
         self.assertEqual(self.entries(self.command())[-1], str(self.child.with_suffix(".jar")))
 
+    def test_modern_forge_ignored_profile_jar_does_not_become_a_second_minecraft_module(self):
+        ident = '1.20.1-forge-all-the-mods-9-no-frills'
+        base = self.profile('1.20.1', jar=True)
+        metadata = self.profile(ident, parent='1.20.1')
+        data = json.loads(metadata.read_text())
+        data['mainClass'] = 'cpw.mods.bootstraplauncher.BootstrapLauncher'
+        data['libraries'] = [{'name':'net.minecraftforge:fmlloader:1.20.1-47.4.0'}]
+        data['arguments']['jvm'] = ['-DignoreList=bootstraplauncher,client-extra,${version_name}.jar']
+        metadata.write_text(json.dumps(data))
+        command = self.command(ident)
+        self.assertNotIn(str(metadata.with_suffix('.jar')), self.entries(command))
+        self.assertNotIn(str(base.with_suffix('.jar')), self.entries(command))
+        self.assertIn('cpw.mods.bootstraplauncher.BootstrapLauncher', command)
+        self.assertIn('-DignoreList=bootstraplauncher,client-extra,' + ident + '.jar', command)
+        self.assertTrue(any('fmlloader-1.20.1-47.4.0.jar' in entry for entry in self.entries(command)))
+
     def test_missing_base_fails_before_java(self):
         self.base.with_suffix(".jar").unlink()
         with self.assertRaisesRegex(RuntimeError, "inherited Minecraft client JAR is missing"):

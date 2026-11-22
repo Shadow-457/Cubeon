@@ -1153,6 +1153,18 @@ def _normalize_inherited_client_jar(command: list[str], version_id: str) -> list
     data = versions._load_version_json(folder, version_id + ".json")
     if not data or not data.get("inheritsFrom") or "jar" in data:
         return command
+    # Modern Forge supplies its transformed Minecraft module itself and
+    # explicitly ignores mll's default profile JAR. Substituting vanilla here
+    # defeats that ignore rule and creates a second `_1._20._1` module.
+    ignored_profile = any(command[index].startswith("-DignoreList=") and
+                          os.path.basename(profile_jar) in command[index].split("=", 1)[1].split(",")
+                          for index in _jvm_option_positions(command, 1))
+    if "cpw.mods.bootstraplauncher.BootstrapLauncher" in command and ignored_profile:
+        cleaned = list(command)
+        for index in positions:
+            cleaned[index] = os.pathsep.join(entry for entry in command[index].split(os.pathsep)
+                                            if entry != profile_jar)
+        return cleaned
     # Recheck the bound in case metadata changes after validate_launch_profile.
     seen = {version_id}
     client_jar = profile_jar

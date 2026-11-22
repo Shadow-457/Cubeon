@@ -14,6 +14,10 @@ _sandbox_home.isolate()
 import _fuzz_common as fz
 from app_driver import DriverPage
 import flet as ft
+import msgpack
+from flet.controls.base_control import BaseControl
+from flet.controls.object_patch import ObjectPatch
+from flet.messaging.protocol import configure_encode_object_for_msgpack
 from PIL import Image
 from cubeon import cosmetics, thread_safe_ui
 from cubeon.theme import THEME, section_label, pixel_divider
@@ -61,10 +65,15 @@ class CosmeticsPicker(unittest.TestCase):
         control.on_click(None)
 
     def cards(self):
-        return [c for c in fz.walk(self.root) if callable(getattr(c, 'set_selected', None))]
+        return [c for c in self.picker_controls() if callable(getattr(c, 'set_selected', None))]
+
+    def picker_controls(self):
+        stack = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-panes')
+        pane = next(c for c in stack.controls if c.visible)
+        return fz.walk(pane)
 
     def apply(self, tooltip):
-        next(c for c in fz.walk(self.root) if isinstance(c, ft.Container)
+        next(c for c in self.picker_controls() if isinstance(c, ft.Container)
              and c.tooltip == tooltip).cubeon_keyboard_button.on_click(None)
 
     def test_one_click_retains_cards_images_and_skips_repeated_apply(self):
@@ -102,11 +111,50 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertTrue(all(c.visible for c in cards))
         self.assertEqual(self.page.update_calls, 0)
 
+    def test_one_thumbnail_worker_defers_hidden_panes_and_filtered_cards(self):
+        self.tab('Back')
+        self.assertEqual(len(self.jobs), 1)
+        self.tab('Pets')
+        self.assertEqual(len(self.jobs), 1)
+        self.jobs.pop(0)()
+        self.assertEqual(self.raster.call_count, len(cosmetics.items('shoulder')))
+        self.assertTrue(all(call.args[0]['slot'] == 'shoulder' for call in self.raster.call_args_list))
+        self.assertTrue(all(call.kwargs['size'] == (64, 64) for call in self.raster.call_args_list))
+        self.tab('Back')
+        self.tab('Small wings')
+        self.assertEqual(len(self.jobs), 1)
+        before = self.raster.call_count
+        self.jobs.pop(0)()
+        self.assertEqual(self.raster.call_count - before, 5)
+        self.assertTrue(all(call.args[0]['id'].endswith('_small')
+                            for call in self.raster.call_args_list[before:]))
+        self.tab('All')
+        self.jobs.pop(0)()
+        self.assertEqual(self.raster.call_count, len(cosmetics.items('back')) + len(cosmetics.items('shoulder')))
+        self.tab('Pets')
+        self.tab('Back')
+        self.assertFalse(self.jobs)
+        self.assertTrue(all(image.cache_width == image.width for card in self.cards()
+                            for image in fz.walk(card) if isinstance(image, ft.Image)))
+
+    def test_switching_during_thumbnail_render_does_not_drain_old_pane(self):
+        self.tab('Back')
+        def render(item, *args, **kwargs):
+            if item['slot'] == 'back':
+                self.tab('Pets')
+            return Image.new('RGBA', (64, 64), 'white')
+        self.raster.side_effect = render
+        self.jobs.pop(0)()
+        self.assertFalse(self.jobs)
+        self.assertEqual(sum(call.args[0]['slot'] == 'back' for call in self.raster.call_args_list), 1)
+        self.assertEqual(self.raster.call_count, 1 + len(cosmetics.items('shoulder')))
+        self.assertEqual(self.page.update_calls, 0)
+
     def test_remove_clears_only_the_current_slot(self):
         self.cfg['active_shoulder_item'] = 'shoulder_ember_fox'
         self.tab('Back')
         self.apply('Apply Ember Wings (Small)')
-        remove = next(c for c in fz.walk(self.root) if c.tooltip == 'Remove the equipped item')
+        remove = next(c for c in self.picker_controls() if c.tooltip == 'Remove the equipped item')
         self.assertFalse(remove.disabled)
         remove.on_click(None)
         self.assertIsNone(self.cfg['active_back_item'])
@@ -183,6 +231,66 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertFalse(self.cfg['hide_cubeon_cape'])
         self.assertEqual(cards, self.cards())
         self.assertEqual(self.page.update_calls, 0)
+
+    def test_cached_category_switch_only_sends_visibility_without_remounting(self):
+        self.tab('Back')
+        self.jobs.pop(0)()
+        self.tab('Pets')
+        self.jobs.pop(0)()
+        stack = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-panes')
+        ObjectPatch.from_diff(None, stack, BaseControl)
+        controls = [id(c) for c in fz.walk(stack)]
+        self.tab('Back')
+        with thread_safe_ui.update_scope(stack):
+            change, added, removed = ObjectPatch.from_diff(stack, stack, BaseControl)
+        encode = configure_encode_object_for_msgpack(BaseControl)
+        patch_bytes = msgpack.packb(change.to_message(), default=encode)
+        self.assertFalse(added)
+        self.assertFalse(removed)
+        self.assertEqual(controls, [id(c) for c in fz.walk(stack)])
+        self.assertNotIn(b'src', patch_bytes)
+        self.assertLess(len(patch_bytes), 2048)
+        self.assertEqual(sum(pane.visible for pane in stack.controls), 1)
+
+    def test_native_category_preparation_coalesces_without_catalogue_reads_on_click(self):
+        jobs = []
+        self.page.run_thread = lambda callback: jobs.append(callback)
+        with patch.object(thread_safe_ui, 'has_ui_loop', return_value=True):
+            self.root = skin_ui.build_skin_section(self.page, self.cfg,
+                section_label=section_label, pixel_divider=pixel_divider, **THEME,
+                mc_version='1.21.11', mc_loader='fabric',
+                file_picker=ft.FilePicker(), cape_file_picker=ft.FilePicker())
+        with patch.object(cosmetics, 'items', wraps=cosmetics.items) as catalogue:
+            self.tab('Back')
+            self.tab('Head')
+            self.tab('Pets')
+            self.assertEqual(len(jobs), 1)
+            self.assertEqual(catalogue.call_count, 0)
+            stack = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-panes')
+            self.assertEqual(sum(pane.visible for pane in stack.controls), 1)
+            jobs.pop(0)()
+            self.assertEqual(catalogue.call_count, 1)
+            self.assertEqual(catalogue.call_args.args[0], 'shoulder')
+            self.assertTrue(self.cards())
+
+    def test_superseded_library_read_cannot_restore_a_removed_item(self):
+        self.tab('Back')
+        stack = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-panes')
+        reload_items = next(pane for pane in stack.controls if pane.visible).content.load_items
+        current = cosmetics.items('back')
+        stale = dict(id='store_removed_fixture', slot='back', name='Removed Wings', blurb='Old revision')
+        first = True
+        def read(slot=None, directory=None):
+            nonlocal first
+            if first:
+                first = False
+                # A newer refresh completes while this older read is pending.
+                reload_items()
+                return current + [stale]
+            return current
+        with patch.object(cosmetics, 'items', side_effect=read):
+            self.assertFalse(reload_items())
+        self.assertFalse(any('removed wings' in fz.subtree_text(card) for card in self.cards()))
 
     def test_default_steve_card_has_real_art_and_clears_custom_skin(self):
         image = next(c for c in fz.walk(self.root) if isinstance(c, ft.Image)

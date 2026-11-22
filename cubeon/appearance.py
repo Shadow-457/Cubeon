@@ -218,7 +218,8 @@ class CharacterModel:
         sheet = cosmetics.apply_skin_coverage(sheet, wearables, slim=slim)
         return cls(sheet, slim=slim, cape=cape, cosmetics_faces=worn)
 
-    def project(self, yaw=25, pitch=10, size=(320, 440), *, detail=True):
+    def project(self, yaw=25, pitch=10, size=(320, 440), *, detail=True, padding=24, textures=None):
+        """Fit the orbit; optional textures reuse a caller's nonempty-face index."""
         yaw, pitch = math.radians(yaw), math.radians(pitch)
         yaw_cos, yaw_sin = math.cos(yaw), math.sin(yaw)
         pitch_cos, pitch_sin = math.cos(pitch), math.sin(pitch)
@@ -226,8 +227,8 @@ class CharacterModel:
         # Giant wings need room for the full orbit. Fit once for all yaw angles
         # so turning never clips a feather or makes the character zoom in/out.
         if self._orbit_radius > 12 or self._vertical_extent > 20:
-            scale = min(scale, (size[0] - 24) / (2 * max(self._orbit_radius, 1)),
-                        (size[1] - 24) / (2 * max(1, self._vertical_extent * abs(pitch_cos)
+            scale = min(scale, (size[0] - padding) / (2 * max(self._orbit_radius, 1)),
+                        (size[1] - padding) / (2 * max(1, self._vertical_extent * abs(pitch_cos)
                                                  + self._orbit_radius * abs(pitch_sin))))
 
         def rotate(vertex, centered=True):
@@ -244,7 +245,12 @@ class CharacterModel:
             if not detail and face.detail:
                 continue
             normal = rotate(face.normal, centered=False)
-            if normal[2] <= 0.001 or not face.texture.getbbox():
+            if normal[2] <= 0.001:
+                continue
+            if textures is None:
+                if not face.texture.getbbox():
+                    continue
+            elif index not in textures:
                 continue
             vertices = [rotate(vertex) for vertex in face.vertices]
             projected = [(size[0] / 2 + vertex[0] * scale, size[1] / 2 - vertex[1] * scale) for vertex in vertices]
@@ -300,9 +306,12 @@ def render_faces(faces, textures=None, size=(320, 440), supersample=1, *, cancel
                      inverse_vertical_x * (left - origin[0]) + inverse_vertical_y * (top - origin[1]))
         emitting = bool(texture.info.get("cubeon_emissive"))
         lighting = 1 if emitting else 0.72 + 0.28 * max(0, normal[1] * 0.5 + normal[2] * 0.8)
-        shaded = ImageEnhance.Brightness(texture).enhance(lighting)
-        tile = shaded.transform((right - left, bottom - top), Image.Transform.AFFINE,
-                                transform, resample=Image.Resampling.NEAREST)
+        # Nearest sampling commutes with brightness. Shade only the on-screen
+        # pixels instead of copying a potentially megapixel cosmetic atlas.
+        tile = texture.transform((right - left, bottom - top), Image.Transform.AFFINE,
+                                 transform, resample=Image.Resampling.NEAREST)
+        if lighting != 1:
+            tile = ImageEnhance.Brightness(tile).enhance(lighting)
         horizontal_depth = vertices[1][2] - vertices[0][2]
         vertical_depth = vertices[2][2] - vertices[0][2]
         depth_x = (vertical_y * horizontal_depth - horizontal_y * vertical_depth) / determinant

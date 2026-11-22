@@ -32,6 +32,7 @@ from cubeon import cosmetics, cosmetics_store
 from ui.appearance_preview import AppearancePreview
 from ui.image_memory import preview_image
 from ui.content_states import skeleton_block
+from ui.chrome import TabEntryQueue, TabPane
 
 # Our own launcher core module - contains logic for skin storage/rendering
 import launcher_core as core
@@ -42,6 +43,7 @@ import launcher_core as core
 # whenever no custom cape is selected instead of leaving the box blank.
 DEFAULT_CAPE_PREVIEW_SRC = "capes/cubeon_cape_preview.png"
 DEFAULT_SKIN_PREVIEW_SRC = "skins/steve-preview.png"
+COSMETIC_THUMB_SIZE = (64, 64)
 
 
 # Preview bytes are immutable once written, so base64-encoding them once and
@@ -91,6 +93,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # =====================================================================
 
     appearance = AppearancePreview(cfg, assets_dir, page=page)
+    active_pane = {"id": "skin"}
+    thumb_grids = []
     skin_preview_name = ft.Text("Steve · Default skin", size=13, color=TEXT)
 
     def _refresh_status(control):
@@ -121,9 +125,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             thread_safe_ui.refresh(event.control)
 
     def _card_grid():
-        return ft.Row(spacing=12, wrap=True, run_spacing=12,
+        grid = ft.Row(spacing=12, wrap=True, run_spacing=12,
                       vertical_alignment=ft.CrossAxisAlignment.START,
                       on_size_change=_grid_resized)
+        thumb_grids.append(grid)
+        return grid
 
     def _scroll_cards(grid):
         return ft.Column([grid], expand=True, scroll=ft.ScrollMode.ALWAYS,
@@ -204,7 +210,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # Clicking the artwork applies an item; the check and rim show selection.
     def _owned_card(*, label, sublabel, active, on_use, on_delete,
                     src=None, lazy_thumb=None, preview_w=76, preview_h=112,
-                    icon=None, model_label=None, on_model=None, action_label="Apply"):
+                    icon=None, model_label=None, on_model=None, action_label="Apply",
+                    thumb_grid=None, thumb_pane=None):
         """Click the artwork/name to apply. Keep management actions separate;
         selection updates retain the image and its keyboard target.
 
@@ -215,7 +222,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         """
         if src:
             preview_img = preview_image(src=src, width=preview_w, height=preview_h,
-                                   fit=ft.BoxFit.CONTAIN)
+                                   fit=ft.BoxFit.CONTAIN, cache_width=preview_w,
+                                   filter_quality=ft.FilterQuality.LOW)
             placeholder = None
         elif lazy_thumb:
             # Visible only once the worker thread lands real bytes. The
@@ -223,16 +231,15 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             # grid doesn't reflow as thumbs pop in.
             preview_img = preview_image(src="icon.svg", width=preview_w,
                                    height=preview_h, fit=ft.BoxFit.CONTAIN,
+                                   cache_width=preview_w, filter_quality=ft.FilterQuality.LOW,
                                    visible=False)
             placeholder = skeleton_block(preview_w, preview_h, fill=BORDER)
-            _PENDING_THUMBS.append((preview_img, placeholder,
-                                    lazy_thumb[0], lazy_thumb[1]))
         else:
             preview_img, placeholder = None, ft.Icon(
                 icon or ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED, color=TEXT_DIM,
                 size=22)
         preview_stack = [c for c in (preview_img, placeholder) if c is not None]
-        selected = {"value": active}
+        selected = {"value": None}
         name = ft.Text(label, size=12, color=TEXT, weight=ft.FontWeight.W_600,
                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                        text_align=ft.TextAlign.CENTER)
@@ -297,12 +304,16 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         )
 
         def set_selected(value):
-            selected["value"] = bool(value)
+            value = bool(value)
+            if selected["value"] is value:
+                return
+            selected["value"] = value
             check.visible = bool(value)
             name.color = ACCENT if value else TEXT
             card.bgcolor = ACCENT_TINT if value else CARD_FILL
             card.border = ft.border.Border.all(1, ACCENT if value else CARD_BORDER)
             attach_hover(card, card.bgcolor, ACCENT_TINT_HI if value else ROW_HOVER)
+            return True
 
         card.set_selected = set_selected
         def set_sublabel(value):
@@ -310,6 +321,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             subtitle.visible = bool(value)
         card.set_sublabel = set_sublabel
         set_selected(active)
+        if lazy_thumb and not src:
+            card._cubeon_thumb_job = (thumb_grid, card, thumb_pane or lazy_thumb[0],
+                                     preview_img, placeholder, *lazy_thumb)
         return card
 
     # Preview bytes are immutable once written, so base64-encoding them once
@@ -338,7 +352,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # and the composites happen on a worker thread that patches the image
     # control per-card via thread_safe_ui.
     _THUMB_MEMO = {}   # (kind, filename) -> b64 (bytes are immutable once written)
-    _PENDING_THUMBS = []  # (image_ctl, placeholder_ctl, kind, filename)
+    _PENDING_THUMBS = []  # (grid, card, pane, image, placeholder, kind, filename)
+    _THUMB_RUNNING = False
 
     def _render_thumb(kind, filename):
         """PIL-heavy thumbnail render -> b64, or None. Worker-thread only."""
@@ -376,13 +391,41 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             return None  # worker replaces loading with an unavailable-art icon
 
     def _flush_pending_thumbs():
-        """Render queued card thumbs off-thread, one worker for the batch."""
-        if not _PENDING_THUMBS:
-            return
-        jobs, _PENDING_THUMBS[:] = list(_PENDING_THUMBS), []
+        """One draining worker prioritizes the open pane; hidden cards wait."""
+        nonlocal _THUMB_RUNNING
+
+        def attached(job):
+            grid, card = job[:2]
+            return grid is not None and any(current is card for current in grid.controls)
+
+        def visible(job):
+            return job[2] == active_pane["id"] and job[1].visible
+
+        with thread_safe_ui.TREE_LOCK:
+            # Collect only attached cards. An existing worker can otherwise
+            # discard a new card between construction and its grid insertion.
+            for grid in thumb_grids:
+                for card in grid.controls:
+                    job = getattr(card, "_cubeon_thumb_job", None)
+                    if job is not None:
+                        _PENDING_THUMBS.append(job)
+                        card._cubeon_thumb_job = None
+            _PENDING_THUMBS[:] = [job for job in _PENDING_THUMBS if attached(job)]
+            if _THUMB_RUNNING or not any(visible(job) for job in _PENDING_THUMBS):
+                return
+            _THUMB_RUNNING = True
 
         def _worker():
-            for img, ph, kind, fn in jobs:
+            nonlocal _THUMB_RUNNING
+            while True:
+                with thread_safe_ui.TREE_LOCK:
+                    _PENDING_THUMBS[:] = [job for job in _PENDING_THUMBS if attached(job)]
+                    index = next((i for i, job in enumerate(_PENDING_THUMBS) if visible(job)), None)
+                    if index is None:
+                        _THUMB_RUNNING = False
+                        return
+                    job = _PENDING_THUMBS.pop(index)
+                    _, _, _, img, ph, kind, fn = job
                 b64 = _render_thumb(kind, fn)
                 with thread_safe_ui.TREE_LOCK:
                     if b64:
@@ -396,8 +439,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                         ph.content = ft.Icon(ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED,
                                              color=TEXT_DIM, size=22)
                         ph.alignment = ft.Alignment.CENTER
-                thread_safe_ui.refresh(img)
-                if ph is not None:
+                    repaint = attached(job) and visible(job)
+                if repaint:
+                    thread_safe_ui.refresh(img)
                     thread_safe_ui.refresh(ph)
 
         threading.Thread(target=_worker, daemon=True,
@@ -466,6 +510,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             skins_list_col.controls.append(_owned_card(
                 src=cached,
                 lazy_thumb=None if cached else ("skin", s["filename"]),
+                thumb_grid=skins_list_col,
                 label=s["name"] + (" (slim)" if s.get("slim") else ""),
                 sublabel="",
                 active=is_active,
@@ -704,6 +749,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             capes_list_col.controls.append(_owned_card(
                 src=cached,
                 lazy_thumb=None if cached else ("cape", c["filename"]),
+                thumb_grid=capes_list_col,
                 label=c["name"],
                 sublabel=("Built-in · Animated" if c.get("animated") else "Built-in")
                          if c.get("builtin") else "Animated GIF" if c.get("animated") else "",
@@ -1033,12 +1079,14 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     _COSMETIC_MEMO = {}
 
     def _cosmetic_thumb(item):
+        if item is None:
+            return None
         hit = _COSMETIC_MEMO.get(item["id"])
         if hit is not None:
             return hit
         try:
             image = cosmetics.render_thumbnail(item, appearance.cosmetics_dir,
-                                               size=(76, 76), simplify=True)
+                                               size=COSMETIC_THUMB_SIZE, simplify=True)
             buffer = BytesIO()
             image.save(buffer, format="PNG", compress_level=3)
             hit = base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -1065,16 +1113,21 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         key = f"active_{slot}_item"
         cards = {}
         groups = {}
+        metadata = {}
+        revision = {"value": 0}
         category = {"id": "all"}
         filter_row = ft.Row(spacing=10, wrap=True, run_spacing=4)
 
         def sync_selection():
             active_id = cfg.get(key)
-            item = cosmetics.get(active_id, appearance.cosmetics_dir)
-            equipped.value = f"Equipped: {item['name']}" if item else "Nothing equipped"
+            item = metadata.get(active_id)
+            label = f"Equipped: {item['name']}" if item else "Nothing equipped"
+            changed = equipped.value != label or remove.disabled != (item is None)
+            equipped.value = label
             remove.disabled = item is None
             for item_id, card in cards.items():
-                card.set_selected(active_id == item_id)
+                changed = card.set_selected(active_id == item_id) or changed
+            return changed
 
         def filter_items(group):
             with thread_safe_ui.TREE_LOCK:
@@ -1084,6 +1137,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 build_filters()
             thread_safe_ui.refresh(grid)
             thread_safe_ui.refresh(filter_row)
+            _flush_pending_thumbs()
 
         def build_filters():
             filter_row.controls = [text_tab(label, selected=category["id"] == group,
@@ -1092,23 +1146,39 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                                      ("giant", "Giant wings"), ("pack", "Packs"))]
 
         def refresh():
+            with thread_safe_ui.TREE_LOCK:
+                revision["value"] += 1
+                request = revision["value"]
             items = cosmetics.items(slot, appearance.cosmetics_dir)
             ids = {item["id"] for item in items}
-            for item_id in list(cards):
-                if item_id not in ids:
-                    grid.controls.remove(cards.pop(item_id))
-                    groups.pop(item_id, None)
-            if not cards:
-                # Start with the worn item in view; later choices keep their
-                # position so applying/filtering never reshuffles the grid.
-                items.sort(key=lambda item: item["id"] != cfg.get(key))
+            with thread_safe_ui.TREE_LOCK:
+                if request != revision["value"]:
+                    return False
+                changed = ids != set(cards)
+                metadata.clear()
+                metadata.update((item["id"], item) for item in items)
+                for item_id in list(cards):
+                    if item_id not in ids:
+                        grid.controls.remove(cards.pop(item_id))
+                        groups.pop(item_id, None)
+                if not cards:
+                    # Start with the worn item in view; later choices keep their
+                    # position so applying/filtering never reshuffles the grid.
+                    items.sort(key=lambda item: item["id"] != cfg.get(key))
             for item in items:
-                if item["id"] not in cards:
+                # Release the tree lock between cards so a large first library
+                # cannot hold pointer/navigation events behind the whole build.
+                with thread_safe_ui.TREE_LOCK:
+                    if request != revision["value"]:
+                        return False
+                    if item["id"] in cards:
+                        continue
                     wing = bool(item.get("feathers"))
                     group = "small" if item["id"].endswith("_small") or (wing and item.get("wing_flare") is False) else "giant" if wing else "pack"
                     cached = _COSMETIC_MEMO.get(item["id"])
                     card = _owned_card(
                         src=cached, lazy_thumb=None if cached else ("cosmetic", item["id"]),
+                        thumb_grid=grid, thumb_pane=slot,
                         label=item["name"].split(" (")[0] if wing else item["name"],
                         sublabel=("Small" if group == "small" else "Giant") if wing else "",
                         active=cfg.get(key) == item["id"],
@@ -1120,8 +1190,12 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                     groups[item["id"]] = group
                     card.visible = category["id"] == "all" or category["id"] == group
                     grid.controls.append(card)
-            _fit_grid(grid)
-            sync_selection()
+            with thread_safe_ui.TREE_LOCK:
+                if request != revision["value"]:
+                    return False
+                changed = _fit_grid(grid) or changed
+                changed = sync_selection() or changed
+                return changed
 
         def delete(item_id):
             ft.context.disable_auto_update()
@@ -1199,16 +1273,33 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # --- Tab state + switching --------------------------------------------
     # active_pane is a plain dict ref (same pattern the Mods tab uses for
     # active_content) so closures mutate without rebinding.
-    active_pane = {"id": "skin"}
-
     PANES = [
         ("skin", "Skin", skin_pane),
         ("cape", "Cape", cape_pane),
         ("store", "Store", store_pane),
         *cosmetic_panes,
     ]
-    pane_holder = ft.Container(content=skin_pane, expand=True)
+    pane_views = {pid: TabPane(pane, visible=pid == "skin", expand=True)
+                  for pid, _, pane in PANES}
+    pane_holder = ft.Stack(list(pane_views.values()), expand=True, fit=ft.StackFit.EXPAND,
+                           data="cosmetics-panes")
+    pane_holder._shell_only = True
     tab_row = ft.Row(spacing=12, wrap=True, run_spacing=8)
+
+    def prepare_pane(pid, generation):
+        pane = pane_views[pid].content
+        load_items = getattr(pane, "load_items", None)
+        changed = False
+        if callable(load_items):
+            changed = load_items()
+        with thread_safe_ui.TREE_LOCK:
+            current = pane_queue.is_current(generation) and active_pane["id"] == pid
+        if current:
+            if changed is not False:
+                thread_safe_ui.refresh(pane)
+            _flush_pending_thumbs()
+
+    pane_queue = TabEntryQueue(page, prepare_pane)
 
     def build_pane_tabs():
         tab_row.controls.clear()
@@ -1220,15 +1311,16 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     def switch_pane(pid):
         ft.context.disable_auto_update()
-        if active_pane["id"] == pid:
-            return
-        active_pane["id"] = pid
-        pane_holder.content = dict(
-            (p[0], p[2]) for p in PANES)[pid]
-        load_items = getattr(pane_holder.content, "load_items", None)
-        if callable(load_items):
-            load_items()
-        build_pane_tabs()
+        with thread_safe_ui.TREE_LOCK:
+            if active_pane["id"] == pid:
+                return
+            active_pane["id"] = pid
+            for key, pane in pane_views.items():
+                pane.visible = key == pid
+            build_pane_tabs()
+        # Paint the retained shell before catalogue reads or card construction.
+        thread_safe_ui.refresh(tab_row)
+        thread_safe_ui.refresh(pane_holder)
         if pid == "cape":
             appearance.turn(180 - appearance.yaw)
         elif pid == "back":
@@ -1243,9 +1335,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         elif pid in cosmetics.SLOTS:
             appearance.turn(25 - appearance.yaw if pid in ("hand", "waist", "trail")
                             else -appearance.yaw)
-        thread_safe_ui.refresh(tab_row)
-        thread_safe_ui.refresh(pane_holder)
-        _flush_pending_thumbs()
+        pane_queue.request(pid)
 
     build_pane_tabs()
 

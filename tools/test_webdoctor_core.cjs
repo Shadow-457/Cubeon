@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const D = require('../web/assets/doctor-core.js');
 async function main() {
   const scenarios = [
+    ['java.lang.module.ResolutionException: Modules minecraft and _1._20._1 export package net.minecraft.server to module mixinextras', 'installation'],
     ['OutOfMemoryError: Java heap space','memory'],
     ['UnsupportedClassVersionError: BadClass','java'],
     ['Unrecognized VM option Bogus','flags'],
@@ -113,6 +114,7 @@ async function main() {
   assert.equal(hostile.category,'unknown');
   const privateLog = '--accessToken hidden --username alice Authorization: Bearer xyz\nC:\\Users\\Alice\\file /home/bob/game a@b.com';
   assert.doesNotMatch(D.redactLog(privateLog),/hidden|alice|xyz|bob|a@b.com/i);
+  assert.doesNotMatch(D.redactLog('args [--username, privateplayer, --accessToken, privatetoken]'),/privateplayer|privatetoken/);
   assert.equal(D.excerpt('x'.repeat(70000)).length,64000);
   const log = 'java.lang.OutOfMemoryError: Java heap space';
   const data = {cause:'Heap exhausted',confidence:'high',evidence:[log],

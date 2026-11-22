@@ -742,7 +742,9 @@ try:
         mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
 
     )
-    _fields = [c for c in walk(_skin_section) if isinstance(c, ft.TextField)]
+    _pane_stack = next(c for c in walk(_skin_section) if c.data == 'cosmetics-panes')
+    _skin_pane = next(pane for pane in _pane_stack.controls if pane.visible)
+    _fields = [c for c in walk(_skin_pane) if isinstance(c, ft.TextField)]
     _hints = " | ".join((getattr(f, "hint_text", "") or "").lower() for f in _fields)
     check("no search box remains (no browse pane to filter)",
           not _fields and "search skins" not in _hints and "search capes" not in _hints,

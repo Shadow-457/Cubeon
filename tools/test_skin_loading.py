@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import traceback
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -57,13 +58,15 @@ def regression():
         root = build(DriverPage())
         assert raster.call_count == 0, 'Opening Skin rasterized hidden cosmetic cards.'
         assert not any(getattr(c, 'value', None) == 'Ember Wings' for c in fz.walk(root))
-        start = len(jobs)
         tab(root, 'Back').on_click(None)
         assert raster.call_count == 0, 'Switching Back rasterized on the click thread.'
-        for job in jobs[start:]:
+        # The open pane can reuse a thumbnail worker queued during construction.
+        for job in list(jobs):
             job()
         assert raster.call_count == len(cosmetics.items('back'))
-        back_images = [c for c in fz.walk(root) if isinstance(c, ft.Image) and c.width == 76]
+        stack = next(c for c in fz.walk(root) if c.data == 'cosmetics-panes')
+        back_pane = next(c for c in stack.controls if c.visible)
+        back_images = [c for c in fz.walk(back_pane) if isinstance(c, ft.Image) and c.width == 76]
         assert back_images and all(c.visible for c in back_images)
         cached_count = raster.call_count
         tab(root, 'Skin').on_click(None)
@@ -110,6 +113,32 @@ async def native(page):
             await asyncio.sleep(.01)
         assert preview._shown == step and abs(preview.yaw - target) < .001, 'The Giant-wing rotation did not finish.'
         print('WING_ROTATION_SECONDS', round(time.monotonic() - start, 3), flush=True)
+    entered, release = threading.Event(), threading.Event()
+    original_items = cosmetics.items
+    def slow_catalogue(slot=None, directory=None):
+        if slot == 'back':
+            entered.set()
+            assert release.wait(3), 'Navigation held the event loop behind catalogue loading.'
+        return original_items(slot, directory)
+    with patch.object(cosmetics, 'items', side_effect=slow_catalogue):
+        start = time.monotonic()
+        tab(root, 'Back').on_click(None)
+        assert time.monotonic() - start < .25, 'Opening Back read the catalogue on the UI thread.'
+        deadline = time.monotonic() + 2
+        while not entered.is_set() and time.monotonic() < deadline:
+            await asyncio.sleep(.01)
+        assert entered.is_set(), 'The catalogue worker did not start.'
+        timings = []
+        for name in ('Head', 'Feet', 'Pets'):
+            start = time.monotonic()
+            tab(root, name).on_click(None)
+            timings.append(time.monotonic() - start)
+        release.set()
+        assert max(timings) < .25, 'Rapid categories froze behind the previous catalogue.'
+        stack = next(c for c in fz.walk(root) if c.data == 'cosmetics-panes')
+        assert sum(pane.visible for pane in stack.controls) == 1
+        print('NATIVE_CATEGORY_SWITCH_MAX_SECONDS', round(max(timings), 4), flush=True)
+        await asyncio.sleep(.5)
     for name in ('Back', 'Pets', 'Cape', 'Skin'):
         start = time.monotonic()
         tab(root, name).on_click(None)
@@ -269,8 +298,10 @@ async def native_drag(page):
         assert len(live_paints) >= 8 and distinct >= 8, 'The skin froze during continuous native dragging.'
         assert min(frame_colors) > 500, 'A painted drag frame lost the skin.'
         assert full_diffs == 0, 'Native dragging performed a whole-page diff.'
-        assert preview._shown == target and preview._quality[target] == 2, 'Release did not refine the final camera.'
-        assert len(preview.scene.controls) == 2 and len(preview._frames) <= 64
+        assert preview._shown == target and not preview._running, 'Release did not settle on the final camera.'
+        with Image.open(BytesIO(preview.image.src)) as frame:
+            assert frame.size == preview_ui.RENDER_SIZE, 'Release increased the preview resolution.'
+        assert len(preview.scene.controls) == 3 and len(preview._frames) <= 64
 
     await drag_case('wings', [(150 + i * 5, 230 - i * 2) for i in range(37)])
     sheet = skins.default_base_skin()

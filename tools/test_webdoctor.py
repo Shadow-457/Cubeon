@@ -49,6 +49,7 @@ class WebDoctorTests(unittest.TestCase):
         for origin in ('http://example.com','file:///tmp','javascript:alert(1)','https://user:pass@example.com'):
             with self.assertRaises(ValueError): webdoctor.doctor_url('error', base_url=origin)
         self.assertTrue(webdoctor.doctor_url('error',base_url='http://localhost:8080').startswith('http://localhost:8080/doctor#'))
+        self.assertNotIn('privateplayer', webdoctor.redact_log('args [--username, privateplayer, --version, 1.20.1]'))
 
     def test_click_handoff_and_failure(self):
         with patch.object(webdoctor.webbrowser, 'open', return_value=True) as opened:

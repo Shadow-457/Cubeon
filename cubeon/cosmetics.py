@@ -389,6 +389,8 @@ def render_thumbnail(item: dict, directory: str | None = None,
     canvas = Image.new("RGBA", size, (0, 0, 0, 0))
     ordered = []
     for vertices3, normal, texture in faces:
+        if simplify and texture.info.get("cubeon_preview_detail"):
+            continue  # Subpixel feather walls are wasted on small launcher cards.
         rotated_normal = rotate(normal, centred=False)
         if rotated_normal[2] <= 0.001:
             continue
@@ -419,9 +421,11 @@ def render_thumbnail(item: dict, directory: str | None = None,
                   -c / det, a / det, (-c * (x0 - origin[0]) + a * (y0 - origin[1])) / det)
         from PIL import ImageEnhance
         lighting = 1 if texture.info.get("cubeon_emissive") else 0.72 + 0.28 * max(0, normal[1] * 0.5 + normal[2] * 0.8)
-        tile = ImageEnhance.Brightness(texture).enhance(lighting).transform(
+        tile = texture.transform(
             (x1 - x0, y1 - y0), Image.Transform.AFFINE, coeffs,
             resample=Image.Resampling.NEAREST)
+        if lighting != 1:
+            tile = ImageEnhance.Brightness(tile).enhance(lighting)
         canvas.alpha_composite(tile, (x0, y0))
     return canvas
 

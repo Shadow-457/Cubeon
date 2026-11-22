@@ -251,11 +251,25 @@ skin or bundled-cosmetic updates. Existing bundled cosmetics retain their shared
 
 Complex downloaded wings, pets and wearables use cached coplanar preview textures in
 `cubeon/cosmetic_preview.py`. Curved planes, UV colors, normals, depth and glow
-remain separate; full game geometry is unchanged. Fine wing edge walls return when
-the viewport stops rotating. Camera fitting uses the original mesh bounds,
+remain separate; full game geometry is unchanged. The launcher character renders at
+160×220 without supersampling or a second render after dragging. It keeps raised
+skin caps, solid cosmetic surfaces, transparency and glow, omitting fine voxel/wing
+walls at every angle. Its displayed size and camera fitting stay the same.
+Camera fitting uses the original mesh bounds,
 and the revision/file-aware cache is limited to 24 entries and 64 MiB. Solid pet
 and wearable side surfaces remain visible during dragging. Plane sampling fits
 the viewport resolution; returning to cached items reuses their prepared faces.
+Launcher cosmetic cards render at 64×64 and omit subpixel feather walls; the reference
+renderer and public exports retain full detail. Both rasterizers shade sampled visible
+pixels instead of entire source atlases. Card images decode near their displayed size.
+One draining thumbnail worker per section renders only the open pane and active filters,
+defers hidden cards until they return, and drops jobs for removed cards. Pane returns and
+selection changes retain the existing image controls and cached frames.
+Categories reuse `ui.chrome.TabPane` and `TabEntryQueue`: their retained Stack
+sends visibility changes before preparation. Native catalogue reads and card builds
+run on one page-context worker; rapid clicks keep only the latest pending category.
+Cached returns skip unchanged picker repaint, and refreshed library generations prevent
+a late build from restoring deleted items. Headless fixtures still prepare inline.
 Run `python tools/test_cosmetic_preview.py` for visual/performance regression
 checks. `python tools/test_cosmetic_store_native.py 1.21.11` verifies pack
 acceptance and real base/glow GPU textures in a temporary copy of an installed

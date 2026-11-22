@@ -242,6 +242,11 @@ inherited client JAR. Dedicated profile JARs, explicit `jar` references,
 loader libraries and the selected instance's version argument remain intact.
 This corrects minecraft-launcher-lib 8's merged child ID being used as the
 client filename. Missing inherited clients stop launch with a repair message.
+Modern Forge's BootstrapLauncher explicitly ignores its default profile JAR
+and supplies a transformed Minecraft module. Cubeon removes that missing,
+ignored placeholder from the JVM classpath rather than substituting vanilla;
+otherwise `minecraft` and `_1._20._1` export the same packages at startup.
+Dedicated JARs and explicit `jar` references still retain their existing behavior.
 
 **Texture animations and FPS sync:** Renderer presets preserve
 `performance.animate_only_visible_textures` in Sodium, Embeddium and Rubidium.

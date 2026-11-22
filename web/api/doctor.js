@@ -46,7 +46,14 @@ function throttled(req, now) {
     return {error:'ai_busy',retry_after:60};
   times.push(now);
   windows.set(key,times);
-  return null;
+  return {key,time:now};
+}
+function refund(ticket) {
+  const times = windows.get(ticket.key);
+  if (!times) return;
+  const index = times.indexOf(ticket.time);
+  if (index !== -1) times.splice(index,1);
+  if (!times.length) windows.delete(ticket.key);
 }
 async function input(req) {
   const declared = Number(req.headers['content-length']);
@@ -87,14 +94,14 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
     catch (error) { return reply(res,error.status || 400,{error:error.status === 413 ? 'log_too_large' : 'invalid_report'}); }
     if (!data || Array.isArray(data) || typeof data.log !== 'string' || !data.log.trim() || data.log.length > D.MAX_LOG ||
         (data.version !== undefined && (typeof data.version !== 'string' || data.version.length > 240))) return reply(res,400,{error:'invalid_report'});
-    const limited = throttled(req,now());
-    if (limited) {
-      res.setHeader('Retry-After',String(limited.retry_after));
-      return reply(res,limited.error === 'rate_limited' ? 429 : 503,limited);
-    }
     const groqKey = (env.GROQ_API_KEY || '').trim();
     const kiloKey = (env.KILO_API_KEY || '').trim();
     if (!groqKey && !kiloKey) return reply(res,503,{error:'ai_not_configured'});
+    const ticket = throttled(req,now());
+    if (ticket.error) {
+      res.setHeader('Retry-After',String(ticket.retry_after));
+      return reply(res,ticket.error === 'rate_limited' ? 429 : 503,ticket);
+    }
     const attempts = [];
     if (groqKey) attempts.push({provider:'groq',key:groqKey,url:GROQ_GATEWAY,
       model:D.GROQ_MODELS[chooseModel(D.GROQ_MODELS.length)],limit:groqTimeout});
@@ -108,6 +115,7 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
     let failure = 'ai_provider_unavailable';
     let failureProvider;
     let upstreamRateLimited = false;
+    let completed = false;
     try {
       // One random Groq model first. Any failure advances to Kilo's free
       // router, with one transient/invalid-guide retry inside the shared budget.
@@ -116,7 +124,10 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
         if (remaining <= 0) break;
         try {
           const result = await D.withTimeout(async signal => {
-            const tokens = attempt.provider === 'groq' ? {max_completion_tokens:3500,response_format:{type:'json_object'}} : {max_tokens:2600};
+            const tokens = attempt.provider === 'groq'
+              ? {max_completion_tokens:3500,response_format:{type:'json_object'},
+                 ...(attempt.model.startsWith('openai/gpt-oss') ? {reasoning_effort:'low'} : {})}
+              : {max_tokens:4096,response_format:{type:'json_object'},reasoning:{effort:'low',exclude:true}};
             const response = await fetcher(attempt.url,{
               method:'POST',headers:{Authorization:'Bearer ' + attempt.key,'Content-Type':'application/json'},signal,
               body:JSON.stringify({model:attempt.model,messages:D.prompt(log,context),...tokens,stream:false})
@@ -136,7 +147,10 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
             diagnosis.model = attempt.provider === 'groq' ? attempt.model : 'Kilo auto/free';
             return diagnosis;
           },Math.min(attempt.limit,remaining),cancel.signal);
-          if (!cancel.signal.aborted) return reply(res,200,result);
+          if (!cancel.signal.aborted) {
+            completed = true;
+            return reply(res,200,result);
+          }
         } catch (error) {
           if (cancel.signal.aborted) return;
           failureProvider = attempt.provider;
@@ -152,7 +166,11 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
       }
       if (upstreamRateLimited) res.setHeader('Retry-After','60');
       return reply(res,upstreamRateLimited ? 429 : 503,{error:failure,provider:failureProvider});
-    } finally { inflight--; res.off?.('close',onClose); }
+    } finally {
+      inflight--;
+      if (!completed) refund(ticket);
+      res.off?.('close',onClose);
+    }
   };
 }
 module.exports = createHandler();

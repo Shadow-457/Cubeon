@@ -43,6 +43,7 @@ def _jar(path, identity, version="1.0"):
 def main():
     print("1. plain-language explanation")
     cases = [
+        ('java.lang.module.ResolutionException: Modules minecraft and _1._20._1 export package net.minecraft.server to module mixinextras\nOpenGL 4.6', 'installation'),
         ("java.lang.OutOfMemoryError: Java heap space", "memory"),
         ("java.lang.UnsupportedClassVersionError: net/minecraft/client/main/Main",
          "java"),

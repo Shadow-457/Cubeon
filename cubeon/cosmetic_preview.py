@@ -12,7 +12,7 @@ _CACHE = OrderedDict()
 _LOCK = threading.Lock()
 _MAX_BYTES = 64 * 1024 * 1024
 _MAX_ENTRIES = 24
-_DENSITY = 12  # Covers the large-wing 640px settled viewport without oversampling.
+_DENSITY = 12  # Retains detail for full-size reference renders and public exports.
 
 
 def clear_cache():
@@ -127,7 +127,7 @@ def prepared(item, directory, emissive):
             _CACHE.move_to_end(key)
             return list(_CACHE[key][0])
     faces = cosmetics.preview_faces(item, directory, emissive=emissive)
-    # Fine feather edge walls return in the settled frame, as skin walls do.
+    # Full-detail renderers retain fine walls; low-resolution launcher previews skip them.
     for _, normal, texture in faces:
         if item.get("wing_flare") and abs(normal[2]) < .001:
             texture.info["cubeon_preview_detail"] = True

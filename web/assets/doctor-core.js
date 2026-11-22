@@ -38,7 +38,7 @@
   function redactLog(value) {
     return String(value || '')
       .replace(/(authorization\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi, '$1[redacted]')
-      .replace(/((?:--)?(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|client[_-]?secret|password|passwd|secret|--username)["']?\s*(?:[:=]\s*|\s+))["']?[^\s,"';}]+["']?/gi, '$1[redacted]')
+      .replace(/((?:--)?(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|client[_-]?secret|password|passwd|secret|--username)["']?\s*(?:[:,=]\s*|\s+))["']?[^\s,"';}]+["']?/gi, '$1[redacted]')
       .replace(/\b[A-Z]:[\\/]Users[\\/][^\\/\s"']+/gi, 'C:\\Users\\[user]')
       .replace(/\/(?:home|Users)\/[^/\s"']+/g, '/home/[user]')
       .replace(/[\w.+-]{1,64}@[\w.-]{1,253}\.[A-Za-z]{2,63}/g, '[email]')
@@ -83,6 +83,9 @@
   // Specific causes win over generic loader wrappers and missing-class errors.
   // Native allocation failures must never inherit the heap's "raise RAM" advice.
   const specificRules = [
+    {category:'installation', match:/ResolutionException:\s*Modules .+ export package/i,
+     cause:'Two Java modules export the same package, so the loader cannot start.', confidence:'high',
+     steps:[step('retry','Update Cubeon and retry the instance','Install the latest Cubeon update, restart the launcher, and launch the same affected instance. Forge supplies its own Minecraft module; an extra vanilla client on the launch classpath can cause this error.'), step('log','Keep the module conflict if it repeats','Keep the full ResolutionException line and launch log. The name after “to module” is the consumer of the duplicated package and does not identify a broken mod.')]},
     {category:'native-memory', match:/OutOfMemoryError:\s*(?:Direct buffer memory|Metaspace|unable to create native thread)|Native memory allocation.*failed|insufficient memory for the Java Runtime|Could not reserve enough space/i,
      cause:'Java ran out of memory outside the game heap.', confidence:'high',
      steps:[step('memory','Leave memory for your computer','Close other memory-heavy apps. If Allocated RAM takes most of your system memory, lower it a little. Increasing the heap can make this particular failure worse.'), step('retry','Test the memory change','Try once. If it repeats, keep the complete Java crash report so the native allocation or thread failure can be checked.')]},

@@ -152,7 +152,7 @@
       };
       status(/cancelled/i.test(code) ? 'Analysis stopped. The on-device instructions are still below.'
         : code === 'rate_limited' && error.scope === 'visitor' ? 'You’ve used your 3 AI requests for this 30-minute window. Try again in ' + waitMinutes + ' minute' + (waitMinutes === 1 ? '' : 's') + '. On-device instructions are still available.'
-        : /rate_limited/i.test(code) ? 'AI is busy. On-device instructions are below; try AI again later.'
+        : /rate_limited/i.test(code) ? provider + ' reached the site’s shared provider quota. This is separate from your personal analysis limit. On-device instructions are below; try AI again later.'
         : Object.hasOwn(reasons,code) ? reasons[code] + ' On-device instructions are still below.'
         : 'AI is unavailable. On-device instructions are below; try AI again later.');
       revealResult();
