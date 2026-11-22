@@ -422,7 +422,7 @@ USER_RENDERING_FLAG = "CUBEON_USER_RENDERING"
 
 
 def client_environment(env, *, frozen=None, platform=None) -> dict:
-    """Isolate native children from the frozen launcher's runtime/GUI identity."""
+    """Keep native Linux children out of PyInstaller's Python library path."""
     out = dict(env)
     frozen = getattr(sys, "frozen", False) if frozen is None else frozen
     platform = sys.platform if platform is None else platform
@@ -434,11 +434,6 @@ def client_environment(env, *, frozen=None, platform=None) -> dict:
             out["LD_LIBRARY_PATH"] = out["LD_LIBRARY_PATH_ORIG"]
         else:
             out.pop("LD_LIBRARY_PATH", None)
-    if platform == "darwin":
-        # Finder identifies its launched app through these markers. A separate
-        # AppKit client must establish its own identity, not inherit Cubeon's.
-        out.pop("__CFBundleIdentifier", None)
-        out.pop("XPC_SERVICE_NAME", None)
     return out
 
 

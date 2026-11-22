@@ -132,10 +132,9 @@ through direct executable startup and 45 seconds through Finder/LaunchServices
 startup before uploading.
 The smoke check follows the actual Cubeon and native Flet processes; macOS's
 `open -W` helper can exit while the application is still starting or running.
-Cubeon launches the Flet app's native executable directly on macOS so that an
-early LaunchServices helper exit cannot shut down the launcher session.
-Native Mac children receive their own application identity; Finder's parent
-bundle/service markers are removed from the child environment only.
+Flet retains its supported LaunchServices startup on macOS. CI follows its
+per-session native PID file, so an exited `open` helper cannot pass or fail the
+client liveness check by itself.
 
 Bundles are ad-hoc signed. Developer ID signing and Apple notarization need
 separate credentials; these builds may require Gatekeeper approval. Desktop

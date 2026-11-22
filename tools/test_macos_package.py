@@ -59,7 +59,8 @@ def flet_pid_process(psutil, fresh_log):
     """Resolve this session's actual spawned PID, with Flet PID-file fallback."""
     starts = [line.split("Desktop client started: pid=", 1)[1].split()[0]
               for line in fresh_log.splitlines()
-              if "cubeon.desktop_runtime:" in line and "Desktop client started: pid=" in line]
+              if "cubeon.desktop_runtime:" in line and "Desktop client started: pid=" in line
+              and "kind=helper" not in line]
     lines = [line.split("pid_file: ", 1)[1].strip() for line in fresh_log.splitlines()
              if "flet_desktop:" in line and "pid_file: " in line]
     if not starts and not lines:
@@ -256,6 +257,9 @@ def smoke_regressions():
             assert flet_pid_process(psutil, fresh) == [client_process]
             resolve.assert_called_once_with(42)
             assert flet_pid_process(psutil, 'INFO cubeon.desktop_runtime: Desktop client started: pid=42 executable=flet pid_file=unused') == [client_process]
+            helper_start = 'INFO cubeon.desktop_runtime: Desktop client started: pid=999 executable=open pid_file=unused kind=helper'
+            assert flet_pid_process(psutil, helper_start + '\n' + fresh) == [client_process]
+            resolve.assert_called_with(42)
             client_process.status.return_value = psutil.STATUS_ZOMBIE
             assert flet_pid_process(psutil, fresh) == []
         pid_file.unlink()

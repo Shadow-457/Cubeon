@@ -1,6 +1,5 @@
 """Frozen Linux releases must use bundled Flet clients without downloading."""
 import sys
-import plistlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from cubeon.desktop_runtime import configure, native_client_command
+from cubeon.desktop_runtime import configure
 
 
 class DesktopRuntimeTests(unittest.TestCase):
@@ -68,32 +67,6 @@ class DesktopRuntimeTests(unittest.TestCase):
         with patch.object(sys, 'platform', 'win32'):
             configure()
         self.assertIs(self.client.get_artifact_filename, original)
-
-
-class MacClientCommandTests(unittest.TestCase):
-    def test_mac_tracks_native_client_and_preserves_session_arguments(self):
-        with tempfile.TemporaryDirectory() as directory:
-            bundle = Path(directory) / 'Flet with spaces.app'
-            contents = bundle / 'Contents'
-            (contents / 'MacOS').mkdir(parents=True)
-            executable = contents / 'MacOS/custom-flet'
-            executable.touch()
-            (contents / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable': 'custom-flet'}))
-            arguments = ['open', str(bundle), '-n', '-W', '--args', '/tmp/page socket', '/tmp/pid', '/assets with spaces']
-            original = arguments.copy()
-            with patch.object(sys, 'platform', 'darwin'):
-                self.assertEqual(native_client_command(arguments), [str(executable), *arguments[5:]])
-                executable.unlink()
-                with self.assertRaises(FileNotFoundError):
-                    native_client_command(arguments)
-            self.assertEqual(arguments, original)
-
-    def test_other_platforms_and_existing_native_commands_are_preserved(self):
-        for platform, arguments in (('win32', ['flet.exe', 'page', 'pid']),
-                                    ('linux', ['flet', 'page', 'pid']),
-                                    ('darwin', ['/Flet.app/Contents/MacOS/flet', 'page', 'pid'])):
-            with patch.object(sys, 'platform', platform):
-                self.assertIs(native_client_command(arguments), arguments)
 
 
 if __name__ == '__main__':

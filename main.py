@@ -9176,8 +9176,6 @@ if __name__ == "__main__":
         args, flet_env, pid_file = \
             _flet_desktop.__locate_and_unpack_flet_view(
                 page_url, assets_dir, hidden)
-        from cubeon.desktop_runtime import native_client_command
-        args = native_client_command(args)
         flet_env = _incident.client_environment(flet_env)
         if sys.platform == "darwin":
             logging.getLogger("cubeon.desktop_runtime").info(
@@ -9203,8 +9201,8 @@ if __name__ == "__main__":
             **_hidden_kw(),
         )
         logging.getLogger("cubeon.desktop_runtime").info(
-            "Desktop client started: pid=%s executable=%s pid_file=%s",
-            proc.pid, args[0], pid_file)
+            "Desktop client started: pid=%s executable=%s pid_file=%s kind=%s",
+            proc.pid, args[0], pid_file, "helper" if args[0] == "open" else "native")
         # Fresh client: (re)start the wedge judgment window for it. Any
         # previous client is already gone by the time flet spawns the next.
         _wedge_arm(proc.pid)
