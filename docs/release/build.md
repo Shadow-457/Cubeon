@@ -128,7 +128,8 @@ The script produces `dist/Cubeon.app` and native
 Each DMG contains Cubeon.app and an Applications shortcut for drag-and-drop installation. CI builds on native `macos-15` and `macos-15-intel` runners, verifies
 the bundle and bundled Flet architecture/signatures, and checks that the
 packaged launcher reaches its first desktop frame and stays open for 15 seconds
-through both direct executable and Finder/LaunchServices startup before uploading.
+through direct executable startup and 45 seconds through Finder/LaunchServices
+startup before uploading.
 The smoke check follows the actual Cubeon and native Flet processes; macOS's
 `open -W` helper can exit while the application is still starting or running.
 Cubeon launches the Flet app's native executable directly on macOS so that an

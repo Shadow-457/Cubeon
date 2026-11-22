@@ -9196,6 +9196,9 @@ if __name__ == "__main__":
             stderr=asyncio.subprocess.STDOUT,
             **_hidden_kw(),
         )
+        logging.getLogger("cubeon.desktop_runtime").info(
+            "Desktop client started: pid=%s executable=%s pid_file=%s",
+            proc.pid, args[0], pid_file)
         # Fresh client: (re)start the wedge judgment window for it. Any
         # previous client is already gone by the time flet spawns the next.
         _wedge_arm(proc.pid)

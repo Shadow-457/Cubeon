@@ -56,13 +56,16 @@ def smoke_processes(psutil, binary, before):
 
 
 def flet_pid_process(psutil, fresh_log):
-    """Resolve this session's native client from Flet's own random PID file."""
+    """Resolve this session's actual spawned PID, with Flet PID-file fallback."""
+    starts = [line.split("Desktop client started: pid=", 1)[1].split()[0]
+              for line in fresh_log.splitlines()
+              if "cubeon.desktop_runtime:" in line and "Desktop client started: pid=" in line]
     lines = [line.split("pid_file: ", 1)[1].strip() for line in fresh_log.splitlines()
              if "flet_desktop:" in line and "pid_file: " in line]
-    if not lines:
+    if not starts and not lines:
         return []
     try:
-        pid = int(Path(lines[-1]).read_text().strip())
+        pid = int(starts[-1]) if starts else int(Path(lines[-1]).read_text().strip())
         process = psutil.Process(pid)
         return [process] if process.is_running() and process.status() != psutil.STATUS_ZOMBIE else []
     except (OSError, ValueError, psutil.Error):
@@ -155,17 +158,19 @@ def native(arch):
             def fresh_log():
                 return launcher_log.read_text(errors="replace")[log_start:] if launcher_log.exists() else ""
             observed = []
+            observed_state = None
             def discover():
+                nonlocal observed_state
                 launcher, _ = smoke_processes(psutil, binary, before)
                 found = launcher, flet_pid_process(psutil, fresh_log())
-                if marker.exists() and not observed:
+                state = (marker.exists(), tuple(p.pid for p in launcher), tuple(p.pid for p in found[1]), len(fresh_log()))
+                if marker.exists() and state != observed_state and len(observed) < 40:
+                    observed_state = state
+                    observed.append(f"time={time.monotonic()} state={state} recent_log={fresh_log()[-700:]}")
                     for child in psutil.process_iter(["pid", "name", "exe", "cmdline", "status", "ppid"]):
                         if child.pid in before and child.pid not in [p.pid for p in found[1]]:
                             continue
-                        if (child.info["ppid"] in [p.pid for p in launcher]
-                                or child.pid in [p.pid for p in found[1]]
-                                or any(name in (child.info["name"] or "").lower() for name in ("cubeon", "flet", "python"))):
-                            observed.append(str(dict(child.info, cmdline=(child.info["cmdline"] or [])[:1])))
+                        observed.append(str(dict(child.info, cmdline=(child.info["cmdline"] or [])[:1])))
                     observed.append(f"matched launchers={[p.pid for p in found[0]]} clients={[p.pid for p in found[1]]}")
                 return found
             def diagnostics():
@@ -180,9 +185,10 @@ def native(arch):
                             return child.is_running() and child.status() != psutil.STATUS_ZOMBIE
                         except psutil.Error:
                             return False
+                    hold_seconds = 45 if route == "Finder" else 15
                     wait_for_smoke(marker, discover,
-                                   alive, diagnostics, route)
-                    print(f"macOS {arch}: {route} launch reached first paint and stayed open for 15 seconds")
+                                   alive, diagnostics, route, hold_seconds=hold_seconds)
+                    print(f"macOS {arch}: {route} launch reached first paint and stayed open for {hold_seconds} seconds")
                 finally:
                     # Both the launcher and Flet can detach through LaunchServices.
                     launcher, clients = discover()
@@ -249,6 +255,7 @@ def smoke_regressions():
         with patch.object(psutil, 'Process', return_value=client_process) as resolve:
             assert flet_pid_process(psutil, fresh) == [client_process]
             resolve.assert_called_once_with(42)
+            assert flet_pid_process(psutil, 'INFO cubeon.desktop_runtime: Desktop client started: pid=42 executable=flet pid_file=unused') == [client_process]
             client_process.status.return_value = psutil.STATUS_ZOMBIE
             assert flet_pid_process(psutil, fresh) == []
         pid_file.unlink()
