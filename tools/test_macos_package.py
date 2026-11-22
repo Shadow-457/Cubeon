@@ -26,16 +26,30 @@ def smoke_processes(psutil, binary, before):
             continue
         try:
             command = process.info["cmdline"] or []
-            executable = process.info["exe"] or (command[0] if command else "")
-            if not executable:
-                continue
-            path = Path(executable).resolve()
-            if path == binary:
-                launcher.append(process)
-            elif path.is_relative_to(client_root) and path.parent.name == "MacOS":
+            # proc_pidpath and argv[0] can differ for Finder-launched bundles.
+            # Match only argv[0], never open's later .app argument.
+            for executable in (process.info["exe"], command[0] if command else ""):
+                if not executable:
+                    continue
+                path = Path(executable).resolve()
+                if path == binary:
+                    launcher.append(process)
+                    break
+                if path.parent.name != "MacOS":
+                    continue
                 info = plistlib.loads((path.parent.parent / "Info.plist").read_bytes())
-                if path.name == info["CFBundleExecutable"]:
+                if path.name != info["CFBundleExecutable"]:
+                    continue
+                if path.is_relative_to(client_root):
                     clients.append(process)
+                    break
+                # LaunchServices can run an App Translocation copy. Its signed
+                # bundle identity/version must match the verified source bundle.
+                source_info = plistlib.loads((binary.parent.parent / "Info.plist").read_bytes())
+                if (info.get("CFBundleIdentifier") == source_info["CFBundleIdentifier"]
+                        and info.get("CFBundleShortVersionString") == source_info["CFBundleShortVersionString"]):
+                    launcher.append(process)
+                    break
         except (psutil.Error, OSError, ValueError, KeyError):
             continue
     return launcher, clients
@@ -122,10 +136,21 @@ def native(arch):
         with tempfile.TemporaryDirectory(prefix="cubeon-macos-smoke-") as directory:
             env = dict(os.environ, CUBEON_GAME_DIR=str(Path(directory) / "game"))
             output = Path(directory) / "startup.log"
+            observed = []
+            def discover():
+                found = smoke_processes(psutil, binary, before)
+                if marker.exists() and not observed:
+                    for child in psutil.process_iter(["pid", "name", "exe", "cmdline", "status"]):
+                        if child.pid in before:
+                            continue
+                        if any(name in (child.info["name"] or "").lower() for name in ("cubeon", "flet", "python")):
+                            observed.append(str(dict(child.info, cmdline=(child.info["cmdline"] or [])[:1])))
+                    observed.append(f"matched launchers={[p.pid for p in found[0]]} clients={[p.pid for p in found[1]]}")
+                return found
             def diagnostics():
                 launcher_log = Path.home() / ".cubeon_launcher/cubeon.log"
                 return (output.read_text(errors="replace") +
-                        (launcher_log.read_text(errors="replace") if launcher_log.exists() else ""))[-6000:]
+                        (launcher_log.read_text(errors="replace") if launcher_log.exists() else ""))[-6000:] + "\nFirst-paint processes:\n" + "\n".join(observed)
             with output.open("wb") as log:
                 process = subprocess.Popen(arguments, cwd=directory, env=env,
                                            stdout=log, stderr=subprocess.STDOUT)
@@ -135,7 +160,7 @@ def native(arch):
                             return child.is_running() and child.status() != psutil.STATUS_ZOMBIE
                         except psutil.Error:
                             return False
-                    wait_for_smoke(marker, lambda: smoke_processes(psutil, binary, before),
+                    wait_for_smoke(marker, discover,
                                    alive, diagnostics, route)
                     print(f"macOS {arch}: {route} launch reached first paint and stayed open for 15 seconds")
                 finally:
@@ -171,15 +196,27 @@ def smoke_regressions():
         binary = home / "Cubeon.app/Contents/MacOS/Cubeon"
         client = home / ".flet/client/flet-desktop-full-0.86.5/Flet.app/Contents/MacOS/flet"
         client.parent.mkdir(parents=True)
+        binary.parent.mkdir(parents=True)
+        app_identity = {"CFBundleExecutable": "Cubeon", "CFBundleIdentifier": "online.ylet.cubeon",
+                        "CFBundleShortVersionString": "1.4.55"}
+        (binary.parent.parent / "Info.plist").write_bytes(plistlib.dumps(app_identity))
         (client.parent.parent / "Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "flet"}))
         def process(pid, executable, command=None, status="running"):
             return SimpleNamespace(pid=pid, info=dict(exe=str(executable), cmdline=command or [], status=status))
         launcher, flet = process(10, binary), process(11, client)
+        finder_launcher = process(14, '/usr/bin/other-executable', [str(binary)])
+        finder_client = process(15, '/usr/bin/other-executable', [str(client)])
+        relocated = home / 'AppTranslocation/Cubeon.app/Contents/MacOS/Cubeon'
+        relocated.parent.mkdir(parents=True)
+        (relocated.parent.parent / 'Info.plist').write_bytes(plistlib.dumps(app_identity))
+        relocated_launcher = process(16, relocated)
         helper = process(12, "/usr/bin/open", ["open", "-n", "-W", str(binary.parent.parent.parent)])
         old = process(9, binary)
         zombie = process(13, binary, status=psutil.STATUS_ZOMBIE)
-        with patch.object(Path, "home", return_value=home), patch.object(psutil, "process_iter", return_value=[old, helper, launcher, flet, zombie]):
-            assert smoke_processes(psutil, binary, {9}) == ([launcher], [flet])
+        with patch.object(Path, "home", return_value=home), patch.object(psutil, "process_iter", return_value=[old, helper, launcher, flet, zombie, finder_launcher, finder_client, relocated_launcher]):
+            assert smoke_processes(psutil, binary, {9}) == ([launcher, finder_launcher, relocated_launcher], [flet, finder_client])
+            (relocated.parent.parent / 'Info.plist').write_bytes(plistlib.dumps(dict(app_identity, CFBundleShortVersionString='1.0.0')))
+            assert relocated_launcher not in smoke_processes(psutil, binary, {9})[0]
         marker = home / "painted"
         marker.touch()
         # An exited open helper is irrelevant once the actual apps are alive.
