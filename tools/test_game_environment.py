@@ -88,6 +88,20 @@ class GameEnvironmentTests(unittest.TestCase):
         with patch.dict(os.environ, {'LD_LIBRARY_PATH': '/user/lib'}), patch.object(sys, 'frozen', True, create=True), patch.object(sys, 'platform', 'win32'):
             self.assertEqual(self.spawn()['LD_LIBRARY_PATH'], '/user/lib')
 
+    def test_mac_native_children_keep_user_settings_and_drop_parent_app_identity(self):
+        chosen = {'__CFBundleIdentifier': 'online.ylet.cubeon',
+                  'XPC_SERVICE_NAME': 'application.online.ylet.cubeon.123',
+                  'SECURITYSESSIONID': 'session', 'PATH': os.environ.get('PATH', '')}
+        with patch.dict(os.environ, chosen), patch.object(sys, 'platform', 'darwin'):
+            from cubeon.incident import client_environment
+            env = client_environment(os.environ)
+            self.assertNotIn('__CFBundleIdentifier', env)
+            self.assertNotIn('XPC_SERVICE_NAME', env)
+            self.assertEqual(env['SECURITYSESSIONID'], 'session')
+            self.assertEqual(env['PATH'], chosen['PATH'])
+            for key, value in chosen.items():
+                self.assertEqual(os.environ[key], value)
+
     def test_rust_preparer_restores_path_and_strips_internal_flags(self):
         chosen = {'LD_LIBRARY_PATH': '/bundle/_internal', 'LD_LIBRARY_PATH_ORIG': '/user/lib',
                   'HORIZON_SESSION': 'fixture', 'CUBEON_USER_RENDERING': '0',

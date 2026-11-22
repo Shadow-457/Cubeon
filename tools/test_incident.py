@@ -170,6 +170,8 @@ check("a clean close carries NO tail (it would be pure noise)",
 check("a clean close still records the facts",
       inc.crash_record("clean_close", 0, True, [], {}).startswith(
           "flet session ended: kind=clean_close client_exit=0 (clean exit)"))
+check("an exit before first paint retains native output even with code zero",
+      "early native exit" in inc.crash_record("clean_close", 0, False, ["early native exit"], {}))
 check("no tail at all is fine",
       "last flet client output"
       not in inc.crash_record("pre_paint_crash", -11, False, [], {}))

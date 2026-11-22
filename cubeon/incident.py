@@ -260,7 +260,7 @@ def crash_record(kind, code, ui_painted, tail=(), env=None) -> str:
     head = (f"flet session ended: kind={kind} "
             f"client_exit={describe_exit(code)} "
             f"ui_painted={bool(ui_painted)} {environment_facts(env)}")
-    if kind == "clean_close":
+    if kind == "clean_close" and ui_painted:
         return head
     lines = []
     try:
@@ -422,7 +422,7 @@ USER_RENDERING_FLAG = "CUBEON_USER_RENDERING"
 
 
 def client_environment(env, *, frozen=None, platform=None) -> dict:
-    """Keep native Linux children out of PyInstaller's Python library path."""
+    """Isolate native children from the frozen launcher's runtime/GUI identity."""
     out = dict(env)
     frozen = getattr(sys, "frozen", False) if frozen is None else frozen
     platform = sys.platform if platform is None else platform
@@ -434,6 +434,11 @@ def client_environment(env, *, frozen=None, platform=None) -> dict:
             out["LD_LIBRARY_PATH"] = out["LD_LIBRARY_PATH_ORIG"]
         else:
             out.pop("LD_LIBRARY_PATH", None)
+    if platform == "darwin":
+        # Finder identifies its launched app through these markers. A separate
+        # AppKit client must establish its own identity, not inherit Cubeon's.
+        out.pop("__CFBundleIdentifier", None)
+        out.pop("XPC_SERVICE_NAME", None)
     return out
 
 

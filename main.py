@@ -9179,6 +9179,12 @@ if __name__ == "__main__":
         from cubeon.desktop_runtime import native_client_command
         args = native_client_command(args)
         flet_env = _incident.client_environment(flet_env)
+        if sys.platform == "darwin":
+            logging.getLogger("cubeon.desktop_runtime").info(
+                "macOS desktop launch: parent_bundle=%s parent_service=%s hidden=%s",
+                os.environ.get("__CFBundleIdentifier", "unset"),
+                os.environ.get("XPC_SERVICE_NAME", "unset"),
+                flet_env.get("FLET_HIDE_WINDOW_ON_START", "unset"))
         # The flet.exe client must not flash its own console either
         # (asyncio passes kwargs to the underlying subprocess on Windows).
         from cubeon.winproc import hidden as _hidden_kw
