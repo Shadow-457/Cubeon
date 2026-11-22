@@ -8883,6 +8883,10 @@ async def main(page: ft.Page):
                     _close_account_panel()
                 elif active_tab["value"] == "screenshots":
                     switch_tab(screenshots_return_tab["value"])
+                elif (active_tab["value"] == "server_plugins"
+                      and getattr(server_plugins_tab.content, "close_detail", None)
+                      and server_plugins_tab.content.close_detail()):
+                    pass
                 elif (getattr(mods_tab.content, "close_detail", None)
                       and mods_tab.content.close_detail()):
                     pass

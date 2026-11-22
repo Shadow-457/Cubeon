@@ -49,6 +49,7 @@ from .mods import modrinth_search_index, rank_search_hits
 from . import local_cache
 from . import net
 from . import storage
+from . import mod_catalogue
 
 MODRINTH_API = "https://api.modrinth.com/v2"
 
@@ -210,9 +211,7 @@ def _tune_authme_config(version_id: str) -> list[str]:
             return []
     return changes
 
-# A handful of well-known, safe-default plugins shown before the user
-# searches anything - mirrors RECOMMENDED_MOD_SLUGS in mods.py but scoped
-# to Paper plugins. All are performance/QoL picks that work standalone.
+# Legacy curated slugs, retained for callers; browsing uses the popular catalogue.
 RECOMMENDED_PLUGIN_SLUGS = ["luckperms", "essentialsx", "viaversion", "vault", "worldedit"]
 
 # Curated LOW-PING picks (verified against Modrinth 2026-08-25: every slug
@@ -1215,12 +1214,12 @@ def get_plugins_dir(version_id: str) -> str:
     return path
 
 
-def _write_plugin_meta(plugins_dir: str, filename: str, slug: str | None) -> None:
+def _write_plugin_meta(plugins_dir: str, filename: str, slug: str | None, **metadata) -> None:
     base = filename[:-4] if filename.endswith(".jar") else filename
     meta_path = os.path.join(plugins_dir, base + PLUGIN_META_SUFFIX)
     try:
         with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump({"slug": slug}, f)
+            json.dump({"slug": slug, **metadata}, f)
     except OSError:
         pass
 
@@ -1258,6 +1257,10 @@ def list_plugins(version_id: str) -> list[dict]:
             "display_name": display_name,
             "enabled": enabled,
             "slug": meta.get("slug"),
+            "source": meta.get("source") or "modrinth",
+            "project_id": meta.get("project_id"),
+            "file_id": meta.get("file_id"),
+            "icon_url": meta.get("icon_url"),
             "protected": is_protected_plugin_stem(stem),
         })
     return results
@@ -1312,28 +1315,9 @@ def install_local_plugin(version_id: str, src_path: str) -> str:
     return filename
 
 
-def get_recommended_plugins() -> list[dict]:
-    cache_key = {"slugs": RECOMMENDED_PLUGIN_SLUGS}
-
-    def _fetch() -> list[dict]:
-        projects = net.get_json(
-            f"{MODRINTH_API}/projects", params={"ids": json.dumps(RECOMMENDED_PLUGIN_SLUGS)},
-            headers=modrinth_headers(), timeout=15,
-        )
-        by_slug = {p.get("slug"): p for p in projects}
-        results = []
-        for slug in RECOMMENDED_PLUGIN_SLUGS:
-            p = by_slug.get(slug)
-            if not p:
-                continue
-            results.append({
-                "project_id": p.get("id"), "slug": p.get("slug"), "title": p.get("title"),
-                "description": p.get("description"), "icon_url": p.get("icon_url"),
-                "downloads": p.get("downloads", 0),
-            })
-        return results
-
-    return local_cache.cached_call("recommended_plugins", cache_key, _fetch, max_age=86400)
+def get_recommended_plugins(mc_version: str | None = None, limit: int = 100, *, source="modrinth", force=False) -> list[dict]:
+    """Popular Paper-compatible plugins, using the same filtered catalogue as search."""
+    return search_plugins("", mc_version=mc_version, limit=limit, source=source, force=force)
 
 
 def get_low_ping_plugins() -> list[dict]:
@@ -1461,14 +1445,24 @@ def ensure_smooth_mode_plugins(version_id: str, progress_cb=None) -> dict:
     return result
 
 
-def search_plugins(query: str, mc_version: str | None = None, limit: int = 100) -> list[dict]:
+def search_plugins(query: str, mc_version: str | None = None, limit: int = 100, *, source="modrinth", force=False) -> list[dict]:
     """Searches Modrinth for Paper plugins, optionally scoped to an MC
     version. Bukkit/Spigot-loader plugins are Paper-compatible too, so
     both loader facets are OR'd together to catch everything installable."""
+    link = mod_catalogue.reference(query, kind="plugin")
+    if link:
+        if link["source"] != source:
+            return []
+        hit = get_plugin_details(link["project"], source=source, force=force)
+        return [dict(hit, file_id=link["file_id"])] if hit else []
+    if source == "curseforge":
+        return mod_catalogue.search(query, mc_version, limit=limit, force=force, kind="plugin")
+    if source != "modrinth":
+        raise ValueError("Unknown plugin provider.")
     facets = [["project_type:plugin"], ["categories:paper", "categories:bukkit", "categories:spigot"]]
     if mc_version:
         facets.append([f"versions:{mc_version}"])
-    cache_key = {"query": query, "mc_version": mc_version, "limit": limit}
+    cache_key = {"query": query, "mc_version": mc_version, "limit": limit, "revision": 1}
 
     def _fetch() -> list[dict]:
         params = {"query": query, "limit": str(limit), "facets": json.dumps(facets),
@@ -1478,16 +1472,39 @@ def search_plugins(query: str, mc_version: str | None = None, limit: int = 100) 
         results = []
         for hit in data.get("hits", []):
             results.append({
-                "project_id": hit.get("project_id"), "slug": hit.get("slug"), "title": hit.get("title"),
+                "source": "modrinth", "project_id": hit.get("project_id"), "slug": hit.get("slug"), "title": hit.get("title"),
                 "description": hit.get("description"), "icon_url": hit.get("icon_url"),
                 "downloads": hit.get("downloads", 0), "author": hit.get("author"),
             })
         return rank_search_hits(results, query)
 
-    return local_cache.cached_call("search_plugins", cache_key, _fetch, max_age=6 * 3600)
+    return mod_catalogue.cached("search_plugins", cache_key, _fetch, force=force)
 
 
-def get_plugin_download(project_id_or_slug: str, mc_version: str | None = None) -> dict | None:
+def get_plugin_details(ref, *, source="modrinth", force=False):
+    source, ref = mod_catalogue.resolve_ref(ref, source)
+    if source == "curseforge":
+        return mod_catalogue.details(ref, kind="plugin", force=force)
+    from .mods import get_mod_details
+    details = get_mod_details(ref, force=force)
+    if details and details.get("project_type") != "plugin":
+        raise ValueError("This project is not a server plugin.")
+    return dict(details, source=source) if details else None
+
+
+def get_plugin_versions(ref, mc_version, *, source="modrinth", force=False):
+    source, ref = mod_catalogue.resolve_ref(ref, source)
+    if source == "curseforge":
+        return mod_catalogue.versions(ref, mc_version, kind="plugin", force=force)
+    from .mods import get_mod_versions
+    return [v for v in get_mod_versions(ref, mc_version=mc_version, force=force)
+            if v.get("compatible") and set(v.get("loaders") or []) & {"paper", "spigot", "bukkit"}]
+
+
+def get_plugin_download(project_id_or_slug: str, mc_version: str | None = None, *, source="modrinth", file_id=None) -> dict | None:
+    source, project_id_or_slug = mod_catalogue.resolve_ref(project_id_or_slug, source)
+    if source == "curseforge":
+        return mod_catalogue.download(project_id_or_slug, mc_version, kind="plugin", file_id=file_id)
     cache_key = {"project": project_id_or_slug, "mc_version": mc_version}
 
     def _fetch():
@@ -1509,6 +1526,7 @@ def get_plugin_download(project_id_or_slug: str, mc_version: str | None = None) 
             "filename": primary.get("filename"), "url": primary.get("url"),
             "size_kb": round(primary.get("size", 0) / 1024, 1),
             "version_number": latest.get("version_number"),
+            "hashes": primary.get("hashes") or {},
         }
 
     return local_cache.cached_call("plugin_download", cache_key, _fetch, max_age=86400)
@@ -1516,15 +1534,26 @@ def get_plugin_download(project_id_or_slug: str, mc_version: str | None = None) 
 
 @storage.update_operation()
 def download_plugin(version_id: str, download_url: str, filename: str,
-                     slug: str | None = None, progress_cb=None) -> str:
+                     slug: str | None = None, progress_cb=None, *, source="modrinth", project_id=None,
+                     file_id=None, icon_url=None, hashes=None) -> str:
     """Fetch a plugin jar with the same retry/resume/atomic-replace guarantees
     as every other download in the launcher (see cubeon/net.py)."""
     from . import net
+    if (not filename or os.path.basename(filename) != filename or "\\" in filename
+            or not filename.lower().endswith(".jar")):
+        raise ValueError("Invalid plugin filename.")
     plugins_dir = get_plugins_dir(version_id)
     dest = os.path.join(plugins_dir, filename)
+    expected_hash = next(((algo, hashes[algo]) for algo in ("sha512", "sha256", "sha1")
+                          if (hashes or {}).get(algo)), None)
+    validation = {}
+    if source == "curseforge":
+        from .modpacks import _host_allowed
+        validation['url_validator'] = _host_allowed
     net.download_to(dest, download_url, headers=modrinth_headers(), timeout=60,
-                    progress_cb=progress_cb)
-    _write_plugin_meta(plugins_dir, filename, slug)
+                    progress_cb=progress_cb, expected_hash=expected_hash, **validation)
+    _write_plugin_meta(plugins_dir, filename, slug, source=source, project_id=project_id,
+                       file_id=file_id, icon_url=icon_url)
     return dest
 
 

@@ -3537,18 +3537,8 @@ class ModsView:
 
     def _build_view_segment(self):
         update_view_action(self.view_segment_row, self.active_view['value'], self._installed_display_count(),
-                           self.on_view_change, data='mods-installed-toggle', color=self.TEXT_DIM)
-        # Scope the compact action styling to Mods; Plugins uses the shared helper.
-        button = self.view_segment_row.controls[0]
-        button.width, button.height = 132, 36
-        button.style = ft.ButtonStyle(
-            color=self.TEXT_DIM, bgcolor=CARD_FILL,
-            side=ft.BorderSide(1, CARD_BORDER),
-            shape=ft.RoundedRectangleBorder(radius=RADIUS),
-            padding=ft.padding.Padding.symmetric(horizontal=10),
-            text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_600),
-        )
-        thread_safe_ui.refresh(self.view_segment_row)
+                           self.on_view_change, data='mods-installed-toggle', color=self.TEXT_DIM,
+                           compact=True)
 
     def on_view_change(self, new_view):
         ft.context.disable_auto_update()

@@ -99,7 +99,7 @@ def interleave(mr_hits, cf_hits):
     return result
 
 
-def reference(query):
+def reference(query, *, kind="mod"):
     """Recognize provider project/version pages, never arbitrary download URLs."""
     try:
         parsed = urlsplit(query if "://" in query else "https://" + query)
@@ -109,10 +109,10 @@ def reference(query):
         return None
     parts = parsed.path.strip("/").split("/")
     host = parsed.netloc.lower().removeprefix("www.")
-    if host == "modrinth.com" and len(parts) >= 2 and parts[0] in ("mod", "project"):
+    if host == "modrinth.com" and len(parts) >= 2 and parts[0] in (kind, "project"):
         source, project = "modrinth", parts[1]
         file_id = parts[3] if len(parts) >= 4 and parts[2] == "version" else None
-    elif host == "curseforge.com" and len(parts) >= 3 and parts[:2] == ["minecraft", "mc-mods"]:
+    elif host == "curseforge.com" and len(parts) >= 3 and parts[:2] == ["minecraft", "bukkit-plugins" if kind == "plugin" else "mc-mods"]:
         source, project = "curseforge", parts[2]
         file_id = parts[4] if len(parts) >= 5 and parts[3] == "files" and parts[4].isdigit() else None
     elif host == "playhorizon.dev" and len(parts) == 2 and parts[0] == "mods":
@@ -146,13 +146,14 @@ def _request(path, params=None, *, timeout=(3, 10), cancel_event=None):
     return response
 
 
-def _project(hit):
-    if not isinstance(hit, dict) or not hit.get("id") or hit.get("classId", 6) != 6:
-        raise ValueError("This CurseForge project is not a Minecraft mod.")
+def _project(hit, kind="mod"):
+    class_id = 5 if kind == "plugin" else 6
+    if not isinstance(hit, dict) or not hit.get("id") or hit.get("classId", class_id) != class_id:
+        raise ValueError(f"This CurseForge project is not a Minecraft {kind}.")
     authors = hit.get("authors") or []
     links = hit.get("links") or {}
     return dict(source="curseforge", project_id=str(hit["id"]), slug=hit.get("slug"),
-                title=hit.get("name") or "Mod", description=hit.get("summary") or "",
+                title=hit.get("name") or kind.title(), description=hit.get("summary") or "",
                 icon_url=(hit.get("logo") or {}).get("thumbnailUrl"),
                 author=", ".join(a.get("name", "") for a in authors),
                 downloads=hit.get("downloadCount") or 0,
@@ -161,18 +162,18 @@ def _project(hit):
                 categories=[c.get("name", "") for c in hit.get("categories") or []],
                 gallery=[dict(url=s.get("url"), title=s.get("title") or "")
                          for s in hit.get("screenshots") or [] if s.get("url")],
-                project_type="mod", allow_distribution=hit.get("allowModDistribution") is not False)
+                project_type=kind, allow_distribution=hit.get("allowModDistribution") is not False)
 
 
-def search(query, mc_version=None, loader=None, categories=None, limit=24, offset=0, *, force=False):
+def search(query, mc_version=None, loader=None, categories=None, limit=24, offset=0, *, force=False, kind="mod"):
     from .modpacks import curseforge_enabled
     if not curseforge_enabled():
         raise ValueError("CurseForge search is unavailable: no API key is configured.")
-    params = dict(gameId=432, classId=6, searchFilter=query, sortField=1 if query else 2,
+    params = dict(gameId=432, classId=5 if kind == "plugin" else 6, searchFilter=query, sortField=1 if query else 2,
                   sortOrder="desc", index=offset, pageSize=min(limit, 50))
     if mc_version:
         params["gameVersion"] = mc_version
-    if loader:
+    if loader and kind != "plugin":
         params["modLoaderType"] = LOADERS[loader]
     if categories:
         import json
@@ -182,23 +183,23 @@ def search(query, mc_version=None, loader=None, categories=None, limit=24, offse
         data = _request("/mods/search", params)["data"]
         if not isinstance(data, list):
             raise ValueError("CurseForge returned an invalid search page.")
-        return [dict(_project(h), search_query=query,
+        return [dict(_project(h, kind), search_query=query,
                      compatibility_target=[mc_version, loader] if mc_version and loader else None)
                 for h in data]
     return cached("cf_mod_search", params, fetch, force=force)
 
 
-def details(ref, *, force=False, description=True):
+def details(ref, *, force=False, description=True, kind="mod"):
     def fetch():
         if str(ref).isdigit():
             data = _request(f"/mods/{ref}")["data"]
         else:
-            matches = _request("/mods/search", dict(gameId=432, classId=6, slug=ref, pageSize=1))["data"]
+            matches = _request("/mods/search", dict(gameId=432, classId=5 if kind == "plugin" else 6, slug=ref, pageSize=1))["data"]
             if not matches:
-                raise ValueError("CurseForge mod not found.")
+                raise ValueError(f"CurseForge {kind} not found.")
             data = matches[0]
-        return _project(data)
-    project = cached("cf_mod_details", str(ref), fetch, force=force)
+        return _project(data, kind)
+    project = cached("cf_mod_details", f"plugin:{ref}" if kind == "plugin" else str(ref), fetch, force=force)
     if not description:
         return project
     def body():
@@ -214,7 +215,8 @@ def _file(raw, project, mc_version, loader):
     if not isinstance(raw, dict) or str(raw.get("modId")) != project["project_id"]:
         raise ValueError("CurseForge returned a file belonging to another project.")
     tags = raw.get("gameVersions") or []
-    compatible = (not mc_version or mc_version in tags) and (not loader or loader.lower() in [str(t).lower() for t in tags])
+    plugin = project.get("project_type") == "plugin"
+    compatible = (not mc_version or mc_version in tags) and (plugin or not loader or loader.lower() in [str(t).lower() for t in tags])
     url = raw.get("downloadUrl") if project["allow_distribution"] and raw.get("isAvailable", True) else None
     from .modpacks import _host_allowed
     if url and not _host_allowed(url):
@@ -222,9 +224,9 @@ def _file(raw, project, mc_version, loader):
     return dict(source="curseforge", project_id=project["project_id"], slug=project.get("slug"),
                 id=str(raw["id"]), file_id=str(raw["id"]), name=raw.get("displayName") or "",
                 version_number=raw.get("displayName") or "", filename=raw.get("fileName"), url=url,
-                website_url=f"{project.get('website_url') or 'https://www.curseforge.com/minecraft/mc-mods/' + str(project.get('slug'))}/files/{raw['id']}",
+                website_url=f"{project.get('website_url') or 'https://www.curseforge.com/minecraft/' + ('bukkit-plugins/' if plugin else 'mc-mods/') + str(project.get('slug'))}/files/{raw['id']}",
                 game_versions=[t for t in tags if str(t)[:1].isdigit()],
-                loaders=[t.lower() for t in tags if str(t).lower() in LOADERS],
+                loaders=["bukkit"] if plugin else [t.lower() for t in tags if str(t).lower() in LOADERS],
                 compatible=compatible, version_type={1: "release", 2: "beta", 3: "alpha"}.get(raw.get("releaseType"), "release"),
                 date_published=raw.get("fileDate") or "", downloads=raw.get("downloadCount") or 0,
                 size_kb=round((raw.get("fileLength") or 0) / 1024, 1),
@@ -234,14 +236,16 @@ def _file(raw, project, mc_version, loader):
 
 
 def versions(ref, mc_version=None, loader=None, *, offset=0, limit=50, file_id=None,
-             force=False, timeout=(3, 10), cancel_event=None, allow_network=True):
+             force=False, timeout=(3, 10), cancel_event=None, allow_network=True, kind="mod"):
     key = dict(project=str(ref), mc=mc_version, loader=loader, offset=offset, limit=limit, file=file_id)
+    if kind == "plugin":
+        key["kind"] = kind
     def fetch():
-        project = details(ref, force=force, description=False)
+        project = details(ref, force=force, description=False, kind=kind)
         params = dict(index=offset, pageSize=min(limit, 50))
         if mc_version:
             params["gameVersion"] = mc_version
-        if loader:
+        if loader and kind != "plugin":
             params["modLoaderType"] = LOADERS[loader]
         path = f"/mods/{project['project_id']}/files"
         payload = _request(f"{path}/{file_id}" if file_id else path,
@@ -262,12 +266,12 @@ def versions(ref, mc_version=None, loader=None, *, offset=0, limit=50, file_id=N
 
 
 def download(ref, mc_version=None, loader=None, *, file_id=None, force=False,
-             timeout=(3, 10), cancel_event=None, version_predicates=None, **_):
+             timeout=(3, 10), cancel_event=None, version_predicates=None, kind="mod", **_):
     offset = 0
     restricted = None
     for _page in range(MAX_FILE_PAGES):
         releases = versions(ref, mc_version, loader, file_id=file_id, offset=offset,
-                            force=force, timeout=timeout, cancel_event=cancel_event)
+                            force=force, timeout=timeout, cancel_event=cancel_event, kind=kind)
         for release in releases:
             if not release["compatible"] or not str(release.get("filename") or "").lower().endswith(".jar"):
                 continue

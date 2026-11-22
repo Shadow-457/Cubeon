@@ -1544,6 +1544,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         spacing=0,
         expand=True,
     )
+    plugins_view.close_detail = plugins_content.close_detail
 
     # --- Console view (the "Servers > Console" sidebar sub-item) ----------
 

@@ -2,7 +2,7 @@
 import flet as ft
 import asyncio
 from cubeon import thread_safe_ui, motion
-from cubeon.theme import RADIUS, attach_hover, BORDER, SURFACE
+from cubeon.theme import RADIUS, attach_hover, BORDER, SURFACE, CARD_FILL, CARD_BORDER
 
 
 CARD_HEIGHT = 268  # browse cover cards (name, author, blurb, install)
@@ -161,7 +161,7 @@ def catalogue_views(page, browse, installed):
     return viewport, browse_host, installed_host, select
 
 
-def update_view_action(row, view, count, on_change, *, data, color):
+def update_view_action(row, view, count, on_change, *, data, color, compact=False):
     """Update the same action control; refreshes never remount the toolbar."""
     destination = 'installed' if view == 'browse' else 'browse'
     if not row.controls:
@@ -169,6 +169,16 @@ def update_view_action(row, view, count, on_change, *, data, color):
     button = row.controls[0]
     button.content = f'Installed ({count})' if destination == 'installed' else 'Browse'
     button.icon = ft.Icons.INVENTORY_2_OUTLINED if destination == 'installed' else ft.Icons.SEARCH_ROUNDED
-    button.style = ft.ButtonStyle(color=color)
+    if compact:
+        button.width, button.height = 132, 36
+        button.style = ft.ButtonStyle(
+            color=color, bgcolor=CARD_FILL,
+            side=ft.BorderSide(1, CARD_BORDER),
+            shape=ft.RoundedRectangleBorder(radius=RADIUS),
+            padding=ft.padding.Padding.symmetric(horizontal=10),
+            text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_600),
+        )
+    else:
+        button.style = ft.ButtonStyle(color=color)
     button.on_click = lambda event: on_change(destination)
     thread_safe_ui.refresh(row)

@@ -5,14 +5,14 @@ import time
 
 import flet as ft
 import launcher_core as core
-from cubeon import scrolling, storage, thread_safe_ui
+from cubeon import scrolling, storage, thread_safe_ui, mod_catalogue
 from cubeon import icons
 from cubeon.background_refresh import BackgroundRefresh
 from cubeon.icon_loader import IconLoader
 from cubeon.theme import RADIUS, TEXT_FAINT, CARD_FILL, CARD_BORDER, ROW_HOVER, ON_ACCENT, animated_switch
 from ui.content_states import empty_state
-from ui.content_tiles import tile_grid, layout_tiles, loading_tiles, style_tile, downloads_label, content_header, update_view_action, catalogue_views
-from ui.detail_dialog import open_project_detail
+from ui.content_tiles import tile_grid, layout_tiles, loading_tiles, style_tile, downloads_label, update_view_action, catalogue_views
+from ui.modpack_detail import ProjectDetailPage
 from ui.image_memory import preview_image
 from ui.install_feedback import InstallRegistry, InstallFeedback, compact_status, progress_text
 
@@ -28,7 +28,7 @@ def build_plugins_catalogue(page, active_version, *, section_label,
                                   overflow=ft.TextOverflow.ELLIPSIS)
     feedback_text = ft.Text('', size=11.5, color=TEXT_DIM, max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS)
-    plugin_market_title = ft.Text('Plugin picks', size=12, color=TEXT_DIM, font_family=FONT_MONO)
+    plugin_market_title = ft.Text('Popular plugins', size=12, color=TEXT_DIM, font_family=FONT_MONO)
     plugins_active_view = {'value': 'browse'}
     snapshots, snapshot_at, match_sets = {}, {}, {}
     installed_rows, browse_rows, search_cache = {}, {}, {}
@@ -39,6 +39,12 @@ def build_plugins_catalogue(page, active_version, *, section_label,
     inflight = set()
     registry, artwork = InstallRegistry(), IconLoader()
     plugin_install_busy = {'value': False}
+    detail_target = {'version': None}
+    theme = dict(RADIUS=RADIUS, ACCENT=ACCENT, ACCENT_TINT=ft.Colors.with_opacity(.1, ACCENT),
+                 CARD_FILL=CARD_FILL, CARD_BORDER=CARD_BORDER, TEXT=TEXT, TEXT_DIM=TEXT_DIM,
+                 TEXT_FAINT=TEXT_FAINT, ON_ACCENT=ON_ACCENT, SURFACE=SURFACE, SURFACE_HI=SURFACE_HI,
+                 BG=BG, DANGER=DANGER, FONT_DISPLAY=FONT_DISPLAY, FONT_MONO=FONT_MONO)
+    details = ProjectDetailPage(page, theme, artwork, kind='plugin')
 
     def remember(cache, key, value, limit=200):
         cache[key] = value
@@ -67,6 +73,13 @@ def build_plugins_catalogue(page, active_version, *, section_label,
     def _plugin_installed_tokens():
         return match_sets.get(active_version['value'], set())
 
+    def project_installed(hit):
+        source = mod_catalogue.source_of(hit)
+        tokens = _plugin_installed_tokens()
+        return any(f'{source}:{str(value).lower()}' in tokens
+                   or f'{source}:' + re.sub(r'[^a-z0-9]+', '', str(value).lower()) in tokens
+                   for value in (hit.get('slug'), hit.get('project_id'), hit.get('title')) if value)
+
     def read_plugins(version):
         return version, core.list_plugins(version) if version else []
 
@@ -78,8 +91,9 @@ def build_plugins_catalogue(page, active_version, *, section_label,
         for plugin in plugins:
             for name in (plugin.get('slug'), plugin.get('project_id'), plugin.get('display_name')):
                 if name:
-                    tokens.add(name.lower())
-                    tokens.add(re.sub(r'[^a-z0-9]+', '', name.lower()))
+                    source = mod_catalogue.source_of(plugin)
+                    tokens.add(f'{source}:{name.lower()}')
+                    tokens.add(f'{source}:' + re.sub(r'[^a-z0-9]+', '', name.lower()))
         match_sets[version] = tokens
         for retired in set(snapshot_at) - set(snapshots):
             snapshot_at.pop(retired, None)
@@ -105,6 +119,8 @@ def build_plugins_catalogue(page, active_version, *, section_label,
     def refresh_plugins_list(snapshot=None, *, force=False):
         with thread_safe_ui.TREE_LOCK:
             version = active_version['value']
+            if detail_target['version'] != version:
+                details.close()
             if snapshot is not None:
                 plugin_refresh.invalidate()
                 apply_plugins((version, snapshot.get('plugins', [])))
@@ -201,6 +217,8 @@ def build_plugins_catalogue(page, active_version, *, section_label,
             ])
         row = style_tile(ft.Container(ft.Row(controls, vertical_alignment=ft.CrossAxisAlignment.CENTER)),
                          SURFACE, BORDER, ROW_HOVER)
+        if data.get('slug') or data.get('project_id'):
+            row.on_click = lambda e: open_plugin_detail(dict(data, title=data['display_name'])) if version == active_version['value'] else None
         remember(installed_rows, key, (data, row, job))
         return row
 
@@ -231,28 +249,39 @@ def build_plugins_catalogue(page, active_version, *, section_label,
         thread_safe_ui.refresh(installed_plugins_count)
         _build_plugins_view_segment()
 
-    def _install_plugin_handler(hit, feedback=None, version=None):
+    def _install_plugin_handler(hit, feedback=None, version=None, file_info=None):
         version = version or active_version['value']
         def handler(e=None):
             ft.context.disable_auto_update()
             if version != active_version['value']:
                 return
-            job = feedback or registry.project(('plugin', version), hit.get('project_id'), hit.get('slug'))
+            source = mod_catalogue.source_of(hit)
+            job = feedback or registry.project(('plugin', version, source), hit.get('project_id'), hit.get('slug'))
             with thread_safe_ui.TREE_LOCK:
                 if plugin_install_busy['value']:
                     say('Finish the current plugin install first.')
                     return
-                if not job.start():
+                if not job.start(filename=file_info.get('filename') if file_info else None):
                     return
                 plugin_install_busy['value'] = True
             def worker():
                 try:
-                    file = core.get_plugin_download(hit.get('slug') or hit.get('project_id'),
-                                                    mc_version=core.minecraft_version(version))
+                    if file_info is not None:
+                        file = file_info
+                        if (core.minecraft_version(version) not in file.get('game_versions', [])
+                                or not set(file.get('loaders', [])) & {'paper', 'spigot', 'bukkit'}):
+                            raise RuntimeError('No build for this server version.')
+                    else:
+                        file = core.get_plugin_download(hit.get('slug') or hit.get('project_id'),
+                                                       mc_version=core.minecraft_version(version), source=source,
+                                                       file_id=hit.get('file_id'))
                     if not file:
                         raise RuntimeError('No build for this server version.')
                     with storage.update_operation():
                         core.download_plugin(version, file['url'], file['filename'], slug=hit.get('slug'),
+                                             source=source, project_id=hit.get('project_id'),
+                                             file_id=file.get('file_id') or file.get('id'),
+                                             icon_url=hit.get('icon_url'), hashes=file.get('hashes'),
                                              progress_cb=lambda done, total: job.status(progress_text(done, total)))
                     job.finish(file['filename'])
                     try:
@@ -284,14 +313,40 @@ def build_plugins_catalogue(page, active_version, *, section_label,
                     say(error)
         return handler
 
+    def open_plugin_detail(hit):
+        version = active_version['value']
+        if not version or not (hit.get('project_id') or hit.get('slug')):
+            return
+        detail_target['version'] = version
+        source = mod_catalogue.source_of(hit)
+        feedback = registry.project(('plugin', version, source), hit.get('project_id'), hit.get('slug'))
+        mc_version = core.minecraft_version(version)
+
+        def versions(ref, *, force=False):
+            return [v for v in (core.get_plugin_versions(ref, mc_version=mc_version, source=source, force=force) or [])
+                    if v.get('compatible') and set(v.get('loaders') or []) & {'paper', 'spigot', 'bukkit'}]
+
+        def installed_version(file):
+            return any(mod_catalogue.source_of(plugin) == source
+                       and plugin['filename'].removesuffix('.disabled') == file.get('filename')
+                       for plugin in snapshots.get(version, []))
+
+        installed = project_installed(hit)
+        details.open(hit, on_install=_install_plugin_handler(hit, feedback, version),
+                     on_install_version=lambda file: _install_plugin_handler(hit, feedback, version, file)(None),
+                     feedback=feedback, installed=installed, target_label=f'Paper · Minecraft {mc_version}',
+                     get_details=lambda ref, force=False: core.get_plugin_details(ref, source=source, force=force),
+                     get_versions=versions, is_version_installed=installed_version)
+
     def _plugin_result_row(hit, is_installed=False):
         version = active_version['value']
-        key = (version, hit.get('project_id') or hit.get('slug') or hit['title'])
+        source = mod_catalogue.source_of(hit)
+        key = (version, mod_catalogue.identity(hit))
         cached = browse_rows.get(key)
         if cached and cached[0] == hit:
             cached[2](is_installed)
             return cached[1]
-        job = registry.project(('plugin', version), hit.get('project_id'), hit.get('slug'))
+        job = registry.project(('plugin', version, source), hit.get('project_id'), hit.get('slug'))
         handler = _install_plugin_handler(hit, job, version)
         label = ft.Text('Installed' if is_installed else 'Install', size=12.5, weight=ft.FontWeight.W_700,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
@@ -322,38 +377,36 @@ def build_plugins_catalogue(page, active_version, *, section_label,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Text(hit.get('author') or 'Community project', size=11.5, color=TEXT_DIM,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                ft.Row([ft.Icon(ft.Icons.DOWNLOAD_OUTLINED, size=12, color=TEXT_FAINT),
+                ft.Row([ft.Image(src=f'provider-icons/{source}.svg', width=12, height=12,
+                                tooltip=mod_catalogue.LABELS[source]),
+                        ft.Icon(ft.Icons.DOWNLOAD_OUTLINED, size=12, color=TEXT_FAINT),
                         ft.Text(downloads_label(hit.get('downloads')), size=10.5, color=TEXT_FAINT)], spacing=4),
             ], spacing=4, expand=True), button,
         ], vertical_alignment=ft.CrossAxisAlignment.CENTER), tooltip=hit.get('description')),
             SURFACE, BORDER, ROW_HOVER)
-        theme = dict(RADIUS=RADIUS, ACCENT=ACCENT, ACCENT_TINT=ft.Colors.with_opacity(.1, ACCENT),
-                     CARD_FILL=CARD_FILL, CARD_BORDER=CARD_BORDER, TEXT=TEXT, TEXT_DIM=TEXT_DIM,
-                     TEXT_FAINT=TEXT_FAINT, ON_ACCENT=ON_ACCENT, SURFACE=SURFACE, BG=BG,
-                     DANGER=DANGER, FONT_DISPLAY=FONT_DISPLAY, FONT_MONO=FONT_MONO)
         def _open_plugin_detail(e=None):
-            open_project_detail(
-                page, ref=hit.get('project_id') or hit.get('slug'), theme=theme, title=hit.get('title') or 'Plugin',
-                icon_url=hit.get('icon_url'), blurb=hit.get('description'), install_label='Install',
-                on_install=handler, install_disabled=installed['value'], install_feedback=job,
-                install_hint="Installs into this server's plugins folder.", loader=None)
+            if version == active_version['value']:
+                open_plugin_detail(hit)
         row.on_click = _open_plugin_detail
         job.watch(button, paint)
         remember(browse_rows, key, (dict(hit), row, sync))
         return row
 
-    plugin_search_field = ft.TextField(hint_text='Search plugins on Modrinth…', expand=True, height=46,
+    plugin_search_field = ft.TextField(hint_text='Search plugins or paste a Modrinth / CurseForge link…', expand=True, height=40,
         prefix_icon=ft.Icons.SEARCH_ROUNDED, bgcolor=CARD_FILL, border_color=CARD_BORDER,
         focused_border_color=ACCENT_DIM, color=TEXT, border_radius=RADIUS,
-        content_padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
+        hint_style=ft.TextStyle(color=TEXT_DIM, size=13), text_style=ft.TextStyle(size=13), dense=True,
+        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         on_submit=lambda e: run_plugin_search())
     def filter_installed(e=None):
         ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
             render_installed()
-    installed_filter = ft.TextField(hint_text='Search installed plugins…', height=46,
+    installed_filter = ft.TextField(hint_text='Search installed plugins…', expand=True, height=40,
         prefix_icon=ft.Icons.SEARCH_ROUNDED, bgcolor=CARD_FILL, border_color=CARD_BORDER,
         focused_border_color=ACCENT_DIM, color=TEXT, border_radius=RADIUS,
+        hint_style=ft.TextStyle(color=TEXT_DIM, size=13), text_style=ft.TextStyle(size=13), dense=True,
+        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         on_change=filter_installed)
     plugin_pager_label = ft.Text('', size=12, color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
     plugin_pager_prev = ft.IconButton(ft.Icons.CHEVRON_LEFT_ROUNDED, icon_color=TEXT)
@@ -365,10 +418,7 @@ def build_plugins_catalogue(page, active_version, *, section_label,
 
     def _render_plugin_page():
         hits, page_num = plugin_browse_state['results'], plugin_browse_state['page']
-        installed = _plugin_installed_tokens()
-        rows = [_plugin_result_row(hit, any(
-            value.lower() in installed or re.sub(r'[^a-z0-9]+', '', value.lower()) in installed
-            for value in (hit.get('slug'), hit.get('project_id'), hit.get('title')) if value))
+        rows = [_plugin_result_row(hit, project_installed(hit))
             for hit in hits[page_num * 24:(page_num + 1) * 24]]
         plugin_results_list.controls[:] = rows or [empty_state('No plugins found', 'Try another search.')]
         for row in rows:
@@ -377,7 +427,8 @@ def build_plugins_catalogue(page, active_version, *, section_label,
         plugin_pager_label.value = f'Page {page_num + 1} of {max(1, -(-len(hits) // 24))}'
         plugin_pager_prev.disabled = page_num <= 0
         plugin_pager_next.disabled = (page_num + 1) * 24 >= len(hits)
-        retry.opacity, retry.disabled = 0, True
+        errors = bool(plugin_browse_state.get('errors'))
+        retry.opacity, retry.disabled = (1, False) if errors else (0, True)
         thread_safe_ui.refresh(plugin_results_list)
         thread_safe_ui.refresh(plugin_pager_row)
         painted = (plugin_browse_state['key'], page_num)
@@ -396,11 +447,13 @@ def build_plugins_catalogue(page, active_version, *, section_label,
             if not version:
                 return
             key = (version, plugin_search_field.value.strip())
+            plugin_market_title.value = 'Search results' if key[1] else 'Popular plugins'
+            thread_safe_ui.refresh(plugin_market_title)
             generation['value'] += 1
             token = generation['value']
             plugin_browse_state['key'] = key
             if not force and key in search_cache:
-                plugin_browse_state.update(results=search_cache[key], page=0)
+                plugin_browse_state.update(results=search_cache[key], page=0, errors={})
                 plugin_search_status.value = f'{len(search_cache[key])} results'
                 thread_safe_ui.refresh(plugin_search_status)
                 _render_plugin_page()
@@ -420,43 +473,57 @@ def build_plugins_catalogue(page, active_version, *, section_label,
             thread_safe_ui.refresh(plugin_results_list)
             thread_safe_ui.refresh(plugin_search_status)
             thread_safe_ui.refresh(plugin_pager_row)
-            def worker():
-                try:
-                    hits = (core.search_plugins(key[1], mc_version=core.minecraft_version(version))
-                            if key[1] else core.get_recommended_plugins()) or []
-                    error = None
-                except Exception as ex:
-                    hits, error = [], ex
+            outcome = mod_catalogue.ProviderPage(mod_catalogue.SOURCES)
+
+            def complete(source, hits, error):
                 with thread_safe_ui.TREE_LOCK:
-                    inflight.discard(key)
-                    if not error:
-                        remember(search_cache, key, hits[:100], 12)
+                    outcome.record(source, hits, error)
+                    merged = outcome.merged()[:100]
+                    if outcome.complete:
+                        inflight.discard(key)
+                        if not outcome.errors:
+                            remember(search_cache, key, merged, 12)
                     if key != plugin_browse_state['key'] or key != (active_version['value'], plugin_search_field.value.strip()):
                         return
-                    if error:
-                        plugin_search_status.value = 'Search unavailable'
-                        say(error)
+                    plugin_browse_state['errors'] = dict(outcome.errors)
+                    if merged or (outcome.complete and not outcome.errors):
+                        plugin_browse_state.update(results=merged, page=0)
+                        _render_plugin_page()
+                    elif outcome.complete:
                         for row in plugin_results_list.controls:
                             row.ignore_interactions = False
                         if all(row.data == 'content-loading' for row in plugin_results_list.controls):
                             plugin_results_list.controls[:] = [empty_state('Search unavailable', 'Check your connection and retry.')]
                             layout_tiles(plugin_results_list, False)
-                        retry.opacity, retry.disabled = 1, False
-                        plugin_pager_label.value = 'Couldn\'t load results'
+                        plugin_pager_label.value = "Couldn't load results"
                         thread_safe_ui.refresh(plugin_results_list)
-                        thread_safe_ui.refresh(plugin_pager_row)
-                    else:
-                        plugin_browse_state.update(results=hits[:100], page=0)
-                        plugin_search_status.value = f'{len(hits[:100])} results'
-                        _render_plugin_page()
+                    status = [f'{len(merged)} results']
+                    if outcome.pending:
+                        status.append('Loading ' + ', '.join(mod_catalogue.LABELS[s] for s in sorted(outcome.pending)) + '…')
+                    if outcome.errors:
+                        status.append(', '.join(mod_catalogue.LABELS[s] for s in outcome.errors) + ' unavailable')
+                        if error:
+                            say(f'{mod_catalogue.LABELS[source]}: {error}')
+                    plugin_search_status.value = ' · '.join(status)
+                    retry.opacity, retry.disabled = (1, False) if outcome.errors else (0, True)
                     thread_safe_ui.refresh(plugin_search_status)
-            try:
-                threading.Thread(target=worker, daemon=True, name='plugin-search').start()
-            except Exception as error:
-                inflight.discard(key)
-                retry.opacity, retry.disabled = 1, False
-                say(error)
-                thread_safe_ui.refresh(plugin_pager_row)
+                    thread_safe_ui.refresh(plugin_pager_row)
+
+            def worker(source):
+                try:
+                    lookup = core.search_plugins if key[1] else core.get_recommended_plugins
+                    kwargs = dict(mc_version=core.minecraft_version(version), source=source, force=force)
+                    hits = (lookup(key[1], **kwargs) if key[1] else lookup(**kwargs)) or []
+                    error = None
+                except Exception as ex:
+                    hits, error = [], ex
+                complete(source, hits, error)
+
+            for source in mod_catalogue.SOURCES:
+                try:
+                    threading.Thread(target=worker, args=(source,), daemon=True, name='plugin-search-' + source).start()
+                except Exception as error:
+                    complete(source, [], error)
 
     def turn_page(delta):
         ft.context.disable_auto_update()
@@ -468,20 +535,25 @@ def build_plugins_catalogue(page, active_version, *, section_label,
     plugin_pager_prev.on_click = lambda e: turn_page(-1)
     plugin_pager_next.on_click = lambda e: turn_page(1)
     plugins_browse_pane = ft.Column([
-        ft.Row([plugin_search_field]), ft.Row([ft.Container(plugin_market_title, expand=True),
-            ft.Container(plugin_search_status, expand=True, alignment=ft.Alignment.CENTER_RIGHT)], height=36),
-        plugin_results_list, plugin_pager_row], spacing=12, expand=True)
+        ft.Row([ft.Container(plugin_market_title, expand=True),
+            ft.Container(plugin_search_status, expand=True, alignment=ft.Alignment.CENTER_RIGHT)], height=32),
+        plugin_results_list, plugin_pager_row], spacing=8, expand=True)
     plugins_installed_pane = ft.Column([
-        ft.Row([ft.Container(installed_filter, expand=True)], height=46),
-        ft.Row([ft.Container(section_label('Installed'), expand=True), installed_plugins_count], height=36),
-        installed_plugins_list, ft.Container(height=40)], spacing=12, expand=True, visible=False)
+        ft.Row([ft.Container(section_label('Installed'), expand=True), installed_plugins_count], height=32),
+        installed_plugins_list, ft.Container(height=40)], spacing=8, expand=True, visible=False)
     view_port, browse_host, installed_host, select_view = catalogue_views(
         page, plugins_browse_pane, plugins_installed_pane)
-    plugins_view_segment_row = ft.Row()
+    # Match Mods: retain both queries in one compact toolbar above the viewport.
+    browse_search_host = ft.Container(plugin_search_field, expand=True)
+    installed_search_host = ft.Container(installed_filter, expand=True, visible=False, disabled=True)
+    search_port = ft.Stack([browse_search_host, installed_search_host], height=40,
+                           fit=ft.StackFit.EXPAND, data='plugins-search-port')
+    plugins_view_segment_row = ft.Row(spacing=8)
     def _build_plugins_view_segment(n_plugs=None):
         count = len(snapshots.get(active_version['value'], [])) if n_plugs is None else n_plugs
         update_view_action(plugins_view_segment_row, plugins_active_view['value'], count,
-                           _on_plugins_view_change, data='plugins-installed-toggle', color=TEXT_DIM)
+                           _on_plugins_view_change, data='plugins-installed-toggle', color=TEXT_DIM,
+                           compact=True)
     def _on_plugins_view_change(new_view):
         ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
@@ -489,6 +561,10 @@ def build_plugins_catalogue(page, active_version, *, section_label,
                 return
             plugins_active_view['value'] = new_view
             select_view(new_view)
+            for host, view in ((browse_search_host, 'browse'), (installed_search_host, 'installed')):
+                host.visible = new_view == view
+                host.disabled = not host.visible
+            thread_safe_ui.refresh(search_port)
             _build_plugins_view_segment()
             if new_view == 'installed':
                 refresh_plugins_list()
@@ -505,13 +581,16 @@ def build_plugins_catalogue(page, active_version, *, section_label,
         search_timer['value'] = timer
         timer.start()
     plugin_search_field.on_change = schedule_search
-    subtitle = ft.Text('Find plugins, or manage what is installed for this server.', size=13, color=TEXT_DIM,
-                       max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
-    selector = ft.Container(ft.Row([ft.Icon(ft.Icons.EXTENSION_OUTLINED, size=16, color=TEXT),
-        ft.Text('Plugins', size=12, color=TEXT, weight=ft.FontWeight.W_600)], spacing=8, tight=True),
-        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10), border_radius=6,
-        bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER))
-    body = ft.Column([content_header(subtitle, plugins_view_segment_row), ft.Container(height=16),
-                      view_port, ft.Container(feedback_text, height=20)], spacing=0, expand=True)
-    root = ft.Column([ft.Row([selector]), body], spacing=16, expand=True)
+    search_toolbar = ft.Row([ft.Container(search_port, expand=True), plugins_view_segment_row],
+                            spacing=8, height=40, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            data='plugins-search-toolbar')
+    catalogue_host = ft.Column([search_toolbar, view_port, ft.Container(feedback_text, height=20)],
+                               spacing=8, expand=True)
+    root = ft.Column([catalogue_host, details.control], spacing=0, expand=True)
+    root.close_detail = details.close
+
+    def detail_visibility(show):
+        catalogue_host.visible = not show
+        thread_safe_ui.refresh(catalogue_host)
+    details.on_visibility_change = detail_visibility
     return root, refresh_plugins_list, run_plugin_search, plugin_results_list

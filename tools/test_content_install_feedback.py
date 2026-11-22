@@ -91,7 +91,7 @@ class ContentInstallTests(unittest.TestCase):
 
     def detail_buttons(self):
         detail = None
-        for attribute, kind in (('mods_root', 'mod'), ('modpacks_root', 'modpack')):
+        for attribute, kind in (('mods_root', 'mod'), ('modpacks_root', 'modpack'), ('plugins_root', 'plugin')):
             root = getattr(self, attribute, None)
             if root is not None and root.controls[1].visible:
                 versions = next(c for c in fz.walk(root)
@@ -295,6 +295,11 @@ class ContentInstallTests(unittest.TestCase):
         fns = functions(refresh, *(getattr(c, "on_click", None) for root in (console, settings, plugins) for c in fz.walk(root)))
         QueuedThread.jobs.clear()  # Ignore the separately stubbed public-address watcher.
         env(fns["_plugin_result_row"])["active_version"]["value"] = "1.20.1"
+        self.plugins_root = plugins.controls[1]
+        self.core.get_mod_details = lambda ref, **kw: {'title': ref, 'body': 'Plugin guide'}
+        self.core.get_mod_versions = lambda *a, **kw: [{
+            'filename': 'plugin.jar', 'url': 'offline', 'compatible': True,
+            'game_versions': ['1.20.1'], 'loaders': ['paper']}]
         row = fns["_plugin_result_row"]({"project_id": "plugin", "slug": "plugin", "title": "Plugin"})
         button = row.content.controls[-1]
         row.on_click(None)

@@ -86,6 +86,40 @@ class CatalogueTests(unittest.TestCase):
         self.assertIn("sha1", file["hashes"])
         self.assertEqual(mods.get_mod_details("curseforge:" + PROJECT)["body"], "<p>See through portals.</p>")
 
+    def test_plugins_use_bukkit_class_and_preserve_file_hash_and_source(self):
+        from cubeon import server
+        self.projects[PROJECT]['classId'] = 5
+        self.files[PROJECT] = [release(gameVersions=[MC])]
+        hits = server.search_plugins('plugin', MC, source='curseforge')
+        self.assertEqual(hits[0]['project_type'], 'plugin')
+        self.assertEqual(self.calls[0][1]['classId'], 5)
+        self.assertNotIn('modLoaderType', self.calls[0][1])
+        chosen = server.get_plugin_download('curseforge:' + PROJECT, MC)
+        self.assertEqual(chosen['file_id'], FILE)
+        self.assertEqual(chosen['loaders'], ['bukkit'])
+        def transfer(path, url, **kwargs):
+            self.assertEqual(kwargs['expected_hash'], ('sha1', hashlib.sha1(jar()).hexdigest()))
+            self.assertTrue(kwargs['url_validator'](url))
+            Path(path).write_bytes(jar())
+        with patch.object(net, 'download_to', side_effect=transfer):
+            server.download_plugin(MC, chosen['url'], chosen['filename'], slug='plugin',
+                source='curseforge', project_id=PROJECT, file_id=FILE, hashes=chosen['hashes'])
+        installed = server.list_plugins(MC)[0]
+        self.assertEqual((installed['source'], installed['project_id'], installed['file_id']), ('curseforge', PROJECT, FILE))
+        url = 'https://www.curseforge.com/minecraft/bukkit-plugins/plugin/files/' + FILE
+        self.assertEqual(catalogue.reference(url, kind='plugin')['file_id'], FILE)
+        self.assertIsNone(catalogue.reference(url))
+
+    def test_popular_plugins_request_a_full_filtered_catalogue(self):
+        from cubeon import server
+        with patch.object(net, 'get_json', return_value={'hits': [
+                dict(project_id=str(i), title=f'Plugin {i}', author='Author') for i in range(60)]}) as request:
+            hits = server.get_recommended_plugins(MC, force=True)
+        self.assertEqual(len(hits), 60)
+        params = request.call_args.kwargs['params']
+        self.assertEqual((params['query'], params['limit'], params['index']), ('', '100', 'downloads'))
+        self.assertIn(['versions:' + MC], json.loads(params['facets']))
+
     def test_categories_loaders_and_broad_search(self):
         for loader, number in catalogue.LOADERS.items():
             catalogue.search("word", MC, loader, ["optimization"], offset=24)

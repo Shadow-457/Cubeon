@@ -1,4 +1,4 @@
-"""Retained modpack detail page; installation stays with the catalogue's callbacks."""
+"""Retained project details for packs and plugins; callers own installation."""
 import logging
 import threading
 from urllib.parse import quote, urlsplit
@@ -19,13 +19,16 @@ def _http_url(value):
         return None
 
 
-class ModpackDetailPage:
-    def __init__(self, page, theme, artwork):
+class ProjectDetailPage:
+    def __init__(self, page, theme, artwork, *, kind="modpack"):
         self.page = page
         self.theme = theme
         self.artwork = artwork
+        self.kind = kind
+        self.label = "Plugin" if kind == "plugin" else "Modpack"
+        self.prefix = kind + "-detail-"
         self.control = ft.Column(visible=False, expand=True, spacing=16,
-                                 data="modpack-detail-page")
+                                 data=self.prefix + "page")
         self.on_visibility_change = None
         self.generation = 0
 
@@ -65,7 +68,7 @@ class ModpackDetailPage:
                         thread_safe_ui.refresh(image)
             self.artwork.request(url, ready)
 
-    def _install_button(self, action, feedback, installed, current, *, data):
+    def _install_button(self, action, feedback, installed, current, *, data, filename=None):
         theme = self.theme
         label = ft.Text(i18n.t("Installed" if installed else "Install"), size=12.5,
                         weight=ft.FontWeight.W_700)
@@ -86,7 +89,7 @@ class ModpackDetailPage:
         def paint(job):
             if done["result"] != job.result_id:
                 done["result"] = job.result_id
-                done["installed"] = job.result == "success"
+                done["installed"] = job.result == "success" and (filename is None or job.filename == filename)
             installed_now = done["installed"]
             button.disabled = job.busy or installed_now or action is None
             label.value = compact_status(job.text) if job.busy else i18n.t(
@@ -98,7 +101,8 @@ class ModpackDetailPage:
         feedback.watch(button, paint)
         return button
 
-    def open(self, pack, *, on_install, on_install_version, feedback, installed=False):
+    def open(self, pack, *, on_install, on_install_version, feedback, installed=False,
+             target_label="", get_details=None, get_versions=None, is_version_installed=None, force=False):
         ft.context.disable_auto_update()
         theme = self.theme
         pack = dict(pack)
@@ -111,7 +115,7 @@ class ModpackDetailPage:
             def current():
                 return self.control.visible and self.generation == generation
 
-            title = ft.Text(pack.get("title") or "Modpack", size=22, color=theme["ACCENT"],
+            title = ft.Text(pack.get("title") or self.label, size=22, color=theme["ACCENT"],
                             font_family=theme["FONT_DISPLAY"], weight=ft.FontWeight.W_700,
                             max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
             description = ft.Text(pack.get("description") or "", size=12.5,
@@ -119,27 +123,27 @@ class ModpackDetailPage:
                                   overflow=ft.TextOverflow.ELLIPSIS)
             author = pack.get("author") or pack.get("author_name")
             subtitle = ft.Text(" · ".join(filter(None, [f"by {author}" if author else "",
-                                                        source.title()])),
+                                                        target_label or source.title()])),
                                size=11.5, color=theme["TEXT_DIM"])
             image = self._image(pack.get("icon_url"), 58, current)
             install = self._install_button(on_install, feedback, installed, current,
-                                           data="modpack-detail-install")
+                                           data=self.prefix + "install")
             hero = ft.Container(ft.Row([
                 image, ft.Column([title, subtitle, description], spacing=5, expand=True), install],
                 spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 padding=16, height=120, bgcolor=theme["SURFACE_HI"],
                 border_radius=theme["RADIUS"])
-            tabs = ft.Row(spacing=8, data="modpack-detail-tabs")
+            tabs = ft.Row(spacing=8, data=self.prefix + "tabs")
             body = ft.Column([
                 ft.Row([ft.ProgressRing(width=16, height=16, stroke_width=2, color=theme["ACCENT"]),
                         ft.Text("Loading details...", size=13, color=theme["TEXT_DIM"])], spacing=12)],
-                spacing=16, expand=True, scroll=ft.ScrollMode.AUTO, data="modpack-detail-body")
+                spacing=16, expand=True, scroll=ft.ScrollMode.AUTO, data=self.prefix + "body")
             self.control.controls = [ft.Row([
                 ft.TextButton(content=i18n.t("Back"), icon=ft.Icons.ARROW_BACK_ROUNDED,
-                              on_click=self.close, data="modpack-detail-back",
+                              on_click=self.close, data=self.prefix + "back",
                               style=ft.ButtonStyle(color=theme["ACCENT"])),
                 ft.Container(expand=True),
-                ft.Text("Modpack", size=11, color=theme["TEXT_DIM"])],
+                ft.Text(target_label or self.label, size=11, color=theme["TEXT_DIM"])],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER), hero, tabs, body]
             self.control.visible = True
             if self.on_visibility_change:
@@ -150,7 +154,9 @@ class ModpackDetailPage:
             with thread_safe_ui.TREE_LOCK:
                 if current():
                     self.open(pack, on_install=on_install, on_install_version=on_install_version,
-                              feedback=feedback, installed=installed)
+                              feedback=feedback, installed=installed, target_label=target_label,
+                              get_details=get_details, get_versions=get_versions,
+                              is_version_installed=is_version_installed, force=True)
 
         def render(details, versions, errors):
             if not current():
@@ -160,9 +166,18 @@ class ModpackDetailPage:
             title.tooltip = title.value
             description.value = details.get("description") or description.value
             author = details.get("author") or details.get("author_name")
-            subtitle.value = " · ".join(filter(None, [f"by {author}" if author else "", source.title()]))
+            subtitle.value = " · ".join(filter(None, [f"by {author}" if author else "", target_label or source.title()]))
             if details.get("icon_url") != image.data:
                 self._load_image(image, details.get("icon_url"), current)
+            if self.kind == "plugin" and not versions and not errors.get("versions") and not installed:
+                install.disabled = True
+                install.content.controls[1].value = "No matching build"
+                install.tooltip = "No Paper-compatible release is available for this server version."
+            elif self.kind == "plugin" and versions and not any(v.get('url') for v in versions) and not installed:
+                external = next((_http_url(v.get('website_url')) for v in versions if _http_url(v.get('website_url'))), None)
+                if external:
+                    install.content.controls[1].value = "Open on CurseForge"
+                    install.on_click = lambda e: self.page.run_task(ft.UrlLauncher().launch_url, external) if current() else None
             thread_safe_ui.refresh(hero)
 
             def open_link(event):
@@ -176,7 +191,7 @@ class ModpackDetailPage:
                     or "No description available.", selectable=True, shrink_wrap=True,
                     extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                     image_error_content=ft.Text("Image unavailable", color=theme["TEXT_DIM"], size=11),
-                    on_tap_link=open_link, data="modpack-detail-readme",
+                    on_tap_link=open_link, data=self.prefix + "readme",
                     md_style_sheet=ft.MarkdownStyleSheet(
                         p_text_style=ft.TextStyle(color=theme["TEXT"], size=13, height=1.6),
                         a_text_style=ft.TextStyle(color=theme["ACCENT"]),
@@ -192,21 +207,22 @@ class ModpackDetailPage:
                                             color=theme["TEXT_DIM"], size=12),
                                     ft.TextButton(content="Retry", on_click=retry)])
                 sidebar = ft.Column([
-                    ft.Text(i18n.t("About this modpack"), color=theme["ACCENT"], size=13,
+                    ft.Text(i18n.t("About this plugin" if self.kind == "plugin" else "About this modpack"), color=theme["ACCENT"], size=13,
                             font_family=theme["FONT_MONO"])], spacing=10)
                 values = [("Provider", source.title()),
                           ("Downloads", f"{details.get('downloads') or 0:,}"),
-                          ("Minecraft", ", ".join(details.get("game_versions") or []) or "Declared by the pack"),
+                          ("Minecraft", ", ".join(details.get("game_versions") or []) or "Not specified"),
                           ("Loaders", ", ".join(str(x).title() for x in details.get("loaders") or [])
-                           or "Declared by the pack"),
+                           or "Not specified"),
                           ("License", details.get("license") or "Not specified")]
                 for label, value in values:
                     sidebar.controls.append(ft.Column([
                         ft.Text(i18n.t(label), color=theme["TEXT_DIM"], size=10.5),
                         ft.Text(value, color=theme["TEXT"], size=11.5, selectable=True)], spacing=4))
                 slug = quote(str(details.get("slug") or ref), safe="")
-                project_url = (f"https://www.curseforge.com/minecraft/modpacks/{slug}" if source == "curseforge"
-                               else f"https://modrinth.com/modpack/{slug}")
+                project_url = (details.get("website_url") or
+                               f"https://www.curseforge.com/minecraft/{'bukkit-plugins' if self.kind == 'plugin' else 'modpacks'}/{slug}"
+                               if source == "curseforge" else f"https://modrinth.com/{self.kind}/{slug}")
                 for label, url in [(f"Project on {source.title()}", project_url),
                                    ("Source code", details.get("source_url")),
                                    ("Report an issue", details.get("issues_url")),
@@ -215,13 +231,14 @@ class ModpackDetailPage:
                     if url:
                         sidebar.controls.append(ft.TextButton(content=i18n.t(label), url=url,
                             icon=ft.Icons.OPEN_IN_NEW_ROUNDED, style=ft.ButtonStyle(color=theme["ACCENT"])))
-                content.append(ft.Text("Installs its own Minecraft version and loader.",
+                content.append(ft.Text("Installs into this server's plugins folder. Restart the server to apply changes."
+                                       if self.kind == "plugin" else "Installs its own Minecraft version and loader.",
                                        color=theme["TEXT_DIM"], size=12))
                 return ft.ResponsiveRow([
                     ft.Container(ft.Column(content, spacing=16), col={"xs": 12, "md": 9}),
                     ft.Container(sidebar, padding=16, bgcolor=theme["SURFACE_HI"],
                                  border_radius=theme["RADIUS"], col={"xs": 12, "md": 3},
-                                 data="modpack-detail-metadata")],
+                                 data=self.prefix + "metadata")],
                     spacing=24, run_spacing=16, vertical_alignment=ft.CrossAxisAlignment.START)
 
             def version_pane():
@@ -254,8 +271,13 @@ class ModpackDetailPage:
                                                 size=11, color=theme["TEXT_DIM"])]
                             if on_install_version and version.get("url"):
                                 controls.append(self._install_button(
-                                    lambda e, v=version: on_install_version(v), feedback, installed, current,
-                                    data="modpack-detail-version-install"))
+                                    lambda e, v=version: on_install_version(v), feedback,
+                                    is_version_installed(version) if is_version_installed else installed, current,
+                                    data=self.prefix + "version-install",
+                                    filename=version.get("filename") if self.kind == "plugin" else None))
+                            elif self.kind == "plugin" and _http_url(version.get("website_url")):
+                                controls.append(ft.TextButton(content="Open on CurseForge", url=version["website_url"],
+                                    icon=ft.Icons.OPEN_IN_NEW_ROUNDED, style=ft.ButtonStyle(color=theme["ACCENT"])))
                             rows.controls.append(ft.Container(ft.Row(controls, spacing=12,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 padding=12, bgcolor=theme["CARD_FILL"], border_radius=theme["RADIUS"]))
@@ -289,7 +311,7 @@ class ModpackDetailPage:
                     if name not in panes:
                         panes[name] = builders[name]()
                     for button in tabs.controls:
-                        selected = button.data == "modpack-detail-tab-" + name.lower()
+                        selected = button.data == self.prefix + "tab-" + name.lower()
                         button.style = ft.ButtonStyle(color=theme["ACCENT"] if selected else theme["TEXT_DIM"],
                             bgcolor=theme["SURFACE_HI"] if selected else None,
                             shape=ft.RoundedRectangleBorder(radius=theme["RADIUS"]))
@@ -297,27 +319,31 @@ class ModpackDetailPage:
                     thread_safe_ui.refresh(tabs)
                     thread_safe_ui.refresh(body)
             tabs.controls = [ft.TextButton(content=i18n.t(name),
-                on_click=lambda event, name=name: select(name), data="modpack-detail-tab-" + name.lower())
+                on_click=lambda event, name=name: select(name), data=self.prefix + "tab-" + name.lower())
                 for name in builders]
             select("Overview")
 
         def worker():
             details, versions, errors = {}, [], {}
-            if source == "modrinth" and ref:
+            if ref and (source == "modrinth" or get_details or get_versions):
                 try:
-                    details = core.get_mod_details(ref) or {}
+                    details = (get_details(ref, force=force) if get_details else core.get_mod_details(ref)) or {}
                 except Exception as error:
                     errors["details"] = str(error)
                 try:
-                    versions = core.get_mod_versions(ref) or []
+                    versions = (get_versions(ref, force=force) if get_versions else core.get_mod_versions(ref)) or []
                 except Exception as error:
                     errors["versions"] = str(error)
             with thread_safe_ui.TREE_LOCK:
                 render(details, versions, errors)
 
         try:
-            threading.Thread(target=worker, daemon=True, name="cubeon-modpack-detail").start()
+            threading.Thread(target=worker, daemon=True, name="cubeon-" + self.kind + "-detail").start()
         except Exception as error:
-            logging.getLogger(__name__).warning("Couldn't start modpack detail lookup", exc_info=True)
+            logging.getLogger(__name__).warning("Couldn't start project detail lookup", exc_info=True)
             with thread_safe_ui.TREE_LOCK:
                 render({}, [], {"details": str(error), "versions": str(error)})
+
+
+class ModpackDetailPage(ProjectDetailPage):
+    """Keep the existing modpack entry point and its default behavior."""

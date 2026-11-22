@@ -195,7 +195,7 @@ from cubeon.server import (
     # plugins (Paper only)
     list_plugins, toggle_plugin, delete_plugin, install_local_plugin,
     get_recommended_plugins, get_low_ping_plugins, search_plugins,
-    get_plugin_download, download_plugin,
+    get_plugin_download, download_plugin, get_plugin_details, get_plugin_versions,
     # the Minecraft version behind a launch id - what Paper and Modrinth
     # both need instead of the loader-tagged profile id
     minecraft_version,

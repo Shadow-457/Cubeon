@@ -594,6 +594,10 @@ def install_safe_stubs(verbose=False):
         "url": "https://cdn.modrinth.com/data/x/fuzz.jar",
         "size_kb": 1, "hashes": {},
     }]
+    core.get_plugin_details = lambda *a, **k: dict(core.get_mod_details(*a, **k),
+        project_type="plugin", source=k.get("source", "modrinth"), loaders=["paper"])
+    core.get_plugin_versions = lambda *a, **k: [dict(v, loaders=["paper"])
+        for v in core.get_mod_versions(*a, **k)]
     core.get_skin_face_url = lambda *a, **k: ""
     # Installed-mod rows resolve icons via one bulk Modrinth call, and
     # icons.prefetch() writes the real ~/.cubeon_launcher/cache/icons. Neither
