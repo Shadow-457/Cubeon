@@ -657,7 +657,10 @@ def _capture_flet_client_exit(slot: dict) -> None:
 
     Only flet's own ``await fvp.wait()`` sees that status before the child is
     reaped, so we wrap the process object the moment ``ft.run`` obtains it and
-    stash ``returncode`` into ``slot["code"]``. The classification then comes
+    stash its wait result into ``slot["code"]``. On macOS, a successful open
+    helper must also wait for the native client's per-session PID before Flet
+    cleans up; its helper exit code does not describe the native client.
+    The classification then comes
     from ``_classify_session_end``. Best-effort: if the API moves, the slot
     stays ``None`` and every end is treated as a clean close (never a
     surprise relaunch).
@@ -671,8 +674,9 @@ def _capture_flet_client_exit(slot: dict) -> None:
         return
 
     class _ClientExitProxy:
-        def __init__(self, real):
+        def __init__(self, real, pid_file):
             self._real = real
+            self._pid_file = pid_file
 
         def __getattr__(self, name):
             return getattr(self._real, name)
@@ -680,15 +684,20 @@ def _capture_flet_client_exit(slot: dict) -> None:
         async def wait(self):
             try:
                 result = await self._real.wait()
+                if (getattr(self._real, "_cubeon_macos_helper", False)
+                        and self._real.returncode == 0):
+                    from cubeon.desktop_runtime import wait_macos_client
+                    result = await wait_macos_client(
+                        self._pid_file, self._real._cubeon_launched_at)
             except BaseException:
                 slot["code"] = None
                 raise
-            slot["code"] = self._real.returncode
+            slot["code"] = result
             return result
 
     async def _wrapped(*args, **kwargs):
         proc, pid_file = await original(*args, **kwargs)
-        return _ClientExitProxy(proc), pid_file
+        return _ClientExitProxy(proc, pid_file), pid_file
 
     _wrapped._cubeon_exit_capture = True
     flet_desktop.open_flet_view_async = _wrapped
@@ -9186,6 +9195,7 @@ if __name__ == "__main__":
         # The flet.exe client must not flash its own console either
         # (asyncio passes kwargs to the underlying subprocess on Windows).
         from cubeon.winproc import hidden as _hidden_kw
+        launched_at = time.time()
         proc = await asyncio.create_subprocess_exec(
             args[0], *args[1:], env=flet_env,
             # Capture BOTH streams and merge them (stderr -> stdout) so the
@@ -9200,6 +9210,8 @@ if __name__ == "__main__":
             stderr=asyncio.subprocess.STDOUT,
             **_hidden_kw(),
         )
+        proc._cubeon_macos_helper = sys.platform == "darwin" and args[0] == "open"
+        proc._cubeon_launched_at = launched_at
         logging.getLogger("cubeon.desktop_runtime").info(
             "Desktop client started: pid=%s executable=%s pid_file=%s kind=%s",
             proc.pid, args[0], pid_file, "helper" if args[0] == "open" else "native")

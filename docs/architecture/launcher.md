@@ -2,6 +2,15 @@
 
 > Detailed guide to every module in the business logic layer. Each section explains the module's purpose, key functions, and how it connects to the rest of the system.
 
+macOS desktop startup uses Flet's supported LaunchServices command. Its
+`open -W` helper can exit while the native client is still running. The exit
+capture hook in `main.py` waits for the session's native PID through
+`desktop_runtime.wait_macos_client()` before Flet runs its PID-file cleanup,
+which would otherwise kill the live window. PID-file startup races have a
+five-second grace. A LaunchServices-owned client's unavailable exit status
+remains unknown; the helper's zero is not a native-client exit code. The
+existing `test_desktop_runtime.py` checks this lifecycle with a real process.
+
 ---
 
 ## Table of Contents
