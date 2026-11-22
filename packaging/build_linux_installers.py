@@ -1,16 +1,19 @@
-"""Build offline graphical/shell Linux installers and a Debian package."""
+"""Build the offline shell installer; retain the historical graphical helper."""
 from __future__ import annotations
 
 import shutil
 import subprocess
 import hashlib
-import sys
+import os
+import runpy
 import tarfile
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DIST = ROOT / "dist"
+release_asset_name = runpy.run_path(str(ROOT / "cubeon/updater.py"))["release_asset_name"]
+
+DIST = Path(os.environ.get("CUBEON_BUILD_DIST", ROOT / "dist"))
 
 INSTALLER_RUN = '''#!/bin/bash
 HERE="$(dirname "$(readlink -f "$0")")"
@@ -58,17 +61,12 @@ def build_setup(appimage: Path, icon: Path, setup: Path) -> None:
 
 
 def main() -> None:
-    appimage = DIST / "Cubeon-x86_64.AppImage"
-    appdir = DIST / "AppDir"
-    if not appimage.is_file() or not appdir.is_dir():
+    appimage = DIST / release_asset_name("linux")
+    if not appimage.is_file():
         raise SystemExit("Run packaging/build_appimage.sh first.")
-    setup = DIST / "Cubeon-Linux-x86_64-Setup.sh"
+    setup = DIST / release_asset_name("linux-setup")
     build_setup(appimage, ROOT / "assets" / "icon_256.png", setup)
-    graphical = DIST / "Cubeon-Linux-x86_64-Setup.AppImage"
-    build_graphical_setup(appdir, DIST / "appimagetool", graphical)
-    subprocess.run([sys.executable, str(ROOT / "packaging" / "build_deb.py")], check=True)
     print(f"Built {setup}")
-    print(f"Built {graphical}")
 
 
 if __name__ == "__main__":

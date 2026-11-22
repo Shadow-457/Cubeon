@@ -151,16 +151,18 @@ check("the setup-script route works", res.status === 200, `status ${res.status}`
 
 world = fresh();
 res = await get("/linuxinstaller");
-check("the graphical installer route works", res.status === 200 &&
-  res.headers.get("Content-Disposition") === 'attachment; filename="Cubeon-Linux-x86_64-Setup.AppImage"',
+check("the retired graphical installer redirects to shell setup", res.status === 302 &&
+  res.headers.get("Location").endsWith("/linuxsetup") && world.apiCalls === 0,
   `status ${res.status}`);
 
 world = fresh();
 res = await get("/linuxdeb");
-check("the .deb route picks the numerically newest build (1.0.10 > 1.0.9)",
-  res.headers.get("Content-Disposition") ===
-    'attachment; filename="cubeon_1.0.10_amd64.deb"',
-  res.headers.get("Content-Disposition") || "");
+check("the retired .deb route redirects to shell setup without a lookup",
+  res.status === 302 && res.headers.get("Location").endsWith("/linuxsetup") && world.apiCalls === 0);
+
+res = await get("/updates/stable/linux-deb?version=1.0.0");
+check("legacy Debian updater requests retain numeric asset selection",
+  res.headers.get("Content-Disposition") === 'attachment; filename="cubeon_1.0.10_amd64.deb"');
 
 world = fresh();
 res = await get("/nope");
@@ -373,8 +375,10 @@ const stableRelease = {
 };
 const betaRelease = { ...stableRelease, tag_name: "v2.0.10", prerelease: true,
   assets: [...stableRelease.assets,
-    { name: "Cubeon-macOS-arm64.dmg", url: "https://cdn.test/macarm64", size: 18 },
-    { name: "Cubeon-macOS-x64.dmg", url: "https://cdn.test/macx64", size: 19 }] };
+    { name: "Cubeon-2.0.10-macOS-arm64.dmg", url: "https://cdn.test/macarm64", size: 18,
+      digest: "sha256:" + "c".repeat(64) },
+    { name: "Cubeon-2.0.10-macOS-x64.dmg", url: "https://cdn.test/macx64", size: 19,
+      digest: "sha256:" + "d".repeat(64) }] };
 world = fresh({ stableRelease, betaReleases: [
   stableRelease, { ...betaRelease, tag_name: "v2.0.9" }, betaRelease,
   { ...betaRelease, tag_name: "v9.0.0", draft: true },
@@ -393,6 +397,10 @@ res = await get("/updates/beta");
 const betaManifest = await res.json();
 check("beta chooses the numerically newest public release, ignoring drafts",
   betaManifest.tag_name === "v2.0.10" && betaManifest.prerelease);
+check("Mac metadata supplies separate versioned architectures and digests",
+  betaManifest.assets["macos-arm64"].name === "Cubeon-2.0.10-macOS-arm64.dmg"
+  && betaManifest.assets["macos-arm64"].sha256 === "c".repeat(64)
+  && betaManifest.assets["macos-x64"].sha256 === "d".repeat(64));
 check("stable and beta lookups have independent caches", world.apiCalls === 2);
 await get("/updates/stable");
 await get("/updates/beta");
@@ -406,13 +414,15 @@ check("a changed release rejects the old offer before downloading",
   res.status === 409 && world.assetFetches === fetches);
 res = await get("/updates/beta/arbitrary?version=2.0.10");
 check("unknown update assets cannot spend the token", res.status === 404 && world.apiCalls === 2);
-for (const [route, name] of [["/macosarm64download", "Cubeon-macOS-arm64.dmg"],
-                             ["/macosx64download", "Cubeon-macOS-x64.dmg"]]) {
+for (const [route, name] of [["/macosarm64download", "Cubeon-2.0.10-macOS-arm64.dmg"],
+                             ["/macosx64download", "Cubeon-2.0.10-macOS-x64.dmg"]]) {
   res = await get(route);
   check("Mac preview serves the matching architecture " + name,
     res.status === 200 && res.headers.get("Content-Disposition").includes(name));
 }
 check("Mac previews reuse the beta cache", world.apiCalls === 2);
+res = await get("/updates/beta/macos-arm64?version=2.0.10");
+check("Mac metadata download is pinned to the offered version", res.status === 200);
 res = await get("/updates/beta/macos?version=2.0.10");
 check("Mac manual upgrades do not expose an automatic-update endpoint", res.status === 404 && world.apiCalls === 2);
 res = await get("/updates/stable", { method: "POST" });
@@ -424,6 +434,31 @@ world = fresh({ stableRelease: { ...stableRelease,
   assets: [{ name: "Cubeon-x86_64.AppImage", url: "https://cdn.test/app", size: 14 }] } });
 res = await get("/updates/stable");
 check("a missing checksum remains missing, never invented", (await res.json()).assets.linux.sha256 === null);
+
+const versionedAssets = [
+  ["windows", "/windowsdownload", "Cubeon-2.0.0-Windows-x64-Setup.exe"],
+  ["linux", "/linuxdownload", "Cubeon-2.0.0-Linux-x86_64.AppImage"],
+  ["linux-setup", "/linuxsetup", "Cubeon-2.0.0-Linux-x86_64-Setup.sh"],
+  ["macos-arm64-zip", null, "Cubeon-2.0.0-macOS-arm64.zip"],
+  ["macos-x64-zip", null, "Cubeon-2.0.0-macOS-x64.zip"],
+];
+world = fresh({ stableRelease: { ...stableRelease, assets: [...stableRelease.assets,
+  ...versionedAssets.map(([, , name]) => ({ name, url: "https://cdn.test/versioned", size: 21,
+    digest: "sha256:" + "e".repeat(64) }))] } });
+res = await get("/updates/stable");
+const versioned = await res.json();
+for (const [kind, route, name] of versionedAssets) {
+  check("metadata prefers this release's versioned " + kind, versioned.assets[kind].name === name);
+  if (route) {
+    res = await get(route);
+    check("download preserves the versioned filename for " + kind,
+      res.status === 200 && res.headers.get("Content-Disposition").includes(name));
+  }
+}
+world = fresh({ stableRelease: { ...stableRelease, assets: [{ name: "Cubeon-1.9.9-Linux-x86_64.AppImage",
+  url: "https://cdn.test/stale", size: 21 }] } });
+res = await get("/linuxdownload");
+check("another version's asset cannot satisfy this release", res.status === 404 && world.assetFetches === 0);
 
 // ------------------------------------------------------------------- done ---
 

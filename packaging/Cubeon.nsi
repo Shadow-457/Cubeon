@@ -37,7 +37,7 @@
 
 Unicode True
 Name "Cubeon"
-OutFile "${OUTPUT_DIR}\Cubeon-Windows-x64-Setup.exe"
+OutFile "${OUTPUT_DIR}\Cubeon-${DISPLAY_VERSION}-Windows-x64-Setup.exe"
 InstallDir "$LOCALAPPDATA\Cubeon"
 InstallDirRegKey HKCU "Software\Cubeon" "InstallDir"
 RequestExecutionLevel user

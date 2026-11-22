@@ -9,6 +9,8 @@ cd "$(dirname "$0")/.."
 BUILD_DIST="${CUBEON_BUILD_DIST:-$PWD/dist}"
 BUILD_WORK="${CUBEON_BUILD_WORK:-$PWD/build/linux}"
 mkdir -p "$BUILD_DIST" "$BUILD_WORK"
+APPIMAGE_NAME="$(python tools/release_version.py asset linux)"
+APP_VERSION="$(python tools/release_version.py current)"
 export PYINSTALLER_CONFIG_DIR="$BUILD_WORK/cache"
 RUNTIME_ASSETS="$(python packaging/runtime_assets.py)"
 trap 'rm -rf "$RUNTIME_ASSETS"' EXIT
@@ -75,9 +77,9 @@ if [ -x dist/appimagetool ] || curl -sL -o dist/appimagetool https://github.com/
   # with APPIMAGE_EXTRACT_AND_RUN=1 (no FUSE), and the continuous build then
   # fails to resolve a RELATIVE AppDir ("no such file or directory: dist/AppDir")
   # even though it exists. $PWD is absolute, so this works either way.
-  APPIMAGE_EXTRACT_AND_RUN=1 dist/appimagetool "$APPDIR" "$BUILD_DIST/Cubeon-x86_64.AppImage"
-  echo "Built $BUILD_DIST/Cubeon-x86_64.AppImage"
+  APPIMAGE_EXTRACT_AND_RUN=1 dist/appimagetool "$APPDIR" "$BUILD_DIST/$APPIMAGE_NAME"
+  echo "Built $BUILD_DIST/$APPIMAGE_NAME"
 else
-  tar -czf "$BUILD_DIST/Cubeon-Linux-x86_64.tar.gz" -C "$BUILD_DIST" AppDir
-  echo "Built $BUILD_DIST/Cubeon-Linux-x86_64.tar.gz"
+  tar -czf "$BUILD_DIST/Cubeon-${APP_VERSION}-Linux-x86_64.tar.gz" -C "$BUILD_DIST" AppDir
+  echo "Built $BUILD_DIST/Cubeon-${APP_VERSION}-Linux-x86_64.tar.gz"
 fi

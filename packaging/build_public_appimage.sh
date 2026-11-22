@@ -57,8 +57,10 @@ chmod +x "$APPDIR/AppRun"
 python tools/check_linux_runtime.py "$APPDIR/usr/bin/Cubeon"
 if [ -x dist/appimagetool ] || curl -sL -o dist/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage; then
   chmod +x dist/appimagetool
-  APPIMAGE_EXTRACT_AND_RUN=1 dist/appimagetool "$APPDIR" dist/Cubeon-public-x86_64.AppImage
+  APP_VERSION="$(python tools/release_version.py current)"
+  APPIMAGE_EXTRACT_AND_RUN=1 dist/appimagetool "$APPDIR" "dist/Cubeon-${APP_VERSION}-public-Linux-x86_64.AppImage"
 else
-  tar -czf dist/Cubeon-public-Linux-x86_64.tar.gz -C dist AppDir
+  APP_VERSION="$(python tools/release_version.py current)"
+  tar -czf "dist/Cubeon-${APP_VERSION}-public-Linux-x86_64.tar.gz" -C dist AppDir
 fi
 echo "Built public Cubeon in dist/ (Friends disabled)"

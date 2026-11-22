@@ -30,6 +30,7 @@ Run: python3 tools/test_release_pipeline.py
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import stat
@@ -137,8 +138,14 @@ check("Windows startup suites cannot share an instance storage registry",
       and windows_loop.index("$env:CUBEON_GAME_DIR") < windows_loop.index("python $t"))
 check("publish un-drafts (that is the whole point of the draft)",
       "--draft=false" in pub)
-check("the workflow pins GH_REPO at the top level (the publish job has no "
-      "checkout, and gh without a repo dies with 'not a git repository')",
+check("update metadata is verified and uploaded before publication",
+      'release_version.py manifest "${TAG#v}"' in pub
+      and 'dist/update-${TAG#v}.json' in pub
+      and pub.index("release_version.py manifest") < pub.index("--draft=false"))
+check("Linux release only builds the regular AppImage and shell installer",
+      "Attach Debian package" not in wf and "Setup.AppImage" not in wf
+      and "build_linux_installers.py" in job_block("build-linux-appimage"))
+check("the workflow pins GH_REPO at the top level for every API/upload step",
       re.search(r"(?m)^env:\n(?:[ \t].*\n)*?[ \t]+GH_REPO:", wf) is not None)
 check("the version job is the only writer of the version",
       wf.count("APP_VERSION = ") == 0 and "release_version.py stamp" in wf)
@@ -217,6 +224,25 @@ case "$cmd" in
         fi
         [ -n "$latest" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
         echo "{\"tag_name\":\"$latest\"}";;
+      */releases/v*)
+        tag="${path##*/}"
+        [ -f "$RELSTATE/releases/$tag" ] || exit 1
+        if [ -f "$RELSTATE/api-$tag.json" ]; then
+          cat "$RELSTATE/api-$tag.json"
+        else
+          python3 - "$tag" <<'PYASSETS'
+import hashlib, json, os, sys
+from pathlib import Path
+state = Path(os.environ["RELSTATE"])
+tag = sys.argv[1]
+assets = []
+for name in (state / "assets" / tag).read_text().splitlines():
+    assets.append({"name": name, "size": 2048, "state": "uploaded",
+                   "digest": "sha256:" + hashlib.sha256(name.encode()).hexdigest(),
+                   "browser_download_url": f"https://github.com/fake/repo/releases/download/{tag}/{name}"})
+print(json.dumps({"tag_name": tag, "prerelease": (state / "prerelease" / tag).exists(), "assets": assets}))
+PYASSETS
+        fi;;
       *)
         tag="${path##*/}"
         if [ -f "$RELSTATE/releases/$tag" ] && [ -f "$RELSTATE/published/$tag" ]; then
@@ -263,6 +289,7 @@ author|body|createdAt|publishedAt|tarballUrl|zipballUrl|targetCommitish|uploadUr
           done
         fi
         case "$json" in *assets*) cat "$RELSTATE/assets/$tag" 2>/dev/null || true;;
+          databaseId) echo "$tag";;
           *) echo "{\"tagName\":\"$tag\"}";; esac;;
       list)
         # Mirrors `--json tagName,isDraft --jq 'select(.isDraft == false)'`.
@@ -347,15 +374,14 @@ class Sim:
                   self.state / "prerelease",
                   self.state / "assets", self.state / "latest", self.bin, self.home):
             d.mkdir(parents=True, exist_ok=True)
-        # The sandbox gets exactly one tool: the real one. Nothing else is
-        # copied in, so the pipeline can't accidentally pass on a stray file.
+        # Copy only the release tool and its shared filename contract.
         (self.work / "tools").mkdir(parents=True, exist_ok=True)
         shutil.copy2(TOOLS / "release_version.py",
                      self.work / "tools" / "release_version.py")
         (self.work / "cubeon").mkdir()
         (self.work / "cubeon" / "updater.py").write_text(
-            'APP_VERSION = "1.1.2"\n'
-            'DEFAULT_FEED = "https://api.github.com/repos/x/y/releases/latest"\n',
+            re.sub(r'^APP_VERSION = "[^"]+"', 'APP_VERSION = "1.1.2"',
+                   (REPO / "cubeon/updater.py").read_text(), flags=re.MULTILINE),
             encoding="utf-8")
         (self.work / "web").mkdir()
         (self.work / "web" / "index.html").write_text(
@@ -405,6 +431,7 @@ class Sim:
             "PATH": f"{self.bin}:{env.get('PATH', '')}",
             "HOME": str(self.home),
             "GH_TOKEN": "fake",
+            "CHANNEL": "beta",
             "REAL_GIT": self.real_git,
             "RELSTATE": str(self.state),
             "GITHUB_REPOSITORY": "fake/repo",
@@ -569,31 +596,63 @@ try:
           (sim.work / "web" / "index.html").read_text())
 
     section("7. publish refuses an incomplete release")
-    COMPLETE = ["Cubeon-Windows-x64-Setup.exe",
-                "Cubeon-x86_64.AppImage",
-                "Cubeon-macOS-arm64.zip", "Cubeon-macOS-x64.zip",
-                "Cubeon-macOS-arm64.dmg", "Cubeon-macOS-x64.dmg",
-                "Cubeon-Linux-x86_64-Setup.sh", "Cubeon-Linux-x86_64-Setup.AppImage",
-                "cubeon_1.1.3_amd64.deb"]
+    previously_published = sim.has("published", "v1.1.3")
+    COMPLETE = ["Cubeon-1.1.3-Windows-x64-Setup.exe",
+                "Cubeon-1.1.3-Linux-x86_64.AppImage", "Cubeon-1.1.3-Linux-x86_64-Setup.sh",
+                "Cubeon-1.1.3-macOS-arm64.zip", "Cubeon-1.1.3-macOS-x64.zip",
+                "Cubeon-1.1.3-macOS-arm64.dmg", "Cubeon-1.1.3-macOS-x64.dmg"]
     (sim.state / "assets" / "v1.1.3").write_text(
         "Cubeon-macOS.zip\n", encoding="utf-8")
     rc = sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3")
-    check("two missing platforms (and the .deb) fail the job", rc != 0)
+    check("missing platforms fail the job", rc != 0)
     (sim.state / "assets" / "v1.1.3").write_text(
         "\n".join(COMPLETE) + "\n", encoding="utf-8")
     rc = sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3")
     check("a complete release passes", rc == 0, sim.log.read_text()[-400:])
-    for missing in ("Cubeon-macOS-arm64.zip", "Cubeon-macOS-x64.zip",
-                    "Cubeon-macOS-arm64.dmg", "Cubeon-macOS-x64.dmg"):
+    manifest = json.loads((sim.work / "dist/update-1.1.3.json").read_text())
+    check("one versioned manifest covers every Windows/Linux/Mac asset",
+          manifest["version"] == "1.1.3" and manifest["channel"] == "beta"
+          and {asset["name"] for asset in manifest["assets"].values()} == set(COMPLETE)
+          and all(len(asset["sha256"]) == 64 and asset["size"] == 2048
+                  and "/v1.1.3/" in asset["url"] for asset in manifest["assets"].values()))
+    check("the verified manifest is attached to the draft",
+          "update-1.1.3.json" in (sim.state / "assets/v1.1.3").read_text().splitlines())
+    for missing in COMPLETE:
         (sim.state / "assets" / "v1.1.3").write_text(
             "\n".join(asset for asset in COMPLETE if asset != missing) + "\n", encoding="utf-8")
         check(f"publish refuses missing {missing}",
               sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3") != 0)
-    # A .deb under a stale name must not sneak through on a prefix match alone.
+    # Another version must not satisfy this release's required asset.
     (sim.state / "assets" / "v1.1.3").write_text(
-        "\n".join(COMPLETE[:-1]) + "\ncubeon_1.1.3_amd64.tar.gz\n", encoding="utf-8")
-    check("an unrelated cubeon_* file does not pass for the .deb",
+        "\n".join(COMPLETE[:-1]) + "\n" + COMPLETE[-1].replace("1.1.3", "1.1.2") + "\n", encoding="utf-8")
+    check("a stale versioned asset does not satisfy this release",
           sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3") != 0)
+
+    release = json.loads((sim.work / "build/release-assets.json").read_text())
+    release["assets"][-1]["name"] = COMPLETE[-1]
+    release["assets"][-1]["browser_download_url"] = f"https://github.com/fake/repo/releases/download/v1.1.3/{COMPLETE[-1]}"
+    for field, value in (("digest", None), ("digest", "sha256:bad"), ("size", 0),
+                         ("state", "new"), ("browser_download_url", "https://example.org/file")):
+        malformed = json.loads(json.dumps(release))
+        malformed["assets"][0][field] = value
+        override = sim.state / "api-v1.1.3.json"
+        override.write_text(json.dumps(malformed))
+        check(f"manifest rejects invalid {field}={value!r}",
+              sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3") != 0)
+    override.unlink()
+    for label, malformed in (("wrong tag", dict(release, tag_name="v1.1.2")),
+                             ("wrong channel", dict(release, prerelease=False)),
+                             ("duplicate installer", dict(release, assets=release["assets"] + release["assets"][:1]))):
+        override.write_text(json.dumps(malformed))
+        check(f"manifest rejects {label}", sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3") != 0)
+    override.unlink()
+    override.write_text(json.dumps(dict(release, prerelease=False)))
+    check("stable releases also generate and attach the combined manifest",
+          sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3", CHANNEL="stable") == 0
+          and json.loads((sim.work / "dist/update-1.1.3.json").read_text())["channel"] == "stable")
+    override.unlink()
+    check("asset verification leaves publication state unchanged",
+          sim.has("published", "v1.1.3") == previously_published)
 
     section("8. publish only moves `latest` forwards")
     # A newer release is already public (the normal case when re-running an
@@ -623,7 +682,7 @@ try:
 
     section("8b. a BETA is published as a prerelease and never as Latest")
     (sim.state / "assets" / "v1.5.0").write_text(
-        "\n".join(COMPLETE[:-1]) + "\ncubeon_1.5.0_amd64.deb\n", encoding="utf-8")
+        "\n".join(name.replace("1.1.3", "1.5.0") for name in COMPLETE) + "\n", encoding="utf-8")
     env["TAG"] = "v1.5.0"
     env["CHANNEL"] = "beta"
     rc = subprocess.run(["bash", str(step)], cwd=sim.work, env=env,

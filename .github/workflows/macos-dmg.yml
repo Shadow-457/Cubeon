@@ -35,14 +35,47 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
-          gh release download "$RELEASE_TAG" --pattern "Cubeon-macOS-${MAC_ARCH}.zip" --dir build/macos-dmg
-          ditto -x -k "build/macos-dmg/Cubeon-macOS-${MAC_ARCH}.zip" build/macos-dmg/input
+          archive="Cubeon-${RELEASE_TAG#v}-macOS-${MAC_ARCH}.zip"
+          # Retain repair support for releases made before versioned filenames.
+          if ! gh release download "$RELEASE_TAG" --pattern "$archive" --dir build/macos-dmg; then
+            archive="Cubeon-macOS-${MAC_ARCH}.zip"
+            gh release download "$RELEASE_TAG" --pattern "$archive" --dir build/macos-dmg
+          fi
+          ditto -x -k "build/macos-dmg/$archive" build/macos-dmg/input
       - name: Create and verify the DMG
         shell: bash
         run: |
           set -euo pipefail
-          bash packaging/build_macos_dmg.sh build/macos-dmg/input/Cubeon.app "dist/Cubeon-macOS-${MAC_ARCH}.dmg"
+          bash packaging/build_macos_dmg.sh build/macos-dmg/input/Cubeon.app "dist/Cubeon-${RELEASE_TAG#v}-macOS-${MAC_ARCH}.dmg"
           python3 tools/test_macos_package.py --dmg-only --arch "$MAC_ARCH" --version "${RELEASE_TAG#v}"
       - name: Attach the DMG to the same release
         shell: bash
-        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-macOS-${MAC_ARCH}.dmg" --clobber
+        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-${RELEASE_TAG#v}-macOS-${MAC_ARCH}.dmg" --clobber
+
+  refresh-manifest:
+    name: Refresh existing update metadata after DMG repair
+    needs: package
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Refresh the manifest when the release has one
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          release_id="$(gh release view "$RELEASE_TAG" --json databaseId --jq .databaseId)"
+          gh api "repos/$GH_REPO/releases/$release_id" > build/release-assets.json
+          if jq -e --arg name "update-${RELEASE_TAG#v}.json" 'any(.assets[]; .name == $name)' build/release-assets.json >/dev/null; then
+            channel=stable
+            if jq -e '.prerelease' build/release-assets.json >/dev/null; then channel=beta; fi
+            python3 tools/release_version.py manifest "${RELEASE_TAG#v}" \
+              --release-json build/release-assets.json --repository "$GH_REPO" --channel "$channel"
+            gh release upload "$RELEASE_TAG" "dist/update-${RELEASE_TAG#v}.json" --clobber
+          fi

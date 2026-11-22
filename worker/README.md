@@ -28,6 +28,12 @@ if the cached release changed it returns 409. Both channel lookups share the
 existing download throttle and have separate five-minute caches. These routes
 remain for older released launchers. The current automatic updater uses the
 public GitHub Releases API directly and has no downloads-Worker dependency.
+The metadata includes separate Apple Silicon/Intel DMG and ZIP entries as well
+as Windows setup, Linux AppImage and Linux shell setup. Versioned filenames
+are pinned to the selected release; exact historical names remain supported.
+New releases attach the same asset details in `update-<version>.json`, generated
+before publication. Retired `/linuxdeb` and `/linuxinstaller` links redirect
+to `/linuxsetup`; the older Debian updater endpoint remains available.
 
 The skins Worker provides the `/skins/<name>.json` CustomSkinAPI lookup
 and the write routes (`POST /api/heartbeat`,

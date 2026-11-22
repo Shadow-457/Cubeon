@@ -3,6 +3,7 @@ import argparse
 import os
 from pathlib import Path
 import plistlib
+import runpy
 import subprocess
 import sys
 import tarfile
@@ -11,11 +12,13 @@ import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+metadata = runpy.run_path(str(ROOT / "cubeon/updater.py"))
+APP_VERSION, release_asset_name = metadata["APP_VERSION"], metadata["release_asset_name"]
 
 
 def dmg(arch, version=None):
     assert sys.platform == "darwin", "DMG checks require macOS"
-    image = ROOT / f"dist/Cubeon-macOS-{arch}.dmg"
+    image = ROOT / "dist" / release_asset_name(f"macos-{arch}", version)
     subprocess.run(["hdiutil", "verify", str(image)], check=True)
     with tempfile.TemporaryDirectory(prefix="cubeon-dmg-check-") as directory:
         mount = Path(directory) / "volume"
@@ -45,7 +48,7 @@ def native(arch):
     machine = "arm64" if arch == "arm64" else "x86_64"
     subprocess.run(["lipo", str(binary), "-verify_arch", machine], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
-    archive = ROOT / f"dist/Cubeon-macOS-{arch}.zip"
+    archive = ROOT / "dist" / release_asset_name(f"macos-{arch}-zip")
     with zipfile.ZipFile(archive) as package:
         assert "Cubeon.app/Contents/Info.plist" in package.namelist()
         assert any(name.endswith("assets/jars/cubeon-client-1.0.0+mc26.3.jar")
@@ -114,7 +117,7 @@ if __name__ == "__main__":
     if args.native:
         assert args.arch
         native(args.arch)
-        dmg(args.arch)
+        dmg(args.arch, APP_VERSION)
     elif args.dmg_only:
         assert args.arch
         dmg(args.arch, args.version)

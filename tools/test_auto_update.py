@@ -105,6 +105,18 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(update.UpdateError):
             update.parse_release(data, "darwin", "1.4.9")
 
+    def test_versioned_assets_take_precedence_and_other_versions_are_rejected(self):
+        for kind in ("windows", "linux"):
+            data = metadata(kind=kind)
+            asset = copy.deepcopy(data["assets"][0])
+            asset["name"] = update.release_asset_name(kind, "1.4.11")
+            asset["browser_download_url"] = f"https://github.com/{update.REPOSITORY}/releases/download/v1.4.11/{asset['name']}"
+            data["assets"].append(asset)
+            self.assertEqual(update.parse_release(data, kind, "1.4.9").name, asset["name"])
+            data["assets"] = [dict(asset, name=update.release_asset_name(kind, "1.4.10"))]
+            with self.assertRaises(update.UpdateError):
+                update.parse_release(data, kind, "1.4.9")
+
     def test_ambiguous_incomplete_or_untrusted_assets_rejected(self):
         cases = [("digest", None), ("digest", "sha1:" + "0" * 64), ("digest", "sha256:" + "g" * 64),
                  ("digest", "sha256:" + "0" * 63), ("size", True), ("size", 0),

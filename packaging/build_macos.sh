@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the macOS app. Run from the repo root:  bash packaging/build_macos.sh
-# Output: dist/Cubeon.app and dist/Cubeon-macOS-{arm64,x64}.{dmg,zip}.
+# Output: dist/Cubeon.app and dist/Cubeon-<version>-macOS-{arm64,x64}.{dmg,zip}.
 # Ad-hoc signed, without Apple notarization. Gatekeeper requires user approval.
 # Developer ID signing/notarization needs separate Apple credentials.
 #
@@ -18,6 +18,7 @@ case "$(uname -m)" in
   x86_64) ARCH=x64; TARGET_ARCH=x86_64 ;;
   *) echo "Unsupported macOS architecture" >&2; exit 1 ;;
 esac
+APP_VERSION="$(python tools/release_version.py current)"
 RUNTIME_ASSETS="$(python packaging/runtime_assets.py)"
 trap 'rm -rf "$RUNTIME_ASSETS"' EXIT
 
@@ -69,6 +70,6 @@ path.write_bytes(plistlib.dumps(info))
 PYINFO
 codesign --force --deep --sign - dist/Cubeon.app
 codesign --verify --deep --strict dist/Cubeon.app
-ditto -c -k --sequesterRsrc --keepParent dist/Cubeon.app "dist/Cubeon-macOS-${ARCH}.zip"
-bash packaging/build_macos_dmg.sh dist/Cubeon.app "dist/Cubeon-macOS-${ARCH}.dmg"
+ditto -c -k --sequesterRsrc --keepParent dist/Cubeon.app "dist/Cubeon-${APP_VERSION}-macOS-${ARCH}.zip"
+bash packaging/build_macos_dmg.sh dist/Cubeon.app "dist/Cubeon-${APP_VERSION}-macOS-${ARCH}.dmg"
 echo "Built dist/Cubeon.app and the ${ARCH} DMG/ZIP"

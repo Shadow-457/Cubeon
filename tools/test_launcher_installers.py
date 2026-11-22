@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 if "--native-windows" in sys.argv:
     os.environ["CUBEON_TEST_WINDOWS"] = "1"
@@ -24,6 +25,16 @@ spec.loader.exec_module(builders)
 
 
 class LauncherInstallers(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "Linux installer test")
+    def test_release_builder_emits_only_the_versioned_shell_setup(self):
+        with tempfile.TemporaryDirectory(prefix="cubeon-release-setup-") as tmp:
+            root = Path(tmp)
+            (root / builders.release_asset_name("linux")).write_bytes(b"appimage fixture")
+            with patch.object(builders, "DIST", root):
+                builders.main()
+            self.assertEqual({p.name for p in root.iterdir()}, {
+                builders.release_asset_name("linux"), builders.release_asset_name("linux-setup")})
+
     @unittest.skipIf(os.name == "nt", "Linux installer test")
     def test_self_contained_setup_install_repair_and_damaged_download(self):
         with tempfile.TemporaryDirectory(prefix="cubeon-installers-") as tmp:
@@ -94,7 +105,7 @@ class LauncherInstallers(unittest.TestCase):
                        "-DAPP_VERSION=2.0.0.0", str(ROOT / "packaging/Cubeon.nsi")]
             compiled = subprocess.run(command, capture_output=True, text=True, env=env)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            self.assertTrue((root / "Cubeon-Windows-x64-Setup.exe").is_file())
+            self.assertTrue((root / "Cubeon-2.0.0-Windows-x64-Setup.exe").is_file())
 
     @unittest.skipUnless(os.environ.get("CUBEON_TEST_WINE") or os.environ.get("CUBEON_TEST_WINDOWS"),
                          "opt-in Windows/Wine installation smoke")
@@ -126,8 +137,10 @@ class LauncherInstallers(unittest.TestCase):
                                 f"-DICON_FILE={ROOT / 'assets/icon.ico'}", f"-DDISPLAY_VERSION={version}",
                                 f"-DAPP_VERSION={version}.0", str(script)],
                                env=env, check=True, capture_output=True)
+                # Keep one fixture handoff path while checking versioned NSIS output.
+                shutil.copy2(root / f"Cubeon-{version}-Windows-x64-Setup.exe", root / "Cubeon-Test-Setup.exe")
             build("2.0.0")
-            setup = root / "Cubeon-Windows-x64-Setup.exe"
+            setup = root / "Cubeon-Test-Setup.exe"
             win_target = winpath(target)
             win_setup = winpath(setup)
             def setup_command(arguments):

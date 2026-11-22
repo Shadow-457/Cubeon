@@ -51,20 +51,27 @@ CLI:
   python3 tools/release_version.py stamp 1.2.1             # rewrite APP_VERSION (+ site if stable)
   python3 tools/release_version.py stamp 1.3.1 --no-site   # beta: APP_VERSION only
   python3 tools/release_version.py stamp 1.2.1 --check     # report only, change nothing
+  python3 tools/release_version.py asset linux             # versioned AppImage filename
 """
 from __future__ import annotations
 
 import argparse
+import json
 import re
+import runpy
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 UPDATER = ROOT / "cubeon" / "updater.py"
+# Load this dependency-free contract without initializing the launcher package.
+_metadata = runpy.run_path(str(UPDATER))
+RELEASE_ASSETS = _metadata["RELEASE_ASSETS"]
+release_asset_name = _metadata["release_asset_name"]
 
 # Files whose *display* text carries the version. The download worker resolves
-# release assets by name (the .deb by prefix/suffix, never by version), so these
+# release assets by the release version, so these
 # are cosmetic - a stale one is ugly, not broken.
 SITE_FILES = tuple(
     (ROOT / "web" / filename, pattern, replacement)
@@ -249,6 +256,11 @@ def _cmd_channel(args) -> int:
     return 0
 
 
+def _cmd_asset(args) -> int:
+    print(release_asset_name(args.kind, args.version or read_app_version()))
+    return 0
+
+
 def _cmd_bump(args) -> int:
     print(bump(args.version))
     return 0
@@ -266,6 +278,53 @@ def _cmd_stamp(args) -> int:
     return 0
 
 
+def update_manifest(version: str, release: dict, repository: str, release_channel: str) -> dict:
+    """Validate the uploaded binaries before creating public update metadata."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise VersionError("invalid GitHub repository")
+    if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+        raise VersionError("invalid manifest version")
+    if not isinstance(release, dict) or release.get("tag_name") != f"v{version}":
+        raise VersionError("release tag does not match the manifest version")
+    if release_channel not in {"stable", "beta"} or release.get("prerelease") is not (release_channel == "beta"):
+        raise VersionError("release channel does not match the draft")
+    uploaded = release.get("assets")
+    if not isinstance(uploaded, list):
+        raise VersionError("release assets are missing")
+    assets = {}
+    for kind in RELEASE_ASSETS:
+        name = release_asset_name(kind, version)
+        matches = [asset for asset in uploaded if isinstance(asset, dict) and asset.get("name") == name]
+        if len(matches) != 1:
+            raise VersionError(f"release needs exactly one {name}")
+        asset = matches[0]
+        size, digest = asset.get("size"), asset.get("digest")
+        if asset.get("state") != "uploaded" or type(size) is not int or size <= 0:
+            raise VersionError(f"{name} has not finished uploading")
+        if not isinstance(digest, str) or not re.fullmatch(r"sha256:[a-fA-F0-9]{64}", digest):
+            raise VersionError(f"{name} is missing its GitHub SHA-256 digest")
+        url = f"https://github.com/{repository}/releases/download/v{version}/{name}"
+        if asset.get("browser_download_url") != url:
+            raise VersionError(f"{name} has an unexpected download URL")
+        assets[kind] = {"name": name, "url": url, "size": size, "sha256": digest[7:].lower()}
+    return {"schema_version": 1, "version": version, "tag_name": f"v{version}",
+            "channel": release_channel, "prerelease": release_channel == "beta", "assets": assets}
+
+
+def _cmd_manifest(args) -> int:
+    try:
+        release = json.loads(Path(args.release_json).read_text(encoding="utf-8"))
+        manifest = update_manifest(args.version, release, args.repository, args.channel)
+        directory = Path(args.output_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        output = directory / f"update-{args.version}.json"
+        output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    except (OSError, ValueError) as ex:
+        raise VersionError(f"cannot generate update metadata: {ex}") from ex
+    print(output)
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -278,6 +337,11 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("current", help="APP_VERSION in this tree")
     p.set_defaults(func=_cmd_current)
+
+    p = sub.add_parser("asset", help="versioned release filename")
+    p.add_argument("kind", choices=tuple(RELEASE_ASSETS))
+    p.add_argument("--version")
+    p.set_defaults(func=_cmd_asset)
 
     p = sub.add_parser("channel", help="'stable' or 'beta' for a version")
     p.add_argument("version")
@@ -295,6 +359,14 @@ def main(argv=None) -> int:
     p.add_argument("--no-site", dest="site", action="store_false",
                    help="leave the website on its current (stable) version")
     p.set_defaults(func=_cmd_stamp, site=None)
+
+    p = sub.add_parser("manifest", help="verify uploaded binaries and write update-<version>.json")
+    p.add_argument("version")
+    p.add_argument("--release-json", required=True, help="raw GitHub release API response")
+    p.add_argument("--repository", required=True)
+    p.add_argument("--channel", required=True, choices=("stable", "beta"))
+    p.add_argument("--output-dir", default="dist")
+    p.set_defaults(func=_cmd_manifest)
 
     args = ap.parse_args(argv)
     if not getattr(args, "func", None):

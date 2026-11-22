@@ -25,7 +25,7 @@ import time
 from urllib.parse import quote, urlsplit
 import uuid
 
-from .updater import APP_VERSION
+from .updater import APP_VERSION, release_asset_name
 
 log = logging.getLogger(__name__)
 REPOSITORY = "Shadow-457/Cubeon"
@@ -87,13 +87,17 @@ def parse_release(data, kind: str, current: str = APP_VERSION) -> Release | None
     latest = version_tuple(tag)
     if latest <= version_tuple(current):
         return None
-    name = ASSETS.get(kind)
-    if name is None:
+    legacy_name = ASSETS.get(kind)
+    if legacy_name is None:
         raise UpdateError("Unsupported update platform.")
     assets = data.get("assets")
     if not isinstance(assets, list) or len(assets) > 1000:
         raise UpdateError("Invalid GitHub release assets.")
+    name = release_asset_name(kind, ".".join(map(str, latest)))
     matches = [asset for asset in assets if isinstance(asset, dict) and asset.get("name") == name]
+    if not matches:
+        name = legacy_name
+        matches = [asset for asset in assets if isinstance(asset, dict) and asset.get("name") == name]
     if len(matches) != 1:
         raise UpdateError("The release is missing a unique platform installer.")
     asset = matches[0]
@@ -622,7 +626,7 @@ def _clean_cache(cache: Path, keep: Path):
         if path == keep or path.is_symlink():
             continue
         age = time.time() - path.stat().st_mtime
-        if path.is_file() and (re.fullmatch(r"[0-9a-f]{64}-(Cubeon-x86_64\.AppImage|Cubeon-Windows-x64-Setup\.exe)", path.name)
+        if path.is_file() and (re.fullmatch(r"[0-9a-f]{64}-(Cubeon-x86_64\.AppImage|Cubeon-Windows-x64-Setup\.exe|Cubeon-[0-9]+\.[0-9]+\.[0-9]+-(Linux-x86_64\.AppImage|Windows-x64-Setup\.exe))", path.name)
                                or (path.name.startswith("download-") and path.suffix == ".part")):
             path.unlink()
         elif path.is_dir() and re.fullmatch(r"job-[0-9a-f]{32}", path.name) and age > 7 * 24 * 60 * 60:

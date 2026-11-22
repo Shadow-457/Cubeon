@@ -123,7 +123,7 @@
     /* Routes that hand over a file, mirroring the redirects in
        web/vercel.json - a test keeps the two lists equal. Links to the
        download PAGE are page views, not downloads. */
-    var ROUTES = ['/windowsdownload', '/macosarm64download', '/macosx64download', '/linuxdownload', '/linuxdeb', '/linuxsetup', '/linuxinstaller'];
+    var ROUTES = ['/windowsdownload', '/macosarm64download', '/macosx64download', '/linuxdownload', '/linuxsetup'];
 
     /* ---- testing mode -----------------------------------------------------
        The owner's own test clicks shouldn't inflate the public number. Since

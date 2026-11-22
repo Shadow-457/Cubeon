@@ -10,7 +10,7 @@
 - Supports Vanilla, Fabric, Quilt, Forge and NeoForge instances. Mods must match the Minecraft version and loader.
 - Uses local/offline player profiles. Microsoft account sign-in is not available; servers requiring Microsoft authentication cannot accept these profiles.
 - Does not launch Minecraft Bedrock Edition. Cubeon is an independent fan project, not affiliated with Mojang or Microsoft.
-- Windows distribution uses the Setup.exe installer. Linux offers an AppImage, setup installer and Debian/Ubuntu package. Apple Silicon and Intel macOS preview DMGs are available; upgrades are manual.
+- Windows distribution uses the setup executable. Linux offers an AppImage and shell setup installer. Release filenames include their version. Apple Silicon and Intel macOS preview DMGs are available; upgrades are manual.
 - The launcher is free. Minecraft requires compatible Java and graphics drivers. Source and bundled components retain their respective licenses.
 - Available binaries and stable/beta status are listed on the download page and GitHub releases; check those sources for current versions.
 

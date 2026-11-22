@@ -14,7 +14,7 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
 
 1. On the Windows box open **https://www.ylet.online/download** and verify
    that the public GitHub release assets are accessible without signing in.
-2. Click **Download for Windows**. Expect `Cubeon-Windows-x64-Setup.exe` at the
+2. Click **Download for Windows**. Expect `Cubeon-<version>-Windows-x64-Setup.exe` at the
    size the page shows. ☐
 3. Run it. Windows will show **"Windows protected your PC"** - that is expected
    and already documented on the site (download step 1). Choose **More info ->

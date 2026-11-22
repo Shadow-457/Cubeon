@@ -44,10 +44,7 @@ permissions:
   contents: read
 
 env:
-  # gh figures out which repo it is talking to from the nearest git remote, and
-  # the `publish` job deliberately has no checkout (it needs nothing but the
-  # API) - which made every gh call in it die with "fatal: not a git repository".
-  # Pin it once, for every job.
+  # Pin the repository for every API/upload call, including before checkout.
   GH_REPO: ${{ github.repository }}
 
 concurrency:
@@ -457,8 +454,8 @@ jobs:
           python -m pip install -r requirements.txt pyinstaller
 
       - name: Stamp the release version
-        # Before the build, always: the AppImage's updater and the .deb's
-        # control file both read APP_VERSION out of the tree they are built
+        # Before the build, always: the AppImage's updater and installer names
+        # both read APP_VERSION out of the tree they are built
         # from, and a mismatch with RELEASE_TAG nags every user forever.
         run: python3 tools/release_version.py stamp "$RELEASE_VERSION"
 
@@ -492,8 +489,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
-          name: Cubeon-Linux-x86_64-AppImage
-          path: dist/Cubeon-x86_64.AppImage
+          name: Cubeon-${{ needs.release.outputs.version }}-Linux-x86_64-AppImage
+          path: dist/Cubeon-${{ needs.release.outputs.version }}-Linux-x86_64.AppImage
 
       - name: Attach Linux AppImage to the GitHub release
         # Release ASSETS do not count against the Actions artifact storage
@@ -502,31 +499,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" dist/Cubeon-x86_64.AppImage --clobber
+        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-${RELEASE_VERSION}-Linux-x86_64.AppImage" --clobber
 
-      - name: Attach Debian package to the GitHub release
+      - name: Attach Linux offline installer to the GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        # Globbed, not hardcoded: packaging/build_deb.py names the package
-        # dist/cubeon_<APP_VERSION>_amd64.deb, so a hardcoded name drifts out
-        # of date on every release and fails the upload. This step was still
-        # pointing at 1.0.0 while the app was on 1.0.1.
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          debs=(dist/cubeon_*_amd64.deb)
-          if [ ${#debs[@]} -eq 0 ]; then
-            echo "no dist/cubeon_*_amd64.deb to upload" >&2
-            exit 1
-          fi
-          gh release upload "$RELEASE_TAG" "${debs[@]}" --clobber
-
-      - name: Attach Linux offline installers to the GitHub release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" dist/Cubeon-Linux-x86_64-Setup.sh dist/Cubeon-Linux-x86_64-Setup.AppImage --clobber
+        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-${RELEASE_VERSION}-Linux-x86_64-Setup.sh" --clobber
 
   build-windows-exe:
     name: Build Windows installer
@@ -605,7 +584,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" dist/Cubeon-Windows-x64-Setup.exe --clobber
+        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-${RELEASE_VERSION}-Windows-x64-Setup.exe" --clobber
 
   build-macos:
     name: Build macOS (${{ matrix.arch }})
@@ -667,7 +646,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "$RELEASE_TAG" "dist/Cubeon-macOS-${{ matrix.arch }}.dmg" "dist/Cubeon-macOS-${{ matrix.arch }}.zip" --clobber
+          gh release upload "$RELEASE_TAG" "dist/Cubeon-${RELEASE_VERSION}-macOS-${{ matrix.arch }}.dmg" "dist/Cubeon-${RELEASE_VERSION}-macOS-${{ matrix.arch }}.zip" --clobber
 
   publish:
     name: Verify assets + publish the release
@@ -676,6 +655,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout release metadata tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Verify every asset landed
         # A release that goes public missing a binary is worse than a late
         # release: /releases/latest feeds the in-app updater AND
@@ -685,28 +674,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release.outputs.tag }}
+          CHANNEL: ${{ needs.release.outputs.channel }}
         run: |
           set -euo pipefail
-          have="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
-          missing=0
-          for want in Cubeon-Windows-x64-Setup.exe \
-                      Cubeon-x86_64.AppImage \
-                      Cubeon-macOS-arm64.zip Cubeon-macOS-x64.zip \
-                      Cubeon-macOS-arm64.dmg Cubeon-macOS-x64.dmg \
-                      Cubeon-Linux-x86_64-Setup.sh Cubeon-Linux-x86_64-Setup.AppImage; do
-            if ! grep -qxF "$want" <<<"$have"; then
-              echo "::error::$TAG is missing $want"
-              missing=1
-            fi
-          done
-          # The .deb's name carries the version, so it is matched by shape.
-          if ! grep -qE '^cubeon_[0-9.]+_amd64\.deb$' <<<"$have"; then
-            echo "::error::$TAG is missing the Debian package"
-            missing=1
-          fi
-          [ "$missing" -eq 0 ] || exit 1
-          echo "$TAG has all its assets:"
-          echo "$have"
+          mkdir -p build
+          # Resolve the draft with gh first; the numeric API includes upload
+          # state and GitHub digests, which gh's asset projection omits.
+          release_id="$(gh release view "$TAG" --json databaseId --jq .databaseId)"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > build/release-assets.json
+          python3 tools/release_version.py manifest "${TAG#v}" \
+            --release-json build/release-assets.json --repository "$GITHUB_REPOSITORY" \
+            --channel "$CHANNEL"
+          gh release upload "$TAG" "dist/update-${TAG#v}.json" --clobber
 
       - name: Publish
         # Un-draft last. A beta is published as a PRERELEASE and is never made

@@ -10,27 +10,30 @@ Packaged builds do not require a separate Python installation.
 
 - **Windows:** open the setup executable. It installs Cubeon and adds a Start
   menu entry without needing administrator rights.
-- **Linux:** run `bash Cubeon-Linux-x86_64-Setup.sh` to install Cubeon and its
+- **Linux:** run `bash` with the downloaded `Cubeon-<version>-Linux-x86_64-Setup.sh` filename to install Cubeon and its
   app menu entry. The setup includes everything and supports systems without
-  FUSE. Alternatively use the Debian/Ubuntu package. For an AppImage, grant
+  FUSE. For an AppImage, grant
   execute permission and launch it from your file manager or terminal.
-- **macOS:** untested; downloads and updates are currently unavailable.
+- **macOS:** choose the Apple Silicon or Intel DMG, then drag Cubeon into
+  Applications. These preview builds are ad-hoc signed and may require
+  Gatekeeper approval. Download a newer DMG for upgrades.
 
 Only approve a security warning after checking the download's source.
 Do not disable system-wide security protections to launch an app.
 
-For a Linux AppImage downloaded to the current directory:
+For a Linux AppImage downloaded to the current directory, replace `VERSION`
+with the version in its filename:
 
 ```bash
-chmod +x Cubeon-x86_64.AppImage
-./Cubeon-x86_64.AppImage
+chmod +x Cubeon-VERSION-Linux-x86_64.AppImage
+./Cubeon-VERSION-Linux-x86_64.AppImage
 ```
 
 On Wayland, a native Flet display crash can sometimes be avoided by choosing
 XWayland explicitly, if your desktop provides it:
 
 ```bash
-GDK_BACKEND=x11 ./Cubeon-x86_64.AppImage
+GDK_BACKEND=x11 ./Cubeon-VERSION-Linux-x86_64.AppImage
 ```
 
 Cubeon preserves explicit GTK/EGL/renderer environment choices through crash
@@ -584,8 +587,9 @@ Network failures, missing checksums, insufficient space or redirected/read-only
 installation paths leave the existing installation in use. Manual upgrades and
 beta previews remain available from the [download page](https://www.ylet.online/download):
 close Cubeon and Minecraft, stop hosted servers, then run setup for your existing folder.
-Debian/Ubuntu package installs are updated through the system package tools;
-source checkouts are updated from source.
+Mac previews are upgraded manually using the matching DMG; source checkouts
+are updated from source. Older updaters that expect fixed filenames may need
+one manual upgrade to a build that supports versioned release assets.
 
 Reinstalling Cubeon keeps its data folders. Windows setup stages files before
 replacement and restores the old program if replacement fails.

@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import os
 import re
+import runpy
 import shutil
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+release_asset_name = runpy.run_path(str(ROOT / "cubeon/updater.py"))["release_asset_name"]
 SOURCE = ROOT / "dist" / "Cubeon"
 SCRIPT = ROOT / "packaging" / "Cubeon.nsi"
 OUTPUT = ROOT / "dist"
@@ -137,7 +139,7 @@ def main() -> None:
     command.append(_wine_path(SCRIPT))
     print("+", " ".join(command))
     subprocess.run(command, cwd=ROOT, check=True)
-    result = OUTPUT / "Cubeon-Windows-x64-Setup.exe"
+    result = OUTPUT / release_asset_name("windows", display_version)
     print(f"Done: {result} ({result.stat().st_size // (1024 * 1024)} MB installer)")
 
 

@@ -72,32 +72,26 @@ release's distribution compatibility. The hidden `--cubeon-runtime-check`
 argument runs offline without initializing the UI or accessing player data.
 
 With `dist/appimagetool` available, the script produces
-`dist/Cubeon-x86_64.AppImage`. Otherwise it produces
-`dist/Cubeon-Linux-x86_64.tar.gz` containing the AppDir.
+`dist/Cubeon-<version>-Linux-x86_64.AppImage`. Otherwise it produces
+`dist/Cubeon-<version>-Linux-x86_64.tar.gz` containing the AppDir.
 
-Build the offline installers and Debian package from the prepared AppDir:
+Build the offline shell installer from that AppImage:
 
 ```bash
 python packaging/build_linux_installers.py
 ```
 
-Outputs include `dist/Cubeon-Linux-x86_64-Setup.AppImage`,
-`dist/Cubeon-Linux-x86_64-Setup.sh` and
-`dist/cubeon_<version>_amd64.deb`. Both installers install for the current
-user under `~/.local/opt/Cubeon`; it includes the AppImage and icon, verifies
-its payload, and adds a menu launcher with a fallback for systems without FUSE.
-The graphical AppImage lets you choose the folder and open Cubeon when setup
-finishes. Mark it executable, then open it. If FUSE is unavailable, run
-`APPIMAGE_EXTRACT_AND_RUN=1 ./Cubeon-Linux-x86_64-Setup.AppImage`.
-The terminal alternative is `bash Cubeon-Linux-x86_64-Setup.sh`. Installation
-works offline; AppImages still need Flet's system libraries. The Debian package
-is a system package.
+The output is `dist/Cubeon-<version>-Linux-x86_64-Setup.sh`. Run it with `bash`
+using the downloaded filename. It installs for the current user under
+`~/.local/opt/Cubeon`, includes the AppImage and icon, verifies its payload,
+and adds a menu launcher with a fallback for systems without FUSE. Installation
+works offline; AppImages still need Flet's system libraries. Set
+`CUBEON_INSTALL_DIR` to select another installation folder.
 
-The graphical installer reuses the launcher runtime and installs its own image;
-the application-menu wrapper selects launcher mode. Manual upgrades rerun the
-installer for the same installation folder. The release
-workflow publishes both installers. The downloads Worker adds `/linuxinstaller`
-for the graphical asset; deploy it before linking that route publicly.
+Releases ship the regular AppImage and shell setup. The graphical setup
+AppImage and Debian package are no longer built or published. The historical
+graphical helper remains for verification of already shipped installers.
+Old `/linuxinstaller` and `/linuxdeb` download links redirect to `/linuxsetup`.
 
 ## Windows
 
@@ -116,7 +110,7 @@ To build the setup executable from that payload, run:
 python packaging/build_windows_installer.py
 ```
 
-This produces `dist/Cubeon-Windows-x64-Setup.exe` and needs NSIS.
+This produces `dist/Cubeon-<version>-Windows-x64-Setup.exe` and needs NSIS.
 
 Windows Python can also run the build scripts under Wine. Use a configured
 Windows Python environment, not Linux Python with a Windows output name.
@@ -130,7 +124,7 @@ bash packaging/build_macos.sh
 ```
 
 The script produces `dist/Cubeon.app` and native
-`dist/Cubeon-macOS-{arm64,x64}.dmg` installers, with ZIP copies also retained.
+`dist/Cubeon-<version>-macOS-{arm64,x64}.dmg` installers, with ZIP copies also retained.
 Each DMG contains Cubeon.app and an Applications shortcut for drag-and-drop installation. CI builds on native `macos-15` and `macos-15-intel` runners, verifies
 the bundle and bundled Flet architecture/signatures, and checks that the
 packaged launcher reaches its first desktop frame before uploading.
@@ -200,21 +194,41 @@ the release, and no existing tag is overwritten.
 The test jobs run separately; successful publishing does not imply that
 every test passed.
 
-Launcher upgrades are manual: download the new installer and rerun it for the
-existing installation folder. Startup does not check releases or start an
-automatic update. Windows packaging verifies the real NSIS installation,
-upgrade and rollback transactions before building the installer; it does not
-depend on the retained automatic-update helper tests. Those legacy fixtures
-use an explicit starting version so a release stamp cannot invalidate them.
-The downloads Worker retains update feeds for previously released launchers.
+Installed Windows copies and user-owned Linux AppImages can check GitHub
+release metadata through `cubeon/auto_update.py`; both versioned and historical
+asset names are supported. Mac upgrades use the downloaded DMG or ZIP.
+An older installed updater that only recognizes fixed filenames may need one
+manual upgrade when release assets first switch to versioned names.
+Windows packaging verifies the real NSIS installation, upgrade and rollback
+transactions before building the installer. Helper fixtures use an explicit
+starting version so a release stamp cannot invalidate them.
 
 The download Worker depends on these release asset names:
 
 | Platform | Release assets |
 | --- | --- |
-| Linux | `Cubeon-x86_64.AppImage`, `Cubeon-Linux-x86_64-Setup.AppImage`, `Cubeon-Linux-x86_64-Setup.sh`, `cubeon_<version>_amd64.deb` |
-| Windows | `Cubeon-Windows-x64-Setup.exe` |
-| macOS | `Cubeon-macOS-arm64.dmg`, `Cubeon-macOS-x64.dmg` (ZIP alternatives also included) |
+| Linux | `Cubeon-<version>-Linux-x86_64.AppImage`, `Cubeon-<version>-Linux-x86_64-Setup.sh` |
+| Windows | `Cubeon-<version>-Windows-x64-Setup.exe` |
+| macOS | `Cubeon-<version>-macOS-arm64.dmg`, `Cubeon-<version>-macOS-x64.dmg`, matching `.zip` alternatives |
+| Update metadata | `update-<version>.json` covering all seven binaries |
+
+Every release-producing push to `main`/`master` or a version tag generates
+the combined JSON after all platform uploads succeed. `[skip ci]` commits
+and manual `full_tests` dispatches do not create releases. The publish job reads
+the draft by its numeric GitHub release ID, verifies exact versioned names,
+upload state, nonempty size, download URLs and GitHub SHA-256 digests, then
+attaches the manifest before making the draft public. A missing binary or
+digest keeps the release private.
+
+`tools/release_version.py manifest <version> --release-json <api-response.json>
+--repository <owner/repo> --channel <stable-or-beta>` reproduces generation
+locally. Its `assets` map uses `windows`, `linux`, `linux-setup`, `macos-arm64`,
+`macos-x64`, `macos-arm64-zip` and `macos-x64-zip`; each entry contains `name`,
+`url`, `size` and `sha256`. The shared Python filename contract lives in
+`cubeon/updater.py`. The Worker resolves the selected release's versioned name
+first, falling back to an exact historical name for older releases.
+The Mac DMG repair workflow refreshes an existing manifest after both images
+are replaced, keeping its checksums aligned with the repaired assets.
 
 Renaming an asset requires corresponding changes to the workflow and
 `worker/cubeon-downloads.js`.

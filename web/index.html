@@ -265,7 +265,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
           "name": "Which file should I download?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS: choose the Apple Silicon or Intel preview DMG. Download only from the official site or repository."
+            "text": "Windows: the setup executable. Linux: the AppImage or shell setup installer. macOS: choose the Apple Silicon or Intel preview DMG. Each downloaded filename includes its version. Download only from the official site or repository."
           }
         },
         {
@@ -365,7 +365,6 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
             <a class="btn big" href="/linuxdownload"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m7.5 9 3 3-3 3M12.5 15h4" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download for Linux</a>
             <p class="meta">v1.4.50 stable &middot; AppImage &middot; Free</p>
             <details class="more"><summary>Other versions</summary><div>
-              <a href="/linuxdeb">Debian and Ubuntu package</a>
               <a href="/linuxsetup">Linux installer</a>
             </div></details>
           </div>
@@ -526,7 +525,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
 
     <h3 class="faq-h">If something goes wrong</h3>
     <div class="faq">
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">Which file should I download?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS: choose the Apple Silicon or Intel preview DMG. Download only from the official site or repository.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Which file should I download?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows: the setup executable. Linux: the AppImage or shell setup installer. macOS: choose the Apple Silicon or Intel preview DMG. Each downloaded filename includes its version. Download only from the official site or repository.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">The game won't start<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Minecraft needs Java. Cubeon uses a Java it finds on your computer when it's new enough, and offers to download a free one for you when it isn't - so usually there's nothing to install. If a launch still fails, install Java free from <a href="https://adoptium.net" target="_blank" rel="noopener" style="color:var(--grass-dark);text-decoration:underline">adoptium.net</a> and try again.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">My computer warns me about the file<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Unsigned independent apps can trigger a Windows SmartScreen or macOS Gatekeeper warning. Check that the file came from this site or the <a href="https://github.com/Shadow-457/Cubeon/releases">official GitHub releases</a>, and read the <a href="help.html">platform help</a> for the warning you see.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">A friend can't get in, or I can't find them<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>A friend's name only exists once they've opened Cubeon at least once, so ask them to run it first. If someone can't join a server, confirm the address with its owner, check that the server is reachable, and match its Minecraft version, required mods and profile requirements.</p></div></div></div>

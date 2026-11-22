@@ -7,11 +7,10 @@
  * one GitHub token as a secret and streams the latest release's installer
  * files straight to anyone, with no GitHub page and no expiry.
  *
- *   GET /windowsdownload  -> streams Cubeon-Windows-x64-Setup.exe
- *   GET /linuxdownload    -> streams Cubeon-x86_64.AppImage
- *   GET /linuxdeb         -> streams the .deb for the current APP_VERSION
- *   GET /linuxsetup       -> streams Cubeon-Linux-x86_64-Setup.sh
- *   GET /linuxinstaller   -> streams Cubeon-Linux-x86_64-Setup.AppImage
+ *   GET /windowsdownload  -> streams the versioned Windows setup
+ *   GET /linuxdownload    -> streams the versioned Linux AppImage
+ *   GET /linuxsetup       -> streams the versioned Linux shell setup
+ *   GET /linuxdeb, /linuxinstaller -> redirects to /linuxsetup
  *   GET /count            -> {"value": N}: how many distinct visitors downloaded
  *   GET /count/hit        -> records this IP (once ever) and returns the total
  *   GET /health           -> plain-text OK, for debugging by hand
@@ -58,20 +57,14 @@ const REPOSITORY = "Shadow-457/Cubeon";
 // Routes -> release asset names. Keep in sync with the ROUTES list in
 // web/assets/site.js (which counts presses) and web/vercel.json.
 //
-// The .deb is the one asset whose name carries the app version
-// (packaging/build_deb.py names it cubeon_<APP_VERSION>_amd64.deb), so it is
-// declared as a PREFIX_MATCH rather than a literal. Pinning the literal here
-// meant the two sides drifted: packaging stopped hardcoding "1.0.0" and began
-// emitting the real version, while this map kept asking GitHub for
-// cubeon_1.0.0_amd64.deb, so /linuxdeb 404'd on every request.
+// Pin filenames to the selected release's version. Keep exact legacy names
+// available while the stable channel still serves an earlier release.
 const FILES = {
-  "/windowsdownload": "Cubeon-Windows-x64-Setup.exe",
-  "/macosarm64download": "Cubeon-macOS-arm64.dmg",
-  "/macosx64download": "Cubeon-macOS-x64.dmg",
-  "/linuxdownload": "Cubeon-x86_64.AppImage",
-  "/linuxdeb": { prefix: "cubeon_", suffix: "_amd64.deb" },
-  "/linuxsetup": "Cubeon-Linux-x86_64-Setup.sh",
-  "/linuxinstaller": "Cubeon-Linux-x86_64-Setup.AppImage",
+  "/windowsdownload": { template: "Cubeon-{version}-Windows-x64-Setup.exe", legacy: "Cubeon-Windows-x64-Setup.exe" },
+  "/macosarm64download": { template: "Cubeon-{version}-macOS-arm64.dmg", legacy: "Cubeon-macOS-arm64.dmg" },
+  "/macosx64download": { template: "Cubeon-{version}-macOS-x64.dmg", legacy: "Cubeon-macOS-x64.dmg" },
+  "/linuxdownload": { template: "Cubeon-{version}-Linux-x86_64.AppImage", legacy: "Cubeon-x86_64.AppImage" },
+  "/linuxsetup": { template: "Cubeon-{version}-Linux-x86_64-Setup.sh", legacy: "Cubeon-Linux-x86_64-Setup.sh" },
 };
 
 // Only these release files are exposed to the launcher. No arbitrary tag or
@@ -79,7 +72,13 @@ const FILES = {
 const UPDATE_FILES = {
   windows: FILES["/windowsdownload"],
   linux: FILES["/linuxdownload"],
-  "linux-deb": FILES["/linuxdeb"],
+  "linux-setup": FILES["/linuxsetup"],
+  "macos-arm64": FILES["/macosarm64download"],
+  "macos-x64": FILES["/macosx64download"],
+  "macos-arm64-zip": { template: "Cubeon-{version}-macOS-arm64.zip", legacy: "Cubeon-macOS-arm64.zip" },
+  "macos-x64-zip": { template: "Cubeon-{version}-macOS-x64.zip", legacy: "Cubeon-macOS-x64.zip" },
+  // Already released Debian launchers may still request this legacy endpoint.
+  "linux-deb": { prefix: "cubeon_", suffix: "_amd64.deb" },
 };
 const UPDATE_ORIGIN = "https://cubeon-downloads.hamza-457-shahbaz.workers.dev";
 const versionParts = (tag) => /^v?\d+\.\d+\.\d+$/.test(tag || "")
@@ -97,9 +96,11 @@ function newestRelease(data, channel) {
   return candidates[0];
 }
 
-function matchingAsset(assets, spec) {
-  return typeof spec === "string" ? assets.find((a) => a.name === spec)
-    : pickLatestPrefixed(assets, spec);
+function matchingAsset(assets, spec, tag) {
+  if (!spec.template) return pickLatestPrefixed(assets, spec);
+  const version = (tag || "").replace(/^v/, "");
+  const name = spec.template.replace("{version}", version);
+  return assets.find((a) => a.name === name) || assets.find((a) => a.name === spec.legacy);
 }
 
 const jsonHeaders = {
@@ -159,7 +160,7 @@ const RELEASE_CACHE_SECONDS = 300;
 
 // A synthetic cache key. This is an internal object, not a client URL, so it
 // must not be able to collide with a real request.
-const RELEASE_CACHE_KEY = "https://cubeon-downloads.internal/release-v3-";
+const RELEASE_CACHE_KEY = "https://cubeon-downloads.internal/release-v4-";
 
 /** The Workers edge cache, or null where there isn't one (Node, tests). */
 function edgeCache() {
@@ -344,7 +345,11 @@ export default {
       return new Response("cubeon-downloads ok");
     }
 
-    const updateRoute = /^\/updates\/(stable|beta)(?:\/([a-z-]+))?$/.exec(url.pathname);
+    if (["/linuxdeb", "/linuxinstaller"].includes(url.pathname) && request.method === "GET") {
+      return Response.redirect(new URL("/linuxsetup", url).href, 302);
+    }
+
+    const updateRoute = /^\/updates\/(stable|beta)(?:\/([a-z0-9-]+))?$/.exec(url.pathname);
     if (updateRoute) {
       const [, channel, kind] = updateRoute;
       if (request.method !== "GET" || (kind && !UPDATE_FILES[kind])) {
@@ -359,7 +364,7 @@ export default {
       if (!kind) {
         const assets = {};
         for (const [id, spec] of Object.entries(UPDATE_FILES)) {
-          const asset = matchingAsset(release.assets, spec);
+          const asset = matchingAsset(release.assets, spec, release.tag_name);
           if (!asset) continue;
           assets[id] = {
             name: asset.name, size: asset.size,
@@ -368,7 +373,8 @@ export default {
             url: `${UPDATE_ORIGIN}/updates/${channel}/${id}?version=${version}`,
           };
         }
-        return Response.json({ tag_name: release.tag_name, prerelease: release.prerelease, assets },
+        return Response.json({ schema_version: 1, version, channel,
+          tag_name: release.tag_name, prerelease: release.prerelease, assets },
           { headers: { "Cache-Control": "no-store" } });
       }
       // A newer release during a download must cause a retry, never send bytes
@@ -376,7 +382,7 @@ export default {
       if (url.searchParams.get("version") !== version) {
         return new Response("release changed; check for updates again", { status: 409 });
       }
-      const asset = matchingAsset(release.assets, UPDATE_FILES[kind]);
+      const asset = matchingAsset(release.assets, UPDATE_FILES[kind], release.tag_name);
       if (!asset) return new Response("asset unavailable", { status: 404 });
       const file = await fetch(asset.url, {
         headers: { ...jsonHeaders, Accept: "application/octet-stream",
@@ -436,9 +442,7 @@ export default {
       return new Response("release unavailable", { status: 502 });
     }
     const assets = release.assets;
-    const asset = typeof spec === "string"
-      ? assets.find((a) => a.name === spec)
-      : pickLatestPrefixed(assets, spec);
+    const asset = matchingAsset(assets, spec, release.tag_name);
     if (!asset) {
       return new Response(`no matching asset for ${url.pathname} in the latest release`, { status: 404 });
     }
