@@ -1727,14 +1727,22 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
                 if storage.game_dir(version_id):
                     from .mods import get_profile_dir
                     storage.reconcile_mod_removals(get_profile_dir(mc_version, loader, version_id), loader)
-            process = subprocess.Popen(
-                _game_spawn_command(command, stage_java),
-                cwd=game_dir,
-                stdin=subprocess.DEVNULL,
-                stdout=(log_fh or subprocess.DEVNULL),
-                stderr=subprocess.STDOUT,
-                **popen_kwargs,
-            )
+            spawn_command = _game_spawn_command(command, stage_java)
+            spawn_options = dict(cwd=game_dir, stdin=subprocess.DEVNULL,
+                                 stdout=(log_fh or subprocess.DEVNULL),
+                                 stderr=subprocess.STDOUT, **popen_kwargs)
+            try:
+                process = subprocess.Popen(spawn_command, **spawn_options)
+            except OSError as error:
+                breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+                if (os.name != "nt" or getattr(error, "winerror", None) != 5
+                        or not (spawn_options.get("creationflags", 0) & breakaway)):
+                    raise
+                # Installer/CI jobs can forbid breakaway. The failed CreateProcess
+                # created no child; retain all other flags and redirected handles.
+                spawn_options["creationflags"] &= ~breakaway
+                logging.getLogger(__name__).debug("Parent job refused game breakaway; retrying detached launch")
+                process = subprocess.Popen(spawn_command, **spawn_options)
             process.session_id = session_id
             _active_logs.add(log_path)
             _prune_game_logs()

@@ -131,6 +131,8 @@ packaged launcher reaches its first desktop frame and stays open for 15 seconds
 through both direct executable and Finder/LaunchServices startup before uploading.
 The smoke check follows the actual Cubeon and native Flet processes; macOS's
 `open -W` helper can exit while the application is still starting or running.
+Cubeon launches the Flet app's native executable directly on macOS so that an
+early LaunchServices helper exit cannot shut down the launcher session.
 
 Bundles are ad-hoc signed. Developer ID signing and Apple notarization need
 separate credentials; these builds may require Gatekeeper approval. Desktop

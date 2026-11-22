@@ -1,4 +1,5 @@
-"""Keep frozen Linux launches on the compatible desktop client we ship."""
+"""Keep packaged desktop clients offline and track their native processes."""
+import plistlib
 import re
 import sys
 from pathlib import Path
@@ -8,6 +9,19 @@ _DISTROS = {
     "ubuntu22.04": (2, 35), "debian12": (2, 36), "ubuntu24.04": (2, 39),
 }
 _ARCHIVE = re.compile(r"^flet-linux-([\w.]+)(-light)?-([\w]+)\.tar\.gz$")
+
+
+def native_client_command(arguments):
+    """Track Flet itself on macOS, rather than LaunchServices' open helper."""
+    if sys.platform != "darwin" or not arguments or arguments[0] != "open":
+        return arguments
+    bundle = Path(arguments[1])
+    info = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
+    executable = bundle / "Contents/MacOS" / info["CFBundleExecutable"]
+    if not executable.is_file():
+        raise FileNotFoundError(f"Flet desktop executable is missing: {executable}")
+    # Flet supplies page URL, PID file, and optional assets after --args.
+    return [str(executable), *arguments[arguments.index("--args") + 1:]]
 
 
 def configure():

@@ -208,6 +208,9 @@ On Windows, the final Java game spawn uses `javaw.exe` beside the verified
 `java.exe` when available. Version probes and dependency checks use console Java;
 arguments, log redirection, exit handling and the missing-javaw fallback are preserved.
 Custom wrappers and native game executables keep their selected command.
+If a Windows job denies breakaway with WinError 5, spawn retries once without
+that flag, retaining the detached process group, hidden window and file logs.
+Other errors propagate; a second failed attempt still fails the launch.
 
 **Client.json repair:** Older Cubeon versions had a sanitizer that deleted argument entries it couldn't parse, corrupting TLauncher-derived installs permanently. `launch.py` has two repair functions:
 - `_sanitize_client_json()` - renames TLauncher's `values` key to `value` (what mll expects)

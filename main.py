@@ -9176,6 +9176,8 @@ if __name__ == "__main__":
         args, flet_env, pid_file = \
             _flet_desktop.__locate_and_unpack_flet_view(
                 page_url, assets_dir, hidden)
+        from cubeon.desktop_runtime import native_client_command
+        args = native_client_command(args)
         flet_env = _incident.client_environment(flet_env)
         # The flet.exe client must not flash its own console either
         # (asyncio passes kwargs to the underlying subprocess on Windows).

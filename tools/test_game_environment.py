@@ -126,7 +126,9 @@ class WindowlessJavaSelectionTests(unittest.TestCase):
             Path(javaw).touch()
             command = [java, '-Xmx2048M', '-cp', 'path with spaces', 'Main', '--username', 'Tester']
             with patch.object(os, 'name', 'nt'):
-                self.assertEqual(launch._game_spawn_command(command), [javaw, *command[1:]])
+                chosen = launch._game_spawn_command(command)
+                self.assertTrue(os.path.samefile(chosen[0], javaw))
+                self.assertEqual(chosen[1:], command[1:])
                 self.assertIs(launch._game_spawn_command(command, stage_java=False), command)
             self.assertEqual(command[0], java)
             with patch.object(os, 'name', 'posix'):
@@ -149,7 +151,40 @@ class WindowlessJavaSelectionTests(unittest.TestCase):
             Path(java).touch()
             Path(javaw).touch()
             with patch.object(os, 'name', 'nt'), patch.object(launch.shutil, 'which', return_value=java):
-                self.assertEqual(launch._game_spawn_command(['java', '-Xmx1024M']), [javaw, '-Xmx1024M'])
+                chosen = launch._game_spawn_command(['java', '-Xmx1024M'])
+                self.assertTrue(os.path.samefile(chosen[0], javaw))
+                self.assertEqual(chosen[1:], ['-Xmx1024M'])
+
+
+class WindowsJobRetryTests(unittest.TestCase):
+    def test_only_denied_breakaway_retries_and_a_second_failure_propagates(self):
+        from types import SimpleNamespace
+        for winerror, attempts in ((5, 2), (2, 1), (None, 1)):
+            first = OSError('spawn denied')
+            first.winerror = winerror
+            second = OSError('retry denied')
+            second.winerror = 5
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(patch.object(os, 'name', 'nt'))
+                for name, value in (('STARTUPINFO', lambda: SimpleNamespace(dwFlags=0)),
+                        ('STARTF_USESHOWWINDOW', 1), ('SW_HIDE', 0),
+                        ('CREATE_BREAKAWAY_FROM_JOB', 0x01000000),
+                        ('CREATE_NEW_PROCESS_GROUP', 0x200), ('DETACHED_PROCESS', 8),
+                        ('CREATE_NO_WINDOW', 0x08000000)):
+                    stack.enter_context(patch.object(launch.subprocess, name, value, create=True))
+                stack.enter_context(patch.object(watchdog, 'stale_session', return_value=None))
+                spawn = stack.enter_context(patch.object(launch.subprocess, 'Popen', side_effect=[first, second]))
+                with self.assertRaises(OSError) as raised:
+                    launch._spawn_game(['native-game.exe', 'two words'], str(TEST_HOME),
+                        'probe', 'Tester', '26.3', 'fabric', stage_java=False)
+                self.assertIs(raised.exception, second if attempts == 2 else first)
+                self.assertEqual(spawn.call_count, attempts)
+                if attempts == 2:
+                    before, after = spawn.call_args_list
+                    self.assertEqual(before.args, after.args)
+                    self.assertEqual(before.kwargs['creationflags'] ^ after.kwargs['creationflags'], 0x01000000)
+                    for key in ('cwd', 'stdin', 'stdout', 'stderr', 'env', 'startupinfo', 'close_fds'):
+                        self.assertEqual(before.kwargs[key], after.kwargs[key])
 
 
 if __name__ == '__main__':
