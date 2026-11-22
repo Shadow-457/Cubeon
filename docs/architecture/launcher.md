@@ -201,7 +201,13 @@ This is what makes per-profile mods work: the game only sees `.minecraft/mods/`,
 1. `build_launch_command()` - constructs the full `java -Xmx... -cp ...` command
 2. `launch_game()` - starts the process, sets up stdout draining, starts the exit watcher
 
-**Key detail:** Minecraft's stdout is a pipe with a ~64KB buffer. If nothing reads it, the game blocks on its next write and hangs forever. So `launch_game()` starts a daemon thread that continuously reads stdout, storing the last 200 lines for crash reporting.
+**Game process:** `_spawn_game()` redirects stdout/stderr to a per-session file
+and tails it for live output and exit reporting. Detached process groups and
+file-backed logs let Minecraft survive launcher shutdown.
+On Windows, the final Java game spawn uses `javaw.exe` beside the verified
+`java.exe` when available. Version probes and dependency checks use console Java;
+arguments, log redirection, exit handling and the missing-javaw fallback are preserved.
+Custom wrappers and native game executables keep their selected command.
 
 **Client.json repair:** Older Cubeon versions had a sanitizer that deleted argument entries it couldn't parse, corrupting TLauncher-derived installs permanently. `launch.py` has two repair functions:
 - `_sanitize_client_json()` - renames TLauncher's `values` key to `value` (what mll expects)

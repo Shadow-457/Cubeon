@@ -118,6 +118,21 @@ def _normalize_java_path(path: str) -> str:
     return path
 
 
+def _game_spawn_command(command, stage_java=True):
+    """Use the selected Windows JVM's windowless sibling only at game spawn."""
+    if os.name != "nt" or not stage_java or not command:
+        return command
+    java = os.fspath(command[0])
+    java = shutil.which(java) or java
+    if os.path.basename(java).lower() != "java.exe":
+        return command
+    # Resolve Java shims/symlinks to keep javaw in the verified installation.
+    sibling = os.path.join(os.path.dirname(os.path.realpath(java)), "javaw.exe")
+    if os.path.isfile(sibling):
+        return [sibling, *command[1:]]
+    return command
+
+
 def _java_home_binaries() -> list[str]:
     """Candidate `java` executables under JAVA_HOME, if it is set to a real dir.
 
@@ -1713,7 +1728,7 @@ def _spawn_game(command, game_dir, version_id, username, mc_version, loader, *,
                     from .mods import get_profile_dir
                     storage.reconcile_mod_removals(get_profile_dir(mc_version, loader, version_id), loader)
             process = subprocess.Popen(
-                command,
+                _game_spawn_command(command, stage_java),
                 cwd=game_dir,
                 stdin=subprocess.DEVNULL,
                 stdout=(log_fh or subprocess.DEVNULL),

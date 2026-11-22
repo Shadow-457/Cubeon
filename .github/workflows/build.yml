@@ -181,13 +181,21 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      - name: Set up Java 21 (javaw native probe)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Run startup-critical tests
+        # Also exercise real javaw argument/log/exit behavior on Windows.
         shell: pwsh
         run: |
           $failed = 0
           $tests = @(
             "tools/test_startup.py",
             "tools/test_winwindow.py",
+            "tools/test_game_environment.py",
             "tools/test_mod_prelaunch_dependencies.py"
           )
           foreach ($t in $tests) {

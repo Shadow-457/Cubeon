@@ -121,6 +121,22 @@ try:
     _good = inc.client_binary({"HOME": _tmp_home})
     check("a complete client reports its size and engine=yes",
           "engine=yes" in _good and "1234 B" in _good, _good)
+    # macOS uses a top-level app bundle with a FlutterMacOS framework.
+    import plistlib
+    _mac = os.path.join(_root, "flet-desktop-light-9.9.9", "Flet.app", "Contents")
+    os.makedirs(os.path.join(_mac, "MacOS"))
+    os.makedirs(os.path.join(_mac, "Frameworks", "FlutterMacOS.framework"))
+    with open(os.path.join(_mac, "Info.plist"), "wb") as _fh:
+        plistlib.dump({"CFBundleExecutable": "flet"}, _fh)
+    with open(os.path.join(_mac, "MacOS", "flet"), "wb") as _fh:
+        _fh.write(b"m" * 2345)
+    os.unlink(os.path.join(_bundle, "flet"))
+    _mac_good = inc.client_binary({"HOME": _tmp_home})
+    check("a complete macOS client reports its binary and framework",
+          "engine=yes" in _mac_good and "2345 B" in _mac_good, _mac_good)
+    os.unlink(os.path.join(_mac, "MacOS", "flet"))
+    check("a partial macOS client still reports a missing binary",
+          "NO flet binary" in inc.client_binary({"HOME": _tmp_home}))
     check("the client dir is named in the record (which version crashed)",
           "9.9.9" in _good, _good)
     check("a non-dict environment cannot raise",

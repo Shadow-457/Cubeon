@@ -129,6 +129,8 @@ Each DMG contains Cubeon.app and an Applications shortcut for drag-and-drop inst
 the bundle and bundled Flet architecture/signatures, and checks that the
 packaged launcher reaches its first desktop frame and stays open for 15 seconds
 through both direct executable and Finder/LaunchServices startup before uploading.
+The smoke check follows the actual Cubeon and native Flet processes; macOS's
+`open -W` helper can exit while the application is still starting or running.
 
 Bundles are ad-hoc signed. Developer ID signing and Apple notarization need
 separate credentials; these builds may require Gatekeeper approval. Desktop

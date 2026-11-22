@@ -407,6 +407,7 @@ class DependencyTests(unittest.TestCase):
         module = ast.Module(body=[gate], type_ignores=[])
         from threading import Lock
         from types import SimpleNamespace
+        from cubeon.launch import _game_spawn_command
         events = []
         def spawn(*args, **kwargs):
             events.append("spawn")
@@ -416,6 +417,7 @@ class DependencyTests(unittest.TestCase):
                      configured_java="configured-java", java_major_version=lambda executable:21,
                      popen_kwargs={}, session_id="test", username="test", stage_java=True, _active_logs=set(),
                      _prune_game_logs=lambda: None, subprocess=SimpleNamespace(Popen=spawn, DEVNULL=-1, STDOUT=-2),
+                     _game_spawn_command=_game_spawn_command,
                      watchdog=SimpleNamespace(register=lambda *a, **kw:None, stale_session=lambda:None),
                      sync_mods_to_game=lambda *a:events.append("sync"), __name__="cubeon.launch", __package__="cubeon")
         from cubeon import content, content_checks

@@ -16,6 +16,51 @@ metadata = runpy.run_path(str(ROOT / "cubeon/updater.py"))
 APP_VERSION, release_asset_name = metadata["APP_VERSION"], metadata["release_asset_name"]
 
 
+def smoke_processes(psutil, binary, before):
+    """Find native processes, excluding LaunchServices' short-lived open helper."""
+    launcher, clients = [], []
+    binary = binary.resolve()
+    client_root = (Path.home() / ".flet/client").resolve()
+    for process in psutil.process_iter(["pid", "exe", "cmdline", "status"]):
+        if process.pid in before or process.info["status"] == psutil.STATUS_ZOMBIE:
+            continue
+        try:
+            command = process.info["cmdline"] or []
+            executable = process.info["exe"] or (command[0] if command else "")
+            if not executable:
+                continue
+            path = Path(executable).resolve()
+            if path == binary:
+                launcher.append(process)
+            elif path.is_relative_to(client_root) and path.parent.name == "MacOS":
+                info = plistlib.loads((path.parent.parent / "Info.plist").read_bytes())
+                if path.name == info["CFBundleExecutable"]:
+                    clients.append(process)
+        except (psutil.Error, OSError, ValueError, KeyError):
+            continue
+    return launcher, clients
+
+
+def wait_for_smoke(marker, discover, alive, diagnostics, route, *,
+                   startup_timeout=120, hold_seconds=15):
+    deadline = time.monotonic() + startup_timeout
+    while time.monotonic() < deadline:
+        launcher, clients = discover()
+        if marker.exists() and launcher and clients:
+            break
+        time.sleep(0.25)
+    else:
+        raise AssertionError(f"{route} did not reach first paint with live Cubeon/Flet processes: {diagnostics()}")
+    # Monitor the exact first-painted processes, so a crash/restart cannot pass.
+    deadline = time.monotonic() + hold_seconds
+    while True:
+        assert all(alive(process) for process in launcher + clients), (
+            f"{route} Cubeon or Flet exited after first paint: {diagnostics()}")
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.25)
+
+
 def dmg(arch, version=None):
     assert sys.platform == "darwin", "DMG checks require macOS"
     image = ROOT / "dist" / release_asset_name(f"macos-{arch}", version)
@@ -85,34 +130,76 @@ def native(arch):
                 process = subprocess.Popen(arguments, cwd=directory, env=env,
                                            stdout=log, stderr=subprocess.STDOUT)
                 try:
-                    deadline = time.monotonic() + 120
-                    while time.monotonic() < deadline and not marker.exists():
-                        if process.poll() is not None:
-                            break
-                        time.sleep(0.25)
-                    assert marker.exists(), f"{route} did not reach first paint: {diagnostics()}"
-                    deadline = time.monotonic() + 15
-                    while time.monotonic() < deadline:
-                        assert process.poll() is None, f"{route} exited after first paint: {diagnostics()}"
-                        time.sleep(0.25)
+                    def alive(child):
+                        try:
+                            return child.is_running() and child.status() != psutil.STATUS_ZOMBIE
+                        except psutil.Error:
+                            return False
+                    wait_for_smoke(marker, lambda: smoke_processes(psutil, binary, before),
+                                   alive, diagnostics, route)
                     print(f"macOS {arch}: {route} launch reached first paint and stayed open for 15 seconds")
                 finally:
                     # Both the launcher and Flet can detach through LaunchServices.
-                    for child in psutil.process_iter(["pid", "name", "cmdline"]):
-                        if child.pid in before:
-                            continue
-                        command = " ".join(child.info["cmdline"] or [])
-                        if (child.pid == process.pid or str(binary) in command
-                                or ("flet" in (child.info["name"] or "").lower() and ".flet/client/" in command)):
-                            try:
-                                child.terminate()
-                            except psutil.Error:
-                                pass
+                    launcher, clients = smoke_processes(psutil, binary, before)
+                    for child in launcher + clients:
+                        try:
+                            child.terminate()
+                        except psutil.Error:
+                            pass
+                    _, live = psutil.wait_procs(launcher + clients, timeout=10)
+                    for child in live:
+                        try:
+                            child.kill()
+                        except psutil.Error:
+                            pass
+                    # Reap the direct process/helper as well before the next route.
+                    if process.poll() is None:
+                        process.terminate()
                     try:
                         process.wait(timeout=10)
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
+
+
+def smoke_regressions():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import psutil
+    with tempfile.TemporaryDirectory(prefix="cubeon-smoke-regression-") as directory:
+        home = Path(directory)
+        binary = home / "Cubeon.app/Contents/MacOS/Cubeon"
+        client = home / ".flet/client/flet-desktop-full-0.86.5/Flet.app/Contents/MacOS/flet"
+        client.parent.mkdir(parents=True)
+        (client.parent.parent / "Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "flet"}))
+        def process(pid, executable, command=None, status="running"):
+            return SimpleNamespace(pid=pid, info=dict(exe=str(executable), cmdline=command or [], status=status))
+        launcher, flet = process(10, binary), process(11, client)
+        helper = process(12, "/usr/bin/open", ["open", "-n", "-W", str(binary.parent.parent.parent)])
+        old = process(9, binary)
+        zombie = process(13, binary, status=psutil.STATUS_ZOMBIE)
+        with patch.object(Path, "home", return_value=home), patch.object(psutil, "process_iter", return_value=[old, helper, launcher, flet, zombie]):
+            assert smoke_processes(psutil, binary, {9}) == ([launcher], [flet])
+        marker = home / "painted"
+        marker.touch()
+        # An exited open helper is irrelevant once the actual apps are alive.
+        wait_for_smoke(marker, lambda: ([launcher], [flet]), lambda p: True,
+                       lambda: "diagnostics", "Finder", hold_seconds=0)
+        for dead in (launcher, flet):
+            try:
+                wait_for_smoke(marker, lambda: ([launcher], [flet]), lambda p: p is not dead,
+                               lambda: "diagnostics", "Finder", hold_seconds=0)
+            except AssertionError as error:
+                assert "exited after first paint" in str(error)
+            else:
+                raise AssertionError("An exited native process passed the smoke check")
+        try:
+            wait_for_smoke(marker, lambda: ([], []), lambda p: True,
+                           lambda: "diagnostics", "Finder", startup_timeout=0)
+        except AssertionError as error:
+            assert "did not reach first paint" in str(error)
+        else:
+            raise AssertionError("A stale paint marker passed without native processes")
 
 
 if __name__ == "__main__":
@@ -130,6 +217,7 @@ if __name__ == "__main__":
         assert args.arch
         dmg(args.arch, args.version)
     else:
+        smoke_regressions()
         script = (ROOT / "packaging/build_macos.sh").read_text()
         assert '--target-arch "$TARGET_ARCH"' in script
         assert '--keepParent dist/Cubeon.app' in script

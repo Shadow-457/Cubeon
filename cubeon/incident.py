@@ -33,6 +33,8 @@ Every public function is total - a crash path must not be able to raise.
 import logging
 from contextlib import contextmanager
 import os
+from pathlib import Path
+import plistlib
 import signal
 import sys
 
@@ -210,17 +212,32 @@ def client_binary(env=None) -> str:
         bundle = os.path.join(root, pick, "flet")
         stub = os.path.join(bundle, "flet")
         stub_exe = os.path.join(bundle, "flet.exe")
-        if not (os.path.exists(stub) or os.path.exists(stub_exe)):
+        executable = stub if os.path.isfile(stub) else stub_exe
+        engine_directory = os.path.join(bundle, "lib")
+        # macOS caches a .app instead of the Linux/Windows flet/ directory.
+        if not os.path.isfile(executable):
+            for app in sorted(Path(root, pick).glob("*.app")):
+                try:
+                    contents = app / "Contents"
+                    info = plistlib.loads((contents / "Info.plist").read_bytes())
+                    candidate = contents / "MacOS" / info["CFBundleExecutable"]
+                    if candidate.is_file():
+                        executable = str(candidate)
+                        engine_directory = str(contents / "Frameworks")
+                        break
+                except (OSError, ValueError, KeyError):
+                    continue
+        if not os.path.isfile(executable):
             return f"client_bin=<{pick}: NO flet binary>"
         try:
-            size = os.path.getsize(stub if os.path.exists(stub) else stub_exe)
+            size = os.path.getsize(executable)
         except OSError:
             size = -1
         engine = False
         try:
-            for name in os.listdir(os.path.join(bundle, "lib")):
+            for name in os.listdir(engine_directory):
                 low = name.lower()
-                if low.startswith("libflutter") or low.startswith("flutter_"):
+                if low.startswith(("libflutter", "flutter_", "fluttermacos.")):
                     engine = True
                     break
         except OSError:
