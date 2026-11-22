@@ -31,20 +31,20 @@ class Choice:
         return str(self.meta.get("id") or "@" + self.item["filename"]).lower()
 
 
-def _providers(selected, runtime):
+def _providers(selected, runtime, loader=None):
     providers = dict(runtime)
     owners = {}
     for key, choice in selected.items():
         for identity, version in choice.provided.items():
             if identity in mods.DOCTOR_RUNTIME_IDS:
                 continue
-            if providers.get(identity) is None or mods._cmp_versions(version, providers[identity]) > 0:
+            if providers.get(identity) is None or mods._cmp_versions(version, providers[identity], loader=loader) > 0:
                 providers[identity] = version
                 owners[identity] = key
     return providers, owners
 
 
-def _descriptors(choice, providers):
+def _descriptors(choice, providers, loader=None):
     descriptors = choice.meta.get("_descriptors") or [choice.meta]
     for descriptor in descriptors:
         if descriptor.get("environment") == "server":
@@ -53,7 +53,7 @@ def _descriptors(choice, providers):
         # Fabric selects the highest bundled provider; a superseded nested
         # module's constraints do not belong to the active graph.
         if identity != choice.key and providers.get(identity) is not None \
-                and mods._cmp_versions(providers[identity], descriptor.get("version") or "") > 0:
+                and mods._cmp_versions(providers[identity], descriptor.get("version") or "", loader=loader) > 0:
             continue
         yield descriptor
 
@@ -69,7 +69,7 @@ def _disable_option(choice):
 
 
 def issues(selected, runtime, mc_version, loader, *, include_disable_options=False):
-    providers, owners = _providers(selected, runtime)
+    providers, owners = _providers(selected, runtime, loader)
     problems = []
     for key, choice in selected.items():
         name = choice.meta.get("name") or choice.item.get("display_name") or choice.item["filename"]
@@ -86,13 +86,13 @@ def issues(selected, runtime, mc_version, loader, *, include_disable_options=Fal
             if malformed:
                 problems.append(dict(kind="unreadable", owner=key, dependency=key, mod=name,
                                      detail=f"{name}: the mod descriptor or JAR is unreadable"))
-        for descriptor in _descriptors(choice, providers):
+        for descriptor in _descriptors(choice, providers, loader):
             for identity, predicate in (descriptor.get("depends") or {}).items():
                 identity = str(identity).lower()
                 actual = providers.get(identity)
                 if identity in runtime and actual is None:
                     continue  # Runtime is installed but its version is unknown.
-                if actual is None or not mods.version_satisfies(actual, predicate):
+                if actual is None or not mods.version_satisfies(actual, predicate, loader=loader):
                     # The root's Minecraft requirement was already described above.
                     if reason and str(descriptor.get("id") or "").lower() == key and identity == "minecraft":
                         continue
@@ -103,7 +103,7 @@ def issues(selected, runtime, mc_version, loader, *, include_disable_options=Fal
             for identity, predicate in (descriptor.get("breaks") or {}).items():
                 identity = str(identity).lower()
                 actual = providers.get(identity)
-                if actual is not None and mods.version_satisfies(actual, predicate):
+                if actual is not None and mods.version_satisfies(actual, predicate, loader=loader):
                     other = selected.get(owners.get(identity))
                     other_name = (other.meta.get("name") or other.item.get("display_name")) if other else identity
                     problems.append(dict(kind="conflict", owner=key, dependency=identity, mod=name,
@@ -145,7 +145,7 @@ class Resolver:
             enabled = [choice for choice in group if choice.item.get("enabled")]
             if enabled:
                 enabled.sort(key=cmp_to_key(lambda a, b: mods._cmp_versions(
-                    b.meta.get("version") or "", a.meta.get("version") or "")))
+                    b.meta.get("version") or "", a.meta.get("version") or "", loader=self.loader)))
                 enabled.sort(key=lambda c: (not c.item.get("protected"),
                                            bool(mods._doctor_local_incompatibility(c.meta, self.mc, self.loader))))
                 self.initial[key] = enabled[0]
@@ -232,8 +232,8 @@ class Resolver:
             self.status(f"Finding a compatible build of {project}…")
         predicates = None
         if project == key and problem["kind"] == "required" and key == problem["dependency"]:
-            providers, _ = _providers(selected, self.runtime)
-            predicates = [predicate for choice in selected.values() for desc in _descriptors(choice, providers)
+            providers, _ = _providers(selected, self.runtime, self.loader)
+            predicates = [predicate for choice in selected.values() for desc in _descriptors(choice, providers, self.loader)
                           for identity, predicate in (desc.get("depends") or {}).items() if identity.lower() == key]
         query = ("latest", project, json.dumps(predicates, sort_keys=True))
         latest = self._network(query, lambda timeout: mods.get_mod_download(
@@ -273,14 +273,14 @@ class Resolver:
         if depth and time.monotonic() >= self.deadline:
             return None
         problem = problems[0]
-        _, providers = _providers(selected, self.runtime)
+        _, providers = _providers(selected, self.runtime, self.loader)
         dependency = problem["dependency"]
         keys = [providers.get(dependency, dependency), problem["owner"]]
         # If several owners demand incompatible versions, their own compatible
         # releases can change those constraints as part of the same solution.
         if problem["kind"] == "required":
             for owner, choice in selected.items():
-                if any(dependency in (desc.get("depends") or {}) for desc in _descriptors(choice, {})):
+                if any(dependency in (desc.get("depends") or {}) for desc in _descriptors(choice, {}, self.loader)):
                     keys.append(owner)
         for key in dict.fromkeys(keys):
             try:

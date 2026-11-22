@@ -29,6 +29,20 @@ class ResolverTests(unittest.TestCase):
         path.write_bytes(jar(identity, version, **kwargs))
         return path
 
+    def forge_blob(self, identity, version, depends=None, *, loader="forge", extra="", manifest="", nested=None):
+        body = f'modLoader="javafml"\nloaderVersion="[1,)"\n[[mods]]\nmodId="{identity}"\nversion="{version}"\n'
+        for dependency, predicate in (depends or {}).items():
+            body += f'[[dependencies.{identity}]]\nmodId="{dependency}"\nmandatory=true\ntype="required"\nversionRange="{predicate}"\nside="BOTH"\n'
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            descriptor = "META-INF/neoforge.mods.toml" if loader == "neoforge" else "META-INF/mods.toml"
+            archive.writestr(descriptor, body + extra)
+            if manifest:
+                archive.writestr("META-INF/MANIFEST.MF", manifest)
+            for name, blob in (nested or {}).items():
+                archive.writestr("META-INF/jarjar/" + name + ".jar", blob)
+        return output.getvalue()
+
     def remote_mod(self, identity, version, *, project=None, latest=True, filename=None, **kwargs):
         project = project or identity
         blob = jar(identity, version, **kwargs)
@@ -280,6 +294,141 @@ class ResolverTests(unittest.TestCase):
         self.assertTrue(mods.version_satisfies('1.20-2.13.82', '[1.20-2.11.33,)'))
         self.assertFalse(mods.version_satisfies('2.4-Fix', '>=2.4'))
         self.assertFalse(mods.version_satisfies('2.4-rc.1', '^2.4'))
+
+    def test_screenshot_forge_graph_is_clean_without_downloads_or_replacements(self):
+        for loader in ("forge", "neoforge"):
+            with self.subTest(loader=loader):
+                for path in self.profile.glob("*.jar*"):
+                    path.unlink()
+                # Same rules and versions as the reported ATM9 No Frills pack.
+                specifications = [
+                    ("cataclysm", "2", {"lionfishapi": "[2.4,)"}),
+                    ("lionfishapi", "2.4-Fix", {}),
+                    ("amendments", "1", {"moonlight": "1.20-2.11.33"}),
+                    ("moonlight", "1.20-2.13.82", {}),
+                    ("ars_creo", "1", {"create": "[0.5.1,)"}),
+                    ("ponderjs", "1", {"create": "[0.5.1,)"}),
+                ]
+                for identity, version, depends in specifications:
+                    self.profile.joinpath(identity + ".jar").write_bytes(
+                        self.forge_blob(identity, version, depends, loader=loader))
+                self.profile.joinpath("create.jar").write_bytes(self.forge_blob(
+                    "create", "${file.jarVersion}", {"flywheel": "[0.6.11,0.6.12)"}, loader=loader,
+                    manifest="Manifest-Version: 1.0\r\nImplementation-Version: 0.5.1.j\r\n\r\n",
+                    nested={"flywheel": self.forge_blob("flywheel", "0.6.11-13", loader=loader)}))
+                # IE's signed manifest is 1,204,740 bytes; only its main header
+                # is metadata. Ars's unscoped array is ignored by Forge itself.
+                self.profile.joinpath("immersiveengineering.jar").write_bytes(self.forge_blob(
+                    "immersiveengineering", "1.20.1-10.2.0-183", {"minecraft": "[1.20.1]"}, loader=loader,
+                    manifest="Manifest-Version: 1.0\r\n\r\n" + "Name: asset\r\nSHA-256-Digest: fixture\r\n\r\n" * 40000))
+                self.profile.joinpath("arseng.jar").write_bytes(self.forge_blob(
+                    "arseng", "1.2.0", loader=loader,
+                    extra='[[dependencies]]\nmodId="ae2"\nmandatory=true\nversionRange="[15,)"\n'))
+                before = mods._doctor_profile_snapshot(str(self.profile))
+                with patch.object(mods, "get_mod_download", side_effect=AssertionError("network")), \
+                        patch.object(net, "download_to", side_effect=AssertionError("download")):
+                    for auto_fix in (False, True):
+                        report = deps.run_dependency_doctor("1.20.1", loader, version_id=self.instance,
+                                                            auto_fix=auto_fix, check_online=False)
+                        self.assertEqual(report["unfixed"], [], report)
+                        self.assertEqual(report["fixed"], [])
+                self.assertEqual(before, mods._doctor_profile_snapshot(str(self.profile)))
+                self.assertEqual(report["checked"], 9)
+
+    def test_forge_recommendations_still_require_presence_and_exact_pins_remain_strict(self):
+        for loader in ("forge", "neoforge"):
+            with self.subTest(loader=loader):
+                for path in self.profile.glob("*.jar*"):
+                    path.unlink()
+                requester = self.profile / "requester.jar"
+                requester.write_bytes(self.forge_blob("requester", "1", {"library": "2.11"}, loader=loader))
+                report = deps.run_dependency_doctor(self.mc, loader, version_id=self.instance,
+                                                    auto_fix=False, check_online=False)
+                self.assertEqual(report["unfixed"][0]["dependency"], "library")
+                self.assertTrue(report["unfixed"][0]["missing"])
+                self.profile.joinpath("library.jar").write_bytes(self.forge_blob("library", "2.13", loader=loader))
+                report = deps.run_dependency_doctor(self.mc, loader, version_id=self.instance,
+                                                    auto_fix=False, check_online=False)
+                self.assertEqual(report["unfixed"], [])
+                for predicate in ("[2.11]", "[2.0,2.12)"):
+                    requester.write_bytes(self.forge_blob("requester", "1", {"library": predicate}, loader=loader))
+                    report = deps.run_dependency_doctor(self.mc, loader, version_id=self.instance,
+                                                        auto_fix=False, check_online=False)
+                    self.assertEqual(report["unfixed"][0]["kind"], "required")
+                self.assertFalse(mods.version_satisfies("2.13", "2.11", loader="fabric"))
+
+    def test_manifest_uses_only_bounded_main_attributes_and_unfolds_versions(self):
+        path = self.profile / "manifest.jar"
+        path.write_bytes(self.forge_blob("manifest", "${file.jarVersion}",
+            manifest="Manifest-Version: 1.0\r\nImplementation-Version: 0.5.\r\n 1.j\r\n\r\n"
+                     "Name: example.class\r\nImplementation-Version: 999\r\n\r\n"))
+        self.assertEqual(mods.read_mod_metadata(str(path), "forge")["version"], "0.5.1.j")
+        path.write_bytes(self.forge_blob("manifest", "${file.jarVersion}",
+            manifest="Manifest-Version: 1.0\n\nName: example.class\nImplementation-Version: 999\n\n"))
+        self.assertEqual(mods.read_mod_metadata(str(path), "forge")["version"], "")
+        path.write_bytes(self.forge_blob("manifest", "1",
+            manifest="Manifest-Version: 1.0\nOversized: " + "x" * 65536 + "\n\n"))
+        report = deps.run_dependency_doctor(self.mc, "forge", version_id=self.instance,
+                                            auto_fix=False, check_online=False)
+        self.assertEqual(report["unfixed"][0]["kind"], "unreadable")
+
+    def test_scoped_secondary_forge_requirements_survive_unscoped_array_fix(self):
+        path = self.profile / "multiple.jar"
+        path.write_bytes(self.forge_blob("primary", "1", {"required_primary": "[2,)"}, extra=
+            '[[mods]]\nmodId="secondary"\nversion="1"\n'
+            '[[dependencies.secondary]]\nmodId="required_secondary"\nmandatory=true\nversionRange="[3,)"\n'
+            '[[dependencies.secondary]]\nmodId="server_only"\nmandatory=true\nside="SERVER"\n'
+            '[[dependencies.secondary]]\nmodId="optional"\nmandatory=false\n'))
+        report = deps.run_dependency_doctor(self.mc, "forge", version_id=self.instance,
+                                            auto_fix=False, check_online=False)
+        self.assertEqual({p["dependency"] for p in report["unfixed"]}, {"required_primary", "required_secondary"})
+
+    def test_forge_provider_selection_keeps_maven_fixed_build_order(self):
+        self.profile.joinpath("umbrella.jar").write_bytes(self.forge_blob("umbrella", "1", nested={
+            "release": self.forge_blob("library", "2.4"),
+            "fixed": self.forge_blob("library", "2.4-Fix")}))
+        metadata, provided = mods._doctor_metadata(str(self.profile / "umbrella.jar"), "forge")
+        self.assertEqual(provided["library"], "2.4-Fix")
+
+    def test_forge_resolve_chooses_pinned_older_jar_over_latest(self):
+        for loader in ("forge", "neoforge"):
+            with self.subTest(loader=loader):
+                for path in self.profile.glob("*.jar*"):
+                    path.unlink()
+                self.profile.joinpath("requester.jar").write_bytes(
+                    self.forge_blob("requester", "1", {"create": "[0.5.1]"}, loader=loader))
+                original = self.forge_blob("create", "0.6", loader=loader)
+                self.profile.joinpath("create-0.6.jar").write_bytes(original)
+                releases = []
+                for version in ("0.6", "0.5.1"):
+                    blob = self.forge_blob("create", version, loader=loader)
+                    candidate = dict(filename=f"create-{version}.jar", version_number=version,
+                        url=f"https://cdn.modrinth.com/data/create/{loader}/{version}.jar",
+                        hashes={"sha512": hashlib.sha512(blob).hexdigest()}, compatible=True)
+                    self.remote[loader + version] = candidate, blob
+                    releases.append(candidate)
+                with patch.object(mods, "get_mod_download", return_value=releases[0]), \
+                        patch.object(mods, "get_mod_versions", side_effect=lambda project, **kw: releases if project == "create" else []), \
+                        patch.object(net, "download_to", side_effect=self.download):
+                    report = deps.run_dependency_doctor(self.mc, loader, version_id=self.instance)
+                self.assertEqual(report["unfixed"], [], report)
+                self.assertTrue(self.profile.joinpath("create-0.5.1.jar").exists())
+                self.assertEqual(self.profile.joinpath("create-0.6.jar.disabled").read_bytes(), original)
+
+    def test_forge_lookup_drops_cached_false_rejection_of_recommended_version(self):
+        from cubeon import local_cache
+        project = "forge-recommendation-cache-probe"
+        predicates = ["1.20-2.11.33"]
+        old_key = dict(project=project, mc_version="1.20.1", loader="forge", revision=4,
+                       file_id=None, predicates=predicates)
+        local_cache.set("mod_download", old_key, {"file": None})
+        releases = [dict(id="newer", version_number="1.20-2.13.82", game_versions=["1.20.1"],
+                        loaders=["forge"], files=[dict(filename="moonlight.jar",
+                        url="https://cdn.modrinth.com/moonlight.jar")])]
+        with patch.object(net, "get_json", return_value=releases) as lookup:
+            selected = mods.get_mod_download(project, "1.20.1", "forge", version_predicates=predicates)
+        lookup.assert_called_once()
+        self.assertEqual(selected["version_number"], "1.20-2.13.82")
 
     def test_universal_forge_bootstrap_ignores_fabric_entrypoint_requirements(self):
         path = self.profile / "universal.jar"

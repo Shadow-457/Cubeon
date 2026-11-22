@@ -92,6 +92,29 @@ def main():
           deps_for("sodium-1.5.0.jar.disabled") == ["old-dep"],
           str(deps_for("sodium-1.5.0.jar.disabled")))
 
+    # A provider's explicit release ID wins over the newest dependency build.
+    pinned = dict(id="library-old", project_id="library", version_number="1.0",
+                  game_versions=["1.20.1"], loaders=["fabric"],
+                  files=[dict(filename="library-1.jar", url="https://cdn.modrinth.com/library-1.jar")],
+                  dependencies=[])
+    root = dict(id="root-old", project_id="root", files=[dict(filename="root-1.jar")],
+                dependencies=[dict(project_id="library", version_id="library-old", dependency_type="required")])
+    def pinned_json(url, **kwargs):
+        return pinned if url.endswith("/version/library-old") else [root]
+    with patch.object(mods.net, "get_json", pinned_json), \
+            patch.object(mods, "get_mod_download", side_effect=AssertionError("A pin must not request latest")):
+        selected = mods.required_dependencies("root", "1.20.1", "fabric", filename="root-1.jar")
+        check("a dependency release pin selects the exact older file",
+              len(selected) == 1 and selected[0]["filename"] == "library-1.jar"
+              and selected[0]["pinned"] and selected[0]["modrinth_version_id"] == "library-old")
+        pinned["game_versions"] = ["1.21.1"]
+        try:
+            mods.required_dependencies("root", "1.20.1", "fabric", filename="root-1.jar")
+        except ValueError as error:
+            check("an incompatible pin fails instead of substituting latest", "no compatible file" in str(error))
+        else:
+            check("an incompatible pin fails instead of substituting latest", False)
+
     # --- the install path forwards the jar it is installing ---------------
     seen = {}
 

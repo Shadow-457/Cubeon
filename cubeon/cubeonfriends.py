@@ -308,15 +308,29 @@ def remove_installed(profile_dir: str | None, *, strict=False) -> None:
                 os.remove(path)
 
 def ensure_installed(mc_version: str | None, loader: str | None,
-                     profile_dir: str | None = None) -> bool:
+                     profile_dir: str | None = None, *, automatic: bool = False,
+                     version_id: str | None = None) -> bool:
 
 
     """Drops the right mod jar into the active (mc_version, loader) profile.
 
     Fabric and Quilt use the bracketed Fabric build. Forge 1.8.9 uses the
     exact Java 8/SRG legacy build; other Forge/NeoForge versions are unsupported.
+    Automatic pack preparation uses an existing enabled copy without replacing
+    it. Explicit installs from Mods retain the normal installation behavior.
     """
     if not profile_dir:
+        return False
+    from .mods import is_modpack_profile, read_mod_metadata
+    if automatic and is_modpack_profile(mc_version, loader, version_id, profile_dir=profile_dir):
+        # The browse Install action remains explicit; automatic preparation
+        # uses an existing pack copy without changing its pinned bytes/state.
+        for name in os.listdir(profile_dir) if os.path.isdir(profile_dir) else ():
+            if name.endswith(".jar"):
+                metadata = read_mod_metadata(os.path.join(profile_dir, name), loader) or {}
+                identity = str(metadata.get("id") or "").lower().replace("-", "").replace("_", "")
+                if identity in ("cubeonclient", "cubeonfriends"):
+                    return True
         return False
     from . import storage
     storage.assert_writable()
@@ -359,8 +373,9 @@ def ensure_installed(mc_version: str | None, loader: str | None,
 # the HUD cannot load. The mod declares it under "recommends" so that a profile
 # that ends up without it still gets the Cubeon button and only loses the HUD,
 # but "ends up without it" should not be the normal case. So the launcher
-# installs it the same way it installs its own jar, and the same way it installs
-# CustomSkinLoader: through the mod store, from Modrinth, best-effort.
+# installs it in ordinary profiles through the mod store, from Modrinth,
+# best-effort. Modpacks keep their selected API; a missing API is an explicit
+# Mods install so automatic setup cannot change the author's library graph.
 FABRIC_API_SLUG = "fabric-api"
 
 
@@ -399,13 +414,17 @@ def ensure_fabric_api(mc_version: str | None, loader: str | None,
 
     Runs from the launch path, so it reports rather than raises: a dead network
     or a Modrinth outage must cost the player the HUD, never the launch. Returns
-    a short human-readable detail string.
+    a short human-readable detail string. Packs never download a missing API
+    automatically; an explicit Client install may also need API from Mods.
     """
     if not mc_version or loader not in ("fabric", "quilt"):
         return ""
 
     if fabric_api_installed(mc_version, loader, version_id):
         return "Fabric API already installed"
+    from .mods import is_modpack_profile
+    if is_modpack_profile(mc_version, loader, version_id):
+        return "Fabric API is not included in this modpack; install it in Mods if needed"
 
     try:
         from .mods import (LAUNCH_LOOKUP_ATTEMPTS, LAUNCH_LOOKUP_TIMEOUT,

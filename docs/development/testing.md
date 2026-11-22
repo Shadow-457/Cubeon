@@ -25,6 +25,12 @@ It does **not** run every regression script.
 The registered suite list is `SUITES` in `tools/test_mega_smoke.py`.
 Additional test scripts exist outside that list.
 
+Reproduce source-launch failures in a fresh launcher process after edits.
+Python keeps imported modules in memory; a later import can otherwise combine
+new callers with an older function signature. The source runtime guard may
+select `.venv` or `.venv-build`; also run the affected suites with the
+interpreter printed at startup when it differs from the release Python.
+
 ## Focused checks
 
 Start with the area your change affects. These are examples, not a complete
@@ -39,6 +45,7 @@ catalog; the scripts in `tools/` are the current inventory.
 | Artwork and avatars | `test_mod_ui_stability.py`, `test_chat_avatar_stability.py`, `test_faces.py` |
 | Cosmetics | `test_appearance_preview.py`, `test_cosmetic_preview.py`, `test_cosmetic_packages.py`, `test_capes.py`, `test_skins_net.py`, `test_cosmetics_store.py`; installed-game probe: `test_cosmetic_store_native.py` |
 | Mods and packs | `test_modpacks.py`, `test_mod_store.py`, `test_loader_content_rules.py`, `test_perf_mod_removal.py` |
+| Automatic modpack preservation | `test_modpack_integrity.py`, `test_perf_loader_support.py`, `test_game_feature_switches.py`, `test_modpack_client_mods_errors.py` |
 | Mod compatibility and launch override | `test_content_checks.py`, `test_mod_prelaunch_dependencies.py`, `test_mod_resolver.py`, `test_launch_claim.py`, `test_play_backend_audit.py` |
 | Combined mod catalogue | `test_mod_catalogue.py`, `test_mod_search.py`, `test_mod_detail.py`, `test_content_install_feedback.py`, `test_mods_management_ui.py` |
 | Horizon content mods for Rust | `test_rust_mods.py`; `test_rust_engine_native.py --content-mod /path/to/adapted.hmod` with a matching installed binary/resources |
@@ -62,7 +69,23 @@ new runtime issues, expired approvals and another instance must fail that
 match. Forge/NeoForge bracket ranges use `cubeon/maven_versions.py`, following
 Apache Maven 3.8.8 `ComparableVersion`; Fabric operator predicates retain
 their semantic prerelease rules. Include a real descriptor fixture for fixed
-build suffixes such as LionfishAPI `2.4-Fix`, plus exact/upper-bound failures.
+build suffixes such as LionfishAPI `2.4-Fix`, Create `0.5.1.j` and Flywheel
+`0.6.11-13`, plus exact/upper-bound failures. Forge bare versions are Maven
+recommendations; required dependencies must still be present. Metadata fixtures
+cover signed manifests larger than 1 MiB while limiting the main section to
+64 KiB, unfolded main-section versions, ignored per-entry attributes and
+Ars Énergistique 1.2.0's unscoped `[[dependencies]]` array (ignored by Forge's
+NightConfig lookup). Preserve scoped primary/secondary requirements. Pin tests
+must prove an older release is selected and incompatible pins fail instead of
+falling back to latest.
+
+Pack preservation fixtures install author-selected JARs on Fabric, Quilt,
+Forge and NeoForge, then repeat automatic preparation and the actual launch
+FPS block. Assert unchanged JAR bytes/state and no extra downloads or automatic
+dependency repair, even with legacy provider receipts. Cover missing, relocated,
+corrupt and hidden pack markers; an instance's pack ownership is sufficient.
+Explicit Mods installs still work. Skin opt-in restores Cubeon's setting backups
+while respecting manually disabled copies and the independent Client switch.
 
 For example:
 

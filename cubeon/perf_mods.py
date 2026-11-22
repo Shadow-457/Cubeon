@@ -26,7 +26,7 @@ from .atomicio import write_json
 from .mod_loaders import MOD_CAPABLE_LOADERS
 from .mods import (LAUNCH_LOOKUP_ATTEMPTS, LAUNCH_LOOKUP_TIMEOUT, delete_mod,
                    download_mod, get_mod_download, list_mods, name_stem,
-                   read_mod_metadata, resolve_profile_dir, toggle_mod)
+                   read_mod_metadata, resolve_profile_dir, toggle_mod, is_modpack_profile)
 
 # (Modrinth slug, Modrinth project id, display label), in install order.
 # Sodium first (biggest win, the one players recognise), then the companions.
@@ -141,7 +141,7 @@ def retire_legacy_more_culling(mc_version: str | None, loader: str | None,
     if not mc_version or loader not in ("fabric", "quilt"):
         return []
     profile = resolve_profile_dir(mc_version, loader, version_id)
-    if not os.path.isdir(profile) or os.path.lexists(os.path.join(profile, "_modpack.json")):
+    if not os.path.isdir(profile) or is_modpack_profile(mc_version, loader, version_id, profile_dir=profile):
         return []
     marker = metadata_path(profile, MORE_CULLING_MIGRATION)
     with _REMOVAL_LOCK:
@@ -516,6 +516,8 @@ def prune_retired_perf_mods(mc_version: str | None, loader: str | None,
     removed: list = []
     if not mc_version or loader not in ("fabric", "quilt"):
         return removed
+    if is_modpack_profile(mc_version, loader, version_id):
+        return removed
     retired_slugs = {slug for slug, _pid in RETIRED_PERF_MODS}
     retired_pids = {pid.lower() for _slug, pid in RETIRED_PERF_MODS}
     try:
@@ -538,7 +540,7 @@ def prune_retired_perf_mods(mc_version: str | None, loader: str | None,
 def ensure_installed(mc_version: str | None, loader: str | None,
                      status_cb=None, version_id: str | None = None, *,
                      repair_dependencies: bool = True, optional_mods=()) -> dict:
-    """Installs any missing performance mod into the profile.
+    """Install missing performance mods in ordinary profiles; preserve packs.
 
     Returns installed/kept/skipped/unavailable/failed lists so the caller can log or
     show what actually happened. Download failures are reported; failed legacy
@@ -552,6 +554,13 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         return result
     if loader not in MOD_CAPABLE_LOADERS:
         result["detail"] = "performance mods need a modded profile"
+        return result
+    if is_modpack_profile(mc_version, loader, version_id):
+        # Packs ship a curated renderer/library combination. Automatic suite
+        # additions and whole-graph repair can replace the author's pinned
+        # files. Extra mods and repairs remain explicit actions in Mods.
+        result["kept"] = sorted(_present(mc_version, loader, version_id))
+        result["detail"] = "Kept the modpack's supplied mods; install extra performance mods in Mods"
         return result
 
     from . import storage

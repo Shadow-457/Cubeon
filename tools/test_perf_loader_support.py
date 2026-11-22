@@ -186,6 +186,24 @@ class LoaderBoost(unittest.TestCase):
                 self.assertIn('graphicsMode:1', options.read_text())
                 self.assertEqual(self.calls, [])
 
+    def test_actual_modpack_launch_preserves_pinned_mods_and_never_auto_repairs(self):
+        from cubeon import mod_dependencies
+        for loader in ('fabric', 'quilt', 'forge', 'neoforge'):
+            with self.subTest(loader=loader):
+                self.calls.clear(); self.downloads.clear()
+                profile = Path(mods.get_profile_dir('1.20.1', loader, loader))
+                pinned = self.jar(profile, 'pack-library-older.jar', 'pack_library', loader)
+                before = pinned.read_bytes()
+                with patch.object(mods, 'read_instance_meta', return_value={'profile': loader, 'pack_version': '1'}), \
+                        patch.object(mod_dependencies, 'run_dependency_doctor') as repair:
+                    for _ in range(3):
+                        self.launch_boost(loader, {'fps_boost_enabled': True, 'perf_mods_enabled': True})
+                    repair.assert_not_called()
+                self.assertEqual(self.calls, [])
+                self.assertEqual(self.downloads, [])
+                self.assertEqual(pinned.read_bytes(), before)
+                self.assertEqual(list(profile.glob('*.jar')), [pinned])
+
     def test_unavailable_ports_or_disabled_downloads_do_not_block_graphics(self):
         self.missing = {entry[0] for entry in perf._KNOWN_PERF_MODS}
         for loader in ('forge', 'neoforge'):

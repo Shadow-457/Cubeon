@@ -1331,14 +1331,10 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
             except OSError as ex:
                 raise ModpackError(f"Couldn't remove an obsolete pack mod ({_old_name}): {ex}") from ex
 
-        # 7) Cubeon's own client mods into THIS pack's profile, using the
-        #    PACK's loader. Injection used to happen only at launch, where it
-        #    read the Play tab's loader selector - launching a Forge pack with
-        #    the selector left on vanilla/fabric sent CustomSkinLoader (a
-        #    fabric build!) and the Friends jar into a profile the pack never
-        #    synced from, so skins and the Friends button silently vanished.
-        #    Doing it here at install time, with the loader the pack actually
-        #    declared, is what makes injection deterministic.
+        # 7) Prepare existing skin/client mods with the PACK's loader. Keep
+        #    author-selected JARs intact; missing extras require an explicit
+        #    install in Mods. Saved feature switches still apply, and CSL
+        #    opt-in restores only backups made by Cubeon's own opt-out.
         from .config import load_config
         feature_cfg = load_config()
         try:
@@ -1365,16 +1361,15 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 _friends_mod.remove_installed(profile_dir, strict=True)
             _friends_ok = _friends_mod.ensure_installed(
                 mc_version, loader_id,
-                _get_profile_dir(mc_version, loader_id, version_id)) if client_enabled else False
+                _get_profile_dir(mc_version, loader_id, version_id),
+                automatic=True, version_id=version_id) if client_enabled else False
             if client_enabled and loader_id not in ("fabric", "quilt"):
                 # The Friends mod is Fabric-only (see mod/brackets.json).
                 # Saying so beats a silently missing game-menu button.
                 status_cb("Friends button needs Fabric/Quilt - not available in this pack")
             elif client_enabled and not _friends_ok:
-                # Fabric/Quilt pack but no jar was built for this bracket -
-                # the in-game button will be missing. Say so instead of silence.
-                status_cb("Cubeon Friends mod not built for Minecraft "
-                          f"{mc_version} - the in-game button will be missing")
+                # Extras are opt-in for packs, even when a bundled build exists.
+                status_cb("Cubeon Client is not included in this modpack; install it in Mods if needed")
         except Exception:
             log.warning("Friends mod could not be installed for a pack",
                         exc_info=True)

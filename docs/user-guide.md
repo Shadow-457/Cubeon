@@ -88,9 +88,9 @@ Turning sync off stops enforcement; turning FPS boost off restores eligible
 original video and mod settings from per-instance backups. FPS gains depend on the machine
 and scene; the preset does not guarantee a particular frame rate.
 Boost works independently of the Cubeon Client switch on Fabric, Quilt, Forge
-and NeoForge. It installs compatible performance mods when builds exist for
-that Minecraft version: Sodium, Lithium, ImmediatelyFast, Entity Culling,
-FerriteCore, ModernFix and BadOptimizations. Forge uses Embeddium and
+and NeoForge. In ordinary instances it installs compatible performance mods
+when builds exist for that Minecraft version: Sodium, Lithium, ImmediatelyFast,
+Entity Culling, FerriteCore, ModernFix and BadOptimizations. Forge uses Embeddium and
 Canary/Radium, while NeoForge prefers Sodium and Lithium. The small options
 button beside FPS boost lets you select More Culling, Enhanced Block Entities
 and Exordium individually. These are off by default and may change visual/HUD
@@ -99,6 +99,13 @@ additions; disable already installed copies in Mods → Installed.
 Existing alternatives and disabled/removed mods
 are respected. Turning Boost off stops new additions and restores eligible
 graphics settings; installed mods remain manageable under Mods → Installed.
+
+Modpacks keep their author's selected mods and library versions during install
+and launch. FPS boost can still apply its video settings, but adds no mods and
+does not automatically replace pack dependencies. Install extra performance
+mods, Cubeon Client or CustomSkinLoader explicitly from Mods if you want them;
+existing copies remain usable. The Client and skin support switches still apply.
+
 With Discord desktop running, Rich Presence shows the Minecraft version and
 loader you are playing, for example “Playing Minecraft 1.21.11 (Fabric)”.
 
@@ -137,7 +144,9 @@ the same Settings page.
 - **Shaders:** require a compatible loader and shader runtime, such as Iris
   or Oculus. Downloading a shader ZIP alone does not enable shaders.
 - **Modpacks:** carry their own Minecraft and loader requirements. Review
-  the pack's requirements before installing it.
+  the pack's requirements before installing it. Cubeon installs the files
+  selected by the pack manifest and preserves their versions during automatic
+  preparation. Dependency repairs remain explicit actions in Mods.
 - **Cosmetics:** manage skins, capes, and shoulder/back items in Cosmetics; use
   the rotation arrows to inspect the 3D model. Shoulder and Back sections are marked **Beta**.
   Shoulder and back items are drawn in
@@ -404,8 +413,20 @@ inside a mod. Launch-time configuration checks stay non-interactive; declared mo
 issues stop launch without holding a launch worker open while you review them.
 
 Forge and NeoForge ranges use Maven version ordering. For example,
-LionfishAPI `2.4-Fix` satisfies `[2.4,)`; Fabric semantic prerelease rules
-remain unchanged. Exact pins and upper bounds still apply.
+LionfishAPI `2.4-Fix` satisfies `[2.4,)`, Create `0.5.1.j` satisfies
+`[0.5.1,)`, and Flywheel `0.6.11-13` satisfies `[0.6.11,0.6.12)`.
+A bare Forge version such as `1.20-2.11.33` is a recommendation, so it
+does not reject an installed Moonlight `1.20-2.13.82`. Bracketed exact pins
+such as `[2.4]` and upper bounds still apply. Fabric semantic prerelease
+and exact-version rules remain unchanged.
+
+Modpack installs use the files selected by the pack manifest, including
+CurseForge file IDs and Modrinth file hashes. A mod's explicit Modrinth
+dependency release ID also selects that exact release. Unpinned dependency
+projects can select a newer build; the installed JAR graph is checked afterward,
+and **Resolve** verifies replacement JARs against all declared requirements
+before applying changes. Signed JARs with large manifests and unscoped Forge
+dependency arrays do not by themselves mean a mod is unreadable.
 
 ### Website crash Doctor
 

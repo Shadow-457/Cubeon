@@ -327,6 +327,21 @@ def read_instance_meta(version_id: str | None) -> dict | None:
     return _read_sidecar_json(path)
 
 
+def is_modpack_profile(mc_version=None, loader=None, version_id=None, *, profile_dir=None) -> bool:
+    """Identify curated packs without scans, writes or network requests.
+
+    Instance ownership survives a temporarily hidden/missing marker. Support
+    both legacy profiles and markers relocated into instance .cubeon storage.
+    Even an unreadable marker protects the pack from automatic mod changes.
+    """
+    meta = read_instance_meta(version_id) if version_id else None
+    if meta and ("pack_version" in meta or meta.get("pack")):
+        return True
+    profile = profile_dir or resolve_profile_dir(mc_version, loader, version_id)
+    markers = {metadata_path(profile, "_modpack.json"), os.path.join(profile, "_modpack.json")}
+    return any(os.path.lexists(path) or os.path.lexists(path + ".bak") for path in markers)
+
+
 def write_instance_meta(version_id: str | None, meta: dict) -> bool:
     """Atomically write a version folder's instance sidecar. Never raises."""
     path = _instance_meta_path(version_id)
@@ -926,8 +941,9 @@ def supersede_older_copies(profile_dir: str, filename: str,
 # Mods Cubeon ships and depends on itself - CustomSkinLoader is what makes
 # skins/capes work on an offline account (cubeon/csl.py), and the Cubeon
 # Client mod is the in-game Cubeon button (cubeon/cubeonfriends.py). Both
-# are re-installed automatically at launch, so a user "removing" one only
-# ever breaks their own skins or the Cubeon button - protected the same way
+# are prepared automatically in ordinary profiles; modpacks require explicit
+# installs and preserve existing copies. Removing one breaks skins or the
+# Cubeon button - protected the same way
 # the server's managed plugins are (see cubeon/server.py PROTECTED_PLUGINS).
 # Matched by filename stem (without .jar/.jar.disabled, lowercase prefix) and
 # by Modrinth slug for the one we download from there (kept as a literal, not
@@ -1576,7 +1592,7 @@ def _select_download(versions, *, mc_version=None, loader=None, predicates=(), e
         if any(wanted and key in version and (not isinstance(version.get(key), list) or wanted not in version[key])
                for key, wanted in (('game_versions', mc_version), ('loaders', loader))):
             continue
-        if not all(version_satisfies(str(version.get('version_number') or ''), p) for p in (predicates or ())):
+        if not all(version_satisfies(str(version.get('version_number') or ''), p, loader=loader) for p in (predicates or ())):
             continue
         files = version.get('files')
         if not isinstance(files, list):
@@ -1631,7 +1647,7 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     if mc_version:
         params["game_versions"] = json.dumps([mc_version])
 
-    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 4, "file_id": file_id}
+    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 5, "file_id": file_id}
     if version_predicates is not None:
         cache_key["predicates"] = list(version_predicates)
 
@@ -1862,10 +1878,14 @@ def _version_parts(version: str) -> list[str]:
     return re.findall(r"\d+|[A-Za-z]+", base)
 
 
-def _cmp_versions(a: str, b: str) -> int:
-    """Maven-ish ordering: numeric vs numeric by value, a numeric run beats an
-    alpha one (1.0 > 1.0-rc), a longer version beats its own prefix
-    (1.0.1 > 1.0) unless the extra bit is a qualifier (1.0-rc < 1.0)."""
+def _cmp_versions(a: str, b: str, *, loader: str | None = None) -> int:
+    """Maven ordering for Forge/NeoForge, semantic ordering for Fabric/Quilt.
+
+    Non-semantic Fabric versions retain the numeric/alpha fallback.
+    """
+    if loader in ("forge", "neoforge"):
+        from .maven_versions import compare
+        return compare(a, b)
     semantic = r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?"
     sa, sb = re.fullmatch(semantic, str(a).strip()), re.fullmatch(semantic, str(b).strip())
     if sa and sb:
@@ -1992,15 +2012,20 @@ def _satisfies_term(version: str, term: str) -> bool:
     return _cmp_versions(version, term) == 0
 
 
-def version_satisfies(version: str, predicate) -> bool:
+def version_satisfies(version: str, predicate, *, loader: str | None = None) -> bool:
     """True when `version` matches a Fabric/Maven version predicate such as
     `<=1.10.7`, `>=0.16.0`, `0.8.x`, `[1.0,2.0)`, `*`, or an AND/OR
-    combination. A missing/blank predicate means "any version"."""
+    combination. A missing/blank predicate means "any version". Forge/NeoForge
+    bare Maven versions are recommendations; only brackets impose restrictions.
+    The dependency must still be present, which callers check separately.
+    """
     if isinstance(predicate, (list, tuple)):
-        return any(version_satisfies(version, p) for p in predicate)
+        return any(version_satisfies(version, p, loader=loader) for p in predicate)
     expr = str(predicate or "").strip()
     if expr in ("", "*", "any"):
         return True
+    if loader in ("forge", "neoforge"):
+        return _satisfies_range(version, expr) if expr[0] in "[(" else True
     for alt in expr.split("||"):
         alt = alt.strip()
         if not alt:
@@ -2076,10 +2101,10 @@ def _nested_mod_descriptors(jar_path: str, *, max_depth: int = 4, loader: str | 
 
 def _nested_mod_metadata(jar_path: str, *, max_depth: int = 4, loader: str | None = None) -> dict:
     """Versioned providers from bounded root/nested descriptor reads."""
-    return _descriptor_providers(_nested_mod_descriptors(jar_path, max_depth=max_depth, loader=loader))
+    return _descriptor_providers(_nested_mod_descriptors(jar_path, max_depth=max_depth, loader=loader), loader=loader)
 
 
-def _descriptor_providers(descriptors):
+def _descriptor_providers(descriptors, *, loader=None):
     out = {}
     for meta in descriptors:
         providers = dict(meta.get("provided") or {})
@@ -2087,7 +2112,7 @@ def _descriptor_providers(descriptors):
             providers[meta["id"]] = str(meta.get("version") or "")
         for identity, version in providers.items():
             identity = identity.lower()
-            if identity not in out or _cmp_versions(version, out[identity]) > 0:
+            if identity not in out or _cmp_versions(version, out[identity], loader=loader) > 0:
                 out[identity] = version
     return out
 
@@ -2110,6 +2135,31 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                     raise ValueError('Mod metadata is too large.')
                 return payload
             names = set(z.namelist())
+            def manifest_attributes():
+                # Signed JARs can have megabytes of per-entry digest sections.
+                # Identity/version attributes live only in the main section;
+                # read that bounded header without loading the signature list.
+                attributes, lines, remaining = {}, [], 64 * 1024
+                if "META-INF/MANIFEST.MF" not in names:
+                    return attributes
+                with z.open("META-INF/MANIFEST.MF") as entry:
+                    while True:
+                        line = entry.readline(remaining + 1)
+                        if len(line) > remaining:
+                            raise ValueError("Mod manifest main section is too large.")
+                        remaining -= len(line)
+                        line = line.rstrip(b"\r\n")
+                        if not line:
+                            break
+                        if line.startswith(b" ") and lines:
+                            lines[-1] += line[1:]
+                        else:
+                            lines.append(line)
+                for line in lines:
+                    key, separator, value = line.decode("utf-8", "replace").partition(":")
+                    if separator:
+                        attributes[key.lower()] = value.strip()
+                return attributes
             preferred = {
                 "forge": ("META-INF/mods.toml", "mcmod.info"),
                 "neoforge": ("META-INF/neoforge.mods.toml", "META-INF/mods.toml"),
@@ -2121,15 +2171,7 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
             # universal bootstraps that also have a Fabric descriptor. Those
             # Fabric dependency rules do not describe Forge's entry point.
             if descriptor is None and loader == "forge" and "META-INF/MANIFEST.MF" in names:
-                manifest = descriptor_bytes("META-INF/MANIFEST.MF").decode("utf-8", "replace")
-                manifest = re.sub(r"\r?\n ", "", manifest)
-                attributes = {}
-                for line in manifest.splitlines():
-                    if not line:
-                        break  # Per-file sections cannot declare a coremod.
-                    key, separator, value = line.partition(":")
-                    if separator:
-                        attributes[key.lower()] = value.strip()
+                attributes = manifest_attributes()
                 plugin = attributes.get("fmlcoreplugin", "")
                 if re.fullmatch(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*", plugin) \
                         and plugin.replace(".", "/") + ".class" in names:
@@ -2202,18 +2244,23 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                 if not declared:
                     return None
                 primary = declared[0]
-                dependencies = (data.get("dependencies") or {}).get(primary.get("modId"), [])
-                dependencies = [entry for entry in dependencies
-                                if str(entry.get("side", "BOTH")).upper() != "SERVER"]
-                manifest = descriptor_bytes("META-INF/MANIFEST.MF").decode("utf-8", "replace") if "META-INF/MANIFEST.MF" in names else ""
-                implementation = re.search(r"(?m)^Implementation-Version:\s*(.+)$", manifest)
+                dependency_table = data.get("dependencies") or {}
+                # Forge queries dependencies.<modId>. Unscoped [[dependencies]]
+                # (Ars Energistique 1.2.0) is ignored by NightConfig, not a broken
+                # archive and not a dependency list shared by every declared mod.
+                if isinstance(dependency_table, list):
+                    dependency_table = {}
+                def constraints_for(entry):
+                    constraints = dependency_table.get(entry.get("modId"), [])
+                    return [c for c in constraints if str(c.get("side", "BOTH")).upper() != "SERVER"]
+                dependencies = constraints_for(primary)
+                implementation = manifest_attributes().get("implementation-version", "")
                 def mod_version(entry):
                     value = str(entry.get("version") or "")
-                    return (implementation.group(1).strip() if implementation else "") if "${" in value else value
+                    return implementation if "${" in value else value
                 secondary = []
                 for entry in declared[1:]:
-                    constraints = (data.get("dependencies") or {}).get(entry.get("modId"), [])
-                    constraints = [c for c in constraints if str(c.get("side", "BOTH")).upper() != "SERVER"]
+                    constraints = constraints_for(entry)
                     secondary.append({"id": entry.get("modId"), "name": entry.get("displayName") or entry.get("modId"),
                                       "version": mod_version(entry),
                                       "depends": {c["modId"]: c.get("versionRange") or "*" for c in constraints
@@ -2271,7 +2318,7 @@ def _mod_ref(mod: dict) -> str | None:
 def _doctor_cached_metadata(path: str, signature: tuple, loader: str | None = None) -> tuple:
     metadata = read_mod_metadata(path, loader)
     descriptors = _nested_mod_descriptors(path, loader=loader)
-    provided = _descriptor_providers(descriptors)
+    provided = _descriptor_providers(descriptors, loader=loader)
     if metadata:
         metadata = dict(metadata, _descriptors=descriptors)
         provided = {**(metadata.get("provided") or {}), **provided}
@@ -2293,7 +2340,7 @@ def _doctor_local_incompatibility(metadata, mc_version, loader) -> str:
     if loaders and loader not in loaders:
         return f"This installed build is for {'/'.join(loaders)}, not {loader}."
     predicate = (metadata.get("depends") or {}).get("minecraft")
-    if predicate and isinstance(predicate, (str, list, tuple)) and not version_satisfies(mc_version, predicate):
+    if predicate and isinstance(predicate, (str, list, tuple)) and not version_satisfies(mc_version, predicate, loader=loader):
         return f"This installed build requires Minecraft {predicate}; this instance uses {mc_version}."
     return ""
 
@@ -2546,7 +2593,7 @@ def _resolve_mod_conflict(declarer: dict, target: dict, target_id: str,
         except Exception:
             t_versions = []
         for v in _candidates(t_versions, target.get("filename")):
-            if not version_satisfies(v.get("version_number"), predicate):
+            if not version_satisfies(v.get("version_number"), predicate, loader=loader):
                 if not _install(v, target):
                     return False, "approval required"
                 return True, f"updated {target.get('display_name')} to " \
@@ -2564,7 +2611,7 @@ def _resolve_mod_conflict(declarer: dict, target: dict, target_id: str,
             meta = _read_remote_mod_metadata(v["url"], loader)
             if not meta:
                 continue
-            still = any(version_satisfies(target_version, p)
+            still = any(version_satisfies(target_version, p, loader=loader)
                         for k, p in (meta.get("breaks") or {}).items()
                         if str(k).lower() == target_id.lower())
             if not still:
@@ -2914,7 +2961,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
         key = str(meta["id"]).lower()
         prev = id_map.get(key)
         if prev is None or _cmp_versions(meta.get("version") or "",
-                                         prev[1] or "") > 0:
+                                         prev[1] or "", loader=loader) > 0:
             id_map[key] = (m, meta.get("version") or "")
 
     # --- 4b. UNSATISFIED `depends` (the loader hard-crash shape) -----------
@@ -2951,7 +2998,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
             # the loader registers only one. Taking the first would fail a
             # ">=x" predicate against a stale copy that is not actually used.
             prev = provided.get(pid)
-            if prev is None or _cmp_versions(pver, prev) > 0:
+            if prev is None or _cmp_versions(pver, prev, loader=loader) > 0:
                 provided[pid] = pver
 
     # A disabled jar can satisfy a dependency with no download at all: the
@@ -2974,7 +3021,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
             disabled_providers[owner] = (m, disabled_version, disabled_meta)
         for pid, pver in (disabled_bundled or {}).items():
             prev = disabled_providers.get(pid)
-            if prev is None or _cmp_versions(pver or "", prev[1] or "") > 0:
+            if prev is None or _cmp_versions(pver or "", prev[1] or "", loader=loader) > 0:
                 disabled_providers[pid] = (m, pver or "", disabled_meta)
 
     for m in mods:
@@ -2992,7 +3039,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
             # Minecraft itself and the loader are always "present".
             if dep_key in runtime_versions and dep_key in DOCTOR_RUNTIME_IDS:
                 actual = runtime_versions[dep_key]
-                if dep_key != "minecraft" and actual and not version_satisfies(actual, predicate):
+                if dep_key != "minecraft" and actual and not version_satisfies(actual, predicate, loader=loader):
                     _report("loader-version", m.get("display_name"),
                             f"requires {dep_id} {predicate}; this instance uses {actual}", False,
                             action="none")
@@ -3004,9 +3051,9 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                 # a predicate like ">=2.0.0" is still checked honestly.
                 versions = [version for version in (provided.get(dep_key), runtime_versions.get(dep_key))
                             if version is not None]
-                bundled_version = max(versions, key=cmp_to_key(_cmp_versions)) if versions else None
+                bundled_version = max(versions, key=cmp_to_key(lambda a, b: _cmp_versions(a, b, loader=loader))) if versions else None
                 if bundled_version is not None:
-                    if version_satisfies(bundled_version or "*", predicate):
+                    if version_satisfies(bundled_version or "*", predicate, loader=loader):
                         continue
                     _report("missing-dependency", m.get("display_name"),
                             f"needs {dep_id} {predicate} (bundled copy is "
@@ -3016,7 +3063,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                 candidate = disabled_providers.get(dep_key)
                 if candidate is not None:
                     disabled_mod, disabled_version, disabled_meta = candidate
-                    if not version_satisfies(disabled_version or "*", predicate):
+                    if not version_satisfies(disabled_version or "*", predicate, loader=loader):
                         _report("missing-dependency", m.get("display_name"),
                                 f"needs {dep_id} {predicate} (the installed copy "
                                 f"is disabled and is "
@@ -3057,9 +3104,9 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                             "disabled", fixed, fix_label,
                             action="enabled" if fixed else "none")
                     continue
-            if hit and version_satisfies(hit[1] or "*", predicate):
+            if hit and version_satisfies(hit[1] or "*", predicate, loader=loader):
                 continue
-            if hit and not version_satisfies(hit[1] or "*", predicate):
+            if hit and not version_satisfies(hit[1] or "*", predicate, loader=loader):
                 # Present but the wrong version - the network conflict
                 # resolver below (breaks pass) and the Modrinth dep pass
                 # handle updates; here just report it, no local fix exists.
@@ -3133,7 +3180,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
             target, target_version = hit
             if target.get("filename") == m.get("filename"):
                 continue
-            if not version_satisfies(target_version, predicate):
+            if not version_satisfies(target_version, predicate, loader=loader):
                 continue
             pair = tuple(sorted([m.get("filename") or decl_id,
                                  target.get("filename") or dep_key]))

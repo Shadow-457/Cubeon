@@ -28,15 +28,34 @@ Manages the global mod store:
 Mod management logic:
 - `install_mod_with_dependencies()` - downloads main mod + missing required dependencies
 - `mod_doctor()` - auto-repair: duplicate detection, missing deps, version conflicts, incompatible loaders
-- `required_dependencies()` - reads Modrinth's latest-version `dependencies` (only `required` type)
-- `read_mod_metadata()` - unzips `fabric.mod.json`/`quilt.mod.json` for local `depends`/`breaks`/`id`
-- `version_satisfies()` - implements Fabric/Maven version ranges
+- `required_dependencies()` - reads the selected release's required dependencies, honoring explicit Modrinth release IDs
+- `read_mod_metadata()` - reads root/nested Fabric, Quilt, Forge and NeoForge descriptors for local identity and constraints
+- `version_satisfies(..., loader=...)` - uses Fabric semantic predicates or Forge/NeoForge Maven restrictions; bare Forge versions are recommendations
+- `is_modpack_profile()` - read-only pack ownership check using instance metadata and canonical/legacy markers, including hidden marker backups
+
+Forge manifest attributes come only from the main section, read with a 64 KiB
+budget. Large per-entry signature sections must not make a signed mod unreadable
+or supply its version/coremod identity. Dependencies are scoped by mod ID:
+unscoped `[[dependencies]]` arrays are ignored as Forge's NightConfig lookup
+ignores them. Primary and secondary scoped descriptors keep their own client
+requirements. Provider selection uses the same loader's version ordering as
+the dependency checks.
 
 ### `cubeon/modpacks.py`
 Modpack handling:
 - `install_modpack_from_url()` / `install_modpack_from_cf()` - two-phase: download archive, then install from zip
 - `_install_from_zip()` - extracts, processes `modrinth.index.json` or `manifest.json`, installs each file
 - Folder resourcepacks preserved as directories (not flattened)
+
+Pack installs honor manifest-selected file URLs/IDs, hashes and the declared
+Minecraft/loader build. Automatic install/launch preparation preserves the
+pack's JAR versions: no performance additions, dependency repair, retired-mod
+deletion, More Culling migration, or missing Client/CSL/Fabric API downloads.
+Existing enabled client/skin copies work without replacement. Explicit Mods
+installs and Resolve remain available. Saved client/skin opt-outs still apply;
+CSL opt-in restores only Cubeon's own setting backups and preserves manually
+disabled copies. Pack ownership remains protective when a marker is missing,
+relocated, unreadable or temporarily hidden during an update.
 
 ### `cubeon/content.py`
 Unified content interface (resource packs, shaders, modpacks):
@@ -49,7 +68,7 @@ Unified content interface (resource packs, shaders, modpacks):
 **Single entry point** for all content validation:
 - `run_doctor(mc, loader, auto_fix, include=...)` covers mods, resourcepacks, shaders, modpacks, server plugins
 - Sections independent; `include=` scopes a run
-- Called at launch with `check_online=False` for best-effort pre-repair
+- Called at launch with `include=("launch",), check_online=False` for launcher-setting repair; the separate mod dependency gate is offline and read-only
 
 ### `cubeon/packformat.py`
 Single source of truth for "will the game accept this file?":
@@ -121,7 +140,7 @@ global_mod_cache for each mod → link into profile
 - `content.py` drops search results whose file list has no build for the selected MC version **before** they render
 - `get_content_download()` re-checks at download time (defense in depth)
 - Installed-but-incompatible items still show, with a badge + one-click doctor fix
-- Launch pre-repair: `launch.py` calls `run_doctor(..., include=("mods", "resourcepacks", "shaders"), check_online=False)`
+- Before staging, `launch.py` checks the actual mod graph with `run_dependency_doctor(..., check_online=False, auto_fix=False)`; Install/Resolve applies reviewed repairs
 
 ## Folder Packs Are First-Class
 
@@ -137,6 +156,9 @@ global_mod_cache for each mod → link into profile
 - `tools/test_mod_store.py` - global mod store (27 checks, concurrency + copy-failure)
 - `tools/test_mod_detail.py` - mod detail + auto-repair (81 checks)
 - `tools/test_modpacks.py` - modpack installs (64 checks)
+- `tools/test_modpack_integrity.py` - rollback, exact pack files and repeated automatic preparation across all four loaders
+- `tools/test_perf_loader_support.py` - ordinary FPS additions and pack preservation in the actual launch preparation block
+- `tools/test_game_feature_switches.py` - independent client/skin choices, including pack opt-out/restore and manual disabled copies
 - `tools/test_mod_install_progress.py` - install progress in FILE UNITS (39 checks)
 - `tools/test_content_doctor.py` - unified doctor (88 checks)
 - `tools/test_csl.py` - CustomSkinLoader registration (14 checks)

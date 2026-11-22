@@ -1354,6 +1354,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     from . import watchdog
     if watchdog.stale_session() is not None:
         raise RuntimeError("Minecraft is already running. Close it before starting another instance.")
+    from .mods import is_modpack_profile
+    pack_profile = is_modpack_profile(mc_version, loader, version_id)
     if cfg is not None:
         # Each install plays in its OWN game folder (worlds, configs,
         # options.txt), with the shared staging folders linked into it - see
@@ -1441,9 +1443,10 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         try:
             _profile_dir = get_profile_dir(mc_version, loader, version_id)
             friends_ok = cubeonfriends.ensure_installed(mc_version, loader,
-                                           _profile_dir)
+                                           _profile_dir, automatic=True, version_id=version_id)
             if not friends_ok and status_cb and loader in ("fabric", "quilt"):
-                status_cb("Cubeon Friends mod not built for this Minecraft "
+                status_cb("Cubeon Client is not included in this modpack; install it in Mods if needed"
+                          if pack_profile else "Cubeon Friends mod not built for this Minecraft "
                           "version - the in-game Friends button will be missing")
             if friends_ok:
                 # The HUD half of the client mod is built on Fabric API, which

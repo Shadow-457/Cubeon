@@ -5,11 +5,10 @@ actually appear in-game.
 Cubeon uses offline/cracked auth, so vanilla Minecraft has no session server
 to fetch a skin from and always renders Steve/Alex. CSL is a client-side mod
 that replaces that lookup with a list of skin sources it tries in order. This
-module owns two jobs, both of which must happen without the user doing
-anything (the whole pitch is "click host, send a link, they're in, with their
-own skin"):
+module owns two jobs during managed skin setup:
 
-  1. Download the CSL jar into the active mod profile.
+  1. Download a missing CSL jar in ordinary profiles; modpacks use their
+     existing copy or an explicit install from Mods.
   2. Register Cubeon's two skin sources in CSL's load list.
 
 --- WHY WE PREPEND, AND WHY IT IS NOT OPTIONAL ---
@@ -653,7 +652,8 @@ def ensure_ready(mc_version: str | None, loader: str | None,
     """Everything needed for skins and capes to work on the next launch.
 
     Called from launch_game() before mods are synced into the game folder, so
-    a freshly downloaded jar makes it into that same launch.
+    a freshly downloaded jar makes it into that same launch. Modpacks keep
+    their selected JARs; missing CSL requires an explicit install from Mods.
 
     `manage` is the user's cfg["manage_skin_mod"] setting: False means hands
     off entirely - no download, no registration, and anything we queued but
@@ -689,6 +689,10 @@ def ensure_ready(mc_version: str | None, loader: str | None,
         result["installed"] = True
         result["detail"] = "CustomSkinLoader already installed"
     else:
+        from .mods import is_modpack_profile
+        if is_modpack_profile(mc_version, loader, version_id):
+            result["detail"] = "CustomSkinLoader is not included in this modpack; install it in Mods to enable skins"
+            return result
         if status_cb:
             status_cb("Installing CustomSkinLoader")
         detail = install(mc_version, loader, version_id=version_id)

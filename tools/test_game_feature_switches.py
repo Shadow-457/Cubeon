@@ -191,6 +191,23 @@ class GameFeatureSwitches(unittest.TestCase):
         self.play({"csl_enabled": True, "client_mod_enabled": False})
         self.assertFalse((self.game / "CustomSkinLoader.jar").exists())
 
+    def test_pack_skin_opt_in_restores_only_cubeon_settings_backups(self):
+        atomicio.write_json(str(self.profile / "_modpack.json"), {"name": "Curated Pack"})
+        skin = self.jar("CustomSkinLoader-pinned.jar")
+        library = self.jar("library-pinned.jar", "library")
+        before = {p.name: p.read_bytes() for p in (skin, library)}
+        self.play({"csl_enabled": False, "client_mod_enabled": False})
+        self.assertFalse(skin.exists())
+        self.play({"csl_enabled": True, "client_mod_enabled": False})
+        self.assertEqual(before, {p.name: p.read_bytes() for p in (skin, library)})
+        self.assertEqual((self.game / skin.name).read_bytes(), before[skin.name])
+        self.toggle(False)
+        manual = self.jar("CustomSkinLoader-manual.jar.disabled")
+        manual_bytes = manual.read_bytes()
+        self.play({"csl_enabled": True, "client_mod_enabled": False})
+        self.assertFalse(skin.exists())
+        self.assertEqual(manual.read_bytes(), manual_bytes)
+
     def test_locked_jar_blocks_spawn_instead_of_ignoring_opt_out(self):
         for name, identity, message in (("CustomSkinLoader.jar", "customskinloader", "CustomSkinLoader setting"),
                                         ("cubeon-client-1.jar", "cubeon-client", "disable Cubeon Client")):

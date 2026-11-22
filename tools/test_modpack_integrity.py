@@ -14,15 +14,20 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "tools"), str(ROOT)]
 import _sandbox_home
 _sandbox_home.isolate()
-from cubeon import atomicio, csl, cubeonfriends, modpacks, mods, net, paths
+from cubeon import atomicio, csl, cubeonfriends, modpacks, mods, net, paths, perf_mods, mod_dependencies
 
 
-def jar(mod_id, version):
+def jar(mod_id, version, loader="fabric"):
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:
-        archive.writestr(zipfile.ZipInfo("fabric.mod.json"), json.dumps({
-            "schemaVersion": 1, "id": mod_id, "version": version,
-            "depends": {"minecraft": "1.20.1", "fabricloader": ">=0.15.7"}}))
+        if loader in ("fabric", "quilt"):
+            archive.writestr(zipfile.ZipInfo("fabric.mod.json"), json.dumps({
+                "schemaVersion": 1, "id": mod_id, "version": version,
+                "depends": {"minecraft": "1.20.1", "fabricloader": ">=0.15.7"}}))
+        else:
+            descriptor = "META-INF/neoforge.mods.toml" if loader == "neoforge" else "META-INF/mods.toml"
+            archive.writestr(descriptor, f'modLoader="javafml"\nloaderVersion="[1,)"\n'
+                             f'[[mods]]\nmodId="{mod_id}"\nversion="{version}"\n')
     return stream.getvalue()
 
 
@@ -59,6 +64,8 @@ class PackIntegrity(unittest.TestCase):
         self.context.enter_context(patch.object(modpacks, "_pack_game_dir", self.game_dir))
         self.original_stream = modpacks._stream_download
         self.context.enter_context(patch.object(modpacks, "_stream_download", self.download))
+        self.real_skin_setup = csl.ensure_ready
+        self.real_client_setup = cubeonfriends.ensure_installed
         self.context.enter_context(patch.object(csl, "set_enabled"))
         self.context.enter_context(patch.object(csl, "ensure_ready"))
         self.context.enter_context(patch.object(cubeonfriends, "ensure_installed", return_value=True))
@@ -95,7 +102,7 @@ class PackIntegrity(unittest.TestCase):
             raise modpacks.ModpackError("simulated network outage")
         Path(destination).write_bytes(self.blobs[url])
 
-    def pack(self, version="1", *, loader="0.15.7", mods_spec=None, overrides=None, files=None):
+    def pack(self, version="1", *, loader="0.15.7", loader_kind="fabric", mods_spec=None, overrides=None, files=None):
         entries = []
         for filename, payload in (mods_spec or [("same.jar", jar("same", version))]):
             url = f"https://cdn.modrinth.com/data/integrity/versions/{version}/{filename}"
@@ -107,7 +114,8 @@ class PackIntegrity(unittest.TestCase):
         with zipfile.ZipFile(archive, "w") as zf:
             zf.writestr("modrinth.index.json", json.dumps({
                 "formatVersion": 1, "game": "minecraft", "name": "Integrity Pack",
-                "versionId": version, "dependencies": {"minecraft": "1.20.1", "fabric-loader": loader},
+                "versionId": version, "dependencies": {"minecraft": "1.20.1",
+                    {"fabric": "fabric-loader", "quilt": "quilt-loader", "forge": "forge", "neoforge": "neoforge"}[loader_kind]: loader},
                 "files": entries}))
             for name, payload in (overrides or {}).items():
                 zf.writestr("overrides/" + name, payload)
@@ -123,6 +131,78 @@ class PackIntegrity(unittest.TestCase):
         (game / "saves" / "world").mkdir(parents=True)
         (game / "saves" / "world" / "level.dat").write_bytes(b"player world")
         return meta, profile, game
+
+    def test_pack_install_and_repeated_preparation_keep_author_files_for_every_loader(self):
+        for loader in ("fabric", "quilt", "forge", "neoforge"):
+            with self.subTest(loader=loader):
+                pinned = [("library-pinned.jar", jar("library", "1", loader)),
+                          ("moreculling.jar", jar("moreculling", "1", loader)),
+                          ("krypton.jar", jar("krypton", "1", loader))]
+                archive = self.pack(loader_kind=loader, mods_spec=pinned)
+                with patch.object(csl, "ensure_ready", self.real_skin_setup), \
+                        patch.object(cubeonfriends, "ensure_installed", self.real_client_setup), \
+                        patch.object(csl, "write_extralist_entries", return_value=[]), \
+                        patch.object(csl, "is_registered", return_value=True), \
+                        patch.object(csl, "get_mod_download") as skin_lookup, \
+                        patch.object(mods, "get_mod_download") as api_lookup, \
+                        patch.object(perf_mods, "get_mod_download") as perf_lookup, \
+                        patch.object(mod_dependencies, "run_dependency_doctor") as automatic_repair:
+                    meta = modpacks.install_modpack_from_file(archive)
+                    profile = Path(mods.resolve_profile_dir("1.20.1", loader, meta["version_id"]))
+                    # Old provider receipts must not make pack-supplied mods
+                    # eligible for Cubeon's legacy deletion/disable migrations.
+                    mods._write_meta(str(profile), "moreculling.jar", "moreculling", project_id="51shyZVL")
+                    mods._write_meta(str(profile), "krypton.jar", "krypton", project_id="fQEb0iXm")
+                    before = snapshot(profile)
+                    for _ in range(3):
+                        report = perf_mods.ensure_installed("1.20.1", loader, version_id=meta["version_id"])
+                        self.assertFalse(report["installed"])
+                        self.assertEqual(perf_mods.retire_legacy_more_culling("1.20.1", loader, meta["version_id"]), [])
+                        self.assertEqual(perf_mods.prune_retired_perf_mods("1.20.1", loader, meta["version_id"]), [])
+                        self.assertFalse(cubeonfriends.ensure_installed("1.20.1", loader, str(profile),
+                            automatic=True, version_id=meta["version_id"]))
+                        cubeonfriends.ensure_fabric_api("1.20.1", loader, version_id=meta["version_id"])
+                        csl.ensure_ready("1.20.1", loader, version_id=meta["version_id"])
+                    for call in (skin_lookup, api_lookup, perf_lookup, automatic_repair):
+                        call.assert_not_called()
+                    self.assertEqual(before, snapshot(profile))
+                    self.assertEqual({p.name: p.read_bytes() for p in profile.glob("*.jar")}, dict(pinned))
+
+    def test_pack_ownership_protects_missing_relocated_corrupt_and_hidden_markers(self):
+        meta = modpacks.install_modpack_from_file(self.pack())
+        profile = Path(mods.resolve_profile_dir("1.20.1", "fabric", meta["version_id"]))
+        marker = profile / "_modpack.json"
+        marker.unlink()
+        self.assertTrue(mods.is_modpack_profile("1.20.1", "fabric", meta["version_id"]))
+        relocated = profile.parent / ".cubeon" / "mods" / "_modpack.json"
+        relocated.parent.mkdir(parents=True, exist_ok=True)
+        with patch.object(mods, "read_instance_meta", return_value=None), \
+                patch.object(mods, "metadata_path", return_value=str(relocated)):
+            self.assertFalse(mods.is_modpack_profile("1.20.1", "fabric", profile_dir=str(profile)))
+            relocated.write_bytes(b"invalid UTF-8: \xff")
+            self.assertTrue(mods.is_modpack_profile("1.20.1", "fabric", profile_dir=str(profile)))
+            relocated.rename(str(relocated) + ".bak")
+            self.assertTrue(mods.is_modpack_profile("1.20.1", "fabric", profile_dir=str(profile)))
+            self.assertEqual(Path(str(relocated) + ".bak").read_bytes(), b"invalid UTF-8: \xff")
+
+    def test_explicit_client_install_works_and_automatic_launch_keeps_that_exact_copy(self):
+        meta = modpacks.install_modpack_from_file(self.pack())
+        profile = Path(mods.resolve_profile_dir("1.20.1", "fabric", meta["version_id"]))
+        bundled = self.root / "cubeon-client-test.jar"
+        bundled.write_bytes(jar("cubeonclient", "1"))
+        with patch.object(cubeonfriends, "ensure_installed", self.real_client_setup), \
+                patch.object(cubeonfriends, "find_jar", return_value=str(bundled)) as lookup:
+            self.assertFalse(cubeonfriends.ensure_installed("1.20.1", "fabric", str(profile),
+                automatic=True, version_id=meta["version_id"]))
+            lookup.assert_not_called()
+            self.assertTrue(cubeonfriends.ensure_installed("1.20.1", "fabric", str(profile)))
+            before = snapshot(profile)
+            lookup.reset_mock()
+            for _ in range(3):
+                self.assertTrue(cubeonfriends.ensure_installed("1.20.1", "fabric", str(profile),
+                    automatic=True, version_id=meta["version_id"]))
+            lookup.assert_not_called()
+            self.assertEqual(before, snapshot(profile))
 
     def assert_restored(self, meta, before_profile, before_game, before_version):
         self.assertEqual(snapshot(self.profiles / meta["profile"]), before_profile)
