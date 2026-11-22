@@ -5,6 +5,7 @@ under /tmp, and terminate only their own process group if a client lingers.
 """
 import asyncio
 import importlib.metadata
+import json
 import os
 from pathlib import Path
 import signal
@@ -95,6 +96,15 @@ def native_child():
         page.title = 'Cubeon close verification'
         page.window.width = 240
         page.window.height = 160
+        for argument in sys.argv:
+            if argument.startswith('--native-geometry='):
+                geometry = json.loads(argument.split('=', 1)[1])
+                for key in ('width', 'height', 'left', 'top', 'maximized'):
+                    if geometry.get(key) is not None:
+                        setattr(page.window, key, geometry[key])
+                page.window.min_width = 720
+                page.window.min_height = 480
+                print('NATIVE_GEOMETRY', geometry, flush=True)
         page.add(ft.Text('Testing window close'), ft.ProgressRing())
         if '--native-hidden' in sys.argv:
             page.window.visible = False

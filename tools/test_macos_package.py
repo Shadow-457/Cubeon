@@ -1,5 +1,6 @@
 """Verify native macOS release bundles. The ordinary CI pass checks the recipe."""
 import argparse
+import json
 import os
 from pathlib import Path
 import plistlib
@@ -147,6 +148,8 @@ def native(arch):
     # A fresh CI runner has no user state. Exercise both executable startup
     # and Finder's LaunchServices route, using the existing first-paint marker.
     marker = Path.home() / ".cubeon_launcher/ui_painted_ok"
+    reports = Path.home() / "Library/Logs/DiagnosticReports"
+    previous_reports = set(reports.glob("*"))
     for route, arguments in (("Finder", ["open", "-n", "-W", str(bundle)]),
                              ("executable", [str(binary)]),
                              ("Finder repeat", ["open", "-n", "-W", str(bundle)])):
@@ -187,8 +190,27 @@ def native(arch):
                     del observed[:-60]
                 return found
             def diagnostics():
-                return (output.read_text(errors="replace") +
-                        fresh_log())[-6000:] + "\nFirst-paint processes:\n" + "\n".join(observed)
+                crash_reports = []
+                for path in sorted(set(reports.glob("*")) - previous_reports):
+                    if "flet" not in path.name.lower() or not path.is_file():
+                        continue
+                    try:
+                        content = path.read_text(errors="replace")
+                        if path.suffix == ".ips":
+                            data = json.loads(content.split("\n", 1)[1])
+                            thread = data.get("threads", [])[data.get("faultingThread", 0)]
+                            frames = thread.get("frames", [])[:20]
+                            indices = {frame.get("imageIndex") for frame in frames}
+                            crash_reports.append(json.dumps({"report": path.name,
+                                "exception": data.get("exception"), "termination": data.get("termination"),
+                                "frames": frames, "images": [item for index, item in enumerate(data.get("usedImages", [])) if index in indices]}, indent=2))
+                        else:
+                            crash_reports.append(content[:6000])
+                    except (OSError, ValueError, IndexError, KeyError):
+                        continue
+                return ((output.read_text(errors="replace") +
+                         fresh_log())[-6000:] + "\nFirst-paint processes:\n" + "\n".join(observed)
+                        + "\nNative crash reports:\n" + "\n".join(crash_reports))
             with output.open("wb") as log:
                 process = subprocess.Popen(arguments, cwd=directory, env=env,
                                            stdout=log, stderr=subprocess.STDOUT)
@@ -233,14 +255,28 @@ def native(arch):
                 # Reuse the existing native close probe against the same Flet
                 # cache. This distinguishes Cubeon startup from a bare client's
                 # repeat-launch failure, while retaining the original failure.
-                try:
-                    probe = subprocess.run(
-                        [sys.executable, str(ROOT / "tools/test_window_close.py"), "--native-child", "--native-hidden"],
-                        cwd=directory, env=env, stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT, text=True, timeout=15)
-                    print("Bare hidden Flet repeat-launch probe:", probe.returncode, probe.stdout[-6000:], flush=True)
-                except subprocess.TimeoutExpired as error:
-                    print("Bare hidden Flet repeat-launch probe timed out:", error.stdout, flush=True)
+                saved = json.loads(geometry.read_text()) if geometry.exists() else {}
+                for label, position in (("default", None),
+                                        ("saved size", {key: value for key, value in saved.items() if key not in ("left", "top")}),
+                                        ("saved size and position", saved)):
+                    probe_args = [sys.executable, str(ROOT / "tools/test_window_close.py"), "--native-child", "--native-hidden"]
+                    if position is not None:
+                        probe_args.append("--native-geometry=" + json.dumps(position))
+                    probe_before = set(psutil.pids())
+                    try:
+                        probe = subprocess.run(probe_args, cwd=directory, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=15)
+                        print(f"Bare hidden Flet repeat-launch probe ({label}):", probe.returncode, probe.stdout[-6000:], flush=True)
+                    except subprocess.TimeoutExpired as error:
+                        print(f"Bare hidden Flet repeat-launch probe ({label}) timed out:", error.stdout, flush=True)
+                    finally:
+                        _, leftover = smoke_processes(psutil, binary, probe_before)
+                        for child in leftover:
+                            try:
+                                child.kill()
+                            except psutil.Error:
+                                pass
+                        psutil.wait_procs(leftover, timeout=5)
                 raise failure
 
 
