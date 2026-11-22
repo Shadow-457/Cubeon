@@ -159,7 +159,7 @@ const RELEASE_CACHE_SECONDS = 300;
 
 // A synthetic cache key. This is an internal object, not a client URL, so it
 // must not be able to collide with a real request.
-const RELEASE_CACHE_KEY = "https://cubeon-downloads.internal/release-v2-";
+const RELEASE_CACHE_KEY = "https://cubeon-downloads.internal/release-v3-";
 
 /** The Workers edge cache, or null where there isn't one (Node, tests). */
 function edgeCache() {

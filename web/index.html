@@ -241,7 +241,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
           "name": "What does my computer need?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Packaged builds are available for Windows 10 and 11 and 64-bit Linux. Choose the file for your system on the download page; macOS is untested and its download is unavailable. Release files are on the latest stable release. Minecraft itself needs compatible Java and graphics drivers."
+            "text": "Packaged builds are available for Windows 10 and 11 and 64-bit Linux. Choose the file for your system on the download page; Apple Silicon and Intel macOS preview builds are also available. Windows and Linux stable files are on the latest stable release. Minecraft itself needs compatible Java and graphics drivers."
           }
         },
         {
@@ -265,7 +265,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
           "name": "Which file should I download?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS is untested and downloads are unavailable. Download only from the official site or repository."
+            "text": "Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS: choose the Apple Silicon or Intel preview DMG. Download only from the official site or repository."
           }
         },
         {
@@ -371,8 +371,9 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
           </div>
 
           <div class="pane" data-os="mac">
-            <button type="button" class="btn big" disabled aria-disabled="true" title="macOS has not been tested yet. Downloads are unavailable for now.">macOS unavailable</button>
-            <p class="meta">macOS has not been tested yet. Downloads are unavailable for now.</p>
+            <a class="btn big" href="/macosarm64download">Download for Apple Silicon</a>
+            <p class="meta">macOS preview &middot; Not Apple notarized &middot; Free</p>
+            <details class="more"><summary>Intel Mac</summary><div><a href="/macosx64download">Download for Intel Mac</a></div></details>
           </div>
 
           <p class="switch">Not your system?
@@ -518,14 +519,14 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       <div class="q"><button class="q-a" type="button" aria-expanded="false">How do I play with friends?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Add friends by their Cubeon name and the launcher keeps the conversation, showing who's online and what they're playing. To play together, join the same Minecraft server using the address supplied by its owner. Match the server's Minecraft version and required mods, and check that it accepts local/offline profiles.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Is it fast?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>We measured it rather than claiming it. On the same PC, same Minecraft version, Cubeon averaged <strong>206 FPS</strong> in game against 152 for FastClient and 119 for SKLauncher - and its worst single second was 102 FPS, where the other two dropped to 37 and 33. The <a href="/benchmarks" style="color:var(--grass-dark);text-decoration:underline">benchmarks page</a> has every number, the charts, and the caveats that weaken the comparison.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Can I bring my own mods or modpacks?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Yes. Open Settings, go to Import, and point it at the folder your mods live in. Cubeon lists everything it finds - mods, resource packs, shader packs, modpacks and worlds - and installs what you pick for the version you chose.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">What does my computer need?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Packaged builds are available for Windows 10 and 11 and 64-bit Linux. Choose the file for your system on the <a href="download.html">download page</a>; macOS is untested and its download is unavailable. Release files are on the <a href="https://github.com/Shadow-457/Cubeon/releases/latest">latest stable release</a>. Minecraft itself needs compatible Java and graphics drivers.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">What does my computer need?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Packaged builds are available for Windows 10 and 11 and 64-bit Linux. Choose the file for your system on the <a href="download.html">download page</a>; Apple Silicon and Intel macOS preview builds are also available. Windows and Linux stable files are on the <a href="https://github.com/Shadow-457/Cubeon/releases/latest">latest stable release</a>. Minecraft itself needs compatible Java and graphics drivers.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Where are my name and skins kept, and who sees them?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>On your computer, in the <strong>.cubeon_launcher</strong> folder inside your user folder. Your skin and cape are shared so other Cubeon players see them when you play together. Change or remove them whenever you like.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Will you email me?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>No. Cubeon never asks for an email address, so there is nothing to unsubscribe from.</p></div></div></div>
     </div>
 
     <h3 class="faq-h">If something goes wrong</h3>
     <div class="faq">
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">Which file should I download?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS is untested and downloads are unavailable. Download only from the official site or repository.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Which file should I download?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS: choose the Apple Silicon or Intel preview DMG. Download only from the official site or repository.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">The game won't start<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Minecraft needs Java. Cubeon uses a Java it finds on your computer when it's new enough, and offers to download a free one for you when it isn't - so usually there's nothing to install. If a launch still fails, install Java free from <a href="https://adoptium.net" target="_blank" rel="noopener" style="color:var(--grass-dark);text-decoration:underline">adoptium.net</a> and try again.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">My computer warns me about the file<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Unsigned independent apps can trigger a Windows SmartScreen or macOS Gatekeeper warning. Check that the file came from this site or the <a href="https://github.com/Shadow-457/Cubeon/releases">official GitHub releases</a>, and read the <a href="help.html">platform help</a> for the warning you see.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">A friend can't get in, or I can't find them<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>A friend's name only exists once they've opened Cubeon at least once, so ask them to run it first. If someone can't join a server, confirm the address with its owner, check that the server is reachable, and match its Minecraft version, required mods and profile requirements.</p></div></div></div>
