@@ -115,11 +115,16 @@ for builder in ("build-linux-appimage", "build-windows-exe", "build-macos"):
     check(f"{builder} uploads to the path the version job set",
           "RELEASE_TAG: ${{ needs.release.outputs.tag }}" in block)
 pub = job_block("publish")
-check("the untested macOS builder is disabled", "if: ${{ false }}" in job_block("build-macos"))
-check("publish does not wait for the disabled macOS builder", "build-macos" not in pub)
+mac = job_block("build-macos")
+check("native macOS builds run on Apple Silicon and Intel runners",
+      "if: ${{ false }}" not in mac and "runner: macos-15\n" in mac
+      and "runner: macos-15-intel" in mac and "arch: arm64" in mac and "arch: x64" in mac)
+check("macOS bundles pass native startup before upload",
+      'test_macos_package.py --native --arch "${{ matrix.arch }}"' in mac
+      and mac.index("test_macos_package.py") < mac.index("gh release upload"))
 check("publish waits for supported builders",
       all(f"- {b}" in pub.split("needs:")[1].split("\n")[0] or b in pub
-          for b in ("build-linux-appimage", "build-windows-exe")))
+          for b in ("build-linux-appimage", "build-windows-exe", "build-macos")))
 check("Windows packaging verifies the actual installer transactions",
       "test_launcher_installers.py --native-windows" in job_block("build-windows-exe"))
 check("Windows packaging has no dependency on the removed automatic updater",
@@ -525,6 +530,7 @@ try:
     section("7. publish refuses an incomplete release")
     COMPLETE = ["Cubeon-Windows-x64-Setup.exe",
                 "Cubeon-x86_64.AppImage",
+                "Cubeon-macOS-arm64.zip", "Cubeon-macOS-x64.zip",
                 "Cubeon-Linux-x86_64-Setup.sh", "Cubeon-Linux-x86_64-Setup.AppImage",
                 "cubeon_1.1.3_amd64.deb"]
     (sim.state / "assets" / "v1.1.3").write_text(
@@ -535,6 +541,11 @@ try:
         "\n".join(COMPLETE) + "\n", encoding="utf-8")
     rc = sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3")
     check("a complete release passes", rc == 0, sim.log.read_text()[-400:])
+    for missing in ("Cubeon-macOS-arm64.zip", "Cubeon-macOS-x64.zip"):
+        (sim.state / "assets" / "v1.1.3").write_text(
+            "\n".join(asset for asset in COMPLETE if asset != missing) + "\n", encoding="utf-8")
+        check(f"publish refuses missing {missing}",
+              sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3") != 0)
     # A .deb under a stale name must not sneak through on a prefix match alone.
     (sim.state / "assets" / "v1.1.3").write_text(
         "\n".join(COMPLETE[:-1]) + "\ncubeon_1.1.3_amd64.tar.gz\n", encoding="utf-8")

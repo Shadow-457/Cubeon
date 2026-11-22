@@ -56,6 +56,16 @@
       "permanent": false
     },
     {
+      "source": "/macosarm64download",
+      "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/macosarm64download",
+      "permanent": false
+    },
+    {
+      "source": "/macosx64download",
+      "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/macosx64download",
+      "permanent": false
+    },
+    {
       "source": "/windowsdownload",
       "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/windowsdownload",
       "permanent": false

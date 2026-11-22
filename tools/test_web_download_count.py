@@ -403,7 +403,7 @@ def _post_branch(source):
 # nothing, so it has to run before the token is read or GitHub is called.
 check("the throttle runs before the token check and before GitHub",
       _before(worker_source, "await throttle(request, env)", "if (!env.GITHUB_TOKEN)")
-      and _before(worker_source, "await throttle(request, env)", "await latestRelease(env)"))
+      and _before(worker_source, "await throttle(request, env)", "await latestRelease(env,"))
 
 with open(os.path.join(REPO, "worker", "cubeon-waitlist.js"), encoding="utf-8") as handle:
     waitlist_source = handle.read()

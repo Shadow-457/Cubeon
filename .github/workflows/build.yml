@@ -567,11 +567,17 @@ jobs:
         run: gh release upload "$RELEASE_TAG" dist/Cubeon-Windows-x64-Setup.exe --clobber
 
   build-macos:
-    name: Build macOS app
-    # Untested: retain the build recipe, but do not offer macOS releases yet.
-    if: ${{ false }}
+    name: Build macOS (${{ matrix.arch }})
     needs: release
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
     env:
@@ -611,18 +617,20 @@ jobs:
           chmod +x packaging/build_macos.sh
           ./packaging/build_macos.sh
 
+      - name: Verify macOS bundle and native startup
+        run: python tools/test_macos_package.py --native --arch "${{ matrix.arch }}"
+
       - name: Publish macOS app to the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ditto -c -k --sequesterRsrc --keepParent dist/Cubeon Cubeon-macOS.zip
-          gh release upload "$RELEASE_TAG" Cubeon-macOS.zip --clobber
+          gh release upload "$RELEASE_TAG" "dist/Cubeon-macOS-${{ matrix.arch }}.zip" --clobber
 
   publish:
     name: Verify assets + publish the release
-    needs: [ release, build-linux-appimage, build-windows-exe ]
+    needs: [ release, build-linux-appimage, build-windows-exe, build-macos ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -642,6 +650,7 @@ jobs:
           missing=0
           for want in Cubeon-Windows-x64-Setup.exe \
                       Cubeon-x86_64.AppImage \
+                      Cubeon-macOS-arm64.zip Cubeon-macOS-x64.zip \
                       Cubeon-Linux-x86_64-Setup.sh Cubeon-Linux-x86_64-Setup.AppImage; do
             if ! grep -qxF "$want" <<<"$have"; then
               echo "::error::$TAG is missing $want"

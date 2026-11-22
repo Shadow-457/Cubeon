@@ -35,6 +35,7 @@ instructions.txt
 /tools/*
 !/tools/test_onboarding.py
 !/tools/test_client_startup.py
+!/tools/test_macos_package.py
 !/tools/test_lod.py
 !/tools/test_lod_native.py
 !/tools/test_local_api_disconnect.py
