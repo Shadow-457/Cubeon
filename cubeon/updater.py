@@ -4,7 +4,7 @@ The historical filename is retained for packaging and release stamping.
 The automatic update controller lives separately in auto_update.py.
 """
 
-APP_VERSION = "1.4.54"
+APP_VERSION = "1.4.55"
 
 # Public release filenames. Installed executables keep their existing names.
 RELEASE_ASSETS = {
