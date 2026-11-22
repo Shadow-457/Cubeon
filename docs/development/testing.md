@@ -48,6 +48,7 @@ catalog; the scripts in `tools/` are the current inventory.
 | Automatic modpack preservation | `test_modpack_integrity.py`, `test_perf_loader_support.py`, `test_game_feature_switches.py`, `test_modpack_client_mods_errors.py` |
 | Mod compatibility and launch override | `test_content_checks.py`, `test_mod_prelaunch_dependencies.py`, `test_mod_resolver.py`, `test_launch_claim.py`, `test_play_backend_audit.py` |
 | Combined mod catalogue | `test_mod_catalogue.py`, `test_mod_search.py`, `test_mod_detail.py`, `test_content_install_feedback.py`, `test_mods_management_ui.py` |
+| Fuzzy modpack discovery | `test_fuzzy_search.py`, `test_modpack_search.py` |
 | Horizon content mods for Rust | `test_rust_mods.py`; `test_rust_engine_native.py --content-mod /path/to/adapted.hmod` with a matching installed binary/resources |
 | Content isolation | `test_content_instance.py`, `test_instances.py` |
 | Friends and chat | `test_friends.py`, `test_friends_service.py`, `test_chat_optimistic.py` |
@@ -79,6 +80,12 @@ Ars Énergistique 1.2.0's unscoped `[[dependencies]]` array (ignored by Forge's
 NightConfig lookup). Preserve scoped primary/secondary requirements. Pin tests
 must prove an older release is selected and incompatible pins fail instead of
 falling back to latest.
+
+Modpack search fixtures cover spaced acronyms, typos, title/slug ranking ahead
+of description-only matches, and completion in either provider order. Recovery
+keeps version filters and pagination, tries at most three nonempty probes, and
+preserves existing results when probes fail. Cover keyless CurseForge discovery
+and the one-minute empty-result cache too.
 
 Pack preservation fixtures install author-selected JARs on Fabric, Quilt,
 Forge and NeoForge, then repeat automatic preparation and the actual launch
@@ -135,8 +142,16 @@ The Python test loop, exclusions, and platform jobs are defined in
 [`.github/workflows/build.yml`](../../.github/workflows/build.yml).
 CI is not identical to the default smoke gate.
 
-The Ubuntu job runs `tools/test_*.py` with a fresh `CUBEON_GAME_DIR` for each
-script. Its explicit exclusions require separate local fixtures:
+Automatic Ubuntu runs use the workflow's short regression list: source/UI smoke,
+startup, fuzzy modpack discovery, compatibility, pack preservation, companion
+archives/compilation and release tooling. The job has a five-minute cap and each
+script has a 60-second timeout; Windows startup checks also have a five-minute cap.
+
+To run the extended `tools/test_*.py` inventory, open **Actions → Build & publish
+Cubeon binaries → Run workflow** and enable **full_tests**. This test-only dispatch
+does not open a release or build platform packages. It has a 30-minute job cap and
+120 seconds per script. Every mode keeps a fresh `CUBEON_GAME_DIR` per script.
+Extended runs exclude checks that require separate local fixtures:
 
 | Excluded checks | Prerequisites |
 | --- | --- |

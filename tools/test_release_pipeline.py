@@ -145,6 +145,47 @@ check("the version job is the only writer of the version",
 check("a human tag push still bypasses the auto-bump",
       "refs/tags/v*" in extract_run("Decide the version, stamp it, tag it, open the draft"))
 
+section("bounded CI selection (execute the real workflow test loop)")
+test_script = extract_run("Run test suite")
+with tempfile.TemporaryDirectory(prefix="cubeon-ci-selection-") as directory:
+    fixture = Path(directory)
+    (fixture / "tools").mkdir()
+    (fixture / "bin").mkdir()
+    for name in set(re.findall(r"tools/test_[a-z0-9_]+\.py", test_script)) | {
+            "tools/test_expensive_fuzz.py", "tools/test_visual_fixture.py"}:
+        (fixture / name).touch()
+    stub = fixture / "bin" / "python3"
+    stub.write_text('#!/usr/bin/env bash\n'
+                    'printf "%s\\n" "$1" >> "$CI_SELECTED_TESTS"\n'
+                    'test "$1" != "${CI_FAIL_TEST:-}"\n', encoding="utf-8")
+    stub.chmod(0o755)
+    log = fixture / "selected.txt"
+    env = dict(os.environ, PATH=str(stub.parent) + os.pathsep + os.environ["PATH"],
+               CI_SELECTED_TESTS=str(log))
+    for full in ("false", "true"):
+        log.write_text('', encoding="utf-8")
+        result = subprocess.run(["bash", "-c", test_script], cwd=fixture,
+                                env=dict(env, FULL_TEST_SUITE=full),
+                                capture_output=True, text=True, timeout=15)
+        selected = log.read_text(encoding="utf-8").splitlines()
+        check(f"CI selection {full} completes successfully", result.returncode == 0, result.stderr)
+        check(f"CI selection {full} retains pack discovery and resolver gates",
+              all(name in selected for name in ("tools/test_modpack_search.py", "tools/test_mod_resolver.py",
+                                                "tools/test_modpack_integrity.py")))
+        check(f"CI selection {full} gates fuzz campaigns explicitly",
+              ("tools/test_expensive_fuzz.py" in selected) == (full == "true"))
+        check(f"CI selection {full} excludes graphical manual probes",
+              "tools/test_visual_fixture.py" not in selected)
+    result = subprocess.run(["bash", "-c", test_script], cwd=fixture,
+                            env=dict(env, FULL_TEST_SUITE="false", CI_FAIL_TEST="tools/test_mod_resolver.py"),
+                            capture_output=True, text=True, timeout=15)
+    check("a failing quick regression still fails CI", result.returncode != 0)
+check("CI has a five-minute default cap and per-script timeouts",
+      "timeout-minutes: ${{ inputs.full_tests && 30 || 5 }}" in job_block("test")
+      and 'timeout "$test_timeout" python3 "$t"' in test_script)
+check("full test dispatch does not create another release or run platform builds",
+      "github.event_name != 'workflow_dispatch' || !inputs.full_tests" in job_block("release"))
+
 
 # ------------------------------------------------------------------ sandbox gh ---
 GH_STUB = r'''#!/usr/bin/env bash

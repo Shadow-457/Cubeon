@@ -5,6 +5,12 @@ on:
     branches: [ main, master ]
     tags: [ "v*" ]
   workflow_dispatch:
+    inputs:
+      full_tests:
+        description: Run the extended test suite (up to 30 minutes)
+        type: boolean
+        required: false
+        default: false
 
 # One release per push to main/master (2026-10-17).
 #
@@ -55,8 +61,9 @@ concurrency:
 
 jobs:
   test:
-    name: Test suite
+    name: ${{ inputs.full_tests && 'Full test suite' || 'Quick regression checks' }}
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.full_tests && 30 || 5 }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -86,13 +93,44 @@ jobs:
 
       - name: Run test suite
         env:
+          FULL_TEST_SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.full_tests }}
           # The harnesses are hermetic (sandboxed game dir), but set it
           # explicitly so a stray write can never touch CI's real HOME.
           CUBEON_GAME_DIR: /tmp/cubeon-game-ci
         run: |
-          set -e
+          set -euo pipefail
           failed=0
-          for t in tools/test_*.py; do
+          if [[ "$FULL_TEST_SUITE" == "true" ]]; then
+            tests=(tools/test_*.py)
+            test_timeout=120
+          else
+            # Keep source/UI smoke, pack preservation, discovery, resolver,
+            # companion archive/compile and release contracts on every push.
+            # Fuzz campaigns and installed-game probes belong to explicit runs.
+            tests=(
+              tools/test_mega_smoke.py
+              tools/test_startup.py
+              tools/test_source_runtime.py
+              tools/test_desktop_runtime.py
+              tools/test_fuzzy_search.py
+              tools/test_modpack_search.py
+              tools/test_mod_search.py
+              tools/test_mod_resolver.py
+              tools/test_mod_prelaunch_dependencies.py
+              tools/test_content_checks.py
+              tools/test_modpack_integrity.py
+              tools/test_perf_loader_support.py
+              tools/test_game_feature_switches.py
+              tools/test_modpacks.py
+              tools/test_modpacks_cf_keyless.py
+              tools/test_mod_matrix.py
+              tools/test_mod_compile.py
+              tools/test_release_version.py
+              tools/test_release_pipeline.py
+            )
+            test_timeout=60
+          fi
+          for t in "${tests[@]}"; do
             # Gradle-based jar assembly needs network + minutes; compile
             # checking (test_mod_compile) stays, building does not.
             case "$t" in
@@ -114,7 +152,7 @@ jobs:
             # later test see an earlier test's files and fail nondeterministically.
             export CUBEON_GAME_DIR="/tmp/cubeon-game-ci-$RANDOM-$RANDOM"
             rm -rf "$CUBEON_GAME_DIR"
-            if ! python3 "$t"; then
+            if ! timeout "$test_timeout" python3 "$t"; then
               echo "::error::$t failed"
               failed=1
             fi
@@ -126,10 +164,11 @@ jobs:
     # The window-reveal and splash-ordering fixes were unverifiable from Linux,
     # and Windows is where the "process runs but no window appears" report came
     # from. This re-runs the startup-critical, OS-agnostic harnesses on a real
-    # Windows runner. The full suite stays on ubuntu-latest (above) - running
-    # all of it on Windows would duplicate a lot for little extra signal.
+    # Windows runner. Extended suites are opt-in on Ubuntu; running all of
+    # them on Windows would duplicate a lot for little extra signal.
     name: Startup tests (Windows)
     runs-on: windows-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -170,6 +209,8 @@ jobs:
 
   release:
     name: Decide the version + open the draft release
+    # An explicitly requested full test run must not also rebuild all platforms.
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.full_tests }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

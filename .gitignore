@@ -40,6 +40,7 @@ instructions.txt
 !/tools/test_lod_native.py
 !/tools/test_local_api_disconnect.py
 !/tools/test_mod_catalogue.py
+!/tools/test_modpack_search.py
 !/tools/test_rust_mods.py
 !/tools/test_color_studio.py
 !/tools/test_cosmetics_store.py
