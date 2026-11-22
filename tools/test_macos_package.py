@@ -55,6 +55,20 @@ def smoke_processes(psutil, binary, before):
     return launcher, clients
 
 
+def flet_pid_process(psutil, fresh_log):
+    """Resolve this session's native client from Flet's own random PID file."""
+    lines = [line.split("pid_file: ", 1)[1].strip() for line in fresh_log.splitlines()
+             if "flet_desktop:" in line and "pid_file: " in line]
+    if not lines:
+        return []
+    try:
+        pid = int(Path(lines[-1]).read_text().strip())
+        process = psutil.Process(pid)
+        return [process] if process.is_running() and process.status() != psutil.STATUS_ZOMBIE else []
+    except (OSError, ValueError, psutil.Error):
+        return []
+
+
 def wait_for_smoke(marker, discover, alive, diagnostics, route, *,
                    startup_timeout=120, hold_seconds=15):
     deadline = time.monotonic() + startup_timeout
@@ -136,21 +150,27 @@ def native(arch):
         with tempfile.TemporaryDirectory(prefix="cubeon-macos-smoke-") as directory:
             env = dict(os.environ, CUBEON_GAME_DIR=str(Path(directory) / "game"))
             output = Path(directory) / "startup.log"
+            launcher_log = Path.home() / ".cubeon_launcher/cubeon.log"
+            log_start = len(launcher_log.read_text(errors="replace")) if launcher_log.exists() else 0
+            def fresh_log():
+                return launcher_log.read_text(errors="replace")[log_start:] if launcher_log.exists() else ""
             observed = []
             def discover():
-                found = smoke_processes(psutil, binary, before)
+                launcher, _ = smoke_processes(psutil, binary, before)
+                found = launcher, flet_pid_process(psutil, fresh_log())
                 if marker.exists() and not observed:
-                    for child in psutil.process_iter(["pid", "name", "exe", "cmdline", "status"]):
-                        if child.pid in before:
+                    for child in psutil.process_iter(["pid", "name", "exe", "cmdline", "status", "ppid"]):
+                        if child.pid in before and child.pid not in [p.pid for p in found[1]]:
                             continue
-                        if any(name in (child.info["name"] or "").lower() for name in ("cubeon", "flet", "python")):
+                        if (child.info["ppid"] in [p.pid for p in launcher]
+                                or child.pid in [p.pid for p in found[1]]
+                                or any(name in (child.info["name"] or "").lower() for name in ("cubeon", "flet", "python"))):
                             observed.append(str(dict(child.info, cmdline=(child.info["cmdline"] or [])[:1])))
                     observed.append(f"matched launchers={[p.pid for p in found[0]]} clients={[p.pid for p in found[1]]}")
                 return found
             def diagnostics():
-                launcher_log = Path.home() / ".cubeon_launcher/cubeon.log"
                 return (output.read_text(errors="replace") +
-                        (launcher_log.read_text(errors="replace") if launcher_log.exists() else ""))[-6000:] + "\nFirst-paint processes:\n" + "\n".join(observed)
+                        fresh_log())[-6000:] + "\nFirst-paint processes:\n" + "\n".join(observed)
             with output.open("wb") as log:
                 process = subprocess.Popen(arguments, cwd=directory, env=env,
                                            stdout=log, stderr=subprocess.STDOUT)
@@ -165,7 +185,7 @@ def native(arch):
                     print(f"macOS {arch}: {route} launch reached first paint and stayed open for 15 seconds")
                 finally:
                     # Both the launcher and Flet can detach through LaunchServices.
-                    launcher, clients = smoke_processes(psutil, binary, before)
+                    launcher, clients = discover()
                     for child in launcher + clients:
                         try:
                             child.terminate()
@@ -219,6 +239,21 @@ def smoke_regressions():
             assert relocated_launcher not in smoke_processes(psutil, binary, {9})[0]
         marker = home / "painted"
         marker.touch()
+        from unittest.mock import Mock
+        pid_file = home / 'random-flet-pid'
+        pid_file.write_text('42')
+        client_process = Mock(pid=42)
+        client_process.is_running.return_value = True
+        client_process.status.return_value = 'running'
+        fresh = f'INFO flet_desktop: pid_file: {pid_file}'
+        with patch.object(psutil, 'Process', return_value=client_process) as resolve:
+            assert flet_pid_process(psutil, fresh) == [client_process]
+            resolve.assert_called_once_with(42)
+            client_process.status.return_value = psutil.STATUS_ZOMBIE
+            assert flet_pid_process(psutil, fresh) == []
+        pid_file.unlink()
+        assert flet_pid_process(psutil, fresh) == []
+        assert flet_pid_process(psutil, '') == []
         # An exited open helper is irrelevant once the actual apps are alive.
         wait_for_smoke(marker, lambda: ([launcher], [flet]), lambda p: True,
                        lambda: "diagnostics", "Finder", hold_seconds=0)
