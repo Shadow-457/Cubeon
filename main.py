@@ -689,6 +689,9 @@ def _capture_flet_client_exit(slot: dict) -> None:
                     from cubeon.desktop_runtime import wait_macos_client
                     result = await wait_macos_client(
                         self._pid_file, self._real._cubeon_launched_at)
+                capture_output = getattr(self._real, "_cubeon_capture_native_output", None)
+                if capture_output is not None:
+                    capture_output()
             except BaseException:
                 slot["code"] = None
                 raise
@@ -825,6 +828,10 @@ async def main(page: ft.Page):
     _gl = _geom_num("left", -3840, 15360, None)
     _gt = _geom_num("top", -2160, 8640, None)
     _saved_maximized = bool(_geom.get("maximized"))
+    if sys.platform == "darwin":
+        logging.getLogger("cubeon.desktop_runtime").info(
+            "macOS saved window: width=%s height=%s left=%s top=%s maximized=%s",
+            _gw, _gh, _gl, _gt, _saved_maximized)
     # Off-screen guard: a restored position from a monitor that's gone would
     # strand the window in unreachable space. -3840/-2160 allow one virtual
     # monitor to the left/above, but the position is dropped entirely if
@@ -9191,7 +9198,12 @@ if __name__ == "__main__":
             _flet_desktop.__locate_and_unpack_flet_view(
                 page_url, assets_dir, hidden)
         flet_env = _incident.client_environment(flet_env)
+        native_output = None
         if sys.platform == "darwin":
+            # open's own pipe does not carry the LaunchServices app's output.
+            # Its supported redirection options expose native diagnostics too.
+            native_output = pid_file + ".output"
+            args[1:1] = ["--stdout", native_output, "--stderr", native_output]
             logging.getLogger("cubeon.desktop_runtime").info(
                 "macOS desktop launch: parent_bundle=%s parent_service=%s hidden=%s",
                 os.environ.get("__CFBundleIdentifier", "unset"),
@@ -9217,6 +9229,26 @@ if __name__ == "__main__":
         )
         proc._cubeon_macos_helper = sys.platform == "darwin" and args[0] == "open"
         proc._cubeon_launched_at = launched_at
+        if native_output is not None:
+            def capture_native_output():
+                try:
+                    with open(native_output, "rb") as stream:
+                        stream.seek(0, os.SEEK_END)
+                        stream.seek(max(0, stream.tell() - 65536))
+                        lines = stream.read().decode("utf-8", "replace").splitlines()
+                    for line in lines:
+                        _client_tail.add(line)
+                    for line in lines[-12:]:
+                        logging.getLogger("cubeon.desktop_runtime").info(
+                            "macOS native output: %s", line[:2048])
+                except OSError:
+                    pass
+                finally:
+                    try:
+                        os.unlink(native_output)
+                    except OSError:
+                        pass
+            proc._cubeon_capture_native_output = capture_native_output
         logging.getLogger("cubeon.desktop_runtime").info(
             "Desktop client started: pid=%s executable=%s pid_file=%s kind=%s",
             proc.pid, args[0], pid_file, "helper" if args[0] == "open" else "native")

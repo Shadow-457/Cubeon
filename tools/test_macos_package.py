@@ -192,6 +192,7 @@ def native(arch):
             with output.open("wb") as log:
                 process = subprocess.Popen(arguments, cwd=directory, env=env,
                                            stdout=log, stderr=subprocess.STDOUT)
+                failure = None
                 try:
                     def alive(child):
                         try:
@@ -202,6 +203,8 @@ def native(arch):
                     wait_for_smoke(marker, discover,
                                    alive, diagnostics, route, hold_seconds=hold_seconds)
                     print(f"macOS {arch}: {route} launch reached first paint and stayed open for {hold_seconds} seconds")
+                except AssertionError as error:
+                    failure = error
                 finally:
                     # Both the launcher and Flet can detach through LaunchServices.
                     launcher, clients = discover()
@@ -224,6 +227,21 @@ def native(arch):
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
+            if failure is not None:
+                geometry = Path.home() / ".cubeon_launcher/window_geometry.json"
+                print("Saved Cubeon geometry:", geometry.read_text() if geometry.exists() else "missing", flush=True)
+                # Reuse the existing native close probe against the same Flet
+                # cache. This distinguishes Cubeon startup from a bare client's
+                # repeat-launch failure, while retaining the original failure.
+                try:
+                    probe = subprocess.run(
+                        [sys.executable, str(ROOT / "tools/test_window_close.py"), "--native-child", "--native-hidden"],
+                        cwd=directory, env=env, stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT, text=True, timeout=15)
+                    print("Bare hidden Flet repeat-launch probe:", probe.returncode, probe.stdout[-6000:], flush=True)
+                except subprocess.TimeoutExpired as error:
+                    print("Bare hidden Flet repeat-launch probe timed out:", error.stdout, flush=True)
+                raise failure
 
 
 def smoke_regressions():

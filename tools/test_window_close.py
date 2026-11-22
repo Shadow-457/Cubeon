@@ -96,6 +96,11 @@ def native_child():
         page.window.width = 240
         page.window.height = 160
         page.add(ft.Text('Testing window close'), ft.ProgressRing())
+        if '--native-hidden' in sys.argv:
+            page.window.visible = False
+            page.window.visible = True
+            page.window.update()
+            await page.window.to_front()
         closer = WindowCloser(page)
         async def finish():
             await asyncio.sleep(1.5)
@@ -103,7 +108,7 @@ def native_child():
             print('NATIVE_CLOSE_RESULT', await closer.close(), flush=True)
         page.run_task(finish)
     print('FLET_VERSION', importlib.metadata.version('flet'), flush=True)
-    ft.run(main)
+    ft.run(main, view=ft.AppView.FLET_APP_HIDDEN if '--native-hidden' in sys.argv else ft.AppView.FLET_APP)
 
 
 def native_probes():
