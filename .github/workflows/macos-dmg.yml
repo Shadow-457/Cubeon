@@ -70,8 +70,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build
-          release_id="$(gh release view "$RELEASE_TAG" --json databaseId --jq .databaseId)"
-          gh api "repos/$GH_REPO/releases/$release_id" > build/release-assets.json
+          release_api="$(gh release view "$RELEASE_TAG" --json apiUrl --jq .apiUrl)"
+          gh api "$release_api" > build/release-assets.json
           if jq -e --arg name "update-${RELEASE_TAG#v}.json" 'any(.assets[]; .name == $name)' build/release-assets.json >/dev/null; then
             channel=stable
             if jq -e '.prerelease' build/release-assets.json >/dev/null; then channel=beta; fi

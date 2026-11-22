@@ -291,6 +291,14 @@ def update_manifest(version: str, release: dict, repository: str, release_channe
     uploaded = release.get("assets")
     if not isinstance(uploaded, list):
         raise VersionError("release assets are missing")
+    # GitHub's draft assets use the release's temporary slug until publication.
+    # Verify that exact trusted draft path, but offer the final tagged URL.
+    draft_slug = None
+    if release.get("draft") is True:
+        match = re.fullmatch(re.escape(f"https://github.com/{repository}/releases/tag/")
+                             + r"(untagged-[A-Za-z0-9-]+)", release.get("html_url") or "")
+        if match:
+            draft_slug = match.group(1)
     assets = {}
     for kind in RELEASE_ASSETS:
         name = release_asset_name(kind, version)
@@ -304,7 +312,9 @@ def update_manifest(version: str, release: dict, repository: str, release_channe
         if not isinstance(digest, str) or not re.fullmatch(r"sha256:[a-fA-F0-9]{64}", digest):
             raise VersionError(f"{name} is missing its GitHub SHA-256 digest")
         url = f"https://github.com/{repository}/releases/download/v{version}/{name}"
-        if asset.get("browser_download_url") != url:
+        draft_url = (f"https://github.com/{repository}/releases/download/{draft_slug}/{name}"
+                     if draft_slug else None)
+        if asset.get("browser_download_url") != url and (draft_url is None or asset.get("browser_download_url") != draft_url):
             raise VersionError(f"{name} has an unexpected download URL")
         assets[kind] = {"name": name, "url": url, "size": size, "sha256": digest[7:].lower()}
     return {"schema_version": 1, "version": version, "tag_name": f"v{version}",

@@ -29,6 +29,7 @@ it for the build, so the system gradle/wrapper can stay on whatever it likes.
 """
 import argparse
 import glob
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -305,10 +306,21 @@ def build_with_gradle(bracket, jar_name, gradle, jvm_home):
     return path, None
 
 
-def verify(jar_path, bracket=None):
+def verify(jar_path, bracket=None, *, allow_retained_release=False):
     """Checks a built jar is one Fabric will actually load. Returns an error."""
     required = list(REQUIRED_ENTRIES)
     overlays = set(bracket.get("overlays", [])) if bracket else set()
+    # Shipping may deliberately retain an earlier verified binary while an
+    # experimental overlay stays in source. Only its exact recorded bytes may
+    # use that released overlay set; fresh build verification remains strict.
+    retained = (bracket or {}).get("retained_release")
+    if allow_retained_release and isinstance(retained, dict):
+        try:
+            digest = hashlib.sha256(Path(jar_path).read_bytes()).hexdigest()
+        except OSError as exc:
+            return f"jar is unreadable ({exc})"
+        if digest == retained.get("sha256"):
+            overlays.difference_update(retained.get("omitted_overlays", []))
     if "lod-26.3" in overlays:
         required.extend(["cubeon-client.lod.mixins.json", "com/cubeon/client/lod/LodClient.class",
                          "com/cubeon/client/lod/SodiumLodOptions.class", "com/cubeon/client/lod/LodRenderer.class",

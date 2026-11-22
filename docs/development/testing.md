@@ -63,6 +63,12 @@ Keep declared client mixins in `tools/build_mod_jars.py`'s `REQUIRED_ENTRIES`.
 `test_mod_compile.py` checks this contract, and `test_mod_matrix.py` audits the
 shipped archives. Rebuild through the mod builder after changing game sources
 so packaged JARs carry the new hooks.
+For the deliberately restored Fabric 26.3 release, `mod/brackets.json` records
+the approved JAR checksum, source commit and omitted experimental LOD overlay
+under `retained_release`. Shipped-archive checks accept that overlay set only
+for the exact recorded bytes and still check every other class/resource.
+Fresh builds use strict current-overlay verification. Remove or update the
+retained record when replacing that binary with a newly verified release.
 
 The compatibility suites exercise the real guarded launch block: default
 checks block before staging, while **Run anyway** consumes one in-memory

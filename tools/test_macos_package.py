@@ -67,44 +67,52 @@ def native(arch):
                 executable = Path(directory) / "flet"
                 executable.write_bytes(runtime.extractfile(path).read())
                 subprocess.run(["lipo", str(executable), "-verify_arch", machine], check=True)
-    # A fresh CI runner has no user state. Exercise the actual packaged launcher
-    # and its bundled native client, using the existing first-paint marker.
+    # A fresh CI runner has no user state. Exercise both executable startup
+    # and Finder's LaunchServices route, using the existing first-paint marker.
     marker = Path.home() / ".cubeon_launcher/ui_painted_ok"
-    marker.unlink(missing_ok=True)
-    before = set(psutil.pids())
-    with tempfile.TemporaryDirectory(prefix="cubeon-macos-smoke-") as directory:
-        env = dict(os.environ, CUBEON_GAME_DIR=str(Path(directory) / "game"))
-        output = Path(directory) / "startup.log"
-        with output.open("wb") as log:
-            process = subprocess.Popen([str(binary)], cwd=directory, env=env,
-                                       stdout=log, stderr=subprocess.STDOUT)
-            try:
-                deadline = time.monotonic() + 120
-                while time.monotonic() < deadline and not marker.exists():
-                    if process.poll() is not None:
-                        break
-                    time.sleep(0.25)
-                assert marker.exists(), output.read_text(errors="replace")[-6000:]
-                time.sleep(3)
-                assert process.poll() is None, "Packaged launcher exited after first paint"
-                print(f"macOS {arch}: native launcher and bundled Flet client reached first paint")
-            finally:
-                # Flet uses LaunchServices, so its process can be detached from Python.
-                for child in psutil.process_iter(["pid", "name", "cmdline"]):
-                    if child.pid in before:
-                        continue
-                    command = " ".join(child.info["cmdline"] or [])
-                    if child.pid == process.pid or ("flet" in child.info["name"].lower()
-                                                   and ".flet/client/" in command):
-                        try:
-                            child.terminate()
-                        except psutil.Error:
-                            pass
+    for route, arguments in (("executable", [str(binary)]),
+                             ("Finder", ["open", "-n", "-W", str(bundle)])):
+        marker.unlink(missing_ok=True)
+        before = set(psutil.pids())
+        with tempfile.TemporaryDirectory(prefix="cubeon-macos-smoke-") as directory:
+            env = dict(os.environ, CUBEON_GAME_DIR=str(Path(directory) / "game"))
+            output = Path(directory) / "startup.log"
+            def diagnostics():
+                launcher_log = Path.home() / ".cubeon_launcher/cubeon.log"
+                return (output.read_text(errors="replace") +
+                        (launcher_log.read_text(errors="replace") if launcher_log.exists() else ""))[-6000:]
+            with output.open("wb") as log:
+                process = subprocess.Popen(arguments, cwd=directory, env=env,
+                                           stdout=log, stderr=subprocess.STDOUT)
                 try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
+                    deadline = time.monotonic() + 120
+                    while time.monotonic() < deadline and not marker.exists():
+                        if process.poll() is not None:
+                            break
+                        time.sleep(0.25)
+                    assert marker.exists(), f"{route} did not reach first paint: {diagnostics()}"
+                    deadline = time.monotonic() + 15
+                    while time.monotonic() < deadline:
+                        assert process.poll() is None, f"{route} exited after first paint: {diagnostics()}"
+                        time.sleep(0.25)
+                    print(f"macOS {arch}: {route} launch reached first paint and stayed open for 15 seconds")
+                finally:
+                    # Both the launcher and Flet can detach through LaunchServices.
+                    for child in psutil.process_iter(["pid", "name", "cmdline"]):
+                        if child.pid in before:
+                            continue
+                        command = " ".join(child.info["cmdline"] or [])
+                        if (child.pid == process.pid or str(binary) in command
+                                or ("flet" in (child.info["name"] or "").lower() and ".flet/client/" in command)):
+                            try:
+                                child.terminate()
+                            except psutil.Error:
+                                pass
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
 
 
 if __name__ == "__main__":

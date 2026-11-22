@@ -127,7 +127,8 @@ The script produces `dist/Cubeon.app` and native
 `dist/Cubeon-<version>-macOS-{arm64,x64}.dmg` installers, with ZIP copies also retained.
 Each DMG contains Cubeon.app and an Applications shortcut for drag-and-drop installation. CI builds on native `macos-15` and `macos-15-intel` runners, verifies
 the bundle and bundled Flet architecture/signatures, and checks that the
-packaged launcher reaches its first desktop frame before uploading.
+packaged launcher reaches its first desktop frame and stays open for 15 seconds
+through both direct executable and Finder/LaunchServices startup before uploading.
 
 Bundles are ad-hoc signed. Developer ID signing and Apple notarization need
 separate credentials; these builds may require Gatekeeper approval. Desktop
@@ -215,10 +216,14 @@ The download Worker depends on these release asset names:
 Every release-producing push to `main`/`master` or a version tag generates
 the combined JSON after all platform uploads succeed. `[skip ci]` commits
 and manual `full_tests` dispatches do not create releases. The publish job reads
-the draft by its numeric GitHub release ID, verifies exact versioned names,
+the draft using `gh release view --json apiUrl`, verifies exact versioned names,
 upload state, nonempty size, download URLs and GitHub SHA-256 digests, then
 attaches the manifest before making the draft public. A missing binary or
 digest keeps the release private.
+Draft assets may have GitHub's temporary `untagged-...` download URLs. The
+generator accepts those only when they match the same draft's trusted GitHub
+page, repository and filename. The manifest always records the final version
+tag URLs that become available when publication finishes.
 
 `tools/release_version.py manifest <version> --release-json <api-response.json>
 --repository <owner/repo> --channel <stable-or-beta>` reproduces generation

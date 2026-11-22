@@ -224,8 +224,9 @@ case "$cmd" in
         fi
         [ -n "$latest" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
         echo "{\"tag_name\":\"$latest\"}";;
-      */releases/v*)
-        tag="${path##*/}"
+      */releases/[0-9]*)
+        release_id="${path##*/}"
+        tag="$(cat "$RELSTATE/release-ids/$release_id")"
         [ -f "$RELSTATE/releases/$tag" ] || exit 1
         if [ -f "$RELSTATE/api-$tag.json" ]; then
           cat "$RELSTATE/api-$tag.json"
@@ -235,12 +236,15 @@ import hashlib, json, os, sys
 from pathlib import Path
 state = Path(os.environ["RELSTATE"])
 tag = sys.argv[1]
+draft = not (state / "published" / tag).exists()
+slug = "untagged-" + (state / "releases" / tag).read_text().strip() if draft else tag
 assets = []
 for name in (state / "assets" / tag).read_text().splitlines():
     assets.append({"name": name, "size": 2048, "state": "uploaded",
                    "digest": "sha256:" + hashlib.sha256(name.encode()).hexdigest(),
-                   "browser_download_url": f"https://github.com/fake/repo/releases/download/{tag}/{name}"})
-print(json.dumps({"tag_name": tag, "prerelease": (state / "prerelease" / tag).exists(), "assets": assets}))
+                   "browser_download_url": f"https://github.com/fake/repo/releases/download/{slug}/{name}"})
+print(json.dumps({"tag_name": tag, "draft": draft, "html_url": f"https://github.com/fake/repo/releases/tag/{slug}",
+                  "prerelease": (state / "prerelease" / tag).exists(), "assets": assets}))
 PYASSETS
         fi;;
       *)
@@ -259,7 +263,11 @@ PYASSETS
         [ -f "$RELSTATE/releases/$tag" ] && { echo "422 already_exists" >&2; exit 1; }
         case " $* " in *" --verify-tag "*) ;; *) echo "gh: --verify-tag missing" >&2; exit 1;; esac
         case " $* " in *" --draft "*) ;; *) echo "gh: --draft missing" >&2; exit 1;; esac
-        touch "$RELSTATE/releases/$tag"
+        shopt -s nullglob
+        ids=("$RELSTATE"/release-ids/*)
+        release_id=$((1000 + ${#ids[@]}))
+        printf '%s\n' "$release_id" > "$RELSTATE/releases/$tag"
+        printf '%s\n' "$tag" > "$RELSTATE/release-ids/$release_id"
         case " $* " in *" --prerelease "*) touch "$RELSTATE/prerelease/$tag";; esac
         echo "created draft $tag";;
       upload)
@@ -280,7 +288,7 @@ PYASSETS
           for f in ${json//,/ }; do
             case "$f" in
               assets) ;;
-              tagName|isDraft|isPrerelease|isImmutable|name|url|apiUrl|id|databaseId|\
+              tagName|isDraft|isPrerelease|isImmutable|name|url|apiUrl|id|\
 author|body|createdAt|publishedAt|tarballUrl|zipballUrl|targetCommitish|uploadUrl) ;;
               *) echo "Unknown JSON field: \"$f\"" >&2
                  echo "  (the real gh lists the fields it accepts)" >&2
@@ -289,7 +297,8 @@ author|body|createdAt|publishedAt|tarballUrl|zipballUrl|targetCommitish|uploadUr
           done
         fi
         case "$json" in *assets*) cat "$RELSTATE/assets/$tag" 2>/dev/null || true;;
-          databaseId) echo "$tag";;
+          apiUrl) echo "https://api.github.com/repos/fake/repo/releases/$(cat "$RELSTATE/releases/$tag")";;
+          id) echo "RE_fixture_node_id";;
           *) echo "{\"tagName\":\"$tag\"}";; esac;;
       list)
         # Mirrors `--json tagName,isDraft --jq 'select(.isDraft == false)'`.
@@ -370,7 +379,7 @@ class Sim:
         self.bin = self.dir / "bin"
         self.home = self.dir / "home"
         self.log = self.dir / "last.log"
-        for d in (self.state / "releases", self.state / "published",
+        for d in (self.state / "releases", self.state / "release-ids", self.state / "published",
                   self.state / "prerelease",
                   self.state / "assets", self.state / "latest", self.bin, self.home):
             d.mkdir(parents=True, exist_ok=True)
@@ -643,6 +652,20 @@ try:
     for label, malformed in (("wrong tag", dict(release, tag_name="v1.1.2")),
                              ("wrong channel", dict(release, prerelease=False)),
                              ("duplicate installer", dict(release, assets=release["assets"] + release["assets"][:1]))):
+        override.write_text(json.dumps(malformed))
+        check(f"manifest rejects {label}", sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3") != 0)
+    override.unlink()
+    draft = dict(release, draft=True, html_url="https://github.com/fake/repo/releases/tag/untagged-fixture")
+    draft["assets"] = [dict(asset, browser_download_url=asset["browser_download_url"].replace("/v1.1.3/", "/untagged-fixture/"))
+                       for asset in release["assets"]]
+    override.write_text(json.dumps(draft))
+    check("GitHub's trusted temporary draft URLs generate final tagged download URLs",
+          sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3") == 0
+          and all("/v1.1.3/" in asset["url"] and "untagged" not in asset["url"]
+                  for asset in json.loads((sim.work / "dist/update-1.1.3.json").read_text())["assets"].values()))
+    for label, malformed in (("foreign draft URL", dict(draft, html_url="https://github.com/foreign/repo/releases/tag/untagged-fixture")),
+                             ("another draft slug", dict(draft, html_url="https://github.com/fake/repo/releases/tag/untagged-other")),
+                             ("draft URLs on a public release", dict(draft, draft=False))):
         override.write_text(json.dumps(malformed))
         check(f"manifest rejects {label}", sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3") != 0)
     override.unlink()

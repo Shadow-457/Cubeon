@@ -13,6 +13,7 @@ the main menu, and the player has no way to tell it was the launcher's doing.
 """
 import fnmatch
 import glob
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -605,6 +606,27 @@ def test_fabric_api_install():
         cubeonfriends.fabric_api_installed = real_installed
 
 
+def test_retained_release(matrix):
+    section("retained release binary stays pinned; fresh builds require current overlays")
+    for bracket in matrix["brackets"]:
+        retained = bracket.get("retained_release")
+        if not retained:
+            continue
+        name = matrix["jar_name"].format(version=matrix["mod_version"], key=bracket["key"])
+        path = Path(ROOT, "assets/jars", name)
+        ok(hashlib.sha256(path.read_bytes()).hexdigest() == retained["sha256"],
+           f"{name}: exact approved retained release bytes")
+        ok(verify(path, bracket, allow_retained_release=True) is None,
+           f"{name}: retained release passes all remaining archive checks")
+        ok(verify(path, bracket) is not None,
+           f"{name}: fresh-build verification still requires experimental overlays")
+        with tempfile.TemporaryDirectory() as directory:
+            changed = Path(directory, name)
+            changed.write_bytes(path.read_bytes() + b"modified retained binary")
+            ok(verify(changed, bracket, allow_retained_release=True) is not None,
+               f"{name}: a modified retained binary cannot use the exemption")
+
+
 def test_shipped_jars(matrix):
     section("shipped jars only declare classes they contain")
     # 2026-10-23 crash: the WIP emotes overlay added a literal
@@ -639,7 +661,7 @@ def test_shipped_jars(matrix):
                     for file in Path(MOD, "src/main/resources/assets/cubeon-client/textures/ui").iterdir()}
     for path in jars:
         name = os.path.basename(path)
-        error = verify(path, expected.get(name))
+        error = verify(path, expected.get(name), allow_retained_release=True)
         ok(error is None, f"{name}: current required client classes and resources ({error})")
         try:
             with zipfile.ZipFile(path) as jar:
@@ -835,6 +857,7 @@ def main():
     test_emote_model_overlays(matrix)
     test_freelook(matrix)
     test_zoom()
+    test_retained_release(matrix)
     test_shipped_jars(matrix)
     print()
     print(f"{passed} passed, {failed} failed")

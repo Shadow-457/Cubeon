@@ -678,10 +678,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build
-          # Resolve the draft with gh first; the numeric API includes upload
+          # Resolve the draft with gh first; the REST API includes upload
           # state and GitHub digests, which gh's asset projection omits.
-          release_id="$(gh release view "$TAG" --json databaseId --jq .databaseId)"
-          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > build/release-assets.json
+          release_api="$(gh release view "$TAG" --json apiUrl --jq .apiUrl)"
+          gh api "$release_api" > build/release-assets.json
           python3 tools/release_version.py manifest "${TAG#v}" \
             --release-json build/release-assets.json --repository "$GITHUB_REPOSITORY" \
             --channel "$CHANNEL"
