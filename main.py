@@ -8612,6 +8612,9 @@ async def main(page: ft.Page):
         try:
             raw = getattr(e, "type", "") or getattr(e, "data", "")
             ev = str(getattr(raw, "value", raw)).split(".")[-1].lower()
+            if sys.platform == "darwin" and ev in ("close", "hide", "disconnect"):
+                logging.getLogger("cubeon.desktop_runtime").info(
+                    "macOS window event: %s", ev)
             if ev in ("blur", "minimize", "hide", "close", "disconnect"):
                 state["window_focused"] = False
             elif ev in ("focus", "restore", "show"):
@@ -8711,6 +8714,8 @@ async def main(page: ft.Page):
     # _window_gone_finish if ft.run() never comes back, and otherwise the
     # session loop does it (which is what keeps "Restart to apply" working).
     def _on_page_gone(_e):
+        if sys.platform == "darwin":
+            logging.getLogger("cubeon.desktop_runtime").info("macOS page closed/disconnected")
         if _auto_updates is not None:
             _auto_updates.stop()
         _remember_instance_selection(version_dropdown.value)

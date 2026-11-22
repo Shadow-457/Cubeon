@@ -147,8 +147,9 @@ def native(arch):
     # A fresh CI runner has no user state. Exercise both executable startup
     # and Finder's LaunchServices route, using the existing first-paint marker.
     marker = Path.home() / ".cubeon_launcher/ui_painted_ok"
-    for route, arguments in (("executable", [str(binary)]),
-                             ("Finder", ["open", "-n", "-W", str(bundle)])):
+    for route, arguments in (("Finder", ["open", "-n", "-W", str(bundle)]),
+                             ("executable", [str(binary)]),
+                             ("Finder repeat", ["open", "-n", "-W", str(bundle)])):
         marker.unlink(missing_ok=True)
         before = set(psutil.pids())
         with tempfile.TemporaryDirectory(prefix="cubeon-macos-smoke-") as directory:
@@ -164,15 +165,26 @@ def native(arch):
                 nonlocal observed_state
                 launcher, _ = smoke_processes(psutil, binary, before)
                 found = launcher, flet_pid_process(psutil, fresh_log())
-                state = (marker.exists(), tuple(p.pid for p in launcher), tuple(p.pid for p in found[1]), len(fresh_log()))
-                if marker.exists() and state != observed_state and len(observed) < 40:
+                pid_paths = [line.split("pid_file: ", 1)[1].strip()
+                             for line in fresh_log().splitlines()
+                             if "flet_desktop:" in line and "pid_file: " in line]
+                try:
+                    pid_value = Path(pid_paths[-1]).read_text() if pid_paths else "unannounced"
+                except OSError:
+                    pid_value = "missing"
+                state = (marker.exists(), tuple(p.pid for p in launcher), tuple(p.pid for p in found[1]), pid_value, len(fresh_log()))
+                if state != observed_state:
                     observed_state = state
                     observed.append(f"time={time.monotonic()} state={state} recent_log={fresh_log()[-700:]}")
                     for child in psutil.process_iter(["pid", "name", "exe", "cmdline", "status", "ppid"]):
                         if child.pid in before and child.pid not in [p.pid for p in found[1]]:
                             continue
+                        if (child.pid not in [p.pid for p in launcher + found[1]]
+                                and "flet" not in (child.info["name"] or "").lower()):
+                            continue
                         observed.append(str(dict(child.info, cmdline=(child.info["cmdline"] or [])[:1])))
                     observed.append(f"matched launchers={[p.pid for p in found[0]]} clients={[p.pid for p in found[1]]}")
+                    del observed[:-60]
                 return found
             def diagnostics():
                 return (output.read_text(errors="replace") +
@@ -186,7 +198,7 @@ def native(arch):
                             return child.is_running() and child.status() != psutil.STATUS_ZOMBIE
                         except psutil.Error:
                             return False
-                    hold_seconds = 45 if route == "Finder" else 15
+                    hold_seconds = 45 if route.startswith("Finder") else 15
                     wait_for_smoke(marker, discover,
                                    alive, diagnostics, route, hold_seconds=hold_seconds)
                     print(f"macOS {arch}: {route} launch reached first paint and stayed open for {hold_seconds} seconds")
