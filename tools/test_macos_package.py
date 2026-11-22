@@ -13,6 +13,29 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def dmg(arch, version=None):
+    assert sys.platform == "darwin", "DMG checks require macOS"
+    image = ROOT / f"dist/Cubeon-macOS-{arch}.dmg"
+    subprocess.run(["hdiutil", "verify", str(image)], check=True)
+    with tempfile.TemporaryDirectory(prefix="cubeon-dmg-check-") as directory:
+        mount = Path(directory) / "volume"
+        mount.mkdir()
+        subprocess.run(["hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", str(mount), str(image)], check=True)
+        try:
+            bundle = mount / "Cubeon.app"
+            info = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
+            if version:
+                assert info["CFBundleShortVersionString"] == version, info
+            assert (mount / "Applications").is_symlink()
+            assert os.readlink(mount / "Applications") == "/Applications"
+            binary = bundle / "Contents/MacOS" / info["CFBundleExecutable"]
+            subprocess.run(["lipo", str(binary), "-verify_arch", "arm64" if arch == "arm64" else "x86_64"], check=True)
+            subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
+            print(f"macOS {arch}: DMG contains the signed app and Applications shortcut")
+        finally:
+            subprocess.run(["hdiutil", "detach", str(mount)], check=True)
+
+
 def native(arch):
     import psutil
     assert sys.platform == "darwin", "Native checks require a Mac runner"
@@ -84,16 +107,24 @@ def native(arch):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", action="store_true")
+    parser.add_argument("--dmg-only", action="store_true")
     parser.add_argument("--arch", choices=("arm64", "x64"))
+    parser.add_argument("--version")
     args = parser.parse_args()
     if args.native:
         assert args.arch
         native(args.arch)
+        dmg(args.arch)
+    elif args.dmg_only:
+        assert args.arch
+        dmg(args.arch, args.version)
     else:
         script = (ROOT / "packaging/build_macos.sh").read_text()
         assert '--target-arch "$TARGET_ARCH"' in script
         assert '--keepParent dist/Cubeon.app' in script
         assert "assets/icon_512.png" in script
         assert "get_artifact_filename()" in script
+        assert "packaging/build_macos_dmg.sh" in script
         subprocess.run(["bash", "-n", str(ROOT / "packaging/build_macos.sh")], check=True)
+        subprocess.run(["bash", "-n", str(ROOT / "packaging/build_macos_dmg.sh")], check=True)
         print("macOS packaging recipe checks passed; native checks run on both CI runners")

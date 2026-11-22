@@ -373,8 +373,8 @@ const stableRelease = {
 };
 const betaRelease = { ...stableRelease, tag_name: "v2.0.10", prerelease: true,
   assets: [...stableRelease.assets,
-    { name: "Cubeon-macOS-arm64.zip", url: "https://cdn.test/macarm64", size: 18 },
-    { name: "Cubeon-macOS-x64.zip", url: "https://cdn.test/macx64", size: 19 }] };
+    { name: "Cubeon-macOS-arm64.dmg", url: "https://cdn.test/macarm64", size: 18 },
+    { name: "Cubeon-macOS-x64.dmg", url: "https://cdn.test/macx64", size: 19 }] };
 world = fresh({ stableRelease, betaReleases: [
   stableRelease, { ...betaRelease, tag_name: "v2.0.9" }, betaRelease,
   { ...betaRelease, tag_name: "v9.0.0", draft: true },
@@ -406,8 +406,8 @@ check("a changed release rejects the old offer before downloading",
   res.status === 409 && world.assetFetches === fetches);
 res = await get("/updates/beta/arbitrary?version=2.0.10");
 check("unknown update assets cannot spend the token", res.status === 404 && world.apiCalls === 2);
-for (const [route, name] of [["/macosarm64download", "Cubeon-macOS-arm64.zip"],
-                             ["/macosx64download", "Cubeon-macOS-x64.zip"]]) {
+for (const [route, name] of [["/macosarm64download", "Cubeon-macOS-arm64.dmg"],
+                             ["/macosx64download", "Cubeon-macOS-x64.dmg"]]) {
   res = await get(route);
   check("Mac preview serves the matching architecture " + name,
     res.status === 200 && res.headers.get("Content-Disposition").includes(name));

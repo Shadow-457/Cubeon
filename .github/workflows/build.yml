@@ -626,7 +626,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "$RELEASE_TAG" "dist/Cubeon-macOS-${{ matrix.arch }}.zip" --clobber
+          gh release upload "$RELEASE_TAG" "dist/Cubeon-macOS-${{ matrix.arch }}.dmg" "dist/Cubeon-macOS-${{ matrix.arch }}.zip" --clobber
 
   publish:
     name: Verify assets + publish the release
@@ -651,6 +651,7 @@ jobs:
           for want in Cubeon-Windows-x64-Setup.exe \
                       Cubeon-x86_64.AppImage \
                       Cubeon-macOS-arm64.zip Cubeon-macOS-x64.zip \
+                      Cubeon-macOS-arm64.dmg Cubeon-macOS-x64.dmg \
                       Cubeon-Linux-x86_64-Setup.sh Cubeon-Linux-x86_64-Setup.AppImage; do
             if ! grep -qxF "$want" <<<"$have"; then
               echo "::error::$TAG is missing $want"

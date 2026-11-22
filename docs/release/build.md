@@ -129,9 +129,9 @@ A successful Wine launch does not replace testing on Windows; follow the
 bash packaging/build_macos.sh
 ```
 
-The script produces `dist/Cubeon.app` and either
-`dist/Cubeon-macOS-arm64.zip` (Apple Silicon) or `dist/Cubeon-macOS-x64.zip`
-(Intel). CI builds on native `macos-15` and `macos-15-intel` runners, verifies
+The script produces `dist/Cubeon.app` and native
+`dist/Cubeon-macOS-{arm64,x64}.dmg` installers, with ZIP copies also retained.
+Each DMG contains Cubeon.app and an Applications shortcut for drag-and-drop installation. CI builds on native `macos-15` and `macos-15-intel` runners, verifies
 the bundle and bundled Flet architecture/signatures, and checks that the
 packaged launcher reaches its first desktop frame before uploading.
 
@@ -140,7 +140,7 @@ separate credentials; these builds may require Gatekeeper approval. Desktop
 startup verification does not certify every Minecraft version on macOS.
 Mac preview downloads use `/macosarm64download` and `/macosx64download`, which
 follow the newest published release. Windows/Linux website routes keep the
-stable channel. A release remains private until both Mac ZIPs and all existing
+stable channel. A release remains private until both Mac DMGs/ZIPs and all existing
 Windows/Linux assets are present.
 
 ## Public builds
@@ -214,7 +214,7 @@ The download Worker depends on these release asset names:
 | --- | --- |
 | Linux | `Cubeon-x86_64.AppImage`, `Cubeon-Linux-x86_64-Setup.AppImage`, `Cubeon-Linux-x86_64-Setup.sh`, `cubeon_<version>_amd64.deb` |
 | Windows | `Cubeon-Windows-x64-Setup.exe` |
-| macOS | `Cubeon-macOS-arm64.zip`, `Cubeon-macOS-x64.zip` |
+| macOS | `Cubeon-macOS-arm64.dmg`, `Cubeon-macOS-x64.dmg` (ZIP alternatives also included) |
 
 Renaming an asset requires corresponding changes to the workflow and
 `worker/cubeon-downloads.js`.

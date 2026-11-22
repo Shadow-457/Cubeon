@@ -1,0 +1,48 @@
+name: Package Mac DMGs for an existing release
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release containing both verified Mac ZIPs
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: macos-dmg-${{ inputs.release_tag }}
+  cancel-in-progress: false
+jobs:
+  package:
+    name: Package macOS DMG (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      MAC_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the verified app
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          gh release download "$RELEASE_TAG" --pattern "Cubeon-macOS-${MAC_ARCH}.zip" --dir build/macos-dmg
+          ditto -x -k "build/macos-dmg/Cubeon-macOS-${MAC_ARCH}.zip" build/macos-dmg/input
+      - name: Create and verify the DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash packaging/build_macos_dmg.sh build/macos-dmg/input/Cubeon.app "dist/Cubeon-macOS-${MAC_ARCH}.dmg"
+          python3 tools/test_macos_package.py --dmg-only --arch "$MAC_ARCH" --version "${RELEASE_TAG#v}"
+      - name: Attach the DMG to the same release
+        shell: bash
+        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-macOS-${MAC_ARCH}.dmg" --clobber

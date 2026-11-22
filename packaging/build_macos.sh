@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the macOS app. Run from the repo root:  bash packaging/build_macos.sh
-# Output: dist/Cubeon.app and dist/Cubeon-macOS-{arm64,x64}.zip.
+# Output: dist/Cubeon.app and dist/Cubeon-macOS-{arm64,x64}.{dmg,zip}.
 # Ad-hoc signed, without Apple notarization. Gatekeeper requires user approval.
 # Developer ID signing/notarization needs separate Apple credentials.
 #
@@ -70,4 +70,5 @@ PYINFO
 codesign --force --deep --sign - dist/Cubeon.app
 codesign --verify --deep --strict dist/Cubeon.app
 ditto -c -k --sequesterRsrc --keepParent dist/Cubeon.app "dist/Cubeon-macOS-${ARCH}.zip"
-echo "Built dist/Cubeon.app and dist/Cubeon-macOS-${ARCH}.zip"
+bash packaging/build_macos_dmg.sh dist/Cubeon.app "dist/Cubeon-macOS-${ARCH}.dmg"
+echo "Built dist/Cubeon.app and the ${ARCH} DMG/ZIP"

@@ -531,6 +531,7 @@ try:
     COMPLETE = ["Cubeon-Windows-x64-Setup.exe",
                 "Cubeon-x86_64.AppImage",
                 "Cubeon-macOS-arm64.zip", "Cubeon-macOS-x64.zip",
+                "Cubeon-macOS-arm64.dmg", "Cubeon-macOS-x64.dmg",
                 "Cubeon-Linux-x86_64-Setup.sh", "Cubeon-Linux-x86_64-Setup.AppImage",
                 "cubeon_1.1.3_amd64.deb"]
     (sim.state / "assets" / "v1.1.3").write_text(
@@ -541,7 +542,8 @@ try:
         "\n".join(COMPLETE) + "\n", encoding="utf-8")
     rc = sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3")
     check("a complete release passes", rc == 0, sim.log.read_text()[-400:])
-    for missing in ("Cubeon-macOS-arm64.zip", "Cubeon-macOS-x64.zip"):
+    for missing in ("Cubeon-macOS-arm64.zip", "Cubeon-macOS-x64.zip",
+                    "Cubeon-macOS-arm64.dmg", "Cubeon-macOS-x64.dmg"):
         (sim.state / "assets" / "v1.1.3").write_text(
             "\n".join(asset for asset in COMPLETE if asset != missing) + "\n", encoding="utf-8")
         check(f"publish refuses missing {missing}",
