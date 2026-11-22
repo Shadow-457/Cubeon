@@ -96,16 +96,25 @@ def native_child():
         page.title = 'Cubeon close verification'
         page.window.width = 240
         page.window.height = 160
+        geometry = None
         for argument in sys.argv:
             if argument.startswith('--native-geometry='):
                 geometry = json.loads(argument.split('=', 1)[1])
                 for key in ('width', 'height', 'left', 'top', 'maximized'):
+                    if '--native-defer-position' in sys.argv and key in ('left', 'top'):
+                        continue
                     if geometry.get(key) is not None:
                         setattr(page.window, key, geometry[key])
                 page.window.min_width = 720
                 page.window.min_height = 480
                 print('NATIVE_GEOMETRY', geometry, flush=True)
         page.add(ft.Text('Testing window close'), ft.ProgressRing())
+        if geometry is not None and '--native-defer-position' in sys.argv:
+            await page.window.wait_until_ready_to_show()
+            for key in ('left', 'top'):
+                if geometry.get(key) is not None:
+                    setattr(page.window, key, geometry[key])
+            page.window.update()
         if '--native-hidden' in sys.argv:
             page.window.visible = False
             page.window.visible = True

@@ -961,8 +961,12 @@ async def main(page: ft.Page):
             page.window.width = _gw
             page.window.height = _gh
             if not _needs_center:
-                page.window.left = _gl
-                page.window.top = _gt
+                # macOS's first Window patch must establish the native view
+                # before moving it. _reveal_splash() applies the saved position
+                # after the readiness handshake, while it is still hidden.
+                if sys.platform != "darwin":
+                    page.window.left = _gl
+                    page.window.top = _gt
             else:
                 area = _work_area()
                 if area:

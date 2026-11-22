@@ -258,10 +258,13 @@ def native(arch):
                 saved = json.loads(geometry.read_text()) if geometry.exists() else {}
                 for label, position in (("default", None),
                                         ("saved size", {key: value for key, value in saved.items() if key not in ("left", "top")}),
-                                        ("saved size and position", saved)):
+                                        ("saved size and position", saved),
+                                        ("deferred saved position", saved)):
                     probe_args = [sys.executable, str(ROOT / "tools/test_window_close.py"), "--native-child", "--native-hidden"]
                     if position is not None:
                         probe_args.append("--native-geometry=" + json.dumps(position))
+                    if label == "deferred saved position":
+                        probe_args.append("--native-defer-position")
                     probe_before = set(psutil.pids())
                     try:
                         probe = subprocess.run(probe_args, cwd=directory, env=env,
