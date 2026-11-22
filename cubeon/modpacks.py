@@ -110,8 +110,12 @@ from . import local_cache
 from . import global_mod_cache
 from . import net
 from . import storage
+from .fuzzy_search import recovery_queries, search_items
+from .mod_catalogue import cached as catalogue_cached
 
 MODRINTH_API = "https://api.modrinth.com/v2"
+PACK_SEARCH_REVISION = 1
+PACK_NAME_FIELDS = ("title", "slug")
 
 # Pack FILES come from Modrinth, GitHub or GitLab depending on the pack (see
 # _host_allowed), so this deliberately uses the generic agent rather than the
@@ -2125,21 +2129,51 @@ def _modrinth_modpack_search(query: str, mc_version: str | None, limit: int,
     return results
 
 
+def _recover_modpack_search(query, offset, search, cache_key):
+    """Recover a missed name using bounded probes, keeping pagination stable.
+
+    Once a probe finds a name matching the full original query, all subsequent
+    pages use that same provider query. Never broaden version filters or scan
+    an unfiltered catalogue. Description-only searches keep their original
+    results when none of the probes finds a matching name.
+    """
+    plan_key = {name: value for name, value in cache_key.items() if name != "offset"}
+    chosen = local_cache.get("modpack_search_recovery", plan_key, max_age=6 * 3600)
+    effective = chosen if isinstance(chosen, str) else query
+    hits = search(effective, offset)
+    if offset or not query or search_items(hits, query, fields=PACK_NAME_FIELDS):
+        return hits
+    for candidate in recovery_queries(query):
+        if candidate == effective:
+            continue
+        try:
+            recovered = search(candidate, 0)
+        except Exception:
+            log.debug("Modpack name recovery failed", exc_info=True)
+            break  # Keep the healthy original page; don't retry a failing provider.
+        if search_items(recovered, query, fields=PACK_NAME_FIELDS):
+            local_cache.set("modpack_search_recovery", plan_key, candidate)
+            return recovered
+    return hits
+
+
 def search_modpacks_modrinth(query: str, mc_version: str | None = None,
                              limit: int = 40, offset: int = 0) -> list[dict]:
     """Modrinth-only modpack search, cached. Kept separate from the combined
     search so the browse UI can show these hits first."""
+    query = (query or "").strip()
     cache_key = {"query": query, "mc_version": mc_version, "limit": limit,
-                 "offset": offset}
+                 "offset": offset, "source": "modrinth", "revision": PACK_SEARCH_REVISION}
 
     def fetch():
-        return _modrinth_modpack_search(query, mc_version, limit, offset)
+        return _recover_modpack_search(
+            query, offset, lambda text, start: _modrinth_modpack_search(text, mc_version, limit, start),
+            cache_key)
 
     # cached_call: fresh cache wins; on a failed fetch the last known results
     # are served instead of an error (a launcher showing yesterday's search
     # beats a spinner), and nothing here ever blocks on a refresh.
-    return local_cache.cached_call("search_modpacks_mr", cache_key, fetch,
-                                   background_refresh=False)
+    return catalogue_cached("search_modpacks_mr", cache_key, fetch)
 
 
 def search_modpacks_curseforge(query: str, mc_version: str | None = None,
@@ -2154,37 +2188,33 @@ def search_modpacks_curseforge(query: str, mc_version: str | None = None,
     CurseForge key swaps the provider (curated classics <-> the real API), and
     without this the tab would keep serving the OTHER provider's cached page
     for up to a day."""
+    query = (query or "").strip()
+    keyed = bool(_curseforge_api_key())
     cache_key = {"query": query, "mc_version": mc_version, "limit": limit,
-                 "offset": offset, "keyed": bool(_curseforge_api_key())}
+                 "offset": offset, "keyed": keyed, "source": "curseforge",
+                 "revision": PACK_SEARCH_REVISION}
 
     def fetch():
-        if offset and not curseforge_enabled():
+        if offset and not keyed:
             return []
-        return _curseforge_search(query, mc_version, limit, offset)
+        return _curseforge_search(query, mc_version, limit, offset, cache_key=cache_key)
 
-    return local_cache.cached_call("search_modpacks_cf", cache_key, fetch,
-                                   background_refresh=False)
+    return catalogue_cached("search_modpacks_cf", cache_key, fetch)
 
 
 def merge_modpack_hits(mr_hits: list[dict], cf_hits: list[dict], query: str) -> list[dict]:
-    """Combined ranking for Modrinth + CurseForge hits, plus the exact-name
-    CurseForge promotion: a CF pack whose title or slug contains the query IS
-    the exact match the user means (typing "rlcraft" - the pack, not a
-    Modrinth mod with "rlcraft" in its name), and Modrinth's relevance never
-    saw these hits, so they're promoted to the front when they genuinely match."""
-    results = list(mr_hits) + list(cf_hits)
+    """Rank names across providers before related description-only results."""
+    results, seen = [], set()
+    for hit in list(mr_hits) + list(cf_hits):
+        identity = (hit.get("source"), hit.get("project_id") or hit.get("slug") or hit.get("title"))
+        if identity not in seen:
+            results.append(hit)
+            seen.add(identity)
     results = rank_search_hits(results, query)
-    q = (query or "").strip().lower()
-    if q:
-        exact_cf = [h for h in results
-                    if h.get("source") == "curseforge"
-                    and (q in (h.get("title") or "").lower()
-                         or q in (h.get("slug") or "").lower())]
-        others = [h for h in results
-                  if not (h.get("source") == "curseforge"
-                          and (q in (h.get("title") or "").lower()
-                               or q in (h.get("slug") or "").lower()))]
-        results = exact_cf + others
+    if (query or "").strip():
+        matches = search_items(results, query, fields=PACK_NAME_FIELDS)
+        matched = {id(hit) for hit in matches}
+        results = matches + [hit for hit in results if id(hit) not in matched]
     return results
 
 
@@ -2203,8 +2233,10 @@ def search_modpacks(query: str, mc_version: str | None = None, limit: int = 40,
     a non-list `hits`, or a non-dict entry) - skips what it can't use
     instead of raising, since this hits a third-party endpoint outside this
     project's control. `offset` pages through both providers."""
+    query = (query or "").strip()
     cache_key = {"query": query, "mc_version": mc_version, "limit": limit,
-                 "offset": offset}
+                 "offset": offset, "keyed": bool(_curseforge_api_key()),
+                 "revision": PACK_SEARCH_REVISION}
 
     def fetch():
         from concurrent.futures import ThreadPoolExecutor
@@ -2226,8 +2258,7 @@ def search_modpacks(query: str, mc_version: str | None = None, limit: int = 40,
                 raise RuntimeError("couldn't reach Modrinth or CurseForge")
         return merge_modpack_hits(mr, cf, query)
 
-    return local_cache.cached_call("search_modpacks", cache_key, fetch,
-                                   background_refresh=False)
+    return catalogue_cached("search_modpacks", cache_key, fetch)
 
 
 def get_popular_modpacks(mc_version: str | None = None, limit: int = 40,
@@ -2420,6 +2451,7 @@ CURATED_CF_PROJECTS = (
     "cf/mods/285109",    # RLCraft
     "cf/mods/296062",    # SkyFactory 4
     "cf/mods/715572",    # All the Mods 9
+    "cf/mods/959010",    # All the Mods 9 - No Frills
     "cf/mods/452013",    # Better MC [FABRIC]
     "cf/mods/936875",    # Craft to Exile 2
     "cf/mods/482878",    # Better MC [FORGE]
@@ -2536,17 +2568,16 @@ def _cfwidget_search(query: str, limit: int) -> list[dict]:
         hit = _cfwidget_to_hit(w)
         if not hit or hit["project_id"] in seen:
             continue
-        if q and q not in (hit["title"] or "").lower() \
-                and q not in (hit["slug"] or ""):
-            continue
         seen.add(hit["project_id"])
         hits.append(hit)
     hits.sort(key=lambda h: h["downloads"], reverse=True)
+    if q:
+        hits = search_items(hits, q, fields=PACK_NAME_FIELDS)
     return hits[:limit]
 
 
 def _curseforge_search(query: str, mc_version: "str | None", limit: int,
-                       offset: int = 0) -> list[dict]:
+                       offset: int = 0, *, cache_key=None) -> list[dict]:
     """CF search hits in the same dict shape the Modrinth path returns, tagged
     source='curseforge'. Any failure (no key, network, schema drift) degrades
     to an empty list rather than breaking the Modrinth results. Keyless
@@ -2555,15 +2586,9 @@ def _curseforge_search(query: str, mc_version: "str | None", limit: int,
     if not curseforge_enabled():
         return _cfwidget_search(query, limit)
     try:
-        payload = _cf_request("/mods/search", params={
-            "gameId": str(CF_GAME_ID_MINECRAFT),
-            "classId": str(CF_CLASS_ID_MODPACK),
-            "searchFilter": query or "",
-            "sortField": "2",   # 2 = Popularity (downloads) - matches browse
-            "sortOrder": "desc",
-            "index": str(offset),
-            "pageSize": str(min(limit, 50)),
-        })
+        search = lambda text, start: _curseforge_api_search(text, limit, start)
+        return (_recover_modpack_search(query, offset, search, cache_key)
+                if cache_key is not None else search(query, offset))
     except Exception:
         # A key CurseForge REFUSES for /mods/search must never leave the tab
         # emptier than having no key at all. Seen live 2026-10-18: a valid key
@@ -2573,6 +2598,19 @@ def _curseforge_search(query: str, mc_version: "str | None", limit: int,
         # curated set - only on the first page, because cfwidget cannot
         # paginate and repeating the classics on page 2 would look broken.
         return _cfwidget_search(query, limit) if not offset else []
+
+
+def _curseforge_api_search(query: str, limit: int, offset: int) -> list[dict]:
+    """One official request; let the caller handle failure once, before recovery."""
+    payload = _cf_request("/mods/search", params={
+        "gameId": str(CF_GAME_ID_MINECRAFT),
+        "classId": str(CF_CLASS_ID_MODPACK),
+        "searchFilter": query or "",
+        "sortField": "1" if (query or "").strip() else "2",  # relevance / popularity
+        "sortOrder": "desc",
+        "index": str(offset),
+        "pageSize": str(min(limit, 50)),
+    })
     data = payload.get("data") if isinstance(payload, dict) else None
     results = []
     for hit in data if isinstance(data, list) else []:

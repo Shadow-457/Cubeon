@@ -56,6 +56,19 @@ class FuzzySearchTests(unittest.TestCase):
         self.assertEqual(search_items(self.items, '  CLOTH--CONFIG  ')[0]['display_name'], 'Cloth Config')
         self.assertEqual(search_items([dict(name='动态光源')], '动态')[0]['name'], '动态光源')
 
+    def test_mixed_pack_acronyms_editions_and_typos(self):
+        pack = dict(title='All the Mods 9 - No Frills', slug='all-the-mods-9-no-frills')
+        other = dict(title='All the Mods 10 - No Frills', slug='all-the-mods-10-no-frills')
+        for query in ('ATM 9 no frills', 'atm9 no frils', 'ATM9 nofrills',
+                      'All the Mdos 9 No Frills', 'all_the_mods-9-no-frills'):
+            with self.subTest(query=query):
+                self.assertEqual(search_items([other, pack], query)[0], pack)
+        self.assertEqual(search_items([other], 'ATM 9 no frills'), [])
+        self.assertEqual(search_items([other, pack], 'All the Mdos No Frills'), [other, pack])
+        self.assertEqual(search_items([dict(title='Pack 19')], 'pack 9'), [])
+        self.assertEqual(search_items([dict(title='Pack 19')], '9'), [])
+        self.assertEqual(search_items([dict(title='Sky Factory 4')], 'SF4')[0]['title'], 'Sky Factory 4')
+
     def test_large_cached_catalogue_is_bounded_and_does_not_mutate_items(self):
         items = [dict(name=f'Unique Mod {number}', filename=f'mod-{number}.jar') for number in range(1000)] + self.items
         before = [dict(item) for item in items]

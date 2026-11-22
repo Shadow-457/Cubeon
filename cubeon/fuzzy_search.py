@@ -1,4 +1,4 @@
-"""Bounded, cached fuzzy matching for local content names and identities."""
+"""Bounded, cached fuzzy matching for content names and identities."""
 from functools import lru_cache
 import re
 import unicodedata
@@ -12,6 +12,7 @@ def _forms(value):
     value = re.sub(r'([A-Z])([A-Z][a-z])', r'\1 \2', value)
     value = ''.join(character for character in unicodedata.normalize('NFKD', value.casefold())
                     if not unicodedata.combining(character))
+    value = re.sub(r'(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])', ' ', value)
     words = tuple(re.findall(r'[^\W_]+', value))
     name_words = tuple(word for word in words if word not in ('jar', 'zip', 'disabled')
                        and not word.isdigit())
@@ -41,6 +42,10 @@ def _edit_distance(query, candidate, limit):
 def _word_score(query, candidate):
     if query == candidate:
         return 1000
+    # A pack edition or Minecraft version is an identity, not a typo: 9 must
+    # never match 10, 19, or a project's numeric id by substring.
+    if query.isdigit() or candidate.isdigit():
+        return 0
     if candidate.startswith(query):
         return 900
     if query in candidate:
@@ -59,6 +64,54 @@ def _word_score(query, candidate):
     return 0
 
 
+@lru_cache(maxsize=4096)
+def _acronyms(words):
+    """Initials of short, contiguous name phrases, stopping at numbers."""
+    aliases = set()
+    for start in range(len(words)):
+        initials = ''
+        for word in words[start:start + 6]:
+            if not word.isalpha() or word in ('jar', 'zip', 'disabled'):
+                break
+            initials += word[0]
+            if len(initials) >= 2:
+                aliases.add(initials)
+    return aliases
+
+
+@lru_cache(maxsize=4096)
+def _name_tokens(words):
+    # Mixed searches can omit a separator inside a phrase: "ATM9 nofrills".
+    return tuple(dict.fromkeys(''.join(words[start:end])
+                               for start in range(len(words))
+                               for end in range(start + 1, min(len(words), start + 3) + 1)))
+
+
+def recovery_queries(query):
+    """Up to three relevant provider probes when a name search missed.
+
+    Normalize separators and spaced edition acronyms (ATM 9 → ATM9), then
+    try the name's prefix and suffix. Results still match the entire original
+    query locally; these probes never turn into an unfiltered catalogue scan.
+    """
+    text, _compact, _words, _initials = _forms(str(query or '').strip()[:96])
+    joined = re.sub(r'\b([a-z]{2,3})\s+(\d+)\b', r'\1\2', text)
+    parts = joined.split()
+    candidates = [joined, text]
+    if len(parts) > 1:
+        candidates.extend((' '.join(parts[:max(1, len(parts) - 2)]),
+                           ' '.join(parts[-2:])))
+    elif parts and len(parts[0]) >= 5:
+        candidates.append(parts[0][:3])
+    seen = {str(query or '').strip().casefold()}
+    result = []
+    for candidate in candidates:
+        if candidate and candidate not in seen and any(len(word) >= 3 for word in candidate.split()):
+            seen.add(candidate)
+            result.append(candidate)
+    return result[:3]
+
+
 @lru_cache(maxsize=8192)
 def _score(query, values):
     normalized, compact, query_words, _initials = _forms(query)
@@ -67,6 +120,8 @@ def _score(query, values):
     forms = [_forms(value) for value in values]
     best = 0
     for text, joined, words, initials in forms:
+        if any(word.isdigit() and word not in words for word in query_words):
+            continue
         if normalized == text or compact == joined:
             best = max(best, 1200)
         elif text.startswith(normalized) or joined.startswith(compact):
@@ -77,6 +132,15 @@ def _score(query, values):
             best = max(best, 950)
         if len(query_words) == 1:
             best = max(best, _word_score(compact, joined))
+        # Match mixed abbreviations, editions and words within one name, e.g.
+        # "ATM 9 no frils" against "All the Mods 9 - No Frills". Acronyms
+        # match exactly; fuzzy-editing initials would produce unrelated hits.
+        aliases = _acronyms(words)
+        scores = [max(850 if word in aliases else 0,
+                      max((_word_score(word, candidate) for candidate in _name_tokens(words)), default=0))
+                  for word in query_words]
+        if scores and all(scores):
+            best = max(best, min(scores) + sum(scores) / len(scores) / 100)
     candidates = tuple(dict.fromkeys(word for _text, _joined, words, _initials in forms for word in words))
     scores = [max((_word_score(word, candidate) for candidate in candidates), default=0)
               for word in query_words]
