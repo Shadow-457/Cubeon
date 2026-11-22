@@ -11,6 +11,14 @@ five-second grace. A LaunchServices-owned client's unavailable exit status
 remains unknown; the helper's zero is not a native-client exit code. The
 existing `test_desktop_runtime.py` checks this lifecycle with a real process.
 
+Mac startup bypasses `wait_until_ready_to_show()` on Flet 0.86.5. The native
+window_manager method resets fullscreen, maximized and minimized state; the
+minimal Mac probe exits before its close request when this call is added.
+Both Mac reveals await the bounded `to_front()` path after hidden geometry
+is set. Windows and Linux retain their existing five-second readiness call,
+reveal paths and Windows visibility backstop. Release CI checks first and
+repeat launches with the same saved window state.
+
 ---
 
 ## Table of Contents

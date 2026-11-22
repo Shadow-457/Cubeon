@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from cubeon.desktop_runtime import configure, wait_macos_client
+from cubeon.desktop_runtime import configure, wait_macos_client, wait_window_ready
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -77,6 +77,23 @@ class DesktopRuntimeTests(unittest.TestCase):
 
 
 class MacClientLifetimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mac_reveal_does_not_invoke_the_reproduced_native_shutdown(self):
+        window = SimpleNamespace(wait_until_ready_to_show=AsyncMock(side_effect=AssertionError("Mac client exits")))
+        await wait_window_ready(window, platform="darwin")
+        window.wait_until_ready_to_show.assert_not_awaited()
+
+    async def test_windows_and_linux_keep_the_existing_bounded_readiness_call(self):
+        for platform in ("win32", "linux"):
+            window = SimpleNamespace(wait_until_ready_to_show=AsyncMock())
+            await wait_window_ready(window, platform=platform)
+            window.wait_until_ready_to_show.assert_awaited_once_with()
+        # AsyncMock must actually await a blocking operation for the timeout.
+        async def blocked():
+            await asyncio.sleep(60)
+        window.wait_until_ready_to_show = blocked
+        with self.assertRaises(asyncio.TimeoutError):
+            await wait_window_ready(window, platform="win32", timeout=0.01)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

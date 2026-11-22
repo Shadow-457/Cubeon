@@ -1623,6 +1623,7 @@ class _QueuedThread:
 try:
     _events = []
     _window_scope = {
+        "sys": sys, "logging": logging,
         "state": {},
         "threading": types.SimpleNamespace(Timer=lambda *args: (_events.append("timer") or _ManualTimer(*args))),
         "_save_geometry_now": lambda: _events.append("save"),

@@ -14,6 +14,18 @@ _DISTROS = {
 _ARCHIVE = re.compile(r"^flet-linux-([\w.]+)(-light)?-([\w]+)\.tar\.gz$")
 
 
+async def wait_window_ready(window, *, platform=None, timeout=5.0):
+    """Retain the desktop readiness call except on Flet's affected Mac path.
+
+    window_manager's method resets fullscreen/maximized/minimized state; it
+    is not a passive frame handshake. On macOS/Flet 0.86.5 the minimal native
+    probe exits before its close request when this method is added. Mac
+    reveals use to_front() directly instead, after setting hidden geometry.
+    """
+    if (sys.platform if platform is None else platform) != "darwin":
+        await asyncio.wait_for(window.wait_until_ready_to_show(), timeout=timeout)
+
+
 def configure():
     if not getattr(sys, "frozen", False) or sys.platform != "linux":
         return

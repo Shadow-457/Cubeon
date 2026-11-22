@@ -128,13 +128,18 @@ The script produces `dist/Cubeon.app` and native
 Each DMG contains Cubeon.app and an Applications shortcut for drag-and-drop installation. CI builds on native `macos-15` and `macos-15-intel` runners, verifies
 the bundle and bundled Flet architecture/signatures, and checks that the
 packaged launcher reaches its first desktop frame and stays open for 15 seconds
-through direct executable startup and 45 seconds through Finder/LaunchServices
-startup before uploading.
+through direct executable startup and 45 seconds through each Finder/LaunchServices
+startup before uploading. It launches Finder first, then the executable, then
+Finder again, retaining saved window state between launches.
 The smoke check follows the actual Cubeon and native Flet processes; macOS's
 `open -W` helper can exit while the application is still starting or running.
 Flet retains its supported LaunchServices startup on macOS. CI follows its
 per-session native PID file, so an exited `open` helper cannot pass or fail the
 client liveness check by itself.
+Mac reveals bypass Flet 0.86.5's unsafe `wait_until_ready_to_show()` native
+method and await `to_front()` after applying hidden window geometry. The
+minimal native probe reproduces an early exit when the readiness call is
+added; existing Windows/Linux readiness behavior is retained.
 
 Bundles are ad-hoc signed. Developer ID signing and Apple notarization need
 separate credentials; these builds may require Gatekeeper approval. Desktop

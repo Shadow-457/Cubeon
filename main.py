@@ -961,12 +961,8 @@ async def main(page: ft.Page):
             page.window.width = _gw
             page.window.height = _gh
             if not _needs_center:
-                # macOS's first Window patch must establish the native view
-                # before moving it. _reveal_splash() applies the saved position
-                # after the readiness handshake, while it is still hidden.
-                if sys.platform != "darwin":
-                    page.window.left = _gl
-                    page.window.top = _gt
+                page.window.left = _gl
+                page.window.top = _gt
             else:
                 area = _work_area()
                 if area:
@@ -1224,8 +1220,8 @@ async def main(page: ft.Page):
         # be allowed to keep a hidden window hidden forever. Showing the splash
         # late is a cosmetic loss; never showing it is the bug.
         try:
-            await asyncio.wait_for(
-                page.window.wait_until_ready_to_show(), timeout=5)
+            from cubeon.desktop_runtime import wait_window_ready
+            await wait_window_ready(page.window)
         except Exception:
             pass  # non-desktop, an odd runtime, or a slow client: visible still applies
         try:
@@ -1240,7 +1236,10 @@ async def main(page: ft.Page):
             pass  # keep the pre-set geometry if native positioning fails
         _show_window()
         # Preserve all three reveal paths after hidden-window placement.
-        _nudge_window_to_front()
+        if sys.platform == "darwin":
+            await _reveal_to_front()
+        else:
+            _nudge_window_to_front()
         _backstop_window_visible()
 
     # AWAIT the reveal instead of scheduling it. This is the whole fix: awaiting
@@ -8019,18 +8018,21 @@ async def main(page: ft.Page):
     # the full control tree is mounted and the theme is applied, so applying
     # the saved geometry and making the finished UI visible is one clean
     # shot: no default-size flash, no hide-then-reshow.
-    # wait_until_ready_to_show() is the desktop-shell handshake that the
-    # first frame is actually in the window's back buffer.
+    # Keep the normal readiness path; on macOS the affected native method
+    # resets window state and can end the client instead of revealing it.
     async def _reveal_window():
         if not _geometry_ready:
             _apply_real_geometry()
         try:
-            await asyncio.wait_for(
-                page.window.wait_until_ready_to_show(), timeout=5)
+            from cubeon.desktop_runtime import wait_window_ready
+            await wait_window_ready(page.window)
         except Exception:
             pass  # non-desktop or an odd runtime: fall through, visible still applies
         _show_window()
-        _nudge_window_to_front()
+        if sys.platform == "darwin":
+            await _reveal_to_front()
+        else:
+            _nudge_window_to_front()
         _backstop_window_visible()
         # Fade the finished UI in. It was mounted at opacity 0 (see _app_root
         # in main), so this single property change turns the splash -> app hand
