@@ -215,6 +215,36 @@ Windows packaging verifies the real NSIS installation, upgrade and rollback
 transactions before building the installer. Helper fixtures use an explicit
 starting version so a release stamp cannot invalidate them.
 
+Windows and Linux updates reuse matching blocks from a local package and fetch
+only missing blocks through GitHub HTTP Range requests. The client verifies the
+block map against GitHub's SHA-256 digest, then verifies the reassembled package's
+full size, SHA-256 and executable header before the existing installer handoff.
+Missing maps or baselines, unsupported ranges, invalid bytes, or savings below
+10% use the full verified download. Cancellation stops both paths. Installation
+still applies the complete verified package with the existing consent and
+rollback behavior; this reduces network transfer, not the installed file set.
+
+Windows setup uses independent LZMA file streams and retains one setup executable
+as `.cubeon-update-base.exe` in the installed program directory. Copying the
+baseline is best-effort after a successful install; uninstall removes it. Older
+installs can reuse a previous updater-cached setup. Linux uses its installed
+AppImage as the baseline. Existing clients need a full update to acquire the new
+updater, and the first Windows update from a solid-compressed setup may also use
+the full download. macOS remains a manual DMG/ZIP upgrade.
+
+The build jobs generate maps after packaging:
+
+```bash
+python tools/release_version.py blockmap dist/Cubeon-<version>-Linux-x86_64.AppImage --kind linux
+python tools/release_version.py blockmap dist/Cubeon-<version>-Windows-x64-Setup.exe --kind windows
+```
+
+Replace `<version>` with the stamped version, or pass `--version` explicitly.
+The shared dependency-free format lives in `cubeon/update_blocks.py`: schema 1,
+`anchor-32k-256k-v1`, ordered block lengths and SHA-256 hashes, no paths or patch
+instructions. Content anchors allow unchanged blocks to move. Packages are
+limited to 1 GiB, maps to 4 MiB, and one incremental attempt to 64 requests.
+
 The download Worker depends on these release asset names:
 
 | Platform | Release assets |
@@ -223,6 +253,7 @@ The download Worker depends on these release asset names:
 | Windows | `Cubeon-<version>-Windows-x64-Setup.exe` |
 | macOS | `Cubeon-<version>-macOS-arm64.dmg`, `Cubeon-<version>-macOS-x64.dmg`, matching `.zip` alternatives |
 | Update metadata | `update-<version>.json` covering all seven binaries |
+| Incremental metadata | Windows setup and Linux AppImage names with `.blockmap.json` appended |
 
 Every release-producing push to `main`/`master` or a version tag generates
 the combined JSON after all platform uploads succeed. `[skip ci]` commits
@@ -230,7 +261,10 @@ and manual `full_tests` dispatches do not create releases. The publish job reads
 the draft using `gh release view --json apiUrl`, verifies exact versioned names,
 upload state, nonempty size, download URLs and GitHub SHA-256 digests, then
 attaches the manifest before making the draft public. A missing binary or
-digest keeps the release private.
+digest keeps the release private. New build workflows also require both block
+maps (`manifest --require-blockmaps`) and record their verified descriptors under
+`blockmaps.windows` and `blockmaps.linux`. Regenerating an older release manifest
+without that flag remains supported; if either map exists, both are required.
 Draft assets may have GitHub's temporary `untagged-...` download URLs. The
 generator accepts those only when they match the same draft's trusted GitHub
 page, repository and filename. The manifest always records the final version

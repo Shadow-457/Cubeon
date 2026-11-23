@@ -2,6 +2,8 @@
 import importlib.util
 import os
 from pathlib import Path
+import random
+import runpy
 import shutil
 import subprocess
 import sys
@@ -94,9 +96,9 @@ class LauncherInstallers(unittest.TestCase):
             root = Path(tmp)
             source = root / "payload"
             source.mkdir()
-            (source / "Cubeon.exe").write_bytes(b"fixture executable")
+            (source / "Cubeon.exe").write_bytes(random.Random(7).randbytes(128 * 1024))
             (source / "_internal").mkdir()
-            (source / "_internal/runtime.dll").write_bytes(b"fixture runtime")
+            (source / "_internal/runtime.dll").write_bytes(random.Random(8).randbytes(4 * 1024 * 1024))
             env = dict(os.environ)
             if str(cached) in compiler:
                 env["NSISDIR"] = str(cached)
@@ -105,7 +107,24 @@ class LauncherInstallers(unittest.TestCase):
                        "-DAPP_VERSION=2.0.0.0", str(ROOT / "packaging/Cubeon.nsi")]
             compiled = subprocess.run(command, capture_output=True, text=True, env=env)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            self.assertTrue((root / "Cubeon-2.0.0-Windows-x64-Setup.exe").is_file())
+            setup = root / "Cubeon-2.0.0-Windows-x64-Setup.exe"
+            self.assertTrue(setup.is_file())
+            block_tools = runpy.run_path(str(ROOT / "cubeon/update_blocks.py"))
+            with setup.open("rb") as stream:
+                local = block_tools["index"](stream)
+            # Rebuild the real installer with changed launcher bytes and an
+            # unchanged large runtime. Independent NSIS compression must keep
+            # those runtime bytes reusable despite new headers and offsets.
+            (source / "Cubeon.exe").write_bytes(random.Random(9).randbytes(140 * 1024))
+            command[5:7] = ["-DDISPLAY_VERSION=2.0.1", "-DAPP_VERSION=2.0.1.0"]
+            compiled = subprocess.run(command, capture_output=True, text=True, env=env)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            new_setup = root / "Cubeon-2.0.1-Windows-x64-Setup.exe"
+            with new_setup.open("rb") as stream:
+                new_blocks = [block for block, _data in block_tools["scan"](stream)]
+            missing = sum(end - start + 1 for start, end in block_tools["ranges"](new_blocks, local))
+            self.assertLess(missing, new_setup.stat().st_size // 4,
+                            "Changing launcher code should reuse at least 75% of this setup")
 
     @unittest.skipUnless(os.environ.get("CUBEON_TEST_WINE") or os.environ.get("CUBEON_TEST_WINDOWS"),
                          "opt-in Windows/Wine installation smoke")
@@ -161,6 +180,7 @@ class LauncherInstallers(unittest.TestCase):
             self.assertTrue((target / "Cubeon.exe").is_file(),
                             f"Installer output: {list(root.rglob('Cubeon.exe'))}")
             self.assertEqual((target / "Cubeon.exe").read_bytes(), b"old executable")
+            self.assertEqual((target / ".cubeon-update-base.exe").read_bytes(), setup.read_bytes())
             (target / "user-file.keep").write_text("keep me")
             timestamp = exe.stat().st_mtime
             exe.write_bytes(b"new executable")
@@ -171,6 +191,7 @@ class LauncherInstallers(unittest.TestCase):
             # No /D: the existing custom installation must be rediscovered.
             install("/S")
             self.assertEqual((target / "Cubeon.exe").read_bytes(), b"new executable")
+            self.assertEqual((target / ".cubeon-update-base.exe").read_bytes(), setup.read_bytes())
             self.assertFalse((target / "_internal/old.dll").exists())
             self.assertTrue((target / "_internal/new.dll").is_file())
             version = wine("reg", "query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Cubeon",
@@ -189,7 +210,7 @@ class LauncherInstallers(unittest.TestCase):
             self.assertEqual(runtime.read_bytes(), b"new runtime")
             self.assertEqual({p.name for p in target.iterdir()},
                              {"Cubeon.exe", "_internal", "Uninstall Cubeon.exe", "user-file.keep",
-                              "Cubeon-Setup.log"})
+                              "Cubeon-Setup.log", ".cubeon-update-base.exe"})
             (source / "_internal").mkdir()
             (source / "_internal/new.dll").write_bytes(b"new runtime")
             build("2.0.1")
@@ -337,7 +358,16 @@ SectionEnd
             self.assertEqual((target / "user-file.keep").read_text(), "keep me")
             self.assertFalse((target / "Cubeon.exe").exists())
             self.assertFalse((target / "_internal").exists())
+            self.assertFalse((target / ".cubeon-update-base.exe").exists())
             self.assertIn("second Cubeon", wine("reg", "query", r"HKCU\Software\Cubeon", "/v", "InstallDir"))
+            # Release CI subsequently executes the native updater fixtures.
+            # Leave no registered throwaway installation to make them skip.
+            if os.name == 'nt':
+                result = subprocess.run(f'"{second / "Uninstall Cubeon.exe"}" /S _?={winpath(second)}',
+                                        env=env, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            else:
+                wine(str(second / "Uninstall Cubeon.exe"), "/S", "_?=" + winpath(second))
 
 
 if __name__ == "__main__":

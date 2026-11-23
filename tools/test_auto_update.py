@@ -9,8 +9,10 @@ from __future__ import annotations
 import contextlib
 import copy
 import hashlib
+import io
 import json
 import os
+import random
 from pathlib import Path
 import shutil
 import signal
@@ -28,6 +30,7 @@ sys.path.insert(0, str(ROOT))
 import _sandbox_home
 _sandbox_home.isolate()
 from cubeon import auto_update as update, storage
+from cubeon import update_blocks as blocks
 from cubeon._update_helpers import LINUX_HELPER, WINDOWS_HELPER
 
 NATIVE_WINDOWS = "--native-windows" in sys.argv
@@ -77,6 +80,272 @@ class Response:
     def raise_for_status(self):
         if self.status_code >= 400:
             raise RuntimeError("HTTP failure")
+
+
+def package_fixture(kind, suffix):
+    header = bytearray(128)
+    if kind == "linux":
+        header[:6] = b"\x7fELF\x02\x01"
+        header[8:11] = b"AI\x02"
+        header[18:20] = b"\x3e\x00"
+    else:
+        header[:2] = b"MZ"
+        header[60:64] = (64).to_bytes(4, "little")
+        header[64:70] = b"PE\x00\x00\x4c\x01"
+    return bytes(header) + suffix
+
+
+class BlockMapTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="cubeon-blockmap-")
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "Cubeon-2.0.1-Linux-x86_64.AppImage"
+        self.data = package_fixture("linux", random.Random(17).randbytes(1024 * 1024))
+        self.path.write_bytes(self.data)
+        self.map = blocks.generate(self.path)
+
+    def test_generator_cli_and_index_agree_without_importing_launcher(self):
+        result = subprocess.run([sys.executable, "-I", str(ROOT / "tools/release_version.py"),
+                                 "blockmap", str(self.path), "--kind", "linux", "--version", "2.0.1"],
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        generated = self.path.with_name(self.path.name + ".blockmap.json").read_bytes()
+        self.assertEqual(json.loads(generated), self.map)
+        parsed = blocks.parse(generated, len(self.data), hashlib.sha256(self.data).hexdigest())
+        local = blocks.index(io.BytesIO(self.data))
+        self.assertEqual(blocks.ranges(parsed, local), [])
+        self.assertEqual(sum(block.size for block in parsed), len(self.data))
+
+    def test_strict_schema_hashes_lengths_and_bounds(self):
+        variants = [None, [], dict(self.map, schema_version=True), dict(self.map, schema_version=2),
+                    dict(self.map, algorithm="unknown"), dict(self.map, size=True),
+                    dict(self.map, size=len(self.data) - 1), dict(self.map, sha256="0" * 64),
+                    dict(self.map, chunks=[]), dict(self.map, chunks="bad"),
+                    dict(self.map, chunks=[[True, "0" * 64]]),
+                    dict(self.map, chunks=[[blocks.MAX_BLOCK + 1, "0" * 64]]),
+                    dict(self.map, chunks=[[1, "0" * 64], [1, "0" * 64]])]
+        for change in ([0, "0" * 64], [blocks.MIN_BLOCK, "g" * 64],
+                       [blocks.MIN_BLOCK, "0" * 63], [blocks.MIN_BLOCK, 0],
+                       [blocks.MIN_BLOCK], [blocks.MIN_BLOCK, "0" * 64, 0]):
+            altered = copy.deepcopy(self.map)
+            altered["chunks"][0] = change
+            variants.append(altered)
+        altered = copy.deepcopy(self.map)
+        altered["chunks"].pop()
+        variants.append(altered)
+        for value in variants:
+            with self.subTest(value=str(value)[:100]), self.assertRaises(ValueError):
+                blocks.parse(json.dumps(value).encode(), len(self.data), self.map["sha256"])
+        with self.assertRaises(ValueError):
+            blocks.parse(b" " * (blocks.MAX_MAP + 1), len(self.data), self.map["sha256"])
+        self.path.write_bytes(b"")
+        with self.assertRaises(ValueError):
+            blocks.generate(self.path)
+
+
+class IncrementalDownloadTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="cubeon-incremental-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.cache = self.root / "cache"
+        self.cache.mkdir()
+        self.old = random.Random(31).randbytes(4 * 1024 * 1024)
+        # Change code and insert bytes, shifting the otherwise identical payload.
+        self.new = self.old[:450_000] + b"changed code" * 3500 + self.old[480_000:1_700_000] + b"inserted" * 113 + self.old[1_700_000:]
+        self.prepare("linux")
+
+    def prepare(self, kind):
+        self.target = update.Target(kind, self.root / ("Cubeon.AppImage" if kind == "linux" else "Cubeon.exe"))
+        self.base = self.target.path if kind == "linux" else self.root / ".cubeon-update-base.exe"
+        self.original = package_fixture(kind, self.old)
+        self.payload = package_fixture(kind, self.new)
+        self.base.write_bytes(self.original)
+        package = self.root / "new-package"
+        package.write_bytes(self.payload)
+        self.map = blocks.generate(package)
+        self.set_map(json.dumps(self.map, separators=(",", ":")).encode(), kind)
+
+    def set_map(self, body, kind=None):
+        self.map_body = body
+        data = metadata(self.payload, kind=kind or self.target.kind)
+        asset = data["assets"][0]
+        data["assets"].append(dict(asset, name=asset["name"] + ".blockmap.json",
+                                   browser_download_url=asset["browser_download_url"] + ".blockmap.json",
+                                   size=len(body), digest="sha256:" + hashlib.sha256(body).hexdigest()))
+        self.data = data
+        self.release = update.parse_release(data, self.target.kind, "1.4.9")
+        self.final = self.cache / f"{self.release.sha256}-{self.release.name}"
+
+    def server(self, url, cancel, *, byte_range=None):
+        if url == self.release.blockmap.url:
+            return Response(self.map_body, headers={"Content-Length": str(len(self.map_body))})
+        self.assertEqual(url, self.release.url)
+        if byte_range is None:
+            return Response(self.payload)
+        start, end = byte_range
+        return Response(self.payload[start:end + 1], status=206, headers={
+            "Content-Range": f"bytes {start}-{end}/{len(self.payload)}", "Content-Length": str(end - start + 1)})
+
+    def assert_incremental(self):
+        progress = []
+        with mock.patch.object(update, "_get", side_effect=self.server) as get:
+            path = update.download_release(self.release, self.target, self.cache,
+                                           progress=lambda done, total: progress.append((done, total)))
+            self.assertEqual(path.read_bytes(), self.payload)
+            before = get.call_count
+            self.assertEqual(update.download_release(self.release, self.target, self.cache), path)
+            self.assertEqual(get.call_count, before)
+        ranges = [call.kwargs["byte_range"] for call in get.call_args_list if "byte_range" in call.kwargs]
+        downloaded = sum(end - start + 1 for start, end in ranges)
+        self.assertTrue(ranges)
+        self.assertLess(downloaded + len(self.map_body), len(self.payload) // 4)
+        self.assertEqual(get.call_count, 1 + len(ranges))
+        self.assertEqual(progress[-1], (downloaded, downloaded))
+        self.assertEqual(self.base.read_bytes(), self.original)
+        self.assertFalse(list(self.cache.glob("*.part")))
+        parsed = blocks.parse(self.map_body, len(self.payload), self.release.sha256)
+        local = blocks.index(io.BytesIO(self.original))
+        self.assertTrue(any(local.get((block.size, block.sha256)) not in (None, block.offset) for block in parsed))
+
+    def test_linux_reuses_shifted_blocks_and_cache(self):
+        self.assert_incremental()
+
+    def test_windows_uses_retained_setup_baseline(self):
+        self.prepare("windows")
+        self.assertEqual(update._base_package(self.target, self.cache), self.base)
+        self.assert_incremental()
+
+    def test_windows_legacy_cached_installer_is_kept_for_reuse(self):
+        self.prepare("windows")
+        cached = self.cache / ("a" * 64 + "-Cubeon-1.4.10-Windows-x64-Setup.exe")
+        self.base.rename(cached)
+        self.base = cached
+        self.assertEqual(update._base_package(self.target, self.cache), cached)
+        self.assert_incremental()
+
+    def test_invalid_optional_map_descriptors_are_ignored(self):
+        for field, value in (("size", True), ("size", 0), ("size", blocks.MAX_MAP + 1),
+                             ("digest", None), ("digest", "sha256:bad"), ("state", "new"),
+                             ("browser_download_url", "https://example.org/map")):
+            data = copy.deepcopy(self.data)
+            data["assets"][-1][field] = value
+            with self.subTest(field=field):
+                self.assertIsNone(update.parse_release(data, "linux", "1.4.9").blockmap)
+        duplicate = copy.deepcopy(self.data)
+        duplicate["assets"].append(duplicate["assets"][-1])
+        self.assertIsNone(update.parse_release(duplicate, "linux", "1.4.9").blockmap)
+
+    def test_map_failures_fall_back_to_verified_full_package(self):
+        cases = [Response(self.map_body[:-1]), Response(self.map_body + b"x"),
+                 Response(self.map_body[:-1] + b"x"), Response(self.map_body, status=404),
+                 Response(self.map_body, headers={"Content-Encoding": "gzip"}),
+                 Response(self.map_body, headers={"Content-Length": "1"})]
+        for response in cases:
+            self.final.unlink(missing_ok=True)
+            with self.subTest(response=response), mock.patch.object(update, "_get", side_effect=[response, Response(self.payload)]) as get:
+                self.assertEqual(update.download_release(self.release, self.target, self.cache).read_bytes(), self.payload)
+            self.assertEqual(get.call_count, 2)
+            self.assertFalse(list(self.cache.glob("*.part")))
+        for value in (dict(self.map, sha256="0" * 64), dict(self.map, size=len(self.payload) + 1),
+                      dict(self.map, algorithm="bad")):
+            self.final.unlink(missing_ok=True)
+            self.set_map(json.dumps(value).encode())
+            with mock.patch.object(update, "_get", side_effect=self.server) as get:
+                self.assertEqual(update.download_release(self.release, self.target, self.cache).read_bytes(), self.payload)
+            self.assertEqual(get.call_count, 2)
+
+    def test_range_failures_fall_back_and_discard_partial_reconstruction(self):
+        for failure in ("ignored", "wrong-range", "wrong-length", "truncated", "oversize", "tampered", "compressed", "network"):
+            self.final.unlink(missing_ok=True)
+            def server(url, cancel, *, byte_range=None):
+                response = self.server(url, cancel, byte_range=byte_range)
+                if byte_range is not None:
+                    if failure == "ignored": response.status_code = 200
+                    if failure == "wrong-range": response.headers["Content-Range"] = "bytes 0-1/2"
+                    if failure == "wrong-length": response.headers["Content-Length"] = "1"
+                    if failure == "truncated": response.data = response.data[:-1]
+                    if failure == "oversize": response.data += b"extra"
+                    if failure == "tampered": response.data = b"X" + response.data[1:]
+                    if failure == "compressed": response.headers["Content-Encoding"] = "gzip"
+                    if failure == "network": response.error = OSError("connection dropped")
+                return response
+            with self.subTest(failure=failure), mock.patch.object(update, "_get", side_effect=server) as get:
+                path = update.download_release(self.release, self.target, self.cache)
+            self.assertEqual(path.read_bytes(), self.payload)
+            self.assertEqual(get.call_args_list[-1].args[0], self.release.url)
+            self.assertEqual(get.call_args_list[-1].kwargs, {})
+            self.assertEqual(self.base.read_bytes(), self.original)
+            self.assertFalse(list(self.cache.glob("*.part")))
+
+    def test_missing_baseline_no_savings_and_missing_map_use_full_download(self):
+        for reason in ("missing-base", "symlink-base", "unrelated-base", "missing-map", "too-many-ranges"):
+            self.final.unlink(missing_ok=True)
+            self.base.unlink(missing_ok=True)
+            self.base.write_bytes(self.original)
+            release = self.release
+            if reason == "missing-base": self.base.unlink()
+            if reason == "symlink-base":
+                if os.name == "nt": continue
+                self.base.unlink()
+                self.base.symlink_to(self.root / "new-package")
+            if reason == "unrelated-base": self.base.write_bytes(package_fixture("linux", b"unrelated" * 500))
+            if reason == "missing-map": release = update.parse_release(metadata(self.payload), "linux", "1.4.9")
+            with self.subTest(reason=reason), contextlib.ExitStack() as stack:
+                if reason == "too-many-ranges":
+                    stack.enter_context(mock.patch.object(blocks, "ranges", return_value=[(0, 0)] * 65))
+                get = stack.enter_context(mock.patch.object(update, "_get", side_effect=self.server))
+                self.assertEqual(update.download_release(release, self.target, self.cache).read_bytes(), self.payload)
+                self.assertFalse(any("byte_range" in call.kwargs for call in get.call_args_list))
+
+    def test_cancellation_in_each_phase_never_starts_full_fallback(self):
+        for phase in ("before", "map", "index", "copy", "range"):
+            cancel = threading.Event()
+            if phase == "before": cancel.set()
+            real_index = blocks.index
+            def index(source, *, check):
+                if phase == "index": cancel.set()
+                local = real_index(source, check=check)
+                if phase == "copy": cancel.set()
+                return local
+            def server(url, event, *, byte_range=None):
+                if phase == "map" or byte_range is not None:
+                    if phase in ("map", "range"): event.set()
+                return self.server(url, event, byte_range=byte_range)
+            with self.subTest(phase=phase), mock.patch.object(blocks, "index", side_effect=index), \
+                    mock.patch.object(update, "_get", side_effect=server) as get, self.assertRaises(update.Cancelled):
+                update.download_release(self.release, self.target, self.cache, cancel=cancel)
+            self.assertFalse(self.final.exists())
+            self.assertFalse(list(self.cache.glob("*.part")))
+            self.assertFalse(any(call.args[0] == self.release.url and not call.kwargs for call in get.call_args_list))
+
+    def test_indexing_deadline_and_baseline_replacement_fall_back(self):
+        for failure in ("timeout", "replacement", "opened-replacement"):
+            self.final.unlink(missing_ok=True)
+            now = [0]
+            real_index = blocks.index
+            real_open = Path.open
+            def index(source, *, check):
+                if failure == "timeout": now[0] = update.DOWNLOAD_SECONDS + 1
+                local = real_index(source, check=check)
+                if failure == "replacement":
+                    replacement = self.root / "replacement"
+                    replacement.write_bytes(self.original)
+                    os.replace(replacement, self.base)
+                return local
+            def open_path(path, *args, **kwargs):
+                if path == self.base and failure == "opened-replacement":
+                    replacement = self.root / "replacement"
+                    replacement.write_bytes(self.original)
+                    os.replace(replacement, self.base)
+                return real_open(path, *args, **kwargs)
+            # An open file cannot be atomically replaced on native Windows.
+            if os.name == "nt" and failure == "replacement": continue
+            with self.subTest(failure=failure), mock.patch.object(update.time, "monotonic", side_effect=lambda: now[0]), \
+                    mock.patch.object(blocks, "index", side_effect=index), mock.patch.object(Path, "open", open_path), \
+                    mock.patch.object(update, "_get", side_effect=self.server) as get:
+                self.assertEqual(update.download_release(self.release, self.target, self.cache).read_bytes(), self.payload)
+            self.assertFalse(any("byte_range" in call.kwargs for call in get.call_args_list))
 
 
 class ReleaseTests(unittest.TestCase):
@@ -152,6 +421,21 @@ class ReleaseTests(unittest.TestCase):
                 update._get(metadata()["assets"][0]["browser_download_url"], threading.Event())
         self.assertEqual(get.call_count, 1)
         self.assertTrue(response.closed)
+
+    def test_range_headers_survive_the_trusted_github_redirect(self):
+        from cubeon import net
+        redirected = Response(b"", status=302, headers={"Location": "https://release-assets.githubusercontent.com/package"})
+        partial = Response(b"range", status=206)
+        with mock.patch.object(net, "_do_get", side_effect=[redirected, partial]) as get:
+            with update._get(metadata()["assets"][0]["browser_download_url"], threading.Event(), byte_range=(123, 456)) as response:
+                self.assertIs(response, partial)
+        self.assertEqual(get.call_count, 2)
+        for call in get.call_args_list:
+            self.assertEqual(call.kwargs["headers"]["Range"], "bytes=123-456")
+            self.assertEqual(call.kwargs["headers"]["Accept-Encoding"], "identity")
+            self.assertFalse(call.kwargs["allow_redirects"])
+        self.assertTrue(redirected.closed)
+        self.assertTrue(partial.closed)
 
     def test_metadata_size_bound_and_cancellation(self):
         with mock.patch.object(update, "_get", return_value=Response(b"x" * (update.MAX_METADATA + 1))):

@@ -127,6 +127,7 @@ jobs:
               tools/test_mod_matrix.py
               tools/test_mod_compile.py
               tools/test_peer_skins.py
+              tools/test_auto_update.py
               tools/test_release_version.py
               tools/test_release_pipeline.py
             )
@@ -488,6 +489,7 @@ jobs:
           chmod +x packaging/build_appimage.sh
           ./packaging/build_appimage.sh
           python packaging/build_linux_installers.py
+          python tools/release_version.py blockmap "dist/Cubeon-${RELEASE_VERSION}-Linux-x86_64.AppImage" --kind linux
 
       - name: Upload Linux AppImage Artifact
         # Publish artifacts only for tagged releases. A single run's
@@ -512,7 +514,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-${RELEASE_VERSION}-Linux-x86_64.AppImage" --clobber
+        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-${RELEASE_VERSION}-Linux-x86_64.AppImage" "dist/Cubeon-${RELEASE_VERSION}-Linux-x86_64.AppImage.blockmap.json" --clobber
 
       - name: Attach Linux offline installer to the GitHub release
         shell: bash
@@ -585,19 +587,25 @@ jobs:
         run: python tools/write_cf_key.py
 
       - name: Test Windows installer transactions
-        run: python tools/test_launcher_installers.py --native-windows
+        run: |
+          python tools/test_launcher_installers.py --native-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/test_auto_update.py --native-windows
 
       - name: Build Windows installer payload
         run: python packaging/build_windows.py
 
       - name: Build Windows installer (NSIS)
-        run: python packaging/build_windows_installer.py
+        run: |
+          python packaging/build_windows_installer.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/release_version.py blockmap "dist/Cubeon-${env:RELEASE_VERSION}-Windows-x64-Setup.exe" --kind windows
 
       - name: Publish Windows installer to the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-${RELEASE_VERSION}-Windows-x64-Setup.exe" --clobber
+        run: gh release upload "$RELEASE_TAG" "dist/Cubeon-${RELEASE_VERSION}-Windows-x64-Setup.exe" "dist/Cubeon-${RELEASE_VERSION}-Windows-x64-Setup.exe.blockmap.json" --clobber
 
   build-macos:
     name: Build macOS (${{ matrix.arch }})
@@ -697,7 +705,7 @@ jobs:
           gh api "$release_api" > build/release-assets.json
           python3 tools/release_version.py manifest "${TAG#v}" \
             --release-json build/release-assets.json --repository "$GITHUB_REPOSITORY" \
-            --channel "$CHANNEL"
+            --channel "$CHANNEL" --require-blockmaps
           gh release upload "$TAG" "dist/update-${TAG#v}.json" --clobber
 
       - name: Publish

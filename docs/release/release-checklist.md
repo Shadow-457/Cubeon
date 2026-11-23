@@ -42,7 +42,8 @@ system, artifact, and results. Do not mark untested platforms as verified.
       do not create a second tag or release for the same version.
 - [ ] Watch the build jobs and the asset-verification/publish job.
 - [ ] Verify all seven Windows/Linux/macOS binaries and `update-<version>.json`
-      exist with the expected version and SHA-256 digests before making a draft public.
+      plus both Windows/Linux `.blockmap.json` sidecars exist with the expected
+      version and SHA-256 digests before making a draft public.
 - [ ] Keep beta versions as prereleases; they must not become the stable download.
 - [ ] Deploy changed Workers using their own configuration and credentials.
       Packaging the launcher does not deploy them.

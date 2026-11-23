@@ -57,6 +57,7 @@ catalog; the scripts in `tools/` are the current inventory.
 | Full Bright and keystrokes | `test_full_bright.py` (`--targets` checks cached APIs, `--jars` checks shipped fixes), `test_hud_debug_visibility.py`; `capture_full_bright.py` uses isolated cached games on Xvfb |
 | Launch and downloads | `test_version_integrity.py`, `test_launch_fixes.py`, `test_net.py` |
 | Release tooling | `test_release_version.py`, `test_release_pipeline.py` |
+| Launcher updates | `test_auto_update.py` (shifted-block reuse, strict maps/ranges, fallback, cancellation and executed Linux helpers); `test_launcher_installers.py` (real NSIS compression reuse); add `--wine` for install/upgrade/rollback/uninstall or `--native-windows` on disposable Windows hosts |
 | macOS packaging | `test_macos_package.py`; native CI runs `--native --arch arm64` and `--native --arch x64` against the packaged app |
 
 Keep declared client mixins in `tools/build_mod_jars.py`'s `REQUIRED_ENTRIES`.

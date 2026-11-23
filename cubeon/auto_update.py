@@ -26,6 +26,7 @@ from urllib.parse import quote, urlsplit
 import uuid
 
 from .updater import APP_VERSION, release_asset_name
+from . import update_blocks
 
 log = logging.getLogger(__name__)
 REPOSITORY = "Shadow-457/Cubeon"
@@ -61,6 +62,13 @@ class Target:
 
 
 @dataclass(frozen=True)
+class BlockMap:
+    url: str
+    size: int
+    sha256: str
+
+
+@dataclass(frozen=True)
 class Release:
     version: str
     tag: str
@@ -68,6 +76,7 @@ class Release:
     url: str
     size: int
     sha256: str
+    blockmap: BlockMap | None = None
 
 
 def version_tuple(value: str) -> tuple[int, int, int]:
@@ -114,7 +123,17 @@ def parse_release(data, kind: str, current: str = APP_VERSION) -> Release | None
     expected_url = f"https://github.com/{REPOSITORY}/releases/download/{quote(tag, safe='')}/{name}"
     if asset.get("browser_download_url") != expected_url:
         raise UpdateError("The release download does not belong to Cubeon.")
-    return Release(".".join(map(str, latest)), tag, name, expected_url, size, sha256)
+    blockmap = None
+    maps = [item for item in assets if isinstance(item, dict) and item.get("name") == name + ".blockmap.json"]
+    if len(maps) == 1:
+        item = maps[0]
+        map_digest = item.get("digest")
+        if (item.get("state") == "uploaded" and type(item.get("size")) is int
+                and 0 < item["size"] <= update_blocks.MAX_MAP and isinstance(map_digest, str)
+                and map_digest.startswith("sha256:") and _HASH.fullmatch(map_digest[7:].lower())
+                and item.get("browser_download_url") == expected_url + ".blockmap.json"):
+            blockmap = BlockMap(expected_url + ".blockmap.json", item["size"], map_digest[7:].lower())
+    return Release(".".join(map(str, latest)), tag, name, expected_url, size, sha256, blockmap)
 
 
 def trusted_url(url: str, *, metadata=False) -> bool:
@@ -139,17 +158,19 @@ def _check_cancel(cancel):
         raise Cancelled("Update cancelled because Cubeon is closing.")
 
 
-def _get(url, cancel, *, metadata=False):
+def _get(url, cancel, *, metadata=False, byte_range=None):
     # Use Cubeon's pooled TLS transport, but keep this update's retry and size
     # bounds here. In particular, an unbounded Retry-After must not hang exit.
     from . import net
     from .paths import user_agent
     _check_cancel(cancel)
+    headers = {"User-Agent": user_agent("auto-update"), "Accept-Encoding": "identity",
+               "Accept": "application/vnd.github+json" if metadata else "application/octet-stream",
+               "X-GitHub-Api-Version": "2022-11-28"}
+    if byte_range is not None:
+        headers["Range"] = f"bytes={byte_range[0]}-{byte_range[1]}"
     return net.get_with_retry(
-        url, attempts=1, timeout=(5, 15),
-        headers={"User-Agent": user_agent("auto-update"), "Accept-Encoding": "identity",
-                 "Accept": "application/vnd.github+json" if metadata else "application/octet-stream",
-                 "X-GitHub-Api-Version": "2022-11-28"},
+        url, attempts=1, timeout=(5, 15), headers=headers,
         url_validator=lambda value: trusted_url(value, metadata=metadata),
         cancel_check=lambda: _check_cancel(cancel),
     )
@@ -240,9 +261,120 @@ def _space(directory: Path, required: int):
         raise UpdateError("Not enough free space to safely install the Cubeon update.")
 
 
+def _base_package(target: Target, cache: Path) -> Path | None:
+    candidates = [target.path] if target.kind == "linux" else [target.path.parent / ".cubeon-update-base.exe"]
+    if target.kind == "windows":
+        # Older installers have no baseline copy, but a previous auto-update
+        # may have left its verified full installer in this target's cache.
+        cached = [p for p in cache.iterdir() if re.fullmatch(
+            r"[0-9a-f]{64}-Cubeon(?:-[0-9]+\.[0-9]+\.[0-9]+)?-Windows-x64-Setup\.exe", p.name)]
+        candidates.extend(sorted(cached, key=lambda p: p.lstat().st_mtime, reverse=True)[:4])
+    for path in candidates:
+        try:
+            if 1024 <= _regular(path).st_size <= MAX_ASSET:
+                _executable_header(path, target.kind)
+                return path
+        except (OSError, UpdateError):
+            continue
+    return None
+
+
+def _incremental_download(release, target, cache, final, cancel, progress):
+    """Reassemble verified bytes before the existing installer/rollback handoff."""
+    deadline = time.monotonic() + DOWNLOAD_SECONDS
+    def check():
+        _check_cancel(cancel)
+        if time.monotonic() > deadline:
+            raise UpdateError("Incremental update timed out.")
+
+    check()
+    descriptor = release.blockmap
+    base = _base_package(target, cache)
+    if descriptor is None or base is None:
+        return None
+    with _get(descriptor.url, cancel) as response:
+        length = response.headers.get("Content-Length")
+        if (response.status_code != 200
+                or response.headers.get("Content-Encoding", "identity").lower() != "identity"
+                or (length is not None and (not str(length).isdigit() or int(length) != descriptor.size))):
+            raise UpdateError("Block map download failed.")
+        body = bytearray()
+        for data in response.iter_content(32 * 1024):
+            check()
+            if len(body) + len(data) > descriptor.size:
+                raise UpdateError("Invalid block map download size.")
+            body.extend(data)
+    if len(body) != descriptor.size or hashlib.sha256(body).hexdigest() != descriptor.sha256:
+        raise UpdateError("Block map checksum does not match GitHub.")
+    blocks = update_blocks.parse(body, release.size, release.sha256)
+    identity = _regular(base)
+    with base.open("rb") as source:
+        if update_blocks.identity(identity) != update_blocks.identity(os.fstat(source.fileno())):
+            raise UpdateError("The local update baseline changed.")
+        local = update_blocks.index(source, check=check)
+        if (update_blocks.identity(identity) != update_blocks.identity(os.fstat(source.fileno()))
+                or update_blocks.identity(identity) != update_blocks.identity(_regular(base))):
+            raise UpdateError("The local update baseline changed.")
+        missing = update_blocks.ranges(blocks, local)
+        needed = sum(end - start + 1 for start, end in missing)
+        if len(missing) > 64 or needed + descriptor.size >= release.size * .9:
+            return None
+        fd, name = tempfile.mkstemp(prefix="download-", suffix=".part", dir=cache)
+        temp = Path(name)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.truncate(release.size)
+                for block in blocks:
+                    check()
+                    offset = local.get((block.size, block.sha256))
+                    if offset is None:
+                        continue
+                    source.seek(offset)
+                    data = source.read(block.size)
+                    if len(data) != block.size or hashlib.sha256(data).hexdigest() != block.sha256:
+                        raise UpdateError("The local update baseline changed.")
+                    output.seek(block.offset)
+                    output.write(data)
+                received = 0
+                for start, end in missing:
+                    check()
+                    with _get(release.url, cancel, byte_range=(start, end)) as response:
+                        length = end - start + 1
+                        if (response.status_code != 206
+                                or response.headers.get("Content-Range") != f"bytes {start}-{end}/{release.size}"
+                                or response.headers.get("Content-Encoding", "identity").lower() != "identity"
+                                or (response.headers.get("Content-Length") is not None
+                                    and response.headers["Content-Length"] != str(length))):
+                            raise UpdateError("The download server did not honor the requested update range.")
+                        output.seek(start)
+                        count = 0
+                        for data in response.iter_content(128 * 1024):
+                            check()
+                            count += len(data)
+                            if count > length:
+                                raise UpdateError("Invalid incremental update download size.")
+                            output.write(data)
+                            received += len(data)
+                            if progress:
+                                progress(received, needed)
+                        if count != length:
+                            raise UpdateError("Incremental update range is incomplete.")
+                output.flush()
+                os.fsync(output.fileno())
+            check()
+            verify_download(temp, release, target.kind, cancel=cancel)
+            check()
+            os.replace(temp, final)
+            log.info("auto-update: reused %s bytes; downloaded %s package bytes", release.size - needed, needed)
+            return final
+        finally:
+            temp.unlink(missing_ok=True)
+
+
 def download_release(release: Release, target: Target, cache: Path, *, cancel=None, progress=None) -> Path:
     """Publish only complete, verified bytes; a failed attempt cannot replace them."""
     cancel = cancel or threading.Event()
+    _check_cancel(cancel)
     final = cache / f"{release.sha256}-{release.name}"
     if final.exists() or final.is_symlink():
         try:
@@ -256,6 +388,15 @@ def download_release(release: Release, target: Target, cache: Path, *, cancel=No
             else:
                 raise UpdateError("The update cache contains a redirected file.")
     _space(cache, release.size)
+    if release.blockmap is not None:
+        try:
+            result = _incremental_download(release, target, cache, final, cancel, progress)
+            if result is not None:
+                return result
+        except Cancelled:
+            raise
+        except Exception:
+            log.info("Incremental update unavailable; using the verified full package", exc_info=True)
     deadline = time.monotonic() + DOWNLOAD_SECONDS
     last_error = None
     for attempt in range(ATTEMPTS):
@@ -695,9 +836,9 @@ class AutoUpdater:
                 self._notice("previous-failure", release)
                 return
             final = cache / f"{release.sha256}-{release.name}"
-            _clean_cache(cache, final)
             self._notice("downloading", release)
             download = download_release(release, target, cache, cancel=self.cancel_event)
+            _clean_cache(cache, final)
             self._notice("verified", release)
             _check_cancel(self.cancel_event)
             if other_launcher_running(target):

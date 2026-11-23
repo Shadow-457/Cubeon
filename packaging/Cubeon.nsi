@@ -41,7 +41,9 @@ OutFile "${OUTPUT_DIR}\Cubeon-${DISPLAY_VERSION}-Windows-x64-Setup.exe"
 InstallDir "$LOCALAPPDATA\Cubeon"
 InstallDirRegKey HKCU "Software\Cubeon" "InstallDir"
 RequestExecutionLevel user
-SetCompressor /SOLID lzma
+; Independent file streams keep unchanged runtime/assets reusable by the
+; updater's content blocks. Solid compression changes the entire stream.
+SetCompressor lzma
 ; Keep the file-details panes collapsed: the default "show" turned every
 ; install into a terminal-like scroll of extracted paths.
 ShowInstDetails hide
@@ -355,6 +357,18 @@ place_internal:
   WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" ${ESTIMATED_SIZE_KB}
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
+  ; Keep one setup as the read-only baseline for future incremental downloads.
+  ; This is best-effort AFTER the program transaction succeeded: a cache copy
+  ; failure retains the previous baseline and cannot fail a healthy install.
+  ClearErrors
+  GetTempFileName $0 "$INSTDIR"
+  IfErrors baseline_done
+  System::Call 'kernel32::CopyFileW(w "$EXEPATH", w r0, i 0) i.r1'
+  ${If} $1 != 0
+    System::Call 'kernel32::MoveFileExW(w r0, w "$INSTDIR\.cubeon-update-base.exe", i 1) i.r1'
+  ${EndIf}
+  Delete "$0"
+baseline_done:
   Goto install_done
 
 remove_new_internal:
@@ -440,6 +454,7 @@ Section "Uninstall"
   Delete "$INSTDIR\Cubeon.exe"
   Delete "$INSTDIR\Uninstall Cubeon.exe"
   Delete "$INSTDIR\Cubeon-Setup.log"
+  Delete "$INSTDIR\.cubeon-update-base.exe"
   RMDir "$INSTDIR"
 uninstall_keep_folder:
 SectionEnd

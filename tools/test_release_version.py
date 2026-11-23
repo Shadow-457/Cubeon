@@ -263,6 +263,28 @@ finally:
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ----------------------------- old manifest regeneration stays compatible ---
+section("incremental metadata compatibility")
+release = {"tag_name": "v2.0.1", "prerelease": True, "assets": []}
+for kind in rv.RELEASE_ASSETS:
+    name = rv.release_asset_name(kind, "2.0.1")
+    release["assets"].append({"name": name, "state": "uploaded", "size": 2048,
+                               "digest": "sha256:" + "a" * 64,
+                               "browser_download_url": f"https://github.com/fake/repo/releases/download/v2.0.1/{name}"})
+check("older releases can regenerate their seven-package manifest",
+      "blockmaps" not in rv.update_manifest("2.0.1", release, "fake/repo", "beta"))
+check("new release generation requires both block maps",
+      raises(rv.update_manifest, "2.0.1", release, "fake/repo", "beta", require_blockmaps=True))
+release["assets"].append(dict(release["assets"][0], name=release["assets"][0]["name"] + ".blockmap.json",
+                               browser_download_url=release["assets"][0]["browser_download_url"] + ".blockmap.json"))
+check("a partially uploaded pair fails even in compatibility mode",
+      raises(rv.update_manifest, "2.0.1", release, "fake/repo", "beta"))
+release["assets"].append(dict(release["assets"][1], name=release["assets"][1]["name"] + ".blockmap.json",
+                               browser_download_url=release["assets"][1]["browser_download_url"] + ".blockmap.json"))
+check("both block maps are included when available",
+      set(rv.update_manifest("2.0.1", release, "fake/repo", "beta")["blockmaps"]) == {"windows", "linux"})
+
+
 # ------------------------------------------- the real tree stays consistent ---
 section("the repo this ships from")
 check("cubeon/updater.py has exactly one parseable APP_VERSION",

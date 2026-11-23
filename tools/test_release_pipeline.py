@@ -128,8 +128,12 @@ check("publish waits for supported builders",
           for b in ("build-linux-appimage", "build-windows-exe", "build-macos")))
 check("Windows packaging verifies the actual installer transactions",
       "test_launcher_installers.py --native-windows" in job_block("build-windows-exe"))
-check("Windows packaging has no dependency on the removed automatic updater",
-      "test_auto_update.py" not in job_block("build-windows-exe"))
+check("Windows packaging executes the updater handoff before building",
+      "test_auto_update.py --native-windows" in job_block("build-windows-exe"))
+for builder in ("build-linux-appimage", "build-windows-exe"):
+    check(f"{builder} generates and uploads its incremental map",
+          "release_version.py blockmap" in job_block(builder)
+          and ".blockmap.json\" --clobber" in job_block(builder))
 windows_tests = extract_run("Run startup-critical tests")
 windows_loop = windows_tests.split("foreach ($t in $tests) {", 1)[-1]
 check("Windows startup suites cannot share an instance storage registry",
@@ -142,6 +146,7 @@ check("update metadata is verified and uploaded before publication",
       'release_version.py manifest "${TAG#v}"' in pub
       and 'dist/update-${TAG#v}.json' in pub
       and pub.index("release_version.py manifest") < pub.index("--draft=false"))
+check("new releases require both block maps before publication", "--require-blockmaps" in pub)
 check("Linux release only builds the regular AppImage and shell installer",
       "Attach Debian package" not in wf and "Setup.AppImage" not in wf
       and "build_linux_installers.py" in job_block("build-linux-appimage"))
@@ -606,10 +611,12 @@ try:
 
     section("7. publish refuses an incomplete release")
     previously_published = sim.has("published", "v1.1.3")
-    COMPLETE = ["Cubeon-1.1.3-Windows-x64-Setup.exe",
+    PACKAGES = ["Cubeon-1.1.3-Windows-x64-Setup.exe",
                 "Cubeon-1.1.3-Linux-x86_64.AppImage", "Cubeon-1.1.3-Linux-x86_64-Setup.sh",
                 "Cubeon-1.1.3-macOS-arm64.zip", "Cubeon-1.1.3-macOS-x64.zip",
                 "Cubeon-1.1.3-macOS-arm64.dmg", "Cubeon-1.1.3-macOS-x64.dmg"]
+    BLOCKMAPS = [name + ".blockmap.json" for name in PACKAGES[:2]]
+    COMPLETE = PACKAGES + BLOCKMAPS
     (sim.state / "assets" / "v1.1.3").write_text(
         "Cubeon-macOS.zip\n", encoding="utf-8")
     rc = sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3")
@@ -621,9 +628,11 @@ try:
     manifest = json.loads((sim.work / "dist/update-1.1.3.json").read_text())
     check("one versioned manifest covers every Windows/Linux/Mac asset",
           manifest["version"] == "1.1.3" and manifest["channel"] == "beta"
-          and {asset["name"] for asset in manifest["assets"].values()} == set(COMPLETE)
+          and {asset["name"] for asset in manifest["assets"].values()} == set(PACKAGES)
           and all(len(asset["sha256"]) == 64 and asset["size"] == 2048
                   and "/v1.1.3/" in asset["url"] for asset in manifest["assets"].values()))
+    check("both incremental block maps are verified and recorded",
+          {asset["name"] for asset in manifest["blockmaps"].values()} == set(BLOCKMAPS))
     check("the verified manifest is attached to the draft",
           "update-1.1.3.json" in (sim.state / "assets/v1.1.3").read_text().splitlines())
     for missing in COMPLETE:

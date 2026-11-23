@@ -278,7 +278,8 @@ def _cmd_stamp(args) -> int:
     return 0
 
 
-def update_manifest(version: str, release: dict, repository: str, release_channel: str) -> dict:
+def update_manifest(version: str, release: dict, repository: str, release_channel: str,
+                    *, require_blockmaps=False) -> dict:
     """Validate the uploaded binaries before creating public update metadata."""
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise VersionError("invalid GitHub repository")
@@ -299,9 +300,7 @@ def update_manifest(version: str, release: dict, repository: str, release_channe
                              + r"(untagged-[A-Za-z0-9-]+)", release.get("html_url") or "")
         if match:
             draft_slug = match.group(1)
-    assets = {}
-    for kind in RELEASE_ASSETS:
-        name = release_asset_name(kind, version)
+    def verified_asset(name):
         matches = [asset for asset in uploaded if isinstance(asset, dict) and asset.get("name") == name]
         if len(matches) != 1:
             raise VersionError(f"release needs exactly one {name}")
@@ -316,21 +315,44 @@ def update_manifest(version: str, release: dict, repository: str, release_channe
                      if draft_slug else None)
         if asset.get("browser_download_url") != url and (draft_url is None or asset.get("browser_download_url") != draft_url):
             raise VersionError(f"{name} has an unexpected download URL")
-        assets[kind] = {"name": name, "url": url, "size": size, "sha256": digest[7:].lower()}
-    return {"schema_version": 1, "version": version, "tag_name": f"v{version}",
+        return {"name": name, "url": url, "size": size, "sha256": digest[7:].lower()}
+    assets = {kind: verified_asset(release_asset_name(kind, version)) for kind in RELEASE_ASSETS}
+    result = {"schema_version": 1, "version": version, "tag_name": f"v{version}",
             "channel": release_channel, "prerelease": release_channel == "beta", "assets": assets}
+    map_names = {kind: release_asset_name(kind, version) + ".blockmap.json" for kind in ("windows", "linux")}
+    if require_blockmaps or any(isinstance(asset, dict) and asset.get("name") in map_names.values()
+                               for asset in uploaded):
+        result["blockmaps"] = {kind: verified_asset(name) for kind, name in map_names.items()}
+    return result
 
 
 def _cmd_manifest(args) -> int:
     try:
         release = json.loads(Path(args.release_json).read_text(encoding="utf-8"))
-        manifest = update_manifest(args.version, release, args.repository, args.channel)
+        manifest = update_manifest(args.version, release, args.repository, args.channel,
+                                   require_blockmaps=args.require_blockmaps)
         directory = Path(args.output_dir)
         directory.mkdir(parents=True, exist_ok=True)
         output = directory / f"update-{args.version}.json"
         output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     except (OSError, ValueError) as ex:
         raise VersionError(f"cannot generate update metadata: {ex}") from ex
+    print(output)
+    return 0
+
+
+def _cmd_blockmap(args) -> int:
+    package = Path(args.package)
+    expected = release_asset_name(args.kind, args.version or read_app_version())
+    if package.name != expected:
+        raise VersionError(f"expected the versioned {expected}")
+    try:
+        generate = runpy.run_path(str(ROOT / "cubeon/update_blocks.py"))["generate"]
+        result = generate(package)
+        output = package.with_name(package.name + ".blockmap.json")
+        output.write_text(json.dumps(result, separators=(",", ":")) + "\n", encoding="utf-8")
+    except (OSError, ValueError) as ex:
+        raise VersionError(f"cannot generate package block map: {ex}") from ex
     print(output)
     return 0
 
@@ -376,7 +398,14 @@ def main(argv=None) -> int:
     p.add_argument("--repository", required=True)
     p.add_argument("--channel", required=True, choices=("stable", "beta"))
     p.add_argument("--output-dir", default="dist")
+    p.add_argument("--require-blockmaps", action="store_true", help="require both incremental update maps")
     p.set_defaults(func=_cmd_manifest)
+
+    p = sub.add_parser("blockmap", help="index a built package for incremental downloads")
+    p.add_argument("package")
+    p.add_argument("--kind", required=True, choices=("linux", "windows"))
+    p.add_argument("--version", help="package version (default: APP_VERSION)")
+    p.set_defaults(func=_cmd_blockmap)
 
     args = ap.parse_args(argv)
     if not getattr(args, "func", None):
