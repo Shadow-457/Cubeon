@@ -5,7 +5,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * Which names earn the Cubeon badge in front of a nametag.
+ * Local and friend identities that earn the Cubeon badge in the Tab list.
  *
  * <p>The two sides of this never line up by accident. Minecraft draws a
  * nametag from the player's <em>Minecraft username</em> ({@code Player
@@ -26,12 +26,9 @@ import java.util.TreeSet;
  * against a bare JDK, which is the only way this matching rule can be tested
  * at all (everything that used to read it needed Minecraft to run).
  *
- * <p><b>Currently unused by the mod itself.</b> This rule earned the
- * {@code [#]Shadow} nametag badge, which has been removed - see the retired
- * {@code Nametag} class in git history. The rule is kept because it encodes a
- * genuinely hard-won lesson (a relay handle is not a name, and badging on
- * handles badged nobody), it is still unit-tested, and it is the thing to reach
- * for if a non-name-marking use ever needs it.
+ * <p>{@code TabListTag} uses these identities immediately, even offline.
+ * Players outside the friends roster are identified independently through
+ * the shared Cubeon profile cache. The badge above heads remains removed.
  */
 public final class BadgeNames {
 

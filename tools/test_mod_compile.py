@@ -63,6 +63,7 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/Bridge.java",
     "mod/src/main/java/com/cubeon/client/skins/CapeAnimation.java",
     "mod/src/main/java/com/cubeon/client/skins/CapeFrames.java",
+    "mod/src/main/java/com/cubeon/client/skins/RemoteSkins.java",
     "mod/src/main/java/com/cubeon/client/emotes/EmoteState.java",
     "mod/src/main/java/com/cubeon/client/emotes/EmotePose.java",
     "mod/src/main/java/com/cubeon/client/emotes/EmoteRoom.java",
@@ -552,6 +553,7 @@ STUBS = {
 
             public Screen screen;
             public LocalPlayer player;
+            public net.minecraft.client.multiplayer.ClientLevel level;
             public Gui gui;
             /** What the crosshair is on - how the reach module is computed. */
             public net.minecraft.world.phys.HitResult hitResult;
@@ -1032,6 +1034,11 @@ STUBS = {
             private LoggerFactory() {
             }
         }
+        """,
+
+    "net/minecraft/client/multiplayer/ClientLevel.java": """
+        package net.minecraft.client.multiplayer;
+        public class ClientLevel { }
         """,
 
     "org/spongepowered/asm/mixin/Mixin.java": """

@@ -52,7 +52,7 @@ catalog; the scripts in `tools/` are the current inventory.
 | Horizon content mods for Rust | `test_rust_mods.py`; `test_rust_engine_native.py --content-mod /path/to/adapted.hmod` with a matching installed binary/resources |
 | Content isolation | `test_content_instance.py`, `test_instances.py` |
 | Friends and chat | `test_friends.py`, `test_friends_service.py`, `test_chat_optimistic.py` |
-| Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py` |
+| Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py`, `test_peer_skins.py` (profiles, skins and Tab badges) |
 | Fabric 26.3 LOD | `test_lod.py` for core algorithms/settings, transparent boundaries and bounded cache residency; `test_lod_native.py` for CPU/GPU terrain, planted-ground coverage, composition, near occlusion, fog, live status, freeze and disable |
 | Full Bright and keystrokes | `test_full_bright.py` (`--targets` checks cached APIs, `--jars` checks shipped fixes), `test_hud_debug_visibility.py`; `capture_full_bright.py` uses isolated cached games on Xvfb |
 | Launch and downloads | `test_version_integrity.py`, `test_launch_fixes.py`, `test_net.py` |
@@ -63,12 +63,11 @@ Keep declared client mixins in `tools/build_mod_jars.py`'s `REQUIRED_ENTRIES`.
 `test_mod_compile.py` checks this contract, and `test_mod_matrix.py` audits the
 shipped archives. Rebuild through the mod builder after changing game sources
 so packaged JARs carry the new hooks.
-For the deliberately restored Fabric 26.3 release, `mod/brackets.json` records
-the approved JAR checksum, source commit and omitted experimental LOD overlay
-under `retained_release`. Shipped-archive checks accept that overlay set only
-for the exact recorded bytes and still check every other class/resource.
-Fresh builds use strict current-overlay verification. Remove or update the
-retained record when replacing that binary with a newly verified release.
+The Fabric 26.3 bracket omits the experimental `lod-26.3` overlay, preserving
+the renderer choice from the restored release while allowing client fixes to
+be rebuilt normally. Experimental LOD sources remain available separately.
+Fresh JARs use strict overlay verification, including rejection of LOD classes
+when the bracket does not select that overlay.
 
 The compatibility suites exercise the real guarded launch block: default
 checks block before staging, while **Run anyway** consumes one in-memory

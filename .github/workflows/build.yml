@@ -126,6 +126,7 @@ jobs:
               tools/test_modpacks_cf_keyless.py
               tools/test_mod_matrix.py
               tools/test_mod_compile.py
+              tools/test_peer_skins.py
               tools/test_release_version.py
               tools/test_release_pipeline.py
             )

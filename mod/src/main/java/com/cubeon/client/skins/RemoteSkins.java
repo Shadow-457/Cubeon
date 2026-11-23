@@ -39,7 +39,7 @@ public final class RemoteSkins {
                 return thread;
             });
     public record Skin(byte[] png, boolean slim, String id) { }
-    private record Entry(Skin skin, long expires, boolean pending) { }
+    private record Entry(Skin skin, boolean cubeonPlayer, long expires, boolean pending) { }
     private static final LinkedHashMap<String, Entry> CACHE = new LinkedHashMap<>(128, .75f, true);
     private static Object world;
     private static long generation;
@@ -54,6 +54,18 @@ public final class RemoteSkins {
             CACHE.entrySet().removeIf(entry -> entry.getValue().pending);
             WORKERS.getQueue().clear();
         }
+    }
+
+    /**
+     * A published Cubeon profile, including cape-only/default-skin players.
+     * Shares the skin lookup's workers, cache and request budget; never waits
+     * for HTTP. A skin texture failure does not erase a confirmed identity.
+     */
+    public static synchronized boolean isCubeonPlayer(String username) {
+        if (world == null || username == null || !username.matches("[A-Za-z0-9_]{3,16}")) return false;
+        get(username);
+        Entry entry = CACHE.get(username.toLowerCase(Locale.ROOT));
+        return entry != null && entry.cubeonPlayer;
     }
 
     /** Cached skin or {@code null}; a miss queues one non-blocking lookup. */
@@ -78,11 +90,12 @@ public final class RemoteSkins {
             if (!removed) return null;
         }
         Skin previous = found == null ? null : found.skin;
-        CACHE.put(key, new Entry(previous, now + TTL, true));
+        boolean previousIdentity = found != null && found.cubeonPlayer;
+        CACHE.put(key, new Entry(previous, previousIdentity, now + TTL, true));
         long requestGeneration = generation;
         try { WORKERS.execute(() -> fetch(key, requestGeneration)); }
         catch (java.util.concurrent.RejectedExecutionException full) {
-            CACHE.put(key, new Entry(previous, now + TimeUnit.MINUTES.toNanos(1), false));
+            CACHE.put(key, new Entry(previous, previousIdentity, now + TimeUnit.MINUTES.toNanos(1), false));
         }
         return previous;
     }
@@ -92,12 +105,13 @@ public final class RemoteSkins {
             if (generation != requestGeneration || clock.getAsLong() < retryAt) {
                 if (generation == requestGeneration && CACHE.containsKey(key)) {
                     Entry entry = CACHE.get(key);
-                    CACHE.put(key, new Entry(entry.skin, retryAt, false));
+                    CACHE.put(key, new Entry(entry.skin, entry.cubeonPlayer, retryAt, false));
                 }
                 return;
             }
         }
         Skin skin = null;
+        boolean cubeonPlayer = false;
         long ttl = TTL;
         boolean failed = true, answered = false;
         long serverDelay = 0;
@@ -115,11 +129,16 @@ public final class RemoteSkins {
                     Map<String, Object> root = Json.parseObject(new String(bytes, StandardCharsets.UTF_8));
                     Object texturesValue = root.get("textures");
                     Map<?, ?> textures = texturesValue instanceof Map<?, ?> map ? map : Map.of();
+                    cubeonPlayer = key.equalsIgnoreCase(Json.str(root, "username", ""))
+                            && (textureId(textures.get("cape")) != null
+                            || textureId(textures.get("slim")) != null
+                            || textureId(textures.get("default")) != null);
+                    if (!cubeonPlayer) throw new IllegalArgumentException("Invalid Cubeon profile");
                     String id = textureId(textures.get("slim"));
                     boolean slim = id != null;
                     if (id == null) id = textureId(textures.get("default"));
                     if (id == null) {
-                        failed = false; answered = true; ttl = MISSING_TTL;
+                        failed = false; answered = true;
                     } else {
                         texture = open(BASE + "/skins/textures/" + id);
                         int textureStatus = texture.getResponseCode();
@@ -156,7 +175,8 @@ public final class RemoteSkins {
             } else if (answered && now >= retryAt) failures = 0;
             Entry entry = CACHE.get(key);
             if (entry != null)
-                CACHE.put(key, new Entry(failed ? entry.skin : skin, now + ttl, false));
+                CACHE.put(key, new Entry(failed ? entry.skin : skin,
+                        cubeonPlayer || (failed && entry.cubeonPlayer), now + ttl, false));
         }
     }
 

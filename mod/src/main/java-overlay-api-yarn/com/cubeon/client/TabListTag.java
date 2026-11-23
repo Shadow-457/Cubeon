@@ -4,6 +4,8 @@ import java.lang.reflect.Method;
 import java.util.Set;
 import java.util.TreeSet;
 
+import com.cubeon.client.skins.RemoteSkins;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.text.Text;
 
@@ -22,7 +24,8 @@ import net.minecraft.text.Text;
  * tab list is visible, so the name set is rebuilt only when the bridge moves
  * ({@link Bridge#revision()} / {@link Bridge#playersRevision()}), and it is a
  * case-insensitive {@link TreeSet} so a lookup needs no {@code toLowerCase}
- * copy.
+ * copy. Names outside the roster also consult the shared profile cache;
+ * a first miss queues bounded background work, never HTTP on this thread.
  */
 public final class TabListTag {
 
@@ -84,7 +87,8 @@ public final class TabListTag {
             return displayed;
         }
         try {
-            if (!names().contains(minecraftName)) {
+            RemoteSkins.context(MinecraftClient.getInstance().world);
+            if (!names().contains(minecraftName) && !RemoteSkins.isCubeonPlayer(minecraftName)) {
                 return displayed;
             }
             return Text.empty()
@@ -98,7 +102,7 @@ public final class TabListTag {
         }
     }
 
-    /** The Cubeon names this machine knows, rebuilt only when the bridge moves. */
+    /** Local/friend identities; strangers resolve through the shared profile cache. */
     private static Set<String> names() {
         Bridge bridge = Bridge.get();
         long revision = bridge.revision();

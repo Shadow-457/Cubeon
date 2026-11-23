@@ -787,18 +787,12 @@
         "skin-native-mojang",
         "name-tag-mojang",
         "tab-logo-mojang",
-        "loading-pearl",
-        "lod-26.3"
+        "loading-pearl"
       ],
       "java": ">=25",
       "min": "26.3",
       "below": null,
-      "depends": ">=26.3",
-      "retained_release": {
-        "sha256": "0390903445c9eaadd8c062683665dd0d7c4b4311dfbc556305e902d140cc72fc",
-        "source_commit": "db229cc5313b9d8831edf2ebde16efc8f212c415",
-        "omitted_overlays": ["lod-26.3"]
-      }
+      "depends": ">=26.3"
     }
   ]
 }

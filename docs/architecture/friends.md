@@ -85,6 +85,22 @@ KV's free tier allows ~1,000 writes/day. The launcher avoids wasting them:
 
 Every Cubeon player gets the shared Cubeon cape automatically. It's served as a hardcoded base64 constant in the Worker (zero KV reads). The cape texture is content-addressed and cached immutably.
 
+### Tab Player List
+
+Cubeon Client shows the cube logo beside registered Cubeon usernames in the
+Minecraft Tab list, including players outside your friends list. Local account
+and friend identities come from the launcher bridge. Other names use the existing
+`/skins/<name>.json` lookup through `RemoteSkins`, sharing its bounded background
+workers, cache and request budget. A valid cape-only profile identifies a Cubeon
+player even without a custom skin; a failed skin download does not remove that
+identity. Unknown or invalid profiles leave the original row unchanged.
+
+Only the logo uses the Cubeon font; the original name retains its server styling.
+Profile discovery can take a moment on first display and needs network access.
+The profile records a published Cubeon username, not which launcher the player
+is currently running. No Minecraft server plugin or extra profile endpoint is
+required, and the icon is rendered locally by Cubeon Client.
+
 ### Moderation
 
 Reports are recorded with a 30-day TTL. A human sets `blocked:<uuid>` manually in the KV dashboard. Blocked players get 404 on all lookups - they fall back to vanilla Steve/Alex.
