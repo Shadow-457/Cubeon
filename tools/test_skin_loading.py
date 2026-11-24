@@ -185,6 +185,13 @@ async def native_gif(page):
     assert cfg.get('active_cape'), 'GIF upload did not select a cape.'
     assert capes.animation_info(cfg['active_cape'])['count'] == 3
     await asyncio.sleep(4)
+    # Uploaded capes follow the bundled collection; lazy cells deliberately
+    # wait offscreen. Bring this card into view before inspecting its frames.
+    stack = next(c for c in fz.walk(root) if c.data == 'cosmetics-panes')
+    pane = next(c for c in stack.controls if c.visible)
+    grid = next(c for c in fz.walk(pane) if isinstance(c, ft.GridView))
+    await grid.scroll_to(offset=-1)
+    await asyncio.sleep(2)
     out = ROOT / 'archive/ui-captures/gif-capes-launcher'
     out.mkdir(parents=True, exist_ok=True)
     seen = set()
