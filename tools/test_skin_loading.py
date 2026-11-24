@@ -63,11 +63,13 @@ def regression():
         # The open pane can reuse a thumbnail worker queued during construction.
         for job in list(jobs):
             job()
-        assert raster.call_count == len(cosmetics.items('back'))
+        grid = next(c for c in fz.walk(root) if isinstance(c, ft.GridView) and c.controls
+                    and any('ember wings' in fz.subtree_text(card) for card in c.controls))
+        assert raster.call_count == len(grid.thumb_window) < len(cosmetics.items('back'))
         stack = next(c for c in fz.walk(root) if c.data == 'cosmetics-panes')
         back_pane = next(c for c in stack.controls if c.visible)
         back_images = [c for c in fz.walk(back_pane) if isinstance(c, ft.Image) and c.width == 76]
-        assert back_images and all(c.visible for c in back_images)
+        assert back_images and sum(c.visible for c in back_images) == len(grid.thumb_window)
         cached_count = raster.call_count
         tab(root, 'Skin').on_click(None)
         tab(root, 'Back').on_click(None)
@@ -204,6 +206,120 @@ async def native_gif(page):
     await page.window.close()
 
 
+async def native_picker(page):
+    """Exercise long native item lists while the character renderer is paused."""
+    from PIL import ImageGrab
+    from cubeon.theme import FONT_URLS, apply_page_theme
+    fz.install_safe_stubs()
+    apply_page_theme(page)
+    page.fonts = FONT_URLS
+    page.bgcolor = THEME['BG']
+    page.padding = 24
+    page.window.width, page.window.height = 1000, 760
+    page.window.left = page.window.top = 0
+    thread_safe_ui.install(page)
+    original_items, original_get = cosmetics.items, cosmetics.get
+    entries = {slot: [{**item, 'id': f'fixture_{slot}_{index}', 'name': f'{item["name"]} {index}'}
+                      for index, item in enumerate((original_items(slot) * 200)[:200])]
+               for slot in ('back', 'head')}
+    lookup = {item['id']: item for items in entries.values() for item in items}
+    def items(slot=None, directory=None):
+        return entries[slot] if slot in entries else original_items(slot, directory)
+    def get(key, directory=None):
+        return lookup.get(key) or original_get(key, directory)
+    with patch.object(preview_ui.AppearancePreview, 'refresh'), \
+            patch.object(preview_ui.AppearancePreview, 'turn'), \
+            patch.object(cosmetics, 'items', side_effect=items), \
+            patch.object(cosmetics, 'get', side_effect=get), \
+            patch.object(cosmetics, 'render_thumbnail', wraps=cosmetics.render_thumbnail) as raster, \
+            patch.object(skin_ui.core, 'set_active_cosmetic',
+                         side_effect=lambda cfg, slot, key: cfg.update({f'active_{slot}_item': key})):
+        root = build(page, {})
+        page.add(root)
+        thread_safe_ui.mark_mounted(page)
+        await asyncio.sleep(1.2)
+        full_diffs = 0
+        original_update = type(page).update
+        def counted(self, *controls):
+            nonlocal full_diffs
+            if not controls:
+                full_diffs += 1
+                print('NATIVE_FULL_DIFF', ''.join(traceback.format_stack(limit=5)), flush=True)
+            return original_update(self, *controls)
+        async def ready(grid):
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                near = [card for card in grid.controls if id(card) in grid.thumb_window]
+                if near and all(any(isinstance(c, ft.Image) and c.visible for c in fz.walk(card)) for card in near):
+                    return
+                await asyncio.sleep(.03)
+            states = [(card.tooltip, [(c.visible, c.data) for c in fz.walk(card)
+                       if isinstance(c, ft.Image) or c.data == 'content-artwork-unavailable'])
+                      for card in grid.controls if id(card) in grid.thumb_window]
+            raise AssertionError(f'Nearby thumbnails did not finish: {raster.call_count=}, {states=}')
+        def current_grid():
+            stack = next(c for c in fz.walk(root) if c.data == 'cosmetics-panes')
+            pane = next(c for c in stack.controls if c.visible)
+            return next(c for c in fz.walk(pane) if isinstance(c, ft.GridView))
+        with patch.object(type(page), 'update', counted):
+            delays = []
+            stop = asyncio.Event()
+            async def heartbeat():
+                previous = time.monotonic()
+                while not stop.is_set():
+                    await asyncio.sleep(.02)
+                    now = time.monotonic()
+                    delays.append(now - previous)
+                    previous = now
+            pulse = asyncio.create_task(heartbeat())
+            timings = []
+            out = ROOT / 'archive/ui-captures/wardrobe'
+            out.mkdir(parents=True, exist_ok=True)
+            for name in ('Back', 'Head'):
+                start = time.monotonic()
+                tab(root, name).on_click(None)
+                timings.append(time.monotonic() - start)
+                deadline = time.monotonic() + 5
+                while len(current_grid().controls) != 200 and time.monotonic() < deadline:
+                    await asyncio.sleep(.02)
+                grid = current_grid()
+                assert len(grid.controls) == 200
+                await ready(grid)
+                cards = [id(c) for c in fz.walk(grid)]
+                painted = sum(any(isinstance(c, ft.Image) and c.visible for c in fz.walk(card)) for card in grid.controls)
+                assert painted < 40, f'Opening {name} rendered the entire list: {painted}'
+                before = raster.call_count
+                # Real desktop wheel events must reach the inner viewport.
+                wheel = NATIVE_POPEN(['xdotool', 'mousemove', '700', '420', 'click', '--repeat', '12', '--delay', '30', '5'])
+                assert await asyncio.to_thread(wheel.wait, timeout=5) == 0
+                deadline = time.monotonic() + 3
+                while grid.scroll_pixels < 300 and time.monotonic() < deadline:
+                    await asyncio.sleep(.02)
+                assert grid.scroll_pixels >= 300, 'Native wheel did not scroll the item grid.'
+                await ready(grid)
+                assert raster.call_count > before, 'Scrolling did not load the new rows.'
+                assert cards == [id(c) for c in fz.walk(grid)], 'Scrolling remounted cards.'
+                first = next(card for card in grid.controls if id(card) in grid.thumb_window)
+                apply = next(c for c in fz.walk(first) if isinstance(c, ft.Container) and callable(c.on_click))
+                apply.cubeon_keyboard_button.on_click(None)
+                ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / f'large-{name.lower()}-scrolled.png')
+                print('NATIVE_LIST', name, 'items', len(grid.controls), 'initial_thumbnails', painted,
+                      'scroll_pixels', round(grid.scroll_pixels), flush=True)
+            tab(root, 'Back').on_click(None)
+            tab(root, 'Small wings').on_click(None)
+            await asyncio.sleep(.2)
+            ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'large-back-filtered.png')
+            stop.set()
+            await pulse
+            assert full_diffs == 0, f'Item interaction caused {full_diffs} whole-page diffs.'
+            assert max(timings) < .25, 'A category click blocked behind item work.'
+            # Includes synthetic catalogue construction and real raster work.
+            assert max(delays) < .5, f'The event loop stalled: {max(delays):.3f}s'
+            print('NATIVE_PICKER_PASS: preview paused; click max', round(max(timings), 4),
+                  'heartbeat max', round(max(delays), 4), 'full page diffs', full_diffs, flush=True)
+    await page.window.close()
+
+
 async def native_drag(page):
     """Drive real desktop pointer events, then check painted frames during motion."""
     assert os.environ.get('DISPLAY'), 'Run this probe on its own Xvfb display.'
@@ -331,13 +447,13 @@ async def native_drag(page):
 
 
 if __name__ == '__main__':
-    if '--native' in sys.argv or '--native-drag' in sys.argv or '--native-gif' in sys.argv:
+    if any(flag in sys.argv for flag in ('--native', '--native-drag', '--native-gif', '--native-picker')):
         os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
         os.environ['GALLIUM_DRIVER'] = 'llvmpipe'
         failures = []
         async def checked_native(page):
             try:
-                callback = native_gif if '--native-gif' in sys.argv else native_drag if '--native-drag' in sys.argv else native
+                callback = native_picker if '--native-picker' in sys.argv else native_gif if '--native-gif' in sys.argv else native_drag if '--native-drag' in sys.argv else native
                 await callback(page)
             except Exception:
                 failures.append(True)

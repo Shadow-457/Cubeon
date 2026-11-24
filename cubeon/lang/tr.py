@@ -1,6 +1,8 @@
 """Turkish (tr). Keys are the English source strings - see cubeon/lang/__init__.py."""
 
 TABLE = {
+    'Wardrobe': 'Gardırop',
+    'My items': 'Eşyalarım',
     'Doctor': 'Doktor',
     'Play': 'Oyna',
     'Mods': 'Modlar',

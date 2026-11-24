@@ -1,6 +1,8 @@
 """Russian (ru). Keys are the English source strings - see cubeon/lang/__init__.py."""
 
 TABLE = {
+    'Wardrobe': 'Гардероб',
+    'My items': 'Мои предметы',
     'Appearance': 'Оформление',
     'Fix problems': 'Исправить проблемы',
     'Theme and decorations': 'Тема и украшения',

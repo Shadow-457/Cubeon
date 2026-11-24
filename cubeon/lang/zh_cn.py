@@ -1,6 +1,8 @@
 """Chinese (Simplified) (zh-cn). Keys are the English source strings - see cubeon/lang/__init__.py."""
 
 TABLE = {
+    'Wardrobe': '衣橱',
+    'My items': '我的物品',
     'Doctor': '诊断助手',
     'Play': '开始游戏',
     'Mods': '模组',

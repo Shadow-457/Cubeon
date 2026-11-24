@@ -1,6 +1,8 @@
 """French (fr). Keys are the English source strings - see cubeon/lang/__init__.py."""
 
 TABLE = {
+    'Wardrobe': 'Garde-robe',
+    'My items': 'Mes objets',
     'Doctor': 'Docteur',
     'Play': 'Jouer',
     'Mods': 'Mods',

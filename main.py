@@ -1430,7 +1430,7 @@ async def main(page: ft.Page):
     top_nav_items = [
         ("play", ft.Icons.PLAY_ARROW_ROUNDED, i18n.t("Play")),
         ("mods", ft.Icons.EXTENSION_ROUNDED, i18n.t("Mods")),
-        ("profile", ft.Icons.PALETTE_ROUNDED, i18n.t("Cosmetics")),
+        ("profile", ft.Icons.PALETTE_ROUNDED, i18n.t("Wardrobe")),
         ("stats", ft.Icons.BAR_CHART_ROUNDED, i18n.t("Stats")),
         ("server", ft.Icons.DNS_ROUNDED, i18n.t("Servers")),
     ]
@@ -2355,7 +2355,7 @@ async def main(page: ft.Page):
     # repaint their lists in place, so nothing on it goes stale in
     # between visits. ---
 
-    skin_section_container = ft.Container(loading_rows('Loading cosmetics…'))
+    skin_section_container = ft.Container(loading_rows('Loading wardrobe…'))
 
     _skin_section_key = {"built": False, "version": None, "loader": None}
 

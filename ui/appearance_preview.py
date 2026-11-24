@@ -92,6 +92,7 @@ class AppearancePreview:
         self.scene = ft.Stack([self.shadow, self.image, self.skeleton], width=STAGE_W, height=STAGE_H,
                               clip_behavior=ft.ClipBehavior.NONE, data="appearance-model")
         self.note = ft.Text("Loading preview…", size=11, color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
+        self.note.tooltip = "Drag to rotate, use the arrows to turn, or reset to center."
         self.gesture = ft.GestureDetector(
             content=self.scene, data="appearance-orbit", mouse_cursor=ft.MouseCursor.GRAB,
             drag_interval=16, on_pan_start=self._drag_start,
@@ -177,7 +178,7 @@ class AppearancePreview:
             self._shown_revision = revision
             if first:
                 self.skeleton.visible = False
-                self.note.value = "Drag to rotate · arrows to turn · reset to center"
+                self.note.value = "Drag to rotate"
         thread_safe_ui.refresh(self.image)
         if first:
             thread_safe_ui.refresh(self.skeleton)

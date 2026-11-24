@@ -1,6 +1,8 @@
 """Japanese (ja). Keys are the English source strings - see cubeon/lang/__init__.py."""
 
 TABLE = {
+    'Wardrobe': 'ワードローブ',
+    'My items': '自分のアイテム',
     'Doctor': '診断',
     'Play': 'プレイ',
     'Mods': 'MOD',

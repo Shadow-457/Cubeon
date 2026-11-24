@@ -4,6 +4,8 @@ strings; see cubeon/lang/__init__.py. Layout mirroring is handled by
 cubeon/i18n.is_rtl() -> page.rtl, not here."""
 
 TABLE = {
+    'Wardrobe': 'کمد لباس',
+    'My items': 'آیتم\u200cهای من',
     'Doctor': 'دکتر',
     'Play': 'بازی',
     'Mods': 'مودها',

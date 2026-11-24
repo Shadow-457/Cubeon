@@ -18,7 +18,7 @@ class LanguageTests(unittest.TestCase):
     def test_order_and_all_tables(self):
         self.assertEqual(i18n.SUPPORTED[:4], ('ar', 'en', 'ru', 'es'))
         required = {'Play', 'Settings', 'Language', 'PLAY', 'CANCEL',
-                    'Chat messages', "Cubeon's default flags", 'Check & repair'}
+                    'Wardrobe', 'My items', 'Chat messages', "Cubeon's default flags", 'Check & repair'}
         for code in i18n.SUPPORTED:
             if code == 'en':
                 continue

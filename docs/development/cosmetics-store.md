@@ -2,11 +2,22 @@
 
 # Neon cosmetics store
 
-Cubeon's **Cosmetics → Store** downloads capes, animated GIF capes, pets,
+Cubeon's **Wardrobe → Browse** downloads capes, animated GIF capes, pets,
 wings, headwear, footwear and auras from the public website API. Downloads appear in
 **Cape**, **Pets**, **Back**, **Head**, **Feet** or **Aura**; the user explicitly selects an item to equip it. Custom capes use the
 existing importer and animation support. Pets and wings use Cubeon's existing
 box/feather geometry, texture atlas and animation rig.
+
+The launcher keeps visible category buttons inside **My items** and remembers
+that category when returning from **Browse**. Category toolbars stay outside a
+bounded native `GridView`; at most four columns fit the measured viewport.
+Native cells build on demand, with one row of cache. The single thumbnail worker
+renders only the visible rows plus one nearby row and follows the current category
+and scroll position. Cached cards and images survive selection, filtering and
+category returns. Equip repaints the previous/new cards and current toolbar,
+without diffing the whole grid or page. Back filters retain their controls.
+Cape cards load on first opening; uploads add cards without replacing unchanged
+skin/cape artwork. The character preview is requested once on entry.
 
 The Store shows a validated saved page immediately while refreshing it in the
 background. Pages are keyed by API address and offset, saved atomically, and

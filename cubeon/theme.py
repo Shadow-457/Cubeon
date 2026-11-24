@@ -511,10 +511,18 @@ def text_tab(label, selected=False, on_click=None):
         border_radius=RADIUS,
         on_click=on_click,
     )
+    def set_selected(value):
+        control.content.content.color = TEXT if value else TEXT_DIM
+        control.content.border = ft.border.Border.only(
+            bottom=ft.border.BorderSide(2, ACCENT if value else "transparent"))
+
+    control.set_selected = set_selected
     if not on_click:
         return control
     attach_hover(control, None, ROW_HOVER)
-    return keyboard_target(control, label)
+    target = keyboard_target(control, label)
+    target.set_selected = set_selected
+    return target
 
 
 def animated_switch(value=False, on_change=None, scale=1.0, **kwargs):

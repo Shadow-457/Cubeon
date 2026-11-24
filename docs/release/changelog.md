@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 1.4.70 — Beta: Wardrobe and smoother item lists
+
+- Renamed launcher Cosmetics to Wardrobe with My items and Browse modes.
+- Replaced the category dropdown with visible buttons and simplified item cards.
+- Item grids build visible cells on demand; thumbnails load only nearby rows.
+- Equipping repaints the changed cards, and filtering/category returns reuse artwork.
+- Kept Delete and skin arm-model actions in card menus; fixed uploaded skins
+  appearing in the library and preserved unchanged skin/cape cards on updates.
+
 ## 1.4.0 — Stable: launcher fixes and simpler settings
 
 - Fixed screenshot-folder opening and show file-manager errors in the gallery.

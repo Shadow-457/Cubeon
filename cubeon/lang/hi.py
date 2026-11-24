@@ -1,6 +1,8 @@
 """Hindi (hi). Keys are the English source strings - see cubeon/lang/__init__.py."""
 
 TABLE = {
+    'Wardrobe': 'अलमारी',
+    'My items': 'मेरी वस्तुएँ',
     'Doctor': 'डॉक्टर',
     'Play': 'खेलें',
     'Mods': 'मॉड्स',

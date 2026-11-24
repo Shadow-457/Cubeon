@@ -197,8 +197,14 @@ class LoadingSkeletons(unittest.TestCase):
             for job in QueuedThread.jobs[start:]:
                 job()
             self.assertEqual([(c.width, c.height) for c in placeholders], geometry)
-            self.assertTrue(all(isinstance(c.content, ft.Icon) for c in placeholders))
-            self.assertTrue(all(c.bgcolor is None for c in placeholders))
+            grid = next(c for c in walk(root) if isinstance(c, ft.GridView)
+                        and any(id(card) in c.thumb_window for card in c.controls))
+            nearby = [c for card in grid.controls if id(card) in grid.thumb_window
+                      for c in walk(card) if c in placeholders]
+            self.assertTrue(nearby)
+            self.assertTrue(all(isinstance(c.content, ft.Icon) for c in nearby))
+            self.assertTrue(all(c.bgcolor is None for c in nearby))
+            self.assertTrue(any(c.data == 'content-skeleton' for c in placeholders if c not in nearby))
 
 
 if __name__ == '__main__':

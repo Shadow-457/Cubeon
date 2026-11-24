@@ -1,6 +1,8 @@
 """Indonesian (id). Keys are the English source strings - see cubeon/lang/__init__.py."""
 
 TABLE = {
+    'Wardrobe': 'Lemari pakaian',
+    'My items': 'Item saya',
     'Doctor': 'Dokter',
     'Play': 'Main',
     'Mods': 'Mod',

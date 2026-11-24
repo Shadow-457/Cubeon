@@ -150,8 +150,10 @@ the same Settings page.
   the pack's requirements before installing it. Cubeon installs the files
   selected by the pack manifest and preserves their versions during automatic
   preparation. Dependency repairs remain explicit actions in Mods.
-- **Cosmetics:** manage skins, capes, and shoulder/back items in Cosmetics; use
-  the rotation arrows to inspect the 3D model. Shoulder and Back sections are marked **Beta**.
+- **Wardrobe:** choose Skin, Cape, Pets, Back, Head, Feet or Aura under **My items**.
+  Use **Browse** to download more items, then select one in its category to equip it.
+  Item grids scroll independently; card menus contain Delete and skin arm-model actions.
+  Use the rotation arrows or drag to inspect your look.
   Shoulder and back items are drawn in
   game by Cubeon Client; skins and capes need compatible
   skin support. A selection is stored in the instance the game plays in, so
@@ -276,7 +278,7 @@ the same Settings page.
   The **Capes** tab offers **Cubeon Cape**, **No Cape**, eight original built-in
   capes, and your uploaded capes. Verdant Crest, Ember Sigil, Lunar Veil and
   Royal Chevron are static; Aurora Flow, Prism Cascade, Ender Rift and Solar
-  Pulse are animated. They are also available in launcher **Cosmetics → Cape**
+  Pulse are animated. They are also available in launcher **Wardrobe → My items → Cape**
   without downloads or uploads. Built-in capes cannot be deleted.
   Import or drop a cape image, rotate the player to preview it, then choose
   **CONFIRM** to save and update it immediately. Animated GIFs keep their frames,
