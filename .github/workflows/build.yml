@@ -127,6 +127,7 @@ jobs:
               tools/test_mod_matrix.py
               tools/test_mod_compile.py
               tools/test_peer_skins.py
+              tools/test_chat_ux.py
               tools/test_auto_update.py
               tools/test_release_version.py
               tools/test_release_pipeline.py

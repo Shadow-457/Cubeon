@@ -474,6 +474,13 @@ to use a build configured for Cubeon's services.
 Choose **Chat** from Minecraft’s main menu, press **G** in game, or choose
 **Friends** in the **K** client menu to message your Cubeon friends. Keep the launcher open: both views share the same
 encrypted conversations, so messages sent in either place appear in both.
+In the launcher's **Chat** tab, type `:` to open the scrollable emoji picker.
+Keep typing a name to search and press Enter to insert the first match (for
+example, `:wilte` then Enter inserts 🥀), or finish a code such as `:smile:`, `:flag_us:` or
+`:woman_astronaut:` to convert when you send. The complete bundled Unicode catalog includes flags, skin
+tones, families and other joined emoji sequences. The picker keeps the typing field
+focused; unknown codes remain ordinary text. Emoji appearance uses your system's
+emoji fonts.
 Use Enter to send, Ctrl+Up/Down to select a friend, and the wheel or Page Up/Down
 to scroll. The game keeps your draft until the friends relay confirms the
 message is in the shared conversation. An unconfirmed send retains its draft

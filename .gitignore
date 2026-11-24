@@ -33,6 +33,7 @@ instructions.txt
 /cosmetics/
 # Keep existing CI/build scripts tracked; new local tooling stays out of Git.
 /tools/*
+!/tools/gen_emoji.py
 !/tools/test_onboarding.py
 !/tools/test_client_startup.py
 !/tools/test_macos_package.py

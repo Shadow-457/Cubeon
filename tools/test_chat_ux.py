@@ -7,6 +7,9 @@ from types import SimpleNamespace
 import unittest
 import time
 import weakref
+import os
+import subprocess
+import traceback
 from unittest.mock import patch, Mock
 
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[1])]
@@ -14,6 +17,8 @@ import _sandbox_home
 _sandbox_home.isolate()
 import flet as ft
 from cubeon import thread_safe_ui
+from cubeon import emoji
+from cubeon._emoji_data import UNICODE_SHORTCODES
 from cubeon.theme import THEME, section_label
 from test_chat_optimistic import FakePage, FakeService, walk
 from ui import chat_tab as chat
@@ -30,7 +35,7 @@ class QueuePage(FakePage):
         self.focus_calls = 0
 
     def run_task(self, fn, *args, **kwargs):
-        if fn.__name__ == 'focus':
+        if fn.__name__ in ('focus', 'request_focus'):
             self.focus_calls += 1
         return None
 
@@ -73,7 +78,7 @@ class ChatUXTests(unittest.TestCase):
 
     def test_shortcode_suggestions_complete_and_survive_switch(self):
         self.select('alice')
-        self.type('Bring a :di')
+        self.type('Bring a :diam')
         suggestions = scope(self.controls['_sync_emoji_suggestions'])['emoji_suggestions']
         self.assertTrue(suggestions.visible)
         suggestions.controls[0].on_click(None)
@@ -83,7 +88,152 @@ class ChatUXTests(unittest.TestCase):
         self.select('alice')
         self.assertEqual(self.composer.value, 'Bring a 💎')
         self.type('GG :smile: :+1: :pickaxe: :unknown:')
-        self.assertEqual(self.composer.value, 'GG 😄 👍 ⛏️ :unknown:')
+        self.assertEqual(self.composer.value, 'GG :smile: :+1: :pickaxe: :unknown:')
+        jobs = []
+        with patch.object(chat.threading.Thread, 'start', lambda thread: jobs.append(thread)):
+            self.composer.on_submit(None)
+        jobs[0].run()
+        self.assertEqual(self.service.sent, [('alice', 'GG 😄 👍 ⛏️ :unknown:')])
+
+    def test_every_unicode_sequence_is_available_from_the_shared_table(self):
+        self.assertIs(chat._EMOJI_CODES, emoji.SHORTCODES)
+        self.assertEqual(len(set(UNICODE_SHORTCODES.values())), emoji.EMOJI_COUNT)
+        self.assertGreaterEqual(emoji.EMOJI_COUNT, 3972)
+        self.assertTrue(set(UNICODE_SHORTCODES.values()) <= set(emoji.SHORTCODES.values()))
+        for code, value in emoji.all_shortcodes():
+            self.assertEqual(emoji.expand_emoji(':' + code.upper() + ':'), value)
+
+    def test_closed_codes_preserve_typing_and_expand_when_sent(self):
+        self.select('alice')
+        for text, expected in (
+            ('Hi :flag_us: :thumbs_up_medium_skin_tone: :woman_astronaut: :melting_face:!', 'Hi 🇺🇸 👍🏽 👩\u200d🚀 🫠!'),
+            (':keycap_number_sign::keycap_asterisk::flag_wales: :unknown:', '#️⃣*️⃣🏴\U000e0067\U000e0062\U000e0077\U000e006c\U000e0073\U000e007f :unknown:'),
+            (':distorted_face: :hairy_creature:', '\U0001faea \U0001fac8'),
+        ):
+            self.type(text)
+            self.assertEqual(self.composer.value, text)
+            jobs = []
+            with patch.object(chat.threading.Thread, 'start', lambda thread: jobs.append(thread)):
+                self.composer.on_submit(None)
+            jobs[0].run()
+            self.assertEqual(self.service.sent[-1], ('alice', expected))
+
+    def test_search_reaches_name_tokens_and_deduplicates_aliases(self):
+        self.assertEqual(emoji.suggestions('THUMBSUP')[0], 'thumbsup')
+        self.assertIn('face_with_peeking_eye', emoji.suggestions('peeking'))
+        self.assertLessEqual(len(emoji.suggestions('')), 5)
+        results = emoji.suggestions('flag')
+        self.assertEqual(len(results), len({emoji.SHORTCODES[code] for code in results}))
+        self.assertEqual(emoji.suggestions('not_a_real_emoji'), [])
+        self.assertEqual(emoji.suggestions('smile', limit=0), [])
+
+    def test_typing_keeps_suggestion_buttons_and_editor_without_focus_requests(self):
+        self.select('alice')
+        suggestions = scope(self.controls['_sync_emoji_suggestions'])['emoji_suggestions']
+        host = scope(self.controls['_sync_emoji_suggestions'])['emoji_host']
+        self.type(':')
+        buttons = list(suggestions.controls)
+        glyphs = [button.content for button in buttons]
+        editor_row = self.controls['composer_row']
+        before = self.page.focus_calls
+        with patch.object(ft.context, 'disable_auto_update') as disable:
+            for text in (':', ':f', ':fl', ':flag', ':flag_', ':flag_us', ':unknown', ':'):
+                self.type(text)
+                self.assertEqual(buttons[:len(suggestions.controls)], suggestions.controls)
+                self.assertEqual(glyphs[:len(suggestions.controls)], [button.content for button in suggestions.controls])
+                self.assertIs(editor_row.controls[0], self.composer)
+                self.assertTrue(host.visible)
+                self.assertEqual(self.page.focus_calls, before)
+            self.assertEqual(disable.call_count, 8)
+        self.assertEqual(len(buttons), 48)
+        self.type(':unknown')
+        self.assertEqual(host.height, 0)
+        self.assertFalse(suggestions.visible)
+        self.type(':FLAG_US')
+        choice = next(button for button in buttons if button.visible and button.tooltip == 'Insert :flag_us:')
+        choice.on_click(None)
+        self.assertEqual(self.composer.value, '🇺🇸')
+        self.assertGreater(self.page.focus_calls, before)
+
+    def test_full_picker_pages_every_sequence_and_reuses_loaded_controls(self):
+        self.select('alice')
+        picker = scope(self.controls['_sync_emoji_suggestions'])
+        grid = picker['emoji_suggestions']
+        results = scope(picker['_append_emoji_page'])['emoji_results']
+        self.type(':')
+        self.assertEqual(len(results['codes']), emoji.EMOJI_COUNT)
+        self.assertEqual(len(grid.controls), 48)
+        self.assertTrue(grid.build_controls_on_demand)
+        self.assertEqual(picker['emoji_host'].height, 184)
+        self.assertIn(f'{emoji.EMOJI_COUNT:,}', picker['emoji_count'].value)
+        event = SimpleNamespace(pixels=952, max_scroll_extent=1000, viewport_dimension=164)
+        with patch.object(ft.context, 'disable_auto_update') as disable:
+            grid.on_scroll(SimpleNamespace(pixels=100, max_scroll_extent=1000, viewport_dimension=164))
+            self.assertEqual(len(grid.controls), 48)
+            while results['loaded'] < len(results['codes']):
+                previous = results['loaded']
+                grid.on_scroll(event)
+                self.assertLessEqual(results['loaded'] - previous, 48)
+            self.assertGreater(disable.call_count, 80)
+        self.assertEqual({button.content.value for button in grid.controls}, set(UNICODE_SHORTCODES.values()))
+        self.assertEqual(len(grid.controls), emoji.EMOJI_COUNT)
+        pool = list(grid.controls)
+        self.type('x')
+        grid.on_scroll(event)
+        self.assertEqual(grid.controls, [])
+        self.type(':')
+        self.assertEqual(grid.controls, pool[:48])
+
+    def test_picker_searches_tones_flags_and_tokens_and_resets_scroll(self):
+        self.select('alice')
+        grid = scope(self.controls['_sync_emoji_suggestions'])['emoji_suggestions']
+        with patch.object(chat.scrolling, 'to_top') as reset:
+            for query, expected in (('flag_us', '🇺🇸'), ('medium_skin_tone', '👍🏽'),
+                                    ('astronaut', '👩\u200d🚀'), ('peeking', '🫣')):
+                self.type(':' + query.upper())
+                results = scope(scope(self.controls['_sync_emoji_suggestions'])['_append_emoji_page'])['emoji_results']
+                self.assertIn(expected, {emoji.SHORTCODES[code] for code in results['codes']})
+            self.assertEqual(reset.call_count, 4)
+            reset.assert_called_with(self.page, grid)
+
+    def test_unknown_and_literal_colons_preserve_text_and_sending_expands_all_codes(self):
+        self.select('alice')
+        literal = '12:30 https://example.com :unknown: raw 😀'
+        self.type(literal)
+        self.assertEqual(self.composer.value, literal)
+        self.composer.value = ':woman_astronaut: :flag_us:'
+        send = scope(scope(self.composer.on_change)['_sync_composer'])['send_btn']
+        jobs = []
+        with patch.object(chat.threading.Thread, 'start', lambda thread: jobs.append(thread)):
+            send.on_click(None)
+        jobs[0].run()
+        self.assertEqual(self.service.sent, [('alice', '👩\u200d🚀 🇺🇸')])
+
+    def test_enter_accepts_top_emoji_match_without_sending_the_draft(self):
+        self.select('alice')
+        self.type('A :wilte')
+        before = self.page.focus_calls
+        self.composer.on_submit(None)
+        self.assertEqual(self.composer.value, 'A 🥀')
+        self.assertEqual(self.service.sent, [])
+        self.assertGreater(self.page.focus_calls, before)
+        self.select('bob')
+        self.select('alice')
+        self.assertEqual(self.composer.value, 'A 🥀')
+        jobs = []
+        with patch.object(chat.threading.Thread, 'start', lambda thread: jobs.append(thread)):
+            self.composer.on_submit(None)
+        jobs[0].run()
+        self.assertEqual(self.service.sent, [('alice', 'A 🥀')])
+
+    def test_enter_sends_unknown_shortcode_when_no_match_is_open(self):
+        self.select('alice')
+        self.type('A :zzz_unknown')
+        jobs = []
+        with patch.object(chat.threading.Thread, 'start', lambda thread: jobs.append(thread)):
+            self.composer.on_submit(None)
+        jobs[0].run()
+        self.assertEqual(self.service.sent, [('alice', 'A :zzz_unknown')])
 
     def test_composer_has_no_manual_emoji_button(self):
         self.select('alice')
@@ -336,5 +486,117 @@ class ChatUXTests(unittest.TestCase):
         self.assertEqual(rows[3].content.controls[1].value, 'Yesterday')
 
 
+async def native_emoji(page):
+    """Type through the real desktop editor; suggestions must retain focus."""
+    from PIL import ImageGrab
+    from cubeon.theme import FONT_URLS, apply_page_theme
+    from unittest.mock import patch
+    state = {'active_tab': 'chat'}
+    service = FakeService()
+    apply_page_theme(page)
+    page.fonts = FONT_URLS
+    page.padding = 24
+    page.window.width, page.window.height = 1200, 760
+    page.window.left = page.window.top = 0
+    thread_safe_ui.install(page)
+    with patch.object(chat.threading.Thread, 'start'), patch.object(chat._faces, 'get_face_b64', return_value=None):
+        root, refresh = chat.build_chat_tab(page, {}, state, service, section_label=section_label, **THEME)
+    tick = scope(refresh)['_tick']
+    render = scope(scope(tick)['_tick_locked'])['_render_roster']
+    friends = scope(scope(render)['_rebuild_friends'])
+    select = scope(friends['_friend_rows']['alice']['row'].on_click)['_select']
+    composer = scope(select)['composer']
+    picker = scope(scope(select)['_sync_emoji_suggestions'])
+    choices = picker['emoji_suggestions']
+    results = scope(picker['_append_emoji_page'])['emoji_results']
+    blur_events = []
+    original_blur = composer.on_blur
+    def blurred(event):
+        blur_events.append(composer.value)
+        original_blur(event)
+    composer.on_blur = blurred
+    page.add(root)
+    thread_safe_ui.mark_mounted(page)
+    select('alice')
+    await asyncio.sleep(1.5)
+    print('NATIVE_EMOJI: mounted', flush=True)
+    out = Path(__file__).resolve().parents[1] / 'archive/ui-captures/chat-emoji'
+    out.mkdir(parents=True, exist_ok=True)
+    ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'initial.png')
+    async def command(*args):
+        process = subprocess.Popen(['xdotool', *args])
+        assert await asyncio.to_thread(process.wait, timeout=10) == 0
+        await asyncio.sleep(.3)
+    await command('mousemove', '750', str(int(page.height - 90)), 'click', '1')
+    assert state.get('chat_composing'), 'The native editor did not gain focus.'
+    blur_events.clear()
+    await command('type', '--clearmodifiers', '--delay', '55', ':')
+    assert len(results['codes']) == emoji.EMOJI_COUNT
+    ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'all-emojis.png')
+    loaded = results['loaded']
+    await command('mousemove', '600', str(int(page.height - 150)), 'click', '--repeat', '12', '--delay', '90', '5')
+    assert results['loaded'] > loaded, 'The native picker did not load the next emoji page.'
+    assert state.get('chat_composing') and not blur_events
+    print('NATIVE_EMOJI: scrolled', flush=True)
+    await command('type', '--clearmodifiers', '--delay', '55', 'thumbsup')
+    await command('key', 'Return')
+    assert composer.value == '👍' and not service.sent
+    for fragment in (' works ', ':zzz_unknown:', '!', ' next'):
+        await command('type', '--clearmodifiers', '--delay', '55', fragment)
+        assert state.get('chat_composing'), f'Lost native typing focus after {fragment!r}: {composer.value!r}'
+        assert not blur_events, f'Suggestions blurred the composer: {blur_events}'
+    assert composer.value == '👍 works :zzz_unknown:! next', composer.value
+    print('NATIVE_EMOJI: continuous typing', flush=True)
+    # Exercise names from the full catalog after scrolling and narrowing it.
+    await command('type', '--clearmodifiers', '--delay', '40', ' :flag_us: :woman_astronaut:')
+    assert composer.value.endswith(' :flag_us: :woman_astronaut:'), composer.value
+    assert state.get('chat_composing') and not blur_events
+    print('NATIVE_EMOJI: full codes', flush=True)
+    await command('type', '--clearmodifiers', '--delay', '40', ' :melting')
+    assert choices.controls[0].tooltip == 'Insert :melting_face:'
+    ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'searched.png')
+    await command('mousemove', '384', str(int(page.height - 248)), 'click', '1')
+    ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'clicked.png')
+    print(f'NATIVE_EMOJI: clicked, focus={state.get("chat_composing")}, text={composer.value!r}', flush=True)
+    await asyncio.sleep(.2)
+    await command('type', '--clearmodifiers', '--delay', '40', ' done')
+    assert composer.value.endswith(' 🫠 done'), composer.value
+    assert state.get('chat_composing')
+    await command('type', '--clearmodifiers', '--delay', '40', ' :wilte')
+    await command('key', 'Return')
+    print('NATIVE_EMOJI: Enter completion', flush=True)
+    assert composer.value.endswith(' 🥀'), composer.value
+    assert not service.sent, 'Emoji completion sent the draft.'
+    await command('type', '--clearmodifiers', '--delay', '40', ' rose')
+    assert composer.value.endswith(' 🥀 rose') and state.get('chat_composing')
+    await command('type', '--clearmodifiers', '--delay', '25', ' :flag_us: wow :woman_astronaut: next :smile: fine')
+    assert composer.value.endswith(' :flag_us: wow :woman_astronaut: next :smile: fine'), composer.value
+    await command('key', 'shift+Return')
+    assert composer.value.endswith('\n') and not service.sent, composer.value
+    await command('type', '--clearmodifiers', '--delay', '25', 'next line')
+    assert composer.value.endswith('\nnext line') and state.get('chat_composing')
+    ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'typed.png')
+    message = composer.value
+    await command('key', 'Return')
+    assert service.sent == [('alice', emoji.expand_emoji(message))] and not composer.value
+    await command('type', '--clearmodifiers', '--delay', '25', 'after send')
+    assert composer.value == 'after send' and state.get('chat_composing')
+    print('NATIVE_EMOJI_PASS: full picker, wheel pagination, search, click/Enter completion, Shift+Enter and send focus.', flush=True)
+    await page.window.close()
+
+
 if __name__ == '__main__':
-    unittest.main()
+    if '--native' in sys.argv:
+        failures = []
+        async def checked(page):
+            try:
+                await native_emoji(page)
+            except Exception:
+                failures.append(True)
+                traceback.print_exc()
+            finally:
+                await page.window.close()
+        ft.run(checked, assets_dir=str(Path(__file__).resolve().parents[1] / 'assets'))
+        sys.exit(bool(failures))
+    else:
+        unittest.main()

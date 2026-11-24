@@ -51,7 +51,7 @@ catalog; the scripts in `tools/` are the current inventory.
 | Fuzzy modpack discovery | `test_fuzzy_search.py`, `test_modpack_search.py` |
 | Horizon content mods for Rust | `test_rust_mods.py`; `test_rust_engine_native.py --content-mod /path/to/adapted.hmod` with a matching installed binary/resources |
 | Content isolation | `test_content_instance.py`, `test_instances.py` |
-| Friends and chat | `test_friends.py`, `test_friends_service.py`, `test_chat_optimistic.py` |
+| Friends and chat | `test_friends.py`, `test_friends_service.py`, `test_chat_optimistic.py`, `test_chat_ux.py`, `test_chat_poll_locking.py` |
 | Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py`, `test_peer_skins.py` (profiles, skins and Tab badges) |
 | Fabric 26.3 LOD | `test_lod.py` for core algorithms/settings, transparent boundaries and bounded cache residency; `test_lod_native.py` for CPU/GPU terrain, planted-ground coverage, composition, near occlusion, fog, live status, freeze and disable |
 | Full Bright and keystrokes | `test_full_bright.py` (`--targets` checks cached APIs, `--jars` checks shipped fixes), `test_hud_debug_visibility.py`; `capture_full_bright.py` uses isolated cached games on Xvfb |
@@ -107,6 +107,27 @@ For example:
 python tools/test_chat_avatar_stability.py
 python tools/test_chat_optimistic.py
 ```
+
+`python tools/test_chat_ux.py --native` needs a graphical desktop and `xdotool`.
+It types through Flet's actual editor, scrolls the full emoji picker, filters
+results, clicks/accepts a completion and continues typing, then checks
+Shift+Enter and focus after sending. It uses an isolated fake
+conversation and saves captures under `archive/ui-captures/chat-emoji/`.
+Headless control-identity checks alone cannot detect a recreated native editor.
+Keep the emoji host mounted before the composer, even when its height is zero;
+typing and picker scrolling use scoped updates. Both Python buttons and native
+grid cells load lazily, with 48 more buttons per scroll page.
+The retained `_Composer` uses Flet's native `focus` property through
+`request_focus()`: 0.86.5's imperative `focus()` targets the normal FocusNode
+even when `shift_enter=True` selects a different node. Preserve that workaround
+until native click, Enter, newline and send-focus checks pass without it.
+
+`cubeon/emoji.py` shares the complete offline catalog with Chat. Regenerate
+`cubeon/_emoji_data.py` with `python tools/gen_emoji.py`; the generator pins
+Unicode's versioned emoji-test source and records its SHA-256. Use
+`--source /path/to/emoji-test.txt --check` to verify a saved source without
+network access. Keep `assets/emoji/UNICODE-LICENSE.txt` with the generated data.
+The launcher makes no emoji metadata downloads and uses system emoji fonts.
 
 Worker route and storage tests use Node.js and stubbed services:
 

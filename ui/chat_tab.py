@@ -84,6 +84,7 @@ from cubeon import friends as _friends
 from cubeon import profile as _profile
 from cubeon import thread_safe_ui
 from cubeon import scrolling
+from cubeon import emoji as _emoji
 
 _POLL_SECONDS = 1.5
 # Faster cadences (see _poll_interval): while a conversation is open the user
@@ -118,28 +119,22 @@ _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _GIPHY_ID_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
 _IMAGE_EXTENSIONS = (".gif", ".png", ".jpg", ".jpeg", ".webp")
 
-# Local text aliases only: no relay, plugin or platform emoji dependency.
-_EMOJI_GROUPS = {
-    "Everyday": {
-        "smile": "😄", "grin": "😀", "joy": "😂", "sweat_smile": "😅",
-        "heart_eyes": "😍", "sunglasses": "😎", "thinking": "🤔", "wave": "👋",
-        "thumbsup": "👍", "clap": "👏", "heart": "❤️", "fire": "🔥",
-        "party": "🥳", "tada": "🎉", "eyes": "👀", "skull": "💀",
-        "cry": "😢", "sleeping": "😴", "handshake": "🤝", "check": "✅",
-    },
-    "Minecraft": {
-        "video_game": "🎮", "pickaxe": "⛏️", "swords": "⚔️", "brick": "🧱",
-        "diamond": "💎", "tree": "🌳", "pig": "🐷", "boom": "💥",
-    },
-}
-_EMOJI_CODES = {code: emoji for group in _EMOJI_GROUPS.values() for code, emoji in group.items()}
-_EMOJI_CODES.update({"+1": "👍", "-1": "👎", "laughing": "😆", "blush": "😊",
-                     "wink": "😉", "sob": "😭", "ok_hand": "👌", "pray": "🙏",
-                     "muscle": "💪", "100": "💯", "rocket": "🚀", "grinning": "😀"})
+# Existing core callers and the composer now share the complete offline table.
+_EMOJI_CODES = _emoji.SHORTCODES
+_expand_emoji_codes = _emoji.expand_emoji
 
 
-def _expand_emoji_codes(text):
-    return re.sub(r":([a-z0-9_+-]+):", lambda m: _EMOJI_CODES.get(m[1], m[0]), text)
+@ft.control("TextField")
+class _Composer(ft.TextField):
+    # Flet 0.86.5's focus() invokes the unused normal FocusNode when
+    # shift_enter=True. Its retained native focus property targets the active
+    # node during build, preserving Enter/Shift+Enter and the existing editor.
+    focus: str | None = None
+
+    async def request_focus(self):
+        with thread_safe_ui.TREE_LOCK:
+            self.focus = str(time.monotonic_ns())
+        thread_safe_ui.refresh(self)
 
 
 def _clean_http_url(value):
@@ -445,7 +440,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     def _focus(control):
         try:
-            page.run_task(control.focus)
+            page.run_task(control.request_focus if isinstance(control, _Composer) else control.focus)
         except Exception:
             pass
 
@@ -544,17 +539,15 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _on_composer_change(_e=None):
         """Keep the open conversation's draft fresh while typing, so leaving
         the conversation (or the tab) never loses what was half-typed."""
+        ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
             key = selected["name"]
             if not key:
                 return
             value = composer.value or ""
-            expanded = _expand_emoji_codes(value)
-            if expanded != value:
-                composer.value = expanded
-                value = expanded
-                thread_safe_ui.refresh(composer)
-                _focus(composer)
+            # Preserve native input verbatim while keys are arriving. Sending
+            # expands closed codes; explicit completion inserts an emoji.
+            # Rewriting value here can overwrite the next fast keystroke.
             if value.strip():
                 _drafts[key] = value
             else:
@@ -563,10 +556,11 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             _sync_emoji_suggestions()
 
     def _composer_focus(focused):
+        ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
             state["chat_composing"] = focused
 
-    composer = ft.TextField(
+    composer = _Composer(
         hint_text=i18n.t("Message..."),
         border_color=CARD_BORDER,
         focused_border_color=ACCENT,
@@ -581,7 +575,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         min_lines=1,
         max_lines=4,
         content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
-        on_submit=lambda e: _do_send(),
+        on_submit=lambda e: _submit_composer(),
         on_change=_on_composer_change,
         on_focus=lambda e: _composer_focus(True),
         on_blur=lambda e: _composer_focus(False),
@@ -615,31 +609,86 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     # --- :name: emoji suggestions ----------------------------------------
     def _complete_emoji(code):
+        ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
             composer.value = re.sub(r":[a-z0-9_+-]*$", _EMOJI_CODES[code],
-                                    composer.value or "")
+                                    composer.value or "", flags=re.IGNORECASE)
             _on_composer_change()
             thread_safe_ui.refresh(composer)
+
         _focus(composer)
 
-    emoji_suggestions = ft.Row(spacing=4, run_spacing=4, wrap=True, visible=False)
+    # Bound the width so the first page still scrolls on very wide windows.
+    emoji_suggestions = ft.GridView(width=576, max_extent=48, child_aspect_ratio=1,
+        spacing=4, run_spacing=4, padding=0, expand=True, cache_extent=96,
+        build_controls_on_demand=True, scroll=ft.ScrollMode.ALWAYS, visible=False)
+    emoji_count = ft.Text("", size=11, color=TEXT_DIM)
+    # Keep this slot in the Column even when closed. Inserting/removing an
+    # unkeyed sibling before TextField recreates its native editor on ':'.
+    emoji_host = ft.Container(ft.Column([emoji_count, emoji_suggestions], spacing=6), height=0,
+                             clip_behavior=ft.ClipBehavior.HARD_EDGE)
+    emoji_pool = []
+    emoji_results = {"codes": [], "loaded": 0}
     _emoji_sig = {"v": None}
 
+    def _append_emoji_page():
+        # Page Python controls as well as native cells. Opening ':' creates
+        # 48 buttons, not a control tree for four thousand emoji at once.
+        start = emoji_results["loaded"]
+        end = min(start + 48, len(emoji_results["codes"]))
+        for index in range(start, end):
+            code = emoji_results["codes"][index]
+            if index == len(emoji_pool):
+                emoji_pool.append(ft.TextButton(content=ft.Text(size=22),
+                    style=ft.ButtonStyle(color=TEXT, bgcolor=CARD_FILL, padding=4)))
+            button = emoji_pool[index]
+            button.content.value = _EMOJI_CODES[code]
+            button.style.bgcolor = ACCENT_TINT if index == 0 else CARD_FILL
+            button.tooltip = f"Insert :{code}:"
+            button.on_click = lambda e, c=code: _complete_emoji(c)
+        emoji_results["loaded"] = end
+        emoji_suggestions.controls = emoji_pool[:end]
+
+    def _emoji_scrolled(event):
+        ft.context.disable_auto_update()
+        if event.pixels < event.max_scroll_extent - 48:
+            return
+        with thread_safe_ui.TREE_LOCK:
+            if not emoji_suggestions.visible or emoji_results["loaded"] >= len(emoji_results["codes"]):
+                return
+            _append_emoji_page()
+        thread_safe_ui.refresh(emoji_suggestions)
+
+    emoji_suggestions.on_scroll = _emoji_scrolled
+    emoji_suggestions.scroll_interval = 100
+
     def _sync_emoji_suggestions():
-        match = re.search(r"(?:^|\s):([a-z0-9_+-]*)$", composer.value or "")
-        codes = ([code for code in _EMOJI_CODES if code.startswith(match[1])][:5]
-                 if match else [])
-        sig = (tuple(codes), bool(selected["name"]))
+        match = re.search(r"(?:^|\s):([a-z0-9_+-]*)$", composer.value or "", re.IGNORECASE)
+        query = match[1].lower() if match else None
+        sig = (query, bool(selected["name"]))
         if sig == _emoji_sig["v"]:
             return
         _emoji_sig["v"] = sig
-        emoji_suggestions.controls = [ft.TextButton(
-            content=f"{_EMOJI_CODES[code]}  :{code}:",
-            tooltip=f"Insert :{code}:", on_click=lambda e, c=code: _complete_emoji(c),
-            style=ft.ButtonStyle(color=TEXT_DIM, bgcolor=CARD_FILL, padding=8),
-        ) for code in codes]
+        codes = _emoji.matching_shortcodes(query) if query is not None else []
+        emoji_results.update(codes=codes, loaded=0)
+        _append_emoji_page()
+        emoji_count.value = f"{len(codes):,} {'emoji' if len(codes) == 1 else 'emojis'} · Enter picks first · type to search"
         emoji_suggestions.visible = bool(codes and selected["name"])
-        thread_safe_ui.refresh(emoji_suggestions)
+        emoji_host.height = 184 if emoji_suggestions.visible else 0
+        thread_safe_ui.refresh(emoji_host)
+        if emoji_suggestions.visible:
+            scrolling.to_top(page, emoji_suggestions)
+
+    def _submit_composer():
+        ft.context.disable_auto_update()
+        # Enter accepts the first current search result before sending a draft.
+        with thread_safe_ui.TREE_LOCK:
+            code = (emoji_results["codes"][0]
+                    if emoji_suggestions.visible and emoji_results["codes"] else None)
+        if code:
+            _complete_emoji(code)
+        else:
+            _do_send()
 
     composer_status = ft.Text("", size=11, color=DANGER, max_lines=2,
                               overflow=ft.TextOverflow.ELLIPSIS, visible=False)
@@ -2107,7 +2156,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 header_rule,
                 conversation_host,
                 composer_status,
-                emoji_suggestions,
+                emoji_host,
                 composer_row,
                 composer_footer,
             ],

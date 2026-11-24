@@ -578,7 +578,7 @@ SUITES = [
     "test_instances.py", "test_instance_storage.py", "test_version_art_cache.py", "test_version_ui.py",
     "test_install_cancel.py",
     "test_wedge_watchdog.py", "test_web_download_count.py",
-    "test_faces.py", "test_chat_optimistic.py", "test_chat_avatar_stability.py", "test_toast.py", "test_render_compat.py",
+    "test_faces.py", "test_chat_optimistic.py", "test_chat_ux.py", "test_chat_avatar_stability.py", "test_toast.py", "test_render_compat.py",
     "test_osnotify.py",
     "test_i18n.py", "test_launcher_preferences.py", "test_color_studio.py", "test_doctor_background.py",
     "test_webdoctor.py",

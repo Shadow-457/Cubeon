@@ -1,15 +1,14 @@
 """
 Discord-style ':shortcode:' emoji support for chat messages.
 
-Kept as its own small module (not stuffed into friends.py) since it's pure
-text transformation with no networking/state, and both the message composer
-and the emoji-picker popup need the same shortcode table.
+One offline Unicode catalog for the launcher composer and core callers.
+Unknown shortcodes stay literal; matching is case-insensitive.
 """
 import re
+from ._emoji_data import EMOJI_COUNT, UNICODE_VERSION, UNICODE_SHORTCODES
 
-# A practical common subset (not the full Discord/Unicode set - that's
-# thousands of entries) covering the emoji people actually reach for in
-# chat. Easy to extend: just add "name": "🙂" pairs.
+# Preserve the existing shorthand alongside every Unicode name, skin-tone,
+# gender, family, keycap and flag sequence in the generated catalog.
 SHORTCODES: dict[str, str] = {
     "smile": "😄", "grin": "😁", "joy": "😂", "rofl": "🤣", "wink": "😉",
     "blush": "😊", "slight_smile": "🙂", "upside_down": "🙃", "relieved": "😌",
@@ -67,6 +66,17 @@ SHORTCODES: dict[str, str] = {
     "house": "🏠", "office": "🏢", "castle": "🏰", "tent": "⛺",
     "flag": "🚩", "checkered_flag": "🏁", "no": "🚫", "recycle": "♻️",
 }
+SHORTCODES.update({
+    'grin': '😀', 'grinning': '😀', 'sweat_smile': '😅', 'laughing': '😆',
+    'pickaxe': '⛏️', 'swords': '⚔️', 'brick': '🧱', 'diamond': '💎', 'tree': '🌳',
+    'wilted_rose': '🥀',
+    # Older face/device aliases share names with Unicode's animal/object
+    # entries. Keep both glyphs reachable without changing existing drafts.
+    'cat2': '🐈', 'cow2': '🐄', 'dog2': '🐕', 'mouse2': '🐁', 'pig2': '🐖',
+    'dizzy_symbol': '💫', 'couplekiss': '💏', 'dark_sunglasses': '🕶️',
+})
+for _code, _emoji in UNICODE_SHORTCODES.items():
+    SHORTCODES.setdefault(_code, _emoji)
 
 _PATTERN = re.compile(r":([a-zA-Z0-9_+\-]+):")
 
@@ -88,3 +98,33 @@ def expand_emoji(text: str) -> str:
 def all_shortcodes() -> list[tuple[str, str]]:
     """Sorted (shortcode, emoji) pairs for the picker UI."""
     return sorted(SHORTCODES.items())
+
+
+def matching_shortcodes(prefix: str, limit: int | None = None) -> list[str]:
+    """Search all names/aliases, keeping one result per emoji sequence."""
+    prefix = prefix.lower()
+    if limit is not None and limit <= 0:
+        return []
+    result, seen = [], set()
+    if prefix in SHORTCODES:
+        result.append(prefix)
+        seen.add(SHORTCODES[prefix])
+    for code, emoji in SHORTCODES.items():
+        if limit is not None and len(result) >= limit:
+            break
+        if code.startswith(prefix) and emoji not in seen:
+            result.append(code)
+            seen.add(emoji)
+    if prefix and (limit is None or len(result) < limit):
+        for code, emoji in SHORTCODES.items():
+            if limit is not None and len(result) >= limit:
+                break
+            if ('_' + prefix) in code and emoji not in seen:
+                result.append(code)
+                seen.add(emoji)
+    return result
+
+
+def suggestions(prefix: str, limit: int = 5) -> list[str]:
+    """Compatibility helper for callers requesting a small result set."""
+    return matching_shortcodes(prefix, limit)
