@@ -1,6 +1,8 @@
 # CustomSkinLoader / Cubeon skin network - verified facts
 
-Last verified against the code 2026-08-25. This replaces the earlier version of
+Skin lookup order verified 2026-11-25 against CSL 15-develop revision
+`5830503dfce07eb272a58754f3d748ba77415107`. Identity routes last verified
+2026-08-25. This replaces the earlier version of
 this file, which still described the retired name-keyed `POST /upload` API -
 if you are reading claims about `/upload`, they are stale.
 
@@ -65,7 +67,7 @@ and take the id from the last path segment.
 - Moderation applies to cape-only players too (`blocked:<uuid>` checked before
   the profile is built), and reports resolve name→UUID so they survive renames.
 
-## CSL integration (unchanged, still verified)
+## CSL integration
 
 - CSL is CLIENT-ONLY → skins work on any server, including vanilla ones.
 - LocalSkin "won't be seen by others" → the network API is mandatory for
@@ -79,4 +81,20 @@ and take the id from the last path segment.
   (see `cubeon/csl.py CUBEON_SKIN_API_ROOT` = `CUBEON_API_BASE + "/skins/"`;
   do not edit by hand).
 - Two-launch stagger: Worker entry queues first, LocalSkin entry only after it
-  is confirmed merged (see ORDER CONTRACT in `cubeon/csl.py`). Do not touch.
+  is confirmed merged (see ORDER CONTRACT in `cubeon/csl.py`).
+- Managed launch normalizes an existing config to **CubeonLocalSkin → Cubeon →
+  TLauncher → ElyBy → other existing sources → GameProfile → Mojang**. Missing
+  TLauncher/ElyBy/Mojang entries are added using CSL's existing loaders; renamed
+  entries with the same endpoints are recognized. Custom provider fields,
+  relative order within the other-source group, cache settings and explicit arm
+  models survive. Missing/malformed configs remain CSL's responsibility; the
+  order is applied on the next managed launch after CSL initializes them.
+- `forceLoadAllTextures=true` is required: a cape-only Cubeon profile must keep
+  searching for a skin. Management OFF does not reorder or modify the config.
+- Cubeon Client's existing native peer fallback also tries **Cubeon → TLauncher
+  → Ely.by → Mojang**. Mojang uses username lookup followed by its session
+  profile. Only a confirmed Cubeon profile earns a Tab badge. Workers decode
+  bounded PNGs, convert classic 64×32 skins to 64×64 and repair vanilla opaque
+  base layers before render-thread upload. Each service has independent
+  Retry-After/backoff; a Cubeon outage does not block other sources. Existing
+  textures survive transient failures. `test_peer_skins.py` covers these cases.

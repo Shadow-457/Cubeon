@@ -135,8 +135,8 @@ Use `"model":"slim"` for a 3px-arm (Alex) skin. Textures are stored as base64
 *text* precisely so they can be pasted in the dashboard like this.
 
 To test moderation, add a key `blocked:<uuid>` (the UUID from the pointer key,
-any value) - that player immediately falls back to vanilla Steve/Alex, and a
-rename doesn't dodge it.
+any value). Cubeon's network skin, cape and discovered badge disappear; other
+configured skin services can still answer. A rename does not bypass the block.
 
 ## In-Game Setup (shipped - `cubeon/csl.py`)
 
@@ -156,7 +156,14 @@ source. Registering Cubeon ahead of Mojang is what fixes it.
 Registration writes one JSON file per source into
 `.minecraft/CustomSkinLoader/ExtraList/`, which CSL **prepends** to the load
 list and then deletes. That's the supported extension point, so the user's
-hand-tuned `CustomSkinLoader.json` is never rewritten:
+source definitions survive registration. Managed setup also atomically orders
+an existing `CustomSkinLoader.json` as **CubeonLocalSkin → Cubeon → TLauncher →
+ElyBy → other existing providers → GameProfile → Mojang**, adding missing
+supported TLauncher/ElyBy/Mojang sources and enabling per-texture fallback
+(`forceLoadAllTextures=true`). Other provider fields, cache preferences and
+explicit arm models are preserved. Management OFF leaves that config untouched;
+CSL initializes missing/malformed configs itself before the next managed launch
+can normalize their order:
 
 ```json
 // ExtraList/cubeon-api.json          -> the cape + uploaded skins, from this Worker

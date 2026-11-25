@@ -93,11 +93,11 @@ def _net_seam(url, headers=None, params=None, stream=True, timeout=None,
 
 # --- build a synthetic .mrpack --------------------------------------------
 
-def fixture_mod():
+def fixture_mod(identity="sodium", version="1.0"):
     import io
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:
-        archive.writestr(zipfile.ZipInfo("fabric.mod.json"), json.dumps({"id": "sodium", "version": "1.0"}))
+        archive.writestr(zipfile.ZipInfo("fabric.mod.json"), json.dumps({"id": identity, "version": version}))
     return stream.getvalue()
 
 
@@ -140,7 +140,7 @@ def build_mrpack(path):
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("modrinth.index.json", json.dumps(index))
         zf.writestr("overrides/config/sodium-options.json", b"{ }")   # -> game dir
-        zf.writestr("overrides/mods/extra-bundled.jar", b"BUNDLED")    # -> profile
+        zf.writestr("overrides/mods/extra-bundled.jar", fixture_mod("bundled"))  # -> profile
         zf.writestr("server-overrides/config/server.txt", b"nope")    # -> ignored
 
 
@@ -285,7 +285,7 @@ def main():
 
     cache = modpacks.global_mod_cache
     shared = os.path.join(scratch, "shared.jar")
-    old_bytes, new_bytes = b"SHARED ORIGINAL", b"PRIVATE OVERRIDE"
+    old_bytes, new_bytes = fixture_mod("shared", "1"), fixture_mod("shared", "2")
     with open(shared, "wb") as f:
         f.write(old_bytes)
     first_link = os.path.join(scratch, "override-profile1", "shared.jar")

@@ -3,6 +3,7 @@
 Defaults to 1.21.11 and 26.3. Requires their installed runtime, Fabric API,
 CustomSkinLoader, a cached New World, and a graphical desktop. Copies worlds;
 all options, skin caches, and probe mods stay in temporary game directories.
+Use --skins-only to verify skin/cape upload and selection without lighting checks.
 """
 import argparse
 import json
@@ -67,6 +68,13 @@ public class CapeProbe implements ClientModInitializer {
             if(player==null) return;
             finished=true;
             Object options=field(client,"options");
+            byte[] skinPng=Files.readAllBytes(Path.of(System.getProperty("cubeon.probe.skin")));
+            var peerSkin=new com.cubeon.client.skins.RemoteSkins.Skin(skinPng,false,"native-peer-probe");
+            Object peerTexture=Class.forName("com.cubeon.client.skins.RemoteSkinTexture")
+                    .getMethod("texture",String.class,com.cubeon.client.skins.RemoteSkins.Skin.class)
+                    .invoke(null,"NativePeer",peerSkin);
+            check(peerTexture!=null && peerTexture.toString().equals("cubeon-client:peer_skin/nativepeer"),
+                    "Real native image upload registers a peer skin texture");
             Object capePart=type("part").getField(name("capePart")).get(null);
             Method set=options.getClass().getMethod(name("setPart"),type("part"),boolean.class);
             byte[] png=Files.readAllBytes(Path.of(System.getProperty("cubeon.probe.cape")));
@@ -107,6 +115,7 @@ public class CapeProbe implements ClientModInitializer {
             // 1.21.11 caches the lightmap aggressively. The mixin must notice
             // both setting edges before vanilla's !dirty early return, while
             // the gamma option override remains scoped to lightmap work.
+            if(!Boolean.getBoolean("cubeon.probe.skinsOnly")) {
             Object renderer=field(client,"gameRenderer");
             Object lightmap=call(renderer,"getLightmap");
             Field enabled=lightmap.getClass().getDeclaredField("cubeon$fullBright"); enabled.setAccessible(true);
@@ -119,6 +128,7 @@ public class CapeProbe implements ClientModInitializer {
             FullBright.beginLightmap(); Object boosted=call(gamma,"getValue"); FullBright.endLightmap();
             check(boosted instanceof Double && ((Double)boosted)==FullBright.GAMMA,
                     "Real gamma option receives the scoped Full Bright value");
+            }
             System.out.println("CUBEON_CAPE_NATIVE_PASS "+checks+" checks with CustomSkinLoader");
         } catch(Throwable error) {
             finished=true;System.out.println("CUBEON_CAPE_NATIVE_FAIL "+error);error.printStackTrace();
@@ -180,7 +190,7 @@ def names_for(version):
     return result
 
 
-def verify(version):
+def verify(version, *, skins_only=False):
     profiles = GAME / 'instances' / f'{version}-Fabric'
     game = profiles / 'minecraft' if (profiles / 'minecraft').is_dir() else profiles
     loader = next((RUNTIME / 'versions').glob(f'fabric-loader-*-{version}')).name
@@ -208,6 +218,8 @@ def verify(version):
             username='CapeProbe', uuid='5f5e020167373e67b59baa2682e55583', token='0',
             executablePath=str(JAVA / 'java'), gameDirectory=str(work),
             jvmArguments=['-Xmx1536M', '-Xms256M', f'-Dcubeon.probe.names={names}',
+                          f'-Dcubeon.probe.skinsOnly={str(skins_only).lower()}',
+                          f'-Dcubeon.probe.skin={ROOT / "assets/skins/steve.png"}',
                           f'-Dcubeon.probe.cape={ROOT / "assets/capes/cubeon_cape.png"}'],
             launcherName='CubeonCapeProbe', launcherVersion='1'))
         command += ['--quickPlaySingleplayer', 'Cape probe']
@@ -226,5 +238,7 @@ def verify(version):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('versions', nargs='*', default=['1.21.11', '26.3'])
+    parser.add_argument('--skins-only', action='store_true', help='Skip unrelated lightmap checks')
     OUT.mkdir(parents=True, exist_ok=True)
-    for version in parser.parse_args().versions: verify(version)
+    args = parser.parse_args()
+    for version in args.versions: verify(version, skins_only=args.skins_only)

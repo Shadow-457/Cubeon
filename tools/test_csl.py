@@ -251,11 +251,14 @@ check("queued-and-correct is not re-queued", csl.write_extralist_entries() == []
 check("queued-and-correct file untouched", os.stat(local_path).st_mtime_ns == before_mtime)
 
 with open(local_path, "w", encoding="utf-8") as f:
-    json.dump({**csl.EXTRALIST_ENTRIES["cubeon-localskin.json"], "model": "default"}, f)
+    json.dump({**csl.EXTRALIST_ENTRIES["cubeon-localskin.json"], "cape": "old/cape.png", "model": "default"}, f)
 rewritten = csl.write_extralist_entries()
 check("stale queued entry is rewritten", rewritten == ["CubeonLocalSkin"], rewritten)
-check("rewritten entry matches the current definition",
-      json.load(open(local_path)) == csl.EXTRALIST_ENTRIES["cubeon-localskin.json"])
+check("rewritten entry repairs stale paths and preserves the explicit arm model",
+      json.load(open(local_path)) == {**csl.EXTRALIST_ENTRIES["cubeon-localskin.json"], "model": "default"})
+before_mtime = os.stat(local_path).st_mtime_ns
+check("queued explicit arms are not reset to auto on launch", csl.write_extralist_entries() == []
+      and os.stat(local_path).st_mtime_ns == before_mtime)
 
 with open(local_path, "w", encoding="utf-8") as f:
     f.write("{truncated write")
@@ -401,6 +404,86 @@ check("management OFF does not change cache settings", csl.read_csl_config()["ca
 os.unlink(CSL_CONFIG_PATH)
 check("no partial config is created before CSL writes its defaults",
       not csl.configure_request_cache() and not os.path.exists(CSL_CONFIG_PATH))
+
+# --- Launcher skins before official fallback, through managed launch --------
+local = {**csl.EXTRALIST_ENTRIES["cubeon-localskin.json"], "model": "slim"}
+worker = dict(csl.EXTRALIST_ENTRIES["cubeon-api.json"])
+tlauncher, elyby, mojang = [dict(e) for e in csl.FALLBACK_ENTRIES]
+tlauncher.update(name="My TLauncher", custom_option="preserve")
+elyby.update(name="My ElyBy", root="http://skinsystem.ely.by/textures/")
+custom = {"name": "Private auth", "type": "MojangAPI", "apiRoot": "https://custom.example/"}
+gameprofile = {"name": "Server textures", "type": "GameProfile"}
+other = {"name": "Other source", "type": "Legacy", "skin": "custom/{USERNAME}.png"}
+initial = {"version": "15.1", "loadlist": [mojang, other, worker, gameprofile, elyby, local, tlauncher, custom],
+           "forceLoadAllTextures": False, "cacheExpiry": 600, "enableLocalProfileCache": True,
+           "unknown_setting": {"keep": True}}
+with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as stream:
+    json.dump(initial, stream)
+csl.ensure_ready(None, None)
+ordered = csl.read_csl_config()
+check("managed launch uses local Cubeon, Cubeon API, TLauncher, ElyBy, other sources, server textures, Mojang",
+      ordered["loadlist"] == [local, worker, tlauncher, elyby, other, custom, gameprofile, mojang])
+check("cape-only results keep searching for a skin", ordered["forceLoadAllTextures"] is True)
+check("source fields, explicit slim arms, custom auth roots and other settings survive",
+      {k:v for k,v in ordered.items() if k not in ("loadlist", "forceLoadAllTextures")} ==
+      {k:v for k,v in initial.items() if k not in ("loadlist", "forceLoadAllTextures")})
+stamp = os.stat(CSL_CONFIG_PATH).st_mtime_ns
+check("priority normalization is idempotent and duplicates no renamed provider",
+      not csl.configure_source_order() and os.stat(CSL_CONFIG_PATH).st_mtime_ns == stamp
+      and len(ordered["loadlist"]) == len(initial["loadlist"]))
+
+# Exercise CSL's actual first-wins, per-slot merge contract: cape-only Cubeon
+# still reaches TLauncher/ElyBy/Mojang; server textures remain available.
+def mix_profiles(sources, profiles):
+    result = {}
+    for source in sources:
+        for slot, value in profiles.get(source["name"], {}).items():
+            if value and not result.get(slot):
+                result[slot] = value
+        if result.get("skin") and result.get("cape"):
+            break
+    return result
+
+for provider in (tlauncher, elyby, gameprofile, mojang):
+    check(f"cape-only Cubeon merges with {provider['name']}'s skin",
+          mix_profiles(ordered["loadlist"], {"Cubeon": {"cape": "cubeon"},
+                       provider["name"]: {"skin": "peer"}}) == {"cape": "cubeon", "skin": "peer"})
+check("TLauncher skin wins ahead of ElyBy and Mojang",
+      mix_profiles(ordered["loadlist"], {tlauncher["name"]: {"skin": "tlauncher"},
+                   elyby["name"]: {"skin": "elyby"}, "Mojang": {"skin": "official"}})["skin"] == "tlauncher")
+
+initial["loadlist"] = [custom, local, worker]
+with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as stream:
+    json.dump(initial, stream)
+check("older configs gain only supported TLauncher, ElyBy and official fallback entries",
+      csl.configure_source_order() and [e["name"] for e in csl.read_csl_config()["loadlist"]] ==
+      ["CubeonLocalSkin", "Cubeon", "TLauncher", "ElyBy", "Private auth", "Mojang"])
+
+with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as stream:
+    json.dump(initial, stream)
+before = open(CSL_CONFIG_PATH, "rb").read()
+with patch("cubeon.atomicio.os.replace", side_effect=OSError("disk full")):
+    check("failed atomic priority writes report failure", not csl.configure_source_order())
+check("a failed priority write preserves the exact previous config", open(CSL_CONFIG_PATH, "rb").read() == before)
+csl.ensure_ready(None, None, manage=False)
+check("management OFF leaves priority and fallback preferences untouched", open(CSL_CONFIG_PATH, "rb").read() == before)
+
+instance_config = os.path.join(_tmp, "another-instance", "CustomSkinLoader.json")
+os.makedirs(os.path.dirname(instance_config))
+with open(instance_config, "w", encoding="utf-8") as stream:
+    json.dump(initial, stream)
+with patch.object(csl, "instance_csl_path", return_value=instance_config):
+    check("priority writes target the active instance", csl.configure_source_order())
+check("another instance's priority never modifies shared config", open(CSL_CONFIG_PATH, "rb").read() == before)
+
+for invalid in ("{bad json", "[]", '{"loadlist":null}', '{"loadlist":"wrong shape"}'):
+    with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as stream:
+        stream.write(invalid)
+    check("malformed configs are left for CSL to repair", not csl.configure_source_order()
+          and open(CSL_CONFIG_PATH, encoding="utf-8").read() == invalid)
+os.unlink(CSL_CONFIG_PATH)
+check("priority setup does not seed an incomplete first-run config",
+      not csl.configure_source_order() and not os.path.exists(CSL_CONFIG_PATH))
 
 print(f"\n{failures} CHECK(S) FAILED" if failures else "\nALL CSL CHECKS PASSED")
 sys.exit(1 if failures else 0)

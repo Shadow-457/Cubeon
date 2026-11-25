@@ -32,6 +32,33 @@ def jar(identity, version, depends=None, nested=None, breaks=None):
     return buffer.getvalue()
 
 
+def launch_gate(fixture, loader="fabric"):
+    # Execute the actual guarded staging/spawn block with no Java process.
+    source = Path(__file__).resolve().parents[1].joinpath("cubeon/launch.py").read_text()
+    gate = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.With)
+                and any(isinstance(item.context_expr, ast.Name)
+                        and item.context_expr.id == "_spawn_lock" for item in node.items)
+                and any(isinstance(child, ast.Name) and child.id == 'run_dependency_doctor'
+                        for child in ast.walk(node)))
+    module = ast.Module(body=[gate], type_ignores=[])
+    from threading import Lock
+    from types import SimpleNamespace
+    from cubeon.launch import _game_spawn_command
+    events = []
+    def spawn(*args, **kwargs):
+        events.append("spawn")
+        return SimpleNamespace(pid=123)
+    scope = dict(_spawn_lock=Lock(), mc_version=fixture.mc, loader=loader, version_id=fixture.instance,
+                 status_cb=None, command=["fixture-java"], game_dir=str(fixture.profile), log_fh=None, log_path="unused",
+                 configured_java="configured-java", java_major_version=lambda executable:21,
+                 popen_kwargs={}, session_id="test", username="test", stage_java=True, _active_logs=set(),
+                 _prune_game_logs=lambda: None, subprocess=SimpleNamespace(Popen=spawn, DEVNULL=-1, STDOUT=-2),
+                 _game_spawn_command=_game_spawn_command,
+                 watchdog=SimpleNamespace(register=lambda *a, **kw:None, stale_session=lambda:None),
+                 sync_mods_to_game=lambda *a:events.append("sync"), __name__="cubeon.launch", __package__="cubeon")
+    return module, scope, events
+
+
 class FirstInstallCompatibilityTests(unittest.TestCase):
     """A brand-new profile holds only Cubeon's own jar, and that must be clean.
 
@@ -396,30 +423,40 @@ class DependencyTests(unittest.TestCase):
         self.assertIn("repaired dependencies: cloth-config", report["detail"])
         self.assertFalse(self.run_doctor()["unfixed"])
 
+    def test_pack_launch_uses_loader_resolution_and_still_blocks_bad_archives(self):
+        from cubeon import content, content_checks
+        self.profile.joinpath("_modpack.json").write_text("{}")
+        self.profile.joinpath("opaque.jar").write_bytes(jar("opaque", "1"))
+        # These are readable archives whose metadata cannot be parsed by
+        # Cubeon. They must reach the loader, which owns its metadata rules.
+        for loader, descriptor in (("fabric", "fabric.mod.json"), ("quilt", "quilt.mod.json"),
+                                   ("forge", "META-INF/mods.toml"), ("neoforge", "META-INF/neoforge.mods.toml")):
+            with self.subTest(loader=loader):
+                with zipfile.ZipFile(self.profile / "opaque.jar", "w") as archive:
+                    archive.writestr(descriptor, "custom loader metadata")
+                module, scope, events = launch_gate(self, loader)
+                before = {p.name: p.read_bytes() for p in self.profile.iterdir()}
+                with patch.object(content, "sync_content_to_game", side_effect=lambda *a:events.append("content")), \
+                        patch.object(content_checks, "remember_runtime"), \
+                        patch.object(mods, "get_mod_download") as lookup, \
+                        patch.object(net, "download_to") as download:
+                    # The same actual gate retains the missing Cloth Config
+                    # requester on Fabric; the installed loader decides.
+                    exec(compile(module, "<actual pack launch gate>", "exec"), scope)
+                    self.assertEqual(events, ["content", "sync", "spawn"])
+                    self.assertEqual(before, {p.name: p.read_bytes() for p in self.profile.iterdir()})
+                    lookup.assert_not_called()
+                    download.assert_not_called()
+                    events.clear()
+                    self.profile.joinpath("bad.jar").write_bytes(b"<html>download failed</html>")
+                    with self.assertRaises(deps.ModCompatibilityError) as failure:
+                        exec(compile(module, "<actual broken pack gate>", "exec"), scope)
+                    self.assertEqual(events, [])
+                    self.assertEqual(failure.exception.report["unfixed"][0]["mod"], "bad.jar")
+                    self.profile.joinpath("bad.jar").unlink()
+
     def test_real_launch_gate_is_offline_and_blocks_issues_before_sync_or_spawn(self):
-        # Execute the actual guarded staging/spawn block with no Java process.
-        source = Path(__file__).resolve().parents[1].joinpath("cubeon/launch.py").read_text()
-        gate = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.With)
-                    and any(isinstance(item.context_expr, ast.Name)
-                            and item.context_expr.id == "_spawn_lock" for item in node.items)
-                    and any(isinstance(child, ast.Name) and child.id == 'run_dependency_doctor'
-                            for child in ast.walk(node)))
-        module = ast.Module(body=[gate], type_ignores=[])
-        from threading import Lock
-        from types import SimpleNamespace
-        from cubeon.launch import _game_spawn_command
-        events = []
-        def spawn(*args, **kwargs):
-            events.append("spawn")
-            return SimpleNamespace(pid=123)
-        scope = dict(_spawn_lock=Lock(), mc_version=self.mc, loader="fabric", version_id=self.instance,
-                     status_cb=None, command=["fixture-java"], game_dir=str(self.profile), log_fh=None, log_path="unused",
-                     configured_java="configured-java", java_major_version=lambda executable:21,
-                     popen_kwargs={}, session_id="test", username="test", stage_java=True, _active_logs=set(),
-                     _prune_game_logs=lambda: None, subprocess=SimpleNamespace(Popen=spawn, DEVNULL=-1, STDOUT=-2),
-                     _game_spawn_command=_game_spawn_command,
-                     watchdog=SimpleNamespace(register=lambda *a, **kw:None, stale_session=lambda:None),
-                     sync_mods_to_game=lambda *a:events.append("sync"), __name__="cubeon.launch", __package__="cubeon")
+        module, scope, events = launch_gate(self)
         from cubeon import content, content_checks
         self.remote_jar("cloth-config")
         with patch.object(content, "sync_content_to_game", side_effect=lambda *a:events.append("content")), \

@@ -100,7 +100,7 @@ from .mods import (get_profile_dir, modrinth_search_index, rank_search_hits,
                    record_mod_source, profile_key, profile_key_for,
                    unique_profile_key, create_instance_version,
                    profile_dir_for_key, read_instance_meta, write_instance_meta,
-                   is_protected_mod)
+                   is_protected_mod, _jar_read_error)
 # Bundled resource packs/shaders belong to the INSTANCE, like the bundled mods
 # do - so they are routed into the pack's own profile rather than the shared
 # game folder (see _dest_is_content). Reuses content.py's profile layout so a
@@ -724,21 +724,23 @@ def _download_to(dest_path: str, urls: list[str], hashes: dict | None, progress_
         _stream_download(dest_path, urls, hashes, progress_cb)
         return
 
+    validated = False
+
     def fetch_fn(tmp_path):
+        nonlocal validated
         _stream_download(tmp_path, urls, hashes, progress_cb)
-        try:
-            with zipfile.ZipFile(tmp_path) as archive:
-                if not archive.infolist():
-                    raise ModpackError(f"The pack mod {os.path.basename(dest_path)} is an empty archive.")
-                # Keyless CurseForge has no published hash. Check every entry
-                # so an HTML error page or truncated ZIP cannot become a mod.
-                if not hashes and archive.testzip() is not None:
-                    raise zipfile.BadZipFile("content checksum failed")
-        except (zipfile.BadZipFile, EOFError) as ex:
-            raise ModpackError(f"The pack mod {os.path.basename(dest_path)} is not a readable archive. Try downloading again.") from ex
+        reason = _jar_read_error(tmp_path, check_contents=not hashes)
+        if reason:
+            raise ModpackError(f"The pack mod {os.path.basename(dest_path)} is not a readable archive: {reason}. Try downloading again.")
+        validated = True
 
     try:
         global_mod_cache.get_or_fetch(dest_path, fetch_fn, hashes)
+        # Cached downloads need the same archive check as fresh bytes. A
+        # matching receipt is not proof that a file is a usable JAR.
+        reason = "" if validated else _jar_read_error(dest_path, check_contents=not hashes)
+        if reason:
+            raise ModpackError(f"The pack mod {os.path.basename(dest_path)} is not a readable archive: {reason}. Try downloading again.")
     except ValueError as ex:
         raise ModpackError(f"Couldn't verify pack mod {os.path.basename(dest_path)}: {ex}") from ex
 
@@ -855,6 +857,10 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
             with zf.open(info) as src, open(payload, "wb") as out:
                 shutil.copyfileobj(src, out)
             if _dest_is_mod(rel):
+                if rel.lower().endswith(".jar"):
+                    reason = _jar_read_error(payload, check_contents=True)
+                    if reason:
+                        raise ModpackError(f"The bundled pack mod {os.path.basename(dest)} is not a readable archive: {reason}.")
                 staged = os.path.join(tmpdir, os.path.basename(dest))
                 if rel.lower().endswith(".zip"):
                     os.replace(payload, staged)

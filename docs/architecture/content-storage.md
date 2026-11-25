@@ -57,6 +57,25 @@ CSL opt-in restores only Cubeon's own setting backups and preserves manually
 disabled copies. Pack ownership remains protective when a marker is missing,
 relocated, unreadable or temporarily hidden during an update.
 
+Read-only pack checks (Installed, post-install and Play) validate the enabled
+JAR files and leave dependency resolution to the installed loader. Cubeon
+does not treat unsupported descriptors, embedded-library selection or its own
+dependency interpretation as proof that a curated pack is broken. The status
+says **Mod files checked · loader checks on Play**, rather than certifying
+compatibility. Explicit Resolve still opts into the existing graph resolver.
+Ordinary mod profiles retain their dependency gate.
+
+This follows [Prism Launcher's instance creation](https://github.com/PrismLauncher/PrismLauncher/blob/768ddbb61f78841cc0913055a6d87f179fd8b70f/launcher/modplatform/modrinth/ModrinthInstanceCreationTask.cpp):
+install the manifest-selected game/loader and files, apply overrides, and let
+the loader interpret the pack. Legacy Cubeon staging preserves every enabled
+pack filename, without deduplicating by project receipts or filename stems;
+current instance storage already uses its own authoritative mods directory.
+Bundled override JARs and cached downloads receive archive validation too.
+Full CRC checks are cached by physical file identity, size and nanosecond
+mtime/ctime, so unchanged pack checks do not repeatedly decompress every mod.
+Transient read/lock failures are retried rather than cached against unchanged files.
+Failed installs/updates retain the existing transaction rollback.
+
 ### `cubeon/content.py`
 Unified content interface (resource packs, shaders, modpacks):
 - `download_content()` - downloads with resume/hash verification

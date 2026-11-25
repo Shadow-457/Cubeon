@@ -415,7 +415,8 @@ edits. This is an optional workaround, not a diagnosis of every rendering bug.
 
 Compatibility checks cannot detect arbitrary bugs or undeclared gameplay conflicts
 inside a mod. Launch-time configuration checks stay non-interactive; declared mod
-issues stop launch without holding a launch worker open while you review them.
+issues in ordinary mod profiles stop launch without holding a launch worker open
+while you review them. Curated modpacks use the installed loader's resolution.
 
 Forge and NeoForge ranges use Maven version ordering. For example,
 LionfishAPI `2.4-Fix` satisfies `[2.4,)`, Create `0.5.1.j` satisfies
@@ -432,6 +433,14 @@ projects can select a newer build; the installed JAR graph is checked afterward,
 and **Resolve** verifies replacement JARs against all declared requirements
 before applying changes. Signed JARs with large manifests and unscoped Forge
 dependency arrays do not by themselves mean a mod is unreadable.
+
+For modpacks, **Check compatibility** checks the enabled JAR files and reports
+**Mod files checked · loader checks on Play**. Cubeon preserves the pack's
+selected versions and lets Fabric, Quilt, Forge or NeoForge interpret their
+metadata and dependencies. A descriptor Cubeon cannot interpret does not make
+the file unreadable. Missing files, damaged archives and checksum failures are
+reported before Play; reinstall the pack to restore damaged files. Explicit
+**Resolve** still uses Cubeon's dependency resolver when you choose it.
 
 ### Website crash Doctor
 
@@ -535,6 +544,11 @@ Turn CSL back on to restore the copy disabled by this setting.
 You can also switch **Cubeon Client** on or off in **Mods → Installed**.
 It shares the Settings preference for all instances and stays available after
 the client has been disabled.
+
+Managed skins prefer Cubeon, then TLauncher and Ely.by, with Mojang as the
+final fallback. Cubeon Client also loads these player skins directly when CSL
+cannot display them. Restart Minecraft after changing the skin setup; each
+player needs a published skin on one of those services to show a custom skin.
 
 In **Settings → Appearance → Launcher**, open **Language** and search by native name,
 English name, or language code. Select a language, then click the **Restart** button

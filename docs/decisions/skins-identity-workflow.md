@@ -126,7 +126,10 @@ install gets it on the same launch.
 
 **Step 3 - Resolution by any CSL client.** Every player running
 CustomSkinLoader queries the registered sources in load-list order. Cubeon's
-ExtraList entry sits ahead of Mojang, so a lookup goes to:
+ExtraList entry sits ahead of TLauncher, ElyBy, other existing providers,
+GameProfile and Mojang. Managed setup keeps that priority and enables
+per-texture fallback, so a cape-only Cubeon profile still allows a later
+provider to supply the skin. The Cubeon lookup goes to:
 
 ```
 GET https://cubeon-skins....workers.dev/skins/Alex.json

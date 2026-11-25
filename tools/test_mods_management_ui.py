@@ -601,6 +601,21 @@ class ManagementUI(unittest.TestCase):
         self.assertEqual(footer.height, 40)
         self.assertEqual(env(self.fns['_set_installed_status'])['installed_status'].max_lines, 1)
 
+    def test_pack_check_status_defers_compatibility_to_loader_without_issue_dialog(self):
+        view = self.refresh.__self__
+        self.active['type'] = 'mod'
+        QueuedThread.jobs.clear()
+        report = dict(checked=2, fixed=[], unfixed=[], loader_managed=True, elapsed=0.001)
+        with patch.object(ui_mods, 'check_content', return_value=report), \
+                patch.object(ui_mods, 'show_content_issues') as show, \
+                patch.object(view, '_set_repair_status') as status:
+            self.assertTrue(view._start_repair('1.21.11', 'fabric', self.dropdown.value, ['mods']))
+            self.assertTrue(view.check_repair_btn.disabled)
+            QueuedThread.jobs.pop()()
+        show.assert_not_called()
+        self.assertEqual(status.call_args.args[0], 'Mod files checked · loader checks on Play · 1 ms')
+        self.assertFalse(view.check_repair_btn.disabled)
+
     def test_loading_cells_keep_final_grid_geometry_and_pager_space(self):
         from ui.content_tiles import tile_capacity
         scope = env(self.fns['_show_browse_loading'])

@@ -24,6 +24,7 @@ No network, no display, no real Minecraft: ``install_version`` /
 binds its paths.
 """
 import json
+import io
 import os
 import sys
 import tempfile
@@ -56,7 +57,7 @@ _BLOBS = {}
 
 
 def build_pack(path, *, name, mc_version, loader, loader_version, mods_spec,
-               bundled=b"BUNDLED OVERRIDE JAR"):
+               bundled=True):
     """A minimal .mrpack with `mods_spec` = [(filename, bytes), ...]."""
     files = []
     for index, (filename, payload) in enumerate(mods_spec):
@@ -80,6 +81,11 @@ def build_pack(path, *, name, mc_version, loader, loader_version, mods_spec,
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("modrinth.index.json", json.dumps(index))
         if bundled is not None:
+            if bundled is True:
+                stream = io.BytesIO()
+                with zipfile.ZipFile(stream, "w") as mod:
+                    mod.writestr("fabric.mod.json", json.dumps({"id": "bundled", "version": "1"}))
+                bundled = stream.getvalue()
             zf.writestr("overrides/mods/bundled.jar", bundled)
         zf.writestr("overrides/config/pack.json", b"{}")
 

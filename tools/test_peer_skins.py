@@ -24,6 +24,7 @@ import java.net.URLConnection;
 import java.net.URLStreamHandler;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,13 +42,20 @@ public final class PeerSkinTest {
     private static final CountDownLatch started = new CountDownLatch(1);
     private static final CountDownLatch release = new CountDownLatch(1);
     private static final AtomicLong clock = new AtomicLong(1_000_000_000L);
+    private static final List<String> trace = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private static final String UUID = "1".repeat(32);
+    private static final java.util.Set<String> fallback = java.util.Set.of("launch", "launchtwo", "ely", "official", "legacy", "badpng", "huge");
 
     private static byte[] png() {
-        byte[] bytes = new byte[24];
-        int[] signature = {0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a};
-        for (int i=0;i<signature.length;i++) bytes[i]=(byte)signature[i];
-        bytes[19]=64; bytes[23]=64;
-        return bytes;
+        return png(64);
+    }
+    private static byte[] png(int height) {
+        try {
+            var image = new java.awt.image.BufferedImage(64,height,java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            for (int y=0;y<height;y++) for (int x=0;x<64;x++) image.setRGB(x,y,0xff000000|x<<8|y);
+            var buffer = new java.io.ByteArrayOutputStream(); javax.imageio.ImageIO.write(image,"PNG",buffer);
+            return buffer.toByteArray();
+        } catch (Exception error) { throw new AssertionError(error); }
     }
 
     private static void settled(String key) throws Exception {
@@ -71,21 +79,61 @@ public final class PeerSkinTest {
         clockField.set(null, (java.util.function.LongSupplier)clock::get);
         URL.setURLStreamHandlerFactory(protocol -> !protocol.equals("https") ? null : new URLStreamHandler() {
             protected URLConnection openConnection(URL url) {
-                if (!url.getHost().equals("cubeon-skins.hamza-457-shahbaz.workers.dev"))
+                if (!java.util.Set.of("cubeon-skins.hamza-457-shahbaz.workers.dev", "auth.tlauncher.org",
+                        "skinsystem.ely.by", "api.mojang.com", "sessionserver.mojang.com", "textures.minecraft.net").contains(url.getHost()))
                     throw new AssertionError("Unexpected host " + url);
                 return new HttpURLConnection(url) {
+                    private final boolean cubeon = url.getHost().endsWith("workers.dev");
+                    private final String path = url.getPath();
+                    private String username() {
+                        String name = path.substring(path.lastIndexOf('/')+1);
+                        return name.endsWith(".json") ? name.substring(0,name.length()-5) : name;
+                    }
                     public void connect(){} public void disconnect(){} public boolean usingProxy(){return false;}
                     public int getResponseCode() {
-                        requests.incrementAndGet(); started.countDown();
+                        requests.incrementAndGet(); trace.add(url.toString()); started.countDown();
                         try { if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("render waited for network"); }
                         catch (InterruptedException error) { throw new RuntimeException(error); }
-                        if (url.getPath().contains("limited")) return 429;
-                        if (url.getPath().contains("unknown")) return 404;
+                        String name = username();
+                        if (cubeon && path.contains("limited")) return 429;
+                        if (cubeon && fallback.contains(name)) return 404;
+                        if ((path.startsWith("/skin/") && !path.startsWith("/skin/profile/")) || url.getHost().equals("textures.minecraft.net")) return 200;
+                        if (!cubeon) {
+                            if (url.getHost().equals("auth.tlauncher.org"))
+                                return java.util.Set.of("launch","launchtwo","limited","legacy","badpng","huge").contains(name) ? 200 : 404;
+                            if (url.getHost().equals("skinsystem.ely.by"))
+                                return java.util.Set.of("ely","badpng","huge").contains(name) ? 200 : 204;
+                            if (url.getHost().equals("api.mojang.com")) return name.equals("official") ? 200 : 404;
+                            return 200;
+                        }
+                        if (path.contains("unknown")) return 404;
                         if (url.getPath().endsWith(BROKEN_ID) || absent.contains(url.getPath())) return 404;
                         return 200;
                     }
                     public String getHeaderField(String name) { return name.equals("Retry-After") ? "3600" : null; }
                     public java.io.InputStream getInputStream() {
+                        if ((path.startsWith("/skin/") && !path.startsWith("/skin/profile/")) || url.getHost().equals("textures.minecraft.net")) {
+                            byte[] data = path.contains("legacy") ? png(32) : png();
+                            if (path.endsWith("badpng")) data = java.util.Arrays.copyOf(data,24);
+                            return new ByteArrayInputStream(data);
+                        }
+                        if (!cubeon) {
+                            String name = username();
+                            String body;
+                            if (url.getHost().equals("api.mojang.com")) body = "{\"id\":\""+UUID+"\",\"name\":\"Official\"}";
+                            else if (url.getHost().equals("sessionserver.mojang.com")) {
+                                String textures = "{\"textures\":{\"SKIN\":{\"url\":\"http://textures.minecraft.net/texture/official\"}}}";
+                                String encoded = java.util.Base64.getEncoder().encodeToString(textures.getBytes(StandardCharsets.UTF_8));
+                                body = "{\"id\":\""+UUID+"\",\"properties\":[{\"name\":\"textures\",\"value\":\""+encoded+"\"}]}";
+                            } else {
+                                if (name.equals("huge") && url.getHost().equals("auth.tlauncher.org"))
+                                    return new ByteArrayInputStream("x".repeat(4097).getBytes(StandardCharsets.UTF_8));
+                                // ElyBy's good image follows a broken TLauncher image.
+                                String textureName = name.equals("badpng") && url.getHost().equals("skinsystem.ely.by") ? "good" : name;
+                                body = "{\"SKIN\":{\"url\":\"https://"+url.getHost()+"/skin/"+textureName+"\",\"metadata\":{\"model\":\"slim\"}}}";
+                            }
+                            return new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8));
+                        }
                         if (url.getPath().startsWith("/skins/textures/")) return new ByteArrayInputStream(png());
                         String name = url.getPath().substring("/skins/".length(), url.getPath().length()-5);
                         String claimed = name.equals("mismatch") ? "SomeoneElse" : name;
@@ -108,7 +156,7 @@ public final class PeerSkinTest {
         if (!started.await(2, TimeUnit.SECONDS)) throw new AssertionError("lookup did not start");
         release.countDown(); settled("Remote");
         RemoteSkins.Skin skin = RemoteSkins.get("Remote");
-        if (skin == null || !skin.slim() || !ID.equals(skin.id()) || skin.png().length != 24)
+        if (skin == null || !skin.slim() || !skin.id().matches("[a-f0-9]{64}") || skin.png().length < 24)
             throw new AssertionError("valid slim skin was not published");
         Component tagged = TabListTag.decorate("rEmOtE", displayed);
         if (!tagged.getString().equals("\uE000 [Team] Remote")
@@ -137,8 +185,8 @@ public final class PeerSkinTest {
         if (RemoteSkins.isCubeonPlayer("DefaultSkin")) throw new AssertionError("cold profile was confirmed");
         settled("DefaultSkin");
         if (!RemoteSkins.isCubeonPlayer("defaultskin") || RemoteSkins.get("DefaultSkin") != null
-                || requests.get() != defaultStart+1 || TabListTag.decorate("DefaultSkin", displayed) == displayed)
-            throw new AssertionError("cape-only Cubeon player needs a badge without downloading a skin");
+                || requests.get() != defaultStart+4 || TabListTag.decorate("DefaultSkin", displayed) == displayed)
+            throw new AssertionError("cape-only Cubeon player needs a badge while later sources can supply a skin");
 
         RemoteSkins.isCubeonPlayer("Broken"); settled("Broken");
         if (!RemoteSkins.isCubeonPlayer("Broken") || RemoteSkins.get("Broken") != null)
@@ -163,11 +211,41 @@ public final class PeerSkinTest {
         if (requests.get()!=noWorld) throw new AssertionError("menu queued network requests");
         RemoteSkins.context(Minecraft.getInstance().level);
 
+        for (String name : new String[]{"Launch", "Ely", "Official", "Legacy", "BadPng", "Huge"}) {
+            clock.addAndGet(TimeUnit.MINUTES.toNanos(2));
+            int first = trace.size();
+            RemoteSkins.get(name); settled(name);
+            var found = RemoteSkins.get(name);
+            if (found == null || RemoteSkins.isCubeonPlayer(name))
+                throw new AssertionError("public fallback missing or incorrectly badged: "+name);
+            List<String> calls = trace.subList(first,trace.size());
+            if (!calls.get(0).contains("workers.dev") || !calls.get(1).contains("auth.tlauncher.org"))
+                throw new AssertionError("Cubeon and TLauncher must run first: "+calls);
+            if (name.equals("Launch") && calls.size()!=3) throw new AssertionError("TLauncher success must stop fallback: "+calls);
+            if (name.equals("Ely") && (calls.size()!=4 || !calls.get(2).contains("skinsystem.ely.by")))
+                throw new AssertionError("ElyBy must run after TLauncher: "+calls);
+            if (name.equals("Official") && (calls.size()!=6 || !calls.get(3).contains("api.mojang.com")
+                    || !calls.get(4).contains("sessionserver.mojang.com") || !calls.get(5).startsWith("https://textures.minecraft.net")))
+                throw new AssertionError("official username and session lookup must be last: "+calls);
+            if (name.equals("Legacy")) {
+                var image=javax.imageio.ImageIO.read(new ByteArrayInputStream(found.png()));
+                if (found.slim() || image.getHeight()!=64 || image.getRGB(20,52)!=0xff000000+(7<<8)+20)
+                    throw new AssertionError("legacy skin needs wide arms and mirrored left limbs");
+            }
+        }
+
+        clock.addAndGet(TimeUnit.MINUTES.toNanos(2));
         RemoteSkins.get("Limited"); settled("Limited");
         int limited = requests.get();
+        long cubeonRequests = trace.stream().filter(url -> url.contains("workers.dev")).count();
+        if (RemoteSkins.get("Limited")==null || RemoteSkins.isCubeonPlayer("Limited"))
+            throw new AssertionError("Cubeon 429 must permit TLauncher without a Cubeon badge");
         RemoteSkins.context(new Object());
-        for (int i=0;i<100;i++) RemoteSkins.get("Retry"+i);
-        if (requests.get()!=limited) throw new AssertionError("Retry-After did not stop the queue");
+        RemoteSkins.get("LaunchTwo"); settled("LaunchTwo");
+        if (RemoteSkins.get("LaunchTwo")==null || requests.get()!=limited+2
+                || trace.stream().filter(url -> url.contains("workers.dev")).count()!=cubeonRequests)
+            throw new AssertionError("Retry-After must pause only the failed provider");
+        limited = requests.get();
         clock.addAndGet(TimeUnit.HOURS.toNanos(1));
         RemoteSkins.get("Recovered"); settled("Recovered");
         if (requests.get()!=limited+2 || RemoteSkins.get("Recovered")==null)
@@ -204,6 +282,7 @@ def main() -> int:
             ROOT / "mod/src/main/java/com/cubeon/client/Bridge.java",
             ROOT / "mod/src/main/java/com/cubeon/client/BadgeNames.java",
             ROOT / "mod/src/main/java/com/cubeon/client/skins/RemoteSkins.java",
+            ROOT / "mod/src/main/java/com/cubeon/client/skins/CapeFrames.java",
             ROOT / "mod/src/main/java-overlay-api-mojang/com/cubeon/client/TabListTag.java",
             ROOT / "mod/src/main/java-overlay-tab-logo-mojang/com/cubeon/client/TabLogo.java",
             harness,

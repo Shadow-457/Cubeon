@@ -1,4 +1,4 @@
-"""Resolve declared mod dependencies and version conflicts before Play.
+"""Check modpack files or resolve declared mod dependencies before Play.
 
 Clean profiles stay local. Repairs stage and verify the complete compatible set
 before reversible publication, retaining enabled identities and original JARs.
@@ -55,24 +55,66 @@ def _stage(candidate, folder, timeout, deadline):
     return destination
 
 
+def _check_pack_files(directory):
+    """Check pack bytes without pretending to be the installed mod loader.
+
+    Curated packs may use custom language providers, dependency overrides and
+    loader-specific jar-in-jar selection. Descriptor parsing is useful for
+    explicit resolution, but cannot certify that such a pack will load.
+    """
+    snapshot = mods._doctor_profile_snapshot(directory)
+    result = dict(checked=0, fixed=[], unfixed=[], loader_managed=True)
+    for filename in sorted(os.listdir(directory)):
+        if not filename.endswith(".jar"):
+            continue  # Manually disabled copies stay disabled.
+        result["checked"] += 1
+        path = os.path.join(directory, filename)
+        reason = mods._jar_read_error(path, check_contents=True)
+        if not reason:
+            continue
+        item = mods._read_meta(directory, filename) or {}
+        name = item.get("name") or filename
+        owner = "@" + filename.lower()
+        options = []
+        if os.path.isfile(path) and not mods.is_protected_mod(item, filename):
+            options.append(dict(filename=filename, owner=owner, name=name,
+                snapshot=mods._doctor_profile_snapshot(directory,
+                    [filename, filename + mods.MOD_META_SUFFIX])))
+        result["unfixed"].append(dict(kind="unreadable", owner=owner,
+            dependency=owner, mod=name, detail=f"{name}: {reason}",
+            error="Restore this file or reinstall the modpack, then press Play.",
+            disable_options=options))
+    if snapshot != mods._doctor_profile_snapshot(directory):
+        result["unfixed"] = [dict(kind="profile-changed", dependency="mods",
+            detail="Mods changed during the file check. Check again before playing.",
+            error="Retry with the current mod files.")]
+    if result["unfixed"]:
+        result["profile_snapshot"] = snapshot
+    return result
+
+
 def run_dependency_doctor(mc_version, loader, *, version_id=None, status_cb=None,
                           check_online=True, auto_fix=True, runtime_versions=None):
-    """Verify and repair required dependencies and conflicts before staging/spawn.
+    """Verify files or resolve declared dependencies before staging/spawn.
 
-    A clean profile is local-only. Repairs retain enabled mod identities, verify
-    actual JARs, and commit the complete compatible set with rollback/backups.
+    Read-only modpack checks leave dependency resolution to the installed
+    loader, like Prism Launcher. Explicit repairs verify actual JARs and commit
+    the complete compatible set with rollback/backups.
     """
     result = {"checked": 0, "fixed": [], "unfixed": []}
     if not mc_version or loader not in ("fabric", "quilt", "forge", "neoforge"):
         return result
-    from .mod_resolver import Resolver
-    runtime = mods._doctor_runtime_versions(mc_version, loader, version_id)
-    runtime.update({key: str(value) if value is not None else None
-                    for key, value in (runtime_versions or {}).items()})
     directory = (mods.get_profile_dir(mc_version, loader, version_id) if auto_fix
                  else mods.resolve_profile_dir(mc_version, loader, version_id))
     if not os.path.isdir(directory):
         return result
+    if not auto_fix and mods.is_modpack_profile(mc_version, loader, version_id,
+                                                profile_dir=directory):
+        return _check_pack_files(directory)
+    from .mod_resolver import Resolver
+    runtime = mods._doctor_runtime_versions(mc_version, loader, version_id)
+    runtime.update({key: str(value) if value is not None else None
+                    for key, value in (runtime_versions or {}).items()})
     snapshot = mods._doctor_profile_snapshot(directory)
     entries = _scan(mc_version, loader, version_id)
     resolver = Resolver(entries, runtime, mc_version, loader, version_id,

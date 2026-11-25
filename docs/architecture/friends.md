@@ -101,9 +101,19 @@ The profile records a published Cubeon username, not which launcher the player
 is currently running. No Minecraft server plugin or extra profile endpoint is
 required, and the icon is rendered locally by Cubeon Client.
 
+Peer skin fallback uses the same workers and cache, trying Cubeon, TLauncher,
+Ely.by and Mojang in that order. Third-party skins never earn a Cubeon badge.
+Each provider has its own outage cooldown, so rate limits on one service allow
+the next service to answer. Valid classic skins are converted to the modern
+64×64 layout off-thread; a missing or invalid image leaves the current skin in
+place. The queue remains bounded to two workers, 64 waiting jobs, 128 cached
+players and 40 new player lookups per minute (with an initial burst of 40).
+
 ### Moderation
 
-Reports are recorded with a 30-day TTL. A human sets `blocked:<uuid>` manually in the KV dashboard. Blocked players get 404 on all lookups - they fall back to vanilla Steve/Alex.
+Reports are recorded with a 30-day TTL. A human sets `blocked:<uuid>` manually
+in the KV dashboard. Blocked players get 404 on Cubeon lookups and lose the
+discovered Cubeon badge. Other configured skin services can still supply a skin.
 
 ---
 

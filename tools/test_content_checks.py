@@ -100,6 +100,24 @@ class LocalCheckTests(unittest.TestCase):
         self.assertTrue(self.fixture.downloads)
         self.assertFalse(check_content(self.target)['unfixed'])
 
+    def test_pack_inspection_leaves_conflicts_to_loader_and_explicit_resolve_still_works(self):
+        self.fixture.profile.joinpath('_modpack.json').write_text('{}')
+        self.fixture.profile.joinpath('alpha.jar').write_bytes(fixtures.jar('alpha', '1', breaks={'beta': '*'}))
+        self.fixture.profile.joinpath('beta.jar').write_bytes(fixtures.jar('beta', '1'))
+        before = mods._doctor_profile_snapshot(str(self.fixture.profile))
+        report = check_content(self.target)
+        self.assertTrue(report['loader_managed'])
+        self.assertFalse(report['unfixed'])
+        self.assertEqual(before, mods._doctor_profile_snapshot(str(self.fixture.profile)))
+        # Explicit Resolve remains a deliberate graph operation, even in a pack.
+        with patch.object(net, 'get_json', side_effect=net.DownloadError('offline')), \
+                patch.object(mods, 'get_mod_download', return_value=None), \
+                patch.object(mods, 'get_mod_versions', return_value=[]):
+            resolved = check_content(self.target, resolve=True)
+        self.assertTrue(any(p['kind'] == 'conflict' for p in resolved['unfixed']))
+        self.assertFalse(resolved.get('loader_managed'))
+        self.assertEqual(before, mods._doctor_profile_snapshot(str(self.fixture.profile)))
+
     def test_disable_incompatible_mod_keeps_jar_and_other_instance_offline(self):
         filename = 'rei.jar'
         original = fixtures.jar('roughlyenoughitems', '1', {'minecraft': '1.21.1'})

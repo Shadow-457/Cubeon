@@ -9,7 +9,7 @@ module owns two jobs during managed skin setup:
 
   1. Download a missing CSL jar in ordinary profiles; modpacks use their
      existing copy or an explicit install from Mods.
-  2. Register Cubeon's two skin sources in CSL's load list.
+  2. Register Cubeon's sources and configure launcher skins before Mojang.
 
 --- WHY WE PREPEND, AND WHY IT IS NOT OPTIONAL ---
 
@@ -45,9 +45,11 @@ case; taken usernames are the norm for the audience Cubeon is aimed at.
 
 CSL's supported fix is `ExtraList/`: entries dropped there are **prepended**
 to the load list (`adds.addAll(this.loadlist); this.loadlist = adds;`), which
-puts Cubeon ahead of Mojang. We use that rather than rewriting the user's
-`CustomSkinLoader.json`, so a config they have tuned by hand is never
-clobbered.
+puts Cubeon ahead of Mojang. Once CSL has seeded its config, managed setup
+orders sources as local Cubeon -> Cubeon API -> TLauncher -> ElyBy -> other
+existing sources -> GameProfile -> Mojang. Provider fields and custom sources
+survive this stable reorder. `forceLoadAllTextures` stays true so a cape-only
+response cannot stop the search before a later source supplies the skin.
 
 --- DEDUPE RULES WE HAVE TO DODGE ---
 
@@ -80,6 +82,7 @@ key before the cape key.
 """
 import json
 import os
+from .atomicio import write_json
 
 # Lazy: `requests` costs ~97ms to import and every module that pulls it in
 # eagerly puts that on the startup path, even for a session that never
@@ -172,6 +175,74 @@ EXTRALIST_ENTRIES = {
 ENTRY_NAMES = frozenset(e["name"] for e in EXTRALIST_ENTRIES.values())
 WORKER_ENTRY_NAME = EXTRALIST_ENTRIES["cubeon-api.json"]["name"]
 LOCAL_ENTRY_NAME = EXTRALIST_ENTRIES["cubeon-localskin.json"]["name"]
+
+# Existing CSL loaders, with their public, username-based lookup formats.
+FALLBACK_ENTRIES = (
+    {"name": "TLauncher", "type": "ElyByAPI",
+     "root": "https://auth.tlauncher.org/skin/profile/texture/login/"},
+    {"name": "ElyBy", "type": "ElyByAPI",
+     "root": "https://skinsystem.ely.by/textures/"},
+    {"name": "Mojang", "type": "MojangAPI",
+     "apiRoot": "https://api.mojang.com/",
+     "sessionRoot": "https://sessionserver.mojang.com/"},
+)
+
+
+def _source_priority(entry) -> int:
+    """Stable groups; a custom MojangAPI server remains a third-party source."""
+    if not isinstance(entry, dict):
+        return 4
+    name = str(entry.get("name") or "").casefold()
+    kind = str(entry.get("type") or "").casefold()
+    root = (str(entry.get("root") or "").lower().removeprefix("http://")
+            .removeprefix("https://").rstrip("/"))
+    if name == LOCAL_ENTRY_NAME.casefold():
+        return 0
+    if name == WORKER_ENTRY_NAME.casefold():
+        return 1
+    if kind == "elybyapi":
+        if name == "tlauncher" or root == "auth.tlauncher.org/skin/profile/texture/login":
+            return 2
+        if name == "elyby" or root == "skinsystem.ely.by/textures":
+            return 3
+    if kind == "gameprofile":
+        return 5
+    if kind == "mojangapi" and all(
+        str(entry.get(key) or default).lower().rstrip("/") == default.rstrip("/")
+        for key, default in (("apiRoot", "https://api.mojang.com/"),
+                             ("sessionRoot", "https://sessionserver.mojang.com/"))
+    ):
+        return 6
+    return 4
+
+
+def configure_source_order() -> bool:
+    """Apply managed skin priority to an existing, readable CSL config.
+
+    Add missing supported fallbacks without duplicating renamed providers.
+    Preserve source fields, other providers, cache preferences and arm models.
+    Missing/malformed configs are left for CSL to initialize itself.
+    """
+    cfg = read_csl_config()
+    if cfg is None or not isinstance(cfg.get("loadlist"), list):
+        return False
+    original = cfg["loadlist"]
+    entries = list(original)
+    for fallback in FALLBACK_ENTRIES:
+        priority = _source_priority(fallback)
+        if not any(_source_priority(entry) == priority for entry in entries):
+            entries.append(dict(fallback))
+    ordered = sorted(entries, key=_source_priority)
+    if ordered == original and cfg.get("forceLoadAllTextures", True) is True:
+        return False
+    cfg["loadlist"] = ordered
+    cfg["forceLoadAllTextures"] = True
+    try:
+        from .atomicio import write_json
+        write_json(instance_csl_path(CSL_CONFIG_PATH), cfg)
+    except OSError:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +473,7 @@ def refresh_stale_localskin_entry() -> bool:
     cfg = read_csl_config()
     cfg["loadlist"] = [e for e in loadlist if e.get("name") != LOCAL_ENTRY_NAME]
     try:
-        with open(instance_csl_path(CSL_CONFIG_PATH), "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
+        write_json(instance_csl_path(CSL_CONFIG_PATH), cfg)
     except OSError:
         return False
     return True
@@ -449,8 +519,7 @@ def refresh_stale_worker_entry() -> bool:
         if isinstance(entry, dict) and entry.get("name") == WORKER_ENTRY_NAME:
             entry["root"] = CUBEON_SKIN_API_ROOT
     try:
-        with open(instance_csl_path(CSL_CONFIG_PATH), "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
+        write_json(instance_csl_path(CSL_CONFIG_PATH), cfg)
     except OSError:
         return False
     return True
@@ -481,8 +550,7 @@ def set_localskin_model(model: str) -> bool:
                 break
         if changed:
             try:
-                with open(instance_csl_path(CSL_CONFIG_PATH), "w", encoding="utf-8") as f:
-                    json.dump(cfg, f, indent=2)
+                write_json(instance_csl_path(CSL_CONFIG_PATH), cfg)
             except OSError:
                 return False
 
@@ -493,8 +561,7 @@ def set_localskin_model(model: str) -> bool:
     if queued and queued.get("name") == LOCAL_ENTRY_NAME and queued.get("model") != wanted:
         queued["model"] = wanted
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(queued, f, indent=2)
+            write_json(path, queued)
             changed = True
         except OSError:
             pass
@@ -542,7 +609,10 @@ def write_extralist_entries() -> list[str]:
     launcher than an entry reappearing. The supported way to turn the whole
     thing off is cfg["manage_skin_mod"], which gates this from ensure_ready().
     """
-    # Heal a bad/stale merge from an older build first: the removed entry is
+    # Reordering first repairs shadowed local entries without losing a user's
+    # explicit arm model through removal/requeueing.
+    configure_source_order()
+    # Heal a bad/stale merge from an older build: the removed entry is
     # unregistered by this very removal, so the flow below re-queues it.
     refresh_stale_localskin_entry()
     # And correct a drifted Worker root in place (the /skins/ migration left
@@ -570,12 +640,15 @@ def write_extralist_entries() -> list[str]:
         if entry["name"] == LOCAL_ENTRY_NAME and WORKER_ENTRY_NAME not in have:
             continue
         path = os.path.join(instance_csl_path(CSL_EXTRALIST_DIR), filename)
-        if _queued_content(path) == entry:
+        queued = _queued_content(path)
+        if (queued and entry["name"] == LOCAL_ENTRY_NAME
+                and queued.get("name") == LOCAL_ENTRY_NAME
+                and queued.get("model") in ("slim", "default")):
+            entry = {**entry, "model": queued["model"]}
+        if queued == entry:
             continue  # already waiting for CSL, and still correct
         try:
-            os.makedirs(instance_csl_path(CSL_EXTRALIST_DIR), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(entry, f, indent=2)
+            write_json(path, entry)
         except OSError:
             continue
         written.append(entry["name"])

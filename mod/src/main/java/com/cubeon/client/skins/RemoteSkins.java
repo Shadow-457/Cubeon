@@ -5,6 +5,11 @@ import com.cubeon.client.Json;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayOutputStream;
+import java.awt.image.BufferedImage;
+import java.security.MessageDigest;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -14,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
 /**
- * Bounded native fallback for Cubeon player skins.
+ * Bounded native fallback: Cubeon, TLauncher, Ely.by, then Mojang.
  *
  * <p>CustomSkinLoader remains the offline/local source, but peer visibility no
  * longer depends on another mod successfully replacing Minecraft's skin
@@ -28,8 +33,9 @@ public final class RemoteSkins {
     private static final int MAX_PROFILE_BYTES = 4096;
     private static final int MAX_SKIN_BYTES = 24 * 1024;
     private static LongSupplier clock = System::nanoTime;
-    private static long retryAt;
-    private static int failures;
+    private enum Source { CUBEON, TLAUNCHER, ELYBY, MOJANG }
+    private static final long[] retryAt = new long[Source.values().length];
+    private static final int[] failures = new int[Source.values().length];
     private static long budgetTime;
     private static double requestTokens = 40;
     private static final ThreadPoolExecutor WORKERS = new ThreadPoolExecutor(2, 2, 10,
@@ -75,7 +81,6 @@ public final class RemoteSkins {
         long now = clock.getAsLong();
         Entry found = CACHE.get(key);
         if (found != null && (found.pending || now < found.expires)) return found.skin;
-        if (now < retryAt) return found == null ? null : found.skin;
         if (budgetTime != 0) requestTokens = Math.min(40,
                 requestTokens + Math.max(0, now - budgetTime) / 1_500_000_000.0);
         budgetTime = now;
@@ -101,83 +106,171 @@ public final class RemoteSkins {
     }
 
     private static void fetch(String key, long requestGeneration) {
-        synchronized (RemoteSkins.class) {
-            if (generation != requestGeneration || clock.getAsLong() < retryAt) {
-                if (generation == requestGeneration && CACHE.containsKey(key)) {
-                    Entry entry = CACHE.get(key);
-                    CACHE.put(key, new Entry(entry.skin, entry.cubeonPlayer, retryAt, false));
-                }
-                return;
-            }
-        }
         Skin skin = null;
         boolean cubeonPlayer = false;
-        long ttl = TTL;
-        boolean failed = true, answered = false;
-        long serverDelay = 0;
-        HttpURLConnection profile = null;
-        HttpURLConnection texture = null;
-        try {
-            profile = open(BASE + "/skins/" + key + ".json");
-            int status = profile.getResponseCode();
-            if (status == 200) {
-                byte[] bytes;
-                try (var stream = profile.getInputStream()) {
-                    bytes = stream.readNBytes(MAX_PROFILE_BYTES + 1);
+        boolean failed = false;
+        for (Source source : Source.values()) {
+            int index = source.ordinal();
+            synchronized (RemoteSkins.class) {
+                if (generation != requestGeneration) return;
+                if (clock.getAsLong() < retryAt[index]) {
+                    failed = true;
+                    if (source == Source.CUBEON) {
+                        Entry previous = CACHE.get(key);
+                        cubeonPlayer = previous != null && previous.cubeonPlayer;
+                    }
+                    continue;
                 }
-                if (bytes.length <= MAX_PROFILE_BYTES) {
-                    Map<String, Object> root = Json.parseObject(new String(bytes, StandardCharsets.UTF_8));
-                    Object texturesValue = root.get("textures");
-                    Map<?, ?> textures = texturesValue instanceof Map<?, ?> map ? map : Map.of();
-                    cubeonPlayer = key.equalsIgnoreCase(Json.str(root, "username", ""))
-                            && (textureId(textures.get("cape")) != null
-                            || textureId(textures.get("slim")) != null
-                            || textureId(textures.get("default")) != null);
-                    if (!cubeonPlayer) throw new IllegalArgumentException("Invalid Cubeon profile");
-                    String id = textureId(textures.get("slim"));
-                    boolean slim = id != null;
-                    if (id == null) id = textureId(textures.get("default"));
-                    if (id == null) {
-                        failed = false; answered = true;
-                    } else {
-                        texture = open(BASE + "/skins/textures/" + id);
-                        int textureStatus = texture.getResponseCode();
-                        if (textureStatus == 200) {
-                            byte[] png;
-                            try (var stream = texture.getInputStream()) {
-                                png = stream.readNBytes(MAX_SKIN_BYTES + 1);
+            }
+            try {
+                if (source == Source.CUBEON) {
+                    Map<String, Object> root = object(BASE + "/skins/" + key + ".json");
+                    if (root != null) {
+                        Map<?, ?> textures = map(root.get("textures"));
+                        cubeonPlayer = key.equalsIgnoreCase(Json.str(root, "username", ""))
+                                && (textureId(textures.get("cape")) != null
+                                || textureId(textures.get("slim")) != null
+                                || textureId(textures.get("default")) != null);
+                        if (!cubeonPlayer) throw new IllegalArgumentException("Invalid Cubeon profile");
+                        String id = textureId(textures.get("slim"));
+                        boolean slim = id != null;
+                        if (id == null) id = textureId(textures.get("default"));
+                        if (id != null) skin = download(BASE + "/skins/textures/" + id, slim);
+                    }
+                } else if (source == Source.MOJANG) {
+                    Map<String, Object> account = object("https://api.mojang.com/users/profiles/minecraft/" + key);
+                    if (account != null) {
+                        String id = Json.str(account, "id", "");
+                        if (!id.matches("[a-fA-F0-9]{32}") || !key.equalsIgnoreCase(Json.str(account, "name", "")))
+                            throw new IllegalArgumentException("Invalid Mojang account");
+                        Map<String, Object> profile = object("https://sessionserver.mojang.com/session/minecraft/profile/" + id);
+                        if (profile != null) {
+                            if (!id.equalsIgnoreCase(Json.str(profile, "id", "")))
+                                throw new IllegalArgumentException("Mojang UUID mismatch");
+                            Object properties = profile.get("properties");
+                            if (properties instanceof java.util.List<?> list) for (Object item : list) {
+                                Map<?, ?> property = map(item);
+                                if (!"textures".equals(property.get("name"))) continue;
+                                Object value = property.get("value");
+                                if (!(value instanceof String encoded) || encoded.length() > MAX_PROFILE_BYTES)
+                                    throw new IllegalArgumentException("Invalid Mojang textures");
+                                Map<String, Object> decoded = Json.parseObject(new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8));
+                                skin = texture(map(decoded.get("textures")));
+                                break;
                             }
-                            if (png.length <= MAX_SKIN_BYTES && isSkinPng(png)) {
-                                skin = new Skin(png, slim, id);
-                                failed = false; answered = true;
-                            }
-                        } else if (textureStatus == 404 || textureStatus == 403) {
-                            failed = false; answered = true; ttl = MISSING_TTL;
-                        } else serverDelay = retryAfter(texture);
+                        }
+                    }
+                } else {
+                    String root = source == Source.TLAUNCHER
+                            ? "https://auth.tlauncher.org/skin/profile/texture/login/"
+                            : "https://skinsystem.ely.by/textures/";
+                    Map<String, Object> profile = object(root + key);
+                    if (profile != null) skin = texture(profile);
+                }
+                synchronized (RemoteSkins.class) { failures[index] = 0; }
+            } catch (Exception error) {
+                failed = true;
+                synchronized (RemoteSkins.class) {
+                    failures[index] = Math.min(5, failures[index] + 1);
+                    long delay = TimeUnit.SECONDS.toNanos(60L << (failures[index] - 1));
+                    if (error instanceof Unavailable unavailable) delay = Math.max(delay, unavailable.delay);
+                    retryAt[index] = Math.max(retryAt[index], clock.getAsLong() + delay);
+                    if (source == Source.CUBEON) {
+                        Entry previous = CACHE.get(key);
+                        cubeonPlayer |= previous != null && previous.cubeonPlayer;
                     }
                 }
-            } else if (status == 404 || status == 403) {
-                failed = false; answered = true; ttl = MISSING_TTL;
-            } else serverDelay = retryAfter(profile);
-        } catch (Exception ignored) {
-            // A failed fallback leaves Minecraft/CSL's current texture intact.
-        } finally {
-            if (texture != null) texture.disconnect();
-            if (profile != null) profile.disconnect();
+            }
+            if (skin != null) break;
         }
         synchronized (RemoteSkins.class) {
             if (generation != requestGeneration) return;
             long now = clock.getAsLong();
-            if (failed) {
-                failures = Math.min(5, failures + 1);
-                ttl = Math.max(TimeUnit.SECONDS.toNanos(60L << (failures - 1)), serverDelay);
-                retryAt = Math.max(retryAt, now + ttl);
-            } else if (answered && now >= retryAt) failures = 0;
+            long ttl = failed && skin == null ? TimeUnit.MINUTES.toNanos(1)
+                    : skin != null || cubeonPlayer ? TTL : MISSING_TTL;
             Entry entry = CACHE.get(key);
             if (entry != null)
-                CACHE.put(key, new Entry(failed ? entry.skin : skin,
-                        cubeonPlayer || (failed && entry.cubeonPlayer), now + ttl, false));
+                CACHE.put(key, new Entry(skin == null && failed ? entry.skin : skin,
+                        cubeonPlayer, now + ttl, false));
         }
+    }
+
+    private static Map<?, ?> map(Object value) { return value instanceof Map<?, ?> result ? result : Map.of(); }
+
+    private static Map<String, Object> object(String url) throws Exception {
+        byte[] bytes = request(url, MAX_PROFILE_BYTES);
+        if (bytes == null) return null;
+        Object value = Json.parse(new String(bytes, StandardCharsets.UTF_8));
+        if (!(value instanceof Map<?, ?>)) throw new IllegalArgumentException("Invalid skin profile");
+        return Json.parseObject(new String(bytes, StandardCharsets.UTF_8));
+    }
+
+    private static Skin texture(Map<?, ?> textures) throws Exception {
+        Map<?, ?> skin = map(textures.get("SKIN"));
+        Object value = skin.get("url");
+        if (value == null) return null;
+        if (!(value instanceof String url)) throw new IllegalArgumentException("Invalid skin URL");
+        URI uri = URI.create(url);
+        if (uri.getHost() == null || uri.getUserInfo() != null
+                || !("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme())))
+            throw new IllegalArgumentException("Invalid skin URL");
+        // These services publish HTTP texture URLs too; their texture hosts
+        // support HTTPS, so no plaintext fetch is needed for the native path.
+        if ("http".equalsIgnoreCase(uri.getScheme())) url = "https" + url.substring(4);
+        return download(url, "slim".equals(map(skin.get("metadata")).get("model")));
+    }
+
+    private static Skin download(String url, boolean slim) throws Exception {
+        byte[] png = request(url, MAX_SKIN_BYTES);
+        if (png == null) return null;
+        if (!isSkinPng(png)) throw new IllegalArgumentException("Invalid skin PNG");
+        boolean legacy = readInt(png, 20) == 32;
+        png = normalize(png);
+        String id = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(png));
+        return new Skin(png, slim && !legacy, id);
+    }
+
+    private static final class Unavailable extends Exception {
+        private static final long serialVersionUID = 1L;
+        private final long delay;
+        private Unavailable(long delay) { this.delay = delay; }
+    }
+
+    private static byte[] request(String url, int limit) throws Exception {
+        HttpURLConnection connection = open(url);
+        try {
+            int status = connection.getResponseCode();
+            if (status == 204 || status == 404 || status == 403) return null;
+            if (status != 200) throw new Unavailable(retryAfter(connection));
+            try (var stream = connection.getInputStream()) {
+                byte[] bytes = stream.readNBytes(limit + 1);
+                if (bytes.length > limit) throw new IllegalArgumentException("Skin response is too large");
+                return bytes;
+            }
+        } finally { connection.disconnect(); }
+    }
+
+    /** Vanilla's legacy limb mirror and opaque base layers, decoded off-thread. */
+    private static byte[] normalize(byte[] png) throws Exception {
+        BufferedImage original = CapeFrames.decodePng(png, true);
+        BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(0, 0, 64, original.getHeight(), original.getRGB(0, 0, 64, original.getHeight(), null, 0, 64), 0, 64);
+        if (original.getHeight() == 32) {
+            int[][] copies = {{4,16,20,48,4,4},{8,16,24,48,4,4},{0,20,24,52,4,12},
+                    {4,20,20,52,4,12},{8,20,16,52,4,12},{12,20,28,52,4,12},
+                    {44,16,36,48,4,4},{48,16,40,48,4,4},{40,20,40,52,4,12},
+                    {44,20,36,52,4,12},{48,20,32,52,4,12},{52,20,44,52,4,12}};
+            for (int[] r : copies) for (int y=0;y<r[5];y++) for (int x=0;x<r[4];x++)
+                image.setRGB(r[2]+x,r[3]+y,original.getRGB(r[0]+r[4]-1-x,r[1]+y));
+            boolean opaque = true;
+            for (int y=0;y<32;y++) for (int x=32;x<64;x++) if ((image.getRGB(x,y) >>> 24) < 128) opaque = false;
+            if (opaque) for (int y=0;y<32;y++) for (int x=32;x<64;x++) image.setRGB(x,y,image.getRGB(x,y)&0xffffff);
+        }
+        for (int[] r : new int[][]{{0,0,32,16},{0,16,64,32},{16,48,48,64}})
+            for (int y=r[1];y<r[3];y++) for (int x=r[0];x<r[2];x++) image.setRGB(x,y,image.getRGB(x,y)|0xff000000);
+        var bytes = new ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "PNG", bytes);
+        return bytes.toByteArray();
     }
 
     private static HttpURLConnection open(String url) throws Exception {

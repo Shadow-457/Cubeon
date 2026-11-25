@@ -1,5 +1,6 @@
 """Pack installs preserve working bytes and never silently omit required files."""
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -325,6 +326,131 @@ class PackIntegrity(unittest.TestCase):
                 with self.assertRaisesRegex(modpacks.ModpackError, "readable archive"):
                     modpacks.install_modpack_from_file(self.pack(mods_spec=[("bad.jar", payload)]))
                 self.assertFalse(modpacks.list_installed_modpacks())
+
+    def test_bad_bundled_jar_rolls_back_the_entire_update(self):
+        meta, profile, game = self.initial()
+        before = (snapshot(profile), snapshot(game), snapshot(self.game / "versions" / meta["version_id"]))
+        corrupt = bytearray(jar("bundled", "2"))
+        with zipfile.ZipFile(io.BytesIO(corrupt)) as archive:
+            entry = archive.infolist()[0]
+            offset = entry.header_offset + 30 + len(entry.filename.encode()) + len(entry.extra)
+        corrupt[offset] ^= 1  # Readable ZIP directory, damaged entry CRC.
+        empty = io.BytesIO()
+        with zipfile.ZipFile(empty, "w"):
+            pass
+        for payload in (b"<html>blocked</html>", jar("bundled", "2")[:-15], bytes(corrupt), empty.getvalue()):
+            with self.subTest(payload=payload[:20]), self.assertRaisesRegex(modpacks.ModpackError, "readable archive"):
+                modpacks.install_modpack_from_file(self.pack("2", overrides={"mods/bundled.jar": payload}))
+            self.assert_restored(meta, *before)
+
+    def test_cached_non_jar_is_rejected_even_when_its_hash_matches(self):
+        payload = b"<html>download blocked</html>"
+        hashes = {"sha512": hashlib.sha512(payload).hexdigest()}
+        source = self.root / "cached-bad.jar"
+        source.write_bytes(payload)
+        modpacks.global_mod_cache.put_file(str(source), str(self.root / "cached-link.jar"), hashes)
+        files = [{"path": "mods/cached-bad.jar", "downloads": ["https://cdn.modrinth.com/cached-bad.jar"],
+                  "hashes": hashes, "fileSize": len(payload)}]
+        with self.assertRaisesRegex(modpacks.ModpackError, "readable archive"):
+            modpacks.install_modpack_from_file(self.pack(files=files))
+        self.assertFalse(any(url.endswith("/cached-bad.jar") for url in self.downloads))
+        self.assertFalse(modpacks.list_installed_modpacks())
+
+    def test_passive_pack_check_defers_metadata_to_every_installed_loader(self):
+        for loader in ("fabric", "quilt", "forge", "neoforge"):
+            with self.subTest(loader=loader):
+                unsupported = io.BytesIO()
+                with zipfile.ZipFile(unsupported, "w") as archive:
+                    descriptor = {"fabric": "fabric.mod.json", "quilt": "quilt.mod.json",
+                                  "forge": "META-INF/mods.toml", "neoforge": "META-INF/neoforge.mods.toml"}[loader]
+                    archive.writestr(descriptor, "custom metadata Cubeon cannot interpret")
+                meta = modpacks.install_modpack_from_file(self.pack(loader_kind=loader,
+                    mods_spec=[("opaque.jar", unsupported.getvalue()), ("other.jar", jar("same-id", "2", loader))]))
+                profile = Path(mods.resolve_profile_dir("1.20.1", loader, meta["version_id"]))
+                (profile / "disabled.jar.disabled").write_bytes(b"not an archive")
+                # Legacy marker damage does not change the pack's ownership.
+                (profile / "_modpack.json").write_bytes(b"invalid UTF-8: \xff")
+                before = snapshot(profile)
+                with patch.object(mod_dependencies, "_scan", side_effect=AssertionError("descriptor graph must not run")), \
+                        patch.object(mods, "get_mod_download") as lookup:
+                    report = mod_dependencies.run_dependency_doctor("1.20.1", loader,
+                        version_id=meta["version_id"], auto_fix=False, check_online=False)
+                lookup.assert_not_called()
+                self.assertTrue(report["loader_managed"])
+                self.assertEqual(report["unfixed"], [])
+                self.assertEqual(report["checked"], 2)
+                self.assertEqual(before, snapshot(profile))
+
+    def test_passive_pack_check_reports_real_broken_files_and_stale_scans(self):
+        meta = modpacks.install_modpack_from_file(self.pack())
+        profile = Path(mods.resolve_profile_dir("1.20.1", "fabric", meta["version_id"]))
+        (profile / "broken.jar").write_bytes(b"<html>blocked</html>")
+        (profile / "missing.jar").symlink_to(profile / "absent.jar")
+        report = mod_dependencies.run_dependency_doctor("1.20.1", "fabric", version_id=meta["version_id"],
+            auto_fix=False, check_online=False)
+        self.assertEqual({p["mod"] for p in report["unfixed"]}, {"broken.jar", "missing.jar"})
+        self.assertTrue(all(p["kind"] == "unreadable" for p in report["unfixed"]))
+        self.assertIn("profile_snapshot", report)
+        check_file = mods._jar_read_error
+        def changing(path, **kwargs):
+            (profile / "new.jar").write_bytes(jar("new", "1"))
+            return check_file(path, **kwargs)
+        with patch.object(mods, "_jar_read_error", side_effect=changing):
+            report = mod_dependencies.run_dependency_doctor("1.20.1", "fabric", version_id=meta["version_id"],
+                auto_fix=False, check_online=False)
+        self.assertEqual(report["unfixed"][0]["kind"], "profile-changed")
+
+    def test_quilt_optional_integration_is_not_a_missing_pack_dependency(self):
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as archive:
+            archive.writestr("quilt.mod.json", json.dumps({"schema_version": 1,
+                "quilt_loader": {"group": "dev.fixture", "id": "optional_user", "version": "1.0.0",
+                    "metadata": {"name": "Optional integration"},
+                    "depends": [{"id": "optional_integration", "versions": "*", "optional": True}]}}))
+        meta = modpacks.install_modpack_from_file(self.pack(loader_kind="quilt",
+            mods_spec=[("optional-user.jar", stream.getvalue())]))
+        profile = mods.resolve_profile_dir("1.20.1", "quilt", meta["version_id"])
+        # Cubeon's flattened descriptor view cannot express Quilt's optional
+        # edge. The installed loader owns that rule for the curated pack.
+        parsed = mods.read_mod_metadata(os.path.join(profile, "optional-user.jar"), "quilt")
+        self.assertIn("optional_integration", parsed["depends"])
+        report = mod_dependencies.run_dependency_doctor("1.20.1", "quilt",
+            version_id=meta["version_id"], auto_fix=False, check_online=False)
+        self.assertTrue(report["loader_managed"])
+        self.assertFalse(report["unfixed"])
+
+    def test_pack_crc_checks_reuse_unchanged_files_and_detect_same_size_edits(self):
+        meta = modpacks.install_modpack_from_file(self.pack())
+        profile = Path(mods.resolve_profile_dir("1.20.1", "fabric", meta["version_id"]))
+        check = lambda: mod_dependencies.run_dependency_doctor("1.20.1", "fabric",
+            version_id=meta["version_id"], auto_fix=False, check_online=False)
+        self.assertFalse(check()["unfixed"])
+        with patch.object(zipfile.ZipFile, "testzip", side_effect=AssertionError("verified bytes reread")):
+            self.assertFalse(check()["unfixed"])
+        path = profile / "same.jar"
+        stat = path.stat()
+        corrupt = bytearray(path.read_bytes())
+        with zipfile.ZipFile(io.BytesIO(corrupt)) as archive:
+            entry = archive.infolist()[0]
+            offset = entry.header_offset + 30 + len(entry.filename.encode()) + len(entry.extra)
+        corrupt[offset] ^= 1
+        path.write_bytes(corrupt)
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        report = check()
+        self.assertEqual(report["unfixed"][0]["mod"], "same.jar")
+        self.assertIn("checksum", report["unfixed"][0]["detail"])
+
+    def test_temporary_file_lock_does_not_poison_the_archive_check_cache(self):
+        path = self.root / "temporarily-locked.jar"
+        path.write_bytes(jar("temporary", "1"))
+        before = path.stat()
+        with patch.object(zipfile.ZipFile, "testzip", side_effect=[OSError("temporarily locked"), None]) as verify:
+            self.assertIn("temporarily locked", mods._jar_read_error(str(path), check_contents=True))
+            self.assertEqual(mods._jar_read_error(str(path), check_contents=True), "")
+        self.assertEqual(verify.call_count, 2)
+        after = path.stat()
+        self.assertEqual((before.st_size, before.st_mtime_ns, before.st_ctime_ns),
+                         (after.st_size, after.st_mtime_ns, after.st_ctime_ns))
 
     def test_invalid_manifest_fails_before_game_install(self):
         for bad in ({"path": []}, {"path": "mods/a.jar", "downloads": "https://cdn.modrinth.com/a"},

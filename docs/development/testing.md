@@ -52,13 +52,18 @@ catalog; the scripts in `tools/` are the current inventory.
 | Horizon content mods for Rust | `test_rust_mods.py`; `test_rust_engine_native.py --content-mod /path/to/adapted.hmod` with a matching installed binary/resources |
 | Content isolation | `test_content_instance.py`, `test_instances.py` |
 | Friends and chat | `test_friends.py`, `test_friends_service.py`, `test_chat_optimistic.py`, `test_chat_ux.py`, `test_chat_poll_locking.py` |
-| Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py`, `test_peer_skins.py` (profiles, skins and Tab badges) |
+| Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py`, `test_peer_skins.py` (Cubeon/TLauncher/Ely.by/Mojang priority, per-service outage recovery, decoded modern/legacy skins and Tab badges) |
 | Fabric 26.3 LOD | `test_lod.py` for core algorithms/settings, transparent boundaries and bounded cache residency; `test_lod_native.py` for CPU/GPU terrain, planted-ground coverage, composition, near occlusion, fog, live status, freeze and disable |
 | Full Bright and keystrokes | `test_full_bright.py` (`--targets` checks cached APIs, `--jars` checks shipped fixes), `test_hud_debug_visibility.py`; `capture_full_bright.py` uses isolated cached games on Xvfb |
 | Launch and downloads | `test_version_integrity.py`, `test_launch_fixes.py`, `test_net.py` |
 | Release tooling | `test_release_version.py`, `test_release_pipeline.py` |
 | Launcher updates | `test_auto_update.py` (shifted-block reuse, strict maps/ranges, fallback, cancellation and executed Linux helpers); `test_launcher_installers.py` (real NSIS compression reuse); add `--wine` for install/upgrade/rollback/uninstall or `--native-windows` on disposable Windows hosts |
 | macOS packaging | `test_macos_package.py`; native CI runs `--native --arch arm64` and `--native --arch x64` against the packaged app |
+
+`python tools/test_live_cape_native.py --skins-only` checks real peer texture
+upload and skin/cape/elytra selection with CSL in isolated copies of cached
+Minecraft 1.21.11 and 26.3 worlds. It requires their installed runtimes, Fabric
+API, CSL and a graphical desktop. Lighting checks are separate from this mode.
 
 Keep declared client mixins in `tools/build_mod_jars.py`'s `REQUIRED_ENTRIES`.
 `test_mod_compile.py` checks this contract, and `test_mod_matrix.py` audits the
@@ -98,7 +103,13 @@ Forge and NeoForge, then repeat automatic preparation and the actual launch
 FPS block. Assert unchanged JAR bytes/state and no extra downloads or automatic
 dependency repair, even with legacy provider receipts. Cover missing, relocated,
 corrupt and hidden pack markers; an instance's pack ownership is sufficient.
-Explicit Mods installs still work. Skin opt-in restores Cubeon's setting backups
+Read-only pack checks and the actual guarded Play block must pass readable
+archives to each installed loader even when Cubeon cannot interpret metadata
+or its descriptor graph suggests conflicts. Keep genuine empty/truncated/CRC
+failures blocking, including dangling links and cached downloads. Warm CRC
+checks reuse unchanged physical files; same-size edits with restored mtimes
+invalidate them through ctime. Legacy staging keeps all enabled pack filenames.
+Explicit Mods installs and Resolve still work. Skin opt-in restores Cubeon's setting backups
 while respecting manually disabled copies and the independent Client switch.
 
 For example:

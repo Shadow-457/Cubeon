@@ -21,6 +21,7 @@ scratch game dir:
 Run: python tools/test_modpack_update_mods.py
 """
 import json
+import io
 import os
 import sys
 import tempfile
@@ -70,7 +71,10 @@ def build_pack(path, mods_spec, *, version="1.0.0"):
     }
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("modrinth.index.json", json.dumps(index))
-        zf.writestr("overrides/mods/bundled.jar", b"BUNDLED V1")
+        bundled = io.BytesIO()
+        with zipfile.ZipFile(bundled, "w") as mod:
+            mod.writestr("fabric.mod.json", json.dumps({"id": "bundled", "version": "1"}))
+        zf.writestr("overrides/mods/bundled.jar", bundled.getvalue())
         zf.writestr("overrides/config/pack.json", b"{}")
 
 

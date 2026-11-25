@@ -1191,7 +1191,8 @@ class ModsView:
             if self.version_dropdown.value == version_id and self._repair_sections() == sections:
                 self.refresh_mods_list(background=True)
                 unresolved = report.get("unfixed") or []
-                self._set_repair_status(f"{len(unresolved)} issues need attention" if unresolved else "Everything is compatible")
+                self._set_repair_status(f"{len(unresolved)} issues need attention" if unresolved else
+                    "Mod files checked · loader checks on Play" if report.get("loader_managed") else "Everything is compatible")
 
         def worker():
             try:
@@ -1205,7 +1206,8 @@ class ModsView:
                         show_content_issues(self.page, self.state, target, report, on_done=done,
                                             on_status=self._set_repair_status)
                     else:
-                        label = "Mods checked · runtime checked on Play" if report.get("runtime_unverified") else "Compatible"
+                        label = ("Mod files checked · loader checks on Play" if report.get("loader_managed") else
+                                 "Mods checked · runtime checked on Play" if report.get("runtime_unverified") else "Compatible")
                         self._set_repair_status(f"{label} · {report.get('elapsed', 0) * 1000:.0f} ms")
             except Exception as error:
                 logging.getLogger(__name__).warning("background content check failed", exc_info=True)

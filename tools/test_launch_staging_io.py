@@ -70,6 +70,18 @@ class CopyStaging(unittest.TestCase):
         self.assertFalse((self.game / 'mod.jar').exists())
         self.assertEqual(mods._read_copy_receipts(str(self.game), mods._SYNC_MANIFEST), {})
 
+    def test_pack_staging_preserves_every_enabled_filename_without_identity_guesses(self):
+        (self.profile / '_modpack.json').write_text('{}')
+        originals = {'library-1.jar': b'author build one', 'library-2.jar': b'author build two'}
+        for filename, payload in originals.items():
+            (self.profile / filename).write_bytes(payload)
+        (self.profile / 'disabled.jar.disabled').write_bytes(b'kept disabled')
+        with patch.object(mods, 'mod_identity', side_effect=AssertionError('pack files grouped')):
+            self.sync()
+            self.sync()
+        self.assertEqual(originals, {p.name: p.read_bytes() for p in self.game.glob('*.jar')})
+        self.assertEqual((self.profile / 'disabled.jar.disabled').read_bytes(), b'kept disabled')
+
     def test_quilt_warning_packs_are_backed_up_without_adopting_them_into_selected_profile(self):
         originals = {}
         for count in range(18):

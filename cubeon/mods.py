@@ -1220,6 +1220,8 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
     # is the user's data and this runs on every launch; the loser simply isn't
     # staged into the game folder.
     chosen: dict = {}
+    pack_profile = bool(profile_dir and is_modpack_profile(
+        mc_version, loader, version_id, profile_dir=profile_dir))
     for fname in sorted(os.listdir(profile_dir)) if profile_dir else ():
         if not fname.endswith(".jar"):  # skips *.jar.disabled and metadata
             continue
@@ -1229,6 +1231,11 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
         # installed anymore. list_mods() already hides it via the same gate.
         src_full = os.path.join(profile_dir, fname)
         if not os.path.isfile(src_full):
+            continue
+        if pack_profile:
+            # Stage the author's exact enabled file set. Project receipts and
+            # filename stems cannot reproduce a loader's provider selection.
+            chosen[("file", fname)] = fname
             continue
         slug, pid, stem = mod_identity(profile_dir, fname)
         key = ("id", pid) if pid else ("slug", slug) if slug else ("stem", stem)
@@ -2493,7 +2500,20 @@ def _doctor_enable(mc_version: str, loader: str, filename: str,
     toggle_mod(mc_version, loader, filename, version_id=version_id)
 
 
-def _jar_read_error(path: str) -> str:
+@lru_cache(maxsize=2048)
+def _jar_contents_error(path: str, signature: tuple) -> str:
+    """Full ZIP verification once per physical file revision."""
+    import zipfile
+    # Exceptions escape this cached function: temporary file locks/I/O errors
+    # must be retried even when the file's stat signature has not changed.
+    with zipfile.ZipFile(path) as archive:
+        damaged = archive.testzip()
+        if damaged is not None:
+            return f"the archive is corrupt (content checksum failed: {damaged})"
+    return ""
+
+
+def _jar_read_error(path: str, *, check_contents: bool = False) -> str:
     """Why this jar cannot be read by the loader, or "" when it is fine.
 
     A truncated download, an HTML error page saved as .jar and a zero-byte
@@ -2501,19 +2521,27 @@ def _jar_read_error(path: str) -> str:
     header not found`, ...). Catching it here lets the doctor name the file
     before the game does."""
     import zipfile
+    import zlib
     try:
-        size = os.path.getsize(path)
+        stat = os.stat(path)
     except OSError as error:
         return f"the file cannot be read ({error})"
-    if size == 0:
+    if stat.st_size == 0:
         return "the file is empty (a failed download?)"
     if not zipfile.is_zipfile(path):
         return "it is not a readable jar archive (a truncated or corrupt download?)"
     try:
         with zipfile.ZipFile(path) as archive:
-            archive.infolist()
-    except (OSError, zipfile.BadZipFile) as error:
+            if not archive.infolist():
+                return "the jar archive is empty"
+    except (OSError, zipfile.BadZipFile, EOFError, RuntimeError, NotImplementedError, UnicodeError) as error:
         return f"the archive is corrupt ({error})"
+    if check_contents:
+        signature = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        try:
+            return _jar_contents_error(os.path.realpath(path), signature)
+        except (OSError, zipfile.BadZipFile, EOFError, RuntimeError, NotImplementedError, UnicodeError, zlib.error) as error:
+            return f"the archive is corrupt ({error})"
     return ""
 
 
