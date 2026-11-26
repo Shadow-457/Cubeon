@@ -77,10 +77,14 @@ def _plain_filename(name: str) -> bool:
 
 def version_folder(version_id: str) -> str:
     """One owned version directory; refuse traversal and external symlinks."""
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
+    return _version_folder_in(version_id, versions_dir, os.path.realpath(versions_dir))
+
+
+def _version_folder_in(version_id: str, versions_dir: str, root: str) -> str:
     if not _plain_filename(version_id):
         raise ValueError("Invalid version id: choose an instance from the version picker.")
-    root = os.path.realpath(os.path.join(runtime_dir(MINECRAFT_DIR), "versions"))
-    folder = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", version_id)
+    folder = os.path.join(versions_dir, version_id)
     for path in (folder, os.path.join(folder, version_id + '.json'),
                  os.path.join(folder, version_id + '.jar')):
         resolved = os.path.realpath(path)
@@ -120,7 +124,7 @@ def _load_version_json(folder_path: str, filename: str) -> "dict | None":
         with open(os.path.join(folder_path, filename), "r",
                   encoding="utf-8") as fh:
             data = json.load(fh)
-    except (json.JSONDecodeError, OSError):
+    except (ValueError, OSError):
         return None
     return data if isinstance(data, dict) else None
 
@@ -254,9 +258,8 @@ _scan_cache_lock = threading.Lock()
 _scan_cache: "tuple | None" = None   # (key, result)
 
 
-def _versions_scan_key(active: set[str]) -> "tuple | None":
+def _versions_scan_key(versions_dir: str, active: set[str]) -> "tuple | None":
     """A cheap fingerprint of versions/: (folder, [(file, mtime, size)])."""
-    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     folders = []
     try:
         with os.scandir(versions_dir) as entries:
@@ -301,12 +304,14 @@ def get_installed_versions() -> list[dict]:
     uses the json's own "id" field to build the real launch id, while
     keeping the folder name as a friendly display label.
 
-    The result is memoized until a file in versions/ changes (see
-    _versions_scan_key), so the Play-tab repaints do not pay for a scan."""
+    The scan includes instance metadata, with an explicit None for legacy
+    versions without a sidecar. UI callers can describe the same snapshot.
+    The cached result is invalidated when runtime or instance files change.
+    """
     global _scan_cache
     versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
     active = active_installs()
-    key = _versions_scan_key(active)
+    key = _versions_scan_key(versions_dir, active)
     if key is not None:
         with _scan_cache_lock:
             cached = _scan_cache
@@ -319,7 +324,7 @@ def get_installed_versions() -> list[dict]:
         # The scan normalizes odd folder names by copying a canonical
         # json/jar into place, so fingerprint the folder again instead of
         # caching a key that no longer describes what is on disk.
-        fresh = _versions_scan_key(active)
+        fresh = _versions_scan_key(versions_dir, active)
         with _scan_cache_lock:
             _scan_cache = (fresh or key, result)
     return _with_rust_entries([dict(v) for v in result])
@@ -340,11 +345,13 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
         resolved = os.path.realpath(os.path.join(folder_path, name))
         return os.path.commonpath((root, resolved)) == root and resolved != root
 
-    # Pass 1: mll's strict, well-formed scan (fast path, always correct)
+    # Pass 1: canonical installs reported by mll.
     try:
-        for v in mll.utils.get_installed_versions(runtime_dir(MINECRAFT_DIR)):
+        for v in mll.utils.get_installed_versions(os.path.dirname(versions_dir)):
+            if v["id"] in active:
+                continue
             try:
-                version_folder(v["id"])
+                _version_folder_in(v["id"], versions_dir, root)
             except ValueError:
                 continue
             found[v["id"]] = {
@@ -385,20 +392,15 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
     except OSError:
         folders = []  # retain registered instances even when runtime files were deleted
     for folder in folders:
+        # Skip live downloads and canonical installs before probing their files.
+        if folder in active or folder in found:
+            continue
         try:
-            folder_path = version_folder(folder)
+            folder_path = _version_folder_in(folder, versions_dir, root)
         except ValueError:
             continue
         if not os.path.isdir(folder_path):
             continue
-        if folder in active:
-            # This folder belongs to an install running right now. It is not
-            # installed yet, and the json that _seed_version_json writes
-            # before the jar is not a broken install either - surfacing it as
-            # "(incomplete)" mid-download is the 2026-10-26 report. The
-            # install worker rescans when it actually finishes.
-            continue
-
         try:
             filenames = os.listdir(folder_path)
         except OSError:
@@ -409,16 +411,6 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
                      and owned_file(folder_path, f)]
         if not json_files:
             continue  # not a version folder at all, nothing to go on
-        if folder in found:
-            # mll's strict pass already reported this folder (and parsed its
-            # JSON); reading the same file again was half of every scan's cost.
-            # This dedupe is by FOLDER, never by the json's declared id: a
-            # half-finished install keeps its template manifest, and keying by
-            # id made the scan depend on os.listdir() order (the broken
-            # install then vanished from the list entirely - see
-            # tools/test_version_integrity.py's netdeath case).
-            continue
-
         canonical_json = folder + ".json"
         json_path = os.path.join(
             folder_path,
@@ -546,14 +538,15 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
     for vid, entry in list(found.items()):
         folder = entry.get("folder") or vid
         try:
-            sidecar = _read_instance_sidecar(folder)
+            sidecar = (storage._manifest_from_registry(folder, registered)
+                       or _read_legacy_instance_sidecar(versions_dir, folder))
         except storage.InstanceMetadataError as error:
             found[vid] = {**entry, "incomplete": True, "issue": str(error),
-                          "storage_issue": True}
-            continue
-        if not sidecar:
+                          "storage_issue": True, "instance": None}
             continue
         entry["instance"] = sidecar
+        if not sidecar:
+            continue
         name = sidecar.get("name")
         if isinstance(name, str) and name.strip():
             entry["display_name"] = name.strip()
@@ -694,7 +687,7 @@ def dependents_of(version_id: str) -> list[str]:
 _CLEANUP_GRACE_SECONDS = 600
 
 
-def unfinished_install_reason(folder: str) -> "str | None":
+def unfinished_install_reason(folder: str, *, versions_dir: str | None = None) -> "str | None":
     """Why `versions/<folder>` is an unfinished download, or None.
 
     Mirrors the download-completion half of _client_jar_problem() - see the
@@ -706,7 +699,9 @@ def unfinished_install_reason(folder: str) -> "str | None":
         return None
     if install_in_progress(folder):
         return None  # a live download, never a leftover to sweep
-    folder_path = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", folder)
+    if versions_dir is None:
+        versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
+    folder_path = os.path.join(versions_dir, folder)
     if not os.path.isdir(folder_path):
         return None
 
@@ -771,7 +766,7 @@ def find_unfinished_installs() -> list[dict]:
     out = []
     for name in names:
         try:
-            reason = unfinished_install_reason(name)
+            reason = unfinished_install_reason(name, versions_dir=versions_dir)
         except Exception:  # one odd folder must never break the whole pass
             log.debug("cleanup: could not inspect %s", name, exc_info=True)
             continue
@@ -949,14 +944,12 @@ def _read_instance_sidecar(folder: str) -> dict | None:
     direct = storage.manifest(folder)
     if direct:
         return direct
-    path = os.path.join(runtime_dir(MINECRAFT_DIR), "versions", folder,
-                        INSTANCE_META_FILENAME)
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError):
-        return None
-    return data if isinstance(data, dict) else None
+    versions_dir = os.path.join(runtime_dir(MINECRAFT_DIR), "versions")
+    return _read_legacy_instance_sidecar(versions_dir, folder)
+
+
+def _read_legacy_instance_sidecar(versions_dir: str, folder: str) -> dict | None:
+    return _load_version_json(os.path.join(versions_dir, folder), INSTANCE_META_FILENAME)
 
 
 def suggest_friendly_name(version_id: str, folder_name: str) -> str:

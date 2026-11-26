@@ -40,7 +40,9 @@ public abstract class LiveSkinMixin {
         var original=callback.getReturnValue(); if(original==null) return;
         boolean local=cubeon$local();
         var skin=local?LiveSkin.get():null; var cape=local?LiveCape.get():null;
-        var remote=skin==null?cubeon$remote():null;
+        // The local result belongs to the Wardrobe or CSL. Username
+        // fallbacks apply to peers and cannot replace a local selection.
+        var remote=local?null:cubeon$remote();
         var remoteTexture=RemoteSkinTexture.texture(cubeon$name(),remote);
         boolean visible=SkinNative.capeVisible();
         var texture=skin==null?remoteTexture:LiveSkinTexture.texture();

@@ -183,7 +183,10 @@ def restart_required() -> bool:
 
 
 def manifest(version_id) -> dict | None:
-    value = registry()
+    return _manifest_from_registry(version_id, registry())
+
+
+def _manifest_from_registry(version_id, value) -> dict | None:
     if value is None:
         return None
     _name(version_id)

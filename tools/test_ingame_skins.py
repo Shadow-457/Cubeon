@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -54,6 +55,19 @@ public final class SkinTest {
   }
  }
  public static void main(String[] args) throws Exception {
+  if(args.length>0 && args[0].equals("skin-poll")) {
+   check(LiveSkin.get()==null,"Fresh game has no live override");
+   Bridge.get().setCapeSink(LiveSkin::accept);
+   Bridge.get().start();
+   await(()->LiveSkin.get()!=null && LiveSkin.get().slim());
+   long revision=LiveSkin.get().revision();
+   // Coordinate a launcher-side change after this client has rendered the first skin.
+   java.nio.file.Files.writeString(java.nio.file.Path.of("skin-poll-ready"),"ready");
+   await(()->LiveSkin.get()!=null && !LiveSkin.get().slim());
+   check(LiveSkin.get().revision()>revision,"Launcher selection refreshes an already running client");
+   System.out.println("Authenticated startup and launcher-side live skin refresh passed.");
+   return;
+  }
   if(args.length>0 && args[0].equals("gif-poll")) {
    check(LiveCape.get()==null,"Fresh game starts without cached selection");
    Bridge.get().setCapeSink(CapeAnimation::accept);Bridge.get().start();
@@ -389,6 +403,23 @@ class SkinTests(unittest.TestCase):
         self.assertEqual(self.state["selected_version"], "other-instance")
         self.assertEqual(self.apply("")["applied"]["name"], "Steve")
 
+    def test_live_skin_scopes_the_snapshot_to_the_running_instance(self):
+        entry = self.upload()
+        self.cfg.update(active_skin=entry, manage_skin_mod=True)
+        self.assertEqual(self.service.appearance_state(self.game)["skin"]["applied"]["id"], entry)
+        self.assertEqual(self.service.appearance_state("other")["skin"]["mode"], "disabled")
+        self.cfg["manage_skin_mod"] = False
+        self.assertEqual(self.service.appearance_state(self.game)["skin"], {"mode": "unmanaged"})
+        self.cfg["manage_skin_mod"] = True
+        Path(skins.get_custom_skin_path(entry)).unlink()
+        self.assertEqual(self.service.appearance_state(self.game)["skin"], {"mode": "unavailable"})
+        self.cfg.update(active_skin=None, csl_synced_name=None)
+        self.assertEqual(self.service.appearance_state(self.game)["skin"], {"mode": "managed"})
+        self.cfg["csl_synced_name"] = self.cfg["username"]
+        self.assertEqual(self.service.appearance_state(self.game)["skin"]["applied"]["id"], "")
+        self.cfg["csl_enabled"] = False
+        self.assertEqual(self.service.appearance_state(self.game)["skin"]["mode"], "disabled")
+
     def test_skin_ids_and_opt_out_are_enforced(self):
         entry = self.upload()
         for value in ("../../secret.png", "C:\\secret.png", "missing.png"):
@@ -528,7 +559,7 @@ class SkinTests(unittest.TestCase):
         image.save(hd)
         self.service.action({"kind": "cape", "action": "import", "path": str(hd)})
         local_api.set_skins_provider(self.service.snapshot)
-        local_api.set_cape_provider(self.service.capes.live_state)
+        local_api.set_cape_provider(self.service.appearance_state)
         local_api.set_skin_handler(self.service.action)
         self.assertTrue(local_api.start())
         server = local_api.start._server
@@ -564,6 +595,25 @@ class SkinTests(unittest.TestCase):
                 subprocess.run([java, "-Duser.home=" + str(Path(local_api._TOKEN_FILE).parent.parent),
                                 "-cp", tmp, "com.cubeon.client.SkinTest", "gif-poll"],
                                cwd=self.game, check=True, timeout=30)
+                self.assertIsNone(self.cfg["active_skin"])
+                slim = skins.add_custom_skin(str(self.png), "Alex", model="slim")
+                self.cfg.update(active_skin=slim["filename"], manage_skin_mod=True)
+                command = [java, "-Duser.home=" + str(Path(local_api._TOKEN_FILE).parent.parent),
+                           "-cp", tmp + os.pathsep + str(ROOT / "mod/src/main/resources"),
+                           "com.cubeon.client.SkinTest", "skin-poll"]
+                ready = Path(self.game) / "skin-poll-ready"
+                ready.unlink(missing_ok=True)
+                with subprocess.Popen(command, cwd=self.game) as client:
+                    try:
+                        deadline = time.monotonic() + 12
+                        while not ready.exists() and client.poll() is None and time.monotonic() < deadline:
+                            time.sleep(0.05)
+                        self.assertTrue(ready.exists())
+                        self.cfg.update(active_skin=None, csl_synced_name=self.cfg["username"])
+                        self.assertEqual(client.wait(timeout=15), 0)
+                    finally:
+                        if client.poll() is None:
+                            client.terminate()
             self.assertIsNone(self.cfg["active_skin"])
         finally:
             local_api.stop()

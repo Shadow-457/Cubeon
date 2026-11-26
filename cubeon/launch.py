@@ -46,6 +46,7 @@ from .mods import sync_mods_to_game
 from .mod_loaders import MOD_CAPABLE_LOADERS
 from . import csl
 from .skins import sync_local_skin_to_csl
+from .startup_profile import mark as _startup_mark
 
 # How many of the game's last output lines to keep for crash reporting. Enough
 # to contain a Java stack trace or a mod-loading error without holding the whole
@@ -1381,6 +1382,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     from . import watchdog
     if watchdog.stale_session() is not None:
         raise RuntimeError("Minecraft is already running. Close it before starting another instance.")
+    setup_started = time.perf_counter()
+    _startup_mark("Play setup: preparing instance", since=setup_started)
     from .mods import is_modpack_profile
     pack_profile = is_modpack_profile(mc_version, loader, version_id)
     if cfg is not None:
@@ -1450,6 +1453,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             logging.getLogger(__name__).debug(
                 "cosmetics sync failed", exc_info=True)
 
+    _startup_mark("Play setup: skin and cosmetics ready", since=setup_started)
+
     # Ship the in-game Cubeon Client mod into the Fabric profile so the
     # Friends button exists in Minecraft's game menu. Best-effort, always
     # before the mods sync so a fresh drop is live this launch.
@@ -1497,6 +1502,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                         "Fabric API setup failed", exc_info=True)
         except Exception:
             logging.getLogger(__name__).warning("friends mod setup failed", exc_info=True)
+
+    _startup_mark("Play setup: Cubeon Client and Fabric API checked", since=setup_started)
 
     # Each install plays in its OWN game folder (worlds, configs, options.txt),
     # with the shared staging folders linked into it - see
@@ -1586,12 +1593,15 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     except Exception:
         pass
 
+    _startup_mark("Play setup: game options and performance mods checked", since=setup_started)
     command = build_launch_command(version_id, username, ram_mb, width, height,
                                    java_path, game_dir=game_dir,
                                    default_jvm_flags_enabled=(cfg or {}).get("default_jvm_flags_enabled", True),
                                    custom_jvm_flags=(cfg or {}).get("custom_jvm_flags"))
     from . import runtime_libraries
     runtime_libraries.ensure(version_id, command, status_cb=status_cb)
+
+    _startup_mark("Play setup: command and runtime libraries ready", since=setup_started)
 
     # Optional direct-connect arguments. Minecraft's client accepts these as
     # launch arguments, which lets features such as P2P hand the player

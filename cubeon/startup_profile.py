@@ -9,10 +9,8 @@ import, so the first mark also covers most of the import cost::
     CUBEON_STARTUP_PROFILE=1 cubeon
     grep startup-profile ~/.cubeon_launcher/cubeon.log
 
-Cost when disabled is one ``perf_counter()`` per mark and a skipped ``if`` - the
-logging call is never reached. This is intentionally tiny: it exists to prove
-where startup time goes (measured: the synchronous UI build, and the Mojang
-feed fetch that used to run inside it) not to be a framework."""
+Marks return immediately when disabled. Play and Play setup report timings
+relative to the start of their respective phases."""
 import logging
 import os
 import time
@@ -37,8 +35,8 @@ def elapsed_ms() -> float:
     return (time.perf_counter() - _T0) * 1000.0
 
 
-def mark(name: str) -> None:
-    """Record a startup milestone. No-op unless profiling is enabled."""
+def mark(name: str, *, since: float = _T0) -> None:
+    """Record a milestone relative to startup or the supplied perf_counter."""
     if not _ENABLED:
         return
-    _log.info("startup-profile %8.1f ms  %s", elapsed_ms(), name)
+    _log.info("startup-profile %8.1f ms  %s", (time.perf_counter() - since) * 1000, name)

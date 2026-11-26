@@ -267,6 +267,14 @@ def sync_game(cfg, game_dir, *, mc_version=None, version_id=None):
     textures = pack / "assets/cubeon-client/textures/cosmetics"
     if not entries and not pack.exists() and not (game / "config/cubeon-store.json").exists():
         return
+    options = game / "options.txt"
+    packs = []
+    if options.is_file():
+        for line in options.read_text(encoding="utf-8").splitlines():
+            if line.startswith("resourcePacks:"):
+                packs = json.loads(line.partition(":")[2])
+    if not isinstance(packs, list) or any(not isinstance(value, str) for value in packs):
+        raise ValueError("The instance resource pack selection is invalid.")
     if entries:
         textures.mkdir(parents=True, exist_ok=True)
     models = []
@@ -328,14 +336,6 @@ def sync_game(cfg, game_dir, *, mc_version=None, version_id=None):
     if entries:
         write_json(str(pack / "pack.mcmeta"), {"pack": section})
     write_json(str(game / "config/cubeon-store.json"), {"items": models, "anchors": cosmetics.ANCHORS})
-    options = game / "options.txt"
-    packs = []
-    if options.is_file():
-        for line in options.read_text().splitlines():
-            if line.startswith("resourcePacks:"):
-                packs = json.loads(line.partition(":")[2])
-    if not isinstance(packs, list) or any(not isinstance(value, str) for value in packs):
-        raise ValueError("The instance resource pack selection is invalid.")
     if not entries:
         if "file/cubeon-store" in packs:
             packs = [name for name in packs if name != "file/cubeon-store"]
@@ -343,6 +343,8 @@ def sync_game(cfg, game_dir, *, mc_version=None, version_id=None):
     elif "file/cubeon-store" not in packs:
         packs.append("file/cubeon-store")
         game_options._set_options(str(options), {"resourcePacks": json.dumps(packs)}, "Cosmetics", allow_missing=True)
-        if not options.is_file() or not any(line.startswith("resourcePacks:") and
-                "file/cubeon-store" in json.loads(line.partition(":")[2]) for line in options.read_text().splitlines()):
+        if not options.is_file() or not any(
+                line.startswith("resourcePacks:")
+                and "file/cubeon-store" in json.loads(line.partition(":")[2])
+                for line in options.read_text(encoding="utf-8").splitlines()):
             raise OSError("Could not enable the downloaded cosmetics resource pack.")

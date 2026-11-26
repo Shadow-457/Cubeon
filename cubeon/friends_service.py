@@ -356,7 +356,7 @@ class FriendsService:
         return self.ingame_skins.snapshot(offset, kind)
 
     def cape_payload(self, game_dir):
-        return self.ingame_skins.capes.live_state(game_dir)
+        return self.ingame_skins.appearance_state(game_dir)
 
     def skin_action(self, body):
         return self.ingame_skins.action(body)

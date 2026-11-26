@@ -29,7 +29,7 @@ public abstract class LiveSkinMixin {
     private void cubeon$skin(CallbackInfoReturnable<Identifier> callback) {
         var player=(AbstractClientPlayerEntity)(Object)this;
         var texture=cubeon$local()&&LiveSkin.get()!=null?LiveSkinTexture.texture():null;
-        if(texture==null) texture=RemoteSkinTexture.texture(cubeon$name(),cubeon$remote());
+        if(!cubeon$local()) texture=RemoteSkinTexture.texture(cubeon$name(),cubeon$remote());
         var source=texture==null?callback.getReturnValue():texture;
         var body=CosmeticSkinTexture.texture(source,this,CosmeticPlayers.selection(player),"slim".equals(player.getModel()));
         if(body!=null&&!body.equals(callback.getReturnValue())) callback.setReturnValue(body);
@@ -40,6 +40,7 @@ public abstract class LiveSkinMixin {
         if(cubeon$local()&&skin!=null&&LiveSkinTexture.texture()!=null) {
             callback.setReturnValue(skin.slim()?"slim":"default"); return;
         }
+        if(cubeon$local()) return;
         var remote=cubeon$remote();
         if(RemoteSkinTexture.texture(cubeon$name(),remote)!=null)
             callback.setReturnValue(remote.slim()?"slim":"default");

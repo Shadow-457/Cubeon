@@ -161,10 +161,13 @@ setup then atomically adds Cubeon to an initialized `CustomSkinLoader.json` and
 orders it as **CubeonLocalSkin → Cubeon → TLauncher →
 ElyBy → other existing providers → GameProfile → Mojang**, adding missing
 supported TLauncher/ElyBy/Mojang sources and enabling per-texture fallback
-(`forceLoadAllTextures=true`). Other provider fields, cache preferences and
-explicit arm models are preserved. Management OFF leaves that config untouched;
-CSL initializes missing/malformed configs itself before the next managed launch
-can normalize their order:
+(`forceLoadAllTextures=true`). Managed setup repairs older Cubeon entries in
+place, including outdated LocalSkin texture paths and Worker URLs. It preserves
+third-party entries, custom cache preferences and explicit arm models.
+With management off, Cubeon leaves the config alone. CSL initializes missing
+or malformed configs before the next managed launch can normalize them.
+
+Cubeon uses these two source definitions.
 
 ```json
 // Added directly to an initialized config -> cape + uploaded skins from this Worker
@@ -197,6 +200,17 @@ files Cubeon writes, the cape renders with the logo upright - so
 `FLIP_OUTSIDE` in `tools/make_cape.py` is correct as shipped - and the local
 skin loads alongside it, which is the first-source-wins merge working as
 described above.
+
+## Updating the local player during play
+
+Cubeon Client uses the existing authenticated loopback
+`GET /cape?game_dir=...` poll for both Cape and Wardrobe skin selections.
+The launcher checks that the path belongs to the running instance and
+returns the active PNG and arm model when it manages skins. Old clients can
+continue to read the cape fields. The game applies new selections without
+restarting. When no live override applies, the local player's skin comes
+from CustomSkinLoader or Minecraft. The client uses remote fallback providers
+for other players.
 
 ## How Writes Are Authorized
 

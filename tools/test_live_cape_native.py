@@ -28,6 +28,7 @@ import com.cubeon.client.Json;
 import com.cubeon.client.hud.CubeonHudConfig;
 import com.cubeon.client.hud.FullBright;
 import com.cubeon.client.skins.CapeAnimation;
+import com.cubeon.client.skins.LiveSkin;
 import net.fabricmc.api.ClientModInitializer;
 import java.lang.reflect.*;
 import java.nio.file.*;
@@ -75,6 +76,15 @@ public class CapeProbe implements ClientModInitializer {
                     .invoke(null,"NativePeer",peerSkin);
             check(peerTexture!=null && peerTexture.toString().equals("cubeon-client:peer_skin/nativepeer"),
                     "Real native image upload registers a peer skin texture");
+            var before=call(call(call(player,"getSkin"),"body"),"texturePath");
+            LiveSkin.accept(Map.of("ok",true,"skin",Map.of("mode","managed","applied",Map.of(
+                "id","chosen", "name","Chosen", "hash","native-probe",
+                "png",Base64.getEncoder().encodeToString(skinPng), "slim",false, "model","classic"))));
+            var body=call(call(call(player,"getSkin"),"body"),"texturePath");
+            check(body.toString().equals("cubeon-client:live_skin"),"Selected Cubeon skin reaches the real player getter with CSL loaded");
+            LiveSkin.accept(Map.of("ok",true,"skin",Map.of("mode","disabled")));
+            check(call(call(call(player,"getSkin"),"body"),"texturePath").equals(before),
+                    "Disabling the managed override exposes CSL or Minecraft's original skin");
             Object capePart=type("part").getField(name("capePart")).get(null);
             Method set=options.getClass().getMethod(name("setPart"),type("part"),boolean.class);
             byte[] png=Files.readAllBytes(Path.of(System.getProperty("cubeon.probe.cape")));
@@ -146,7 +156,7 @@ def names_for(version):
                     player='player', options='options', gameRenderer='gameRenderer',
                     setPart='setModelPart', getSkin='getSkin', getLightmap='getLightmapTextureManager',
                     getGamma='getGamma', getValue='get', update='extractRenderState',
-                    cape='cape', elytra='elytra', texturePath='texturePath',
+                    body='body', cape='cape', elytra='elytra', texturePath='texturePath',
                     state='net.minecraft.client.renderer.entity.state.AvatarRenderState',
                     skinTextures='skin', capeVisible='showCape',
                     wingsLayer='net.minecraft.client.renderer.entity.layers.WingsLayer',
@@ -163,7 +173,7 @@ def names_for(version):
         capePart='CAPE', player='player', options='options', gameRenderer='gameRenderer',
         setPart='setPlayerModelPart', getLightmap='getLightmapTextureManager', getGamma='getGamma',
         getValue='getValue', update='update',
-        getSkin='getSkin', cape='cape', elytra='elytra', texturePath='texturePath',
+        getSkin='getSkin', body='body', cape='cape', elytra='elytra', texturePath='texturePath',
         skinTextures='skinTextures', capeVisible='capeVisible', getTexture='getTexture', stop='scheduleStop').items()}
     # Names repeated on unrelated classes need the concrete owner below.
     owners = dict(part='net/minecraft/entity/player/PlayerModelPart',
@@ -178,7 +188,7 @@ def names_for(version):
               'net/minecraft/client/option/GameOptions': {'setPlayerModelPart', 'getGamma'},
               owners['renderer']: {'getLightmapTextureManager'}, owners['lightmap']: {'update'},
               owners['option']: {'getValue'},
-              'net/minecraft/entity/player/SkinTextures': {'cape', 'elytra'},
+              'net/minecraft/entity/player/SkinTextures': {'body', 'cape', 'elytra'},
               owners['part']: {'CAPE'},
               owners['state']: {'skinTextures', 'capeVisible'}, owners['wingsLayer']: {'getTexture'}}
     for line in mapping.read_text().splitlines():

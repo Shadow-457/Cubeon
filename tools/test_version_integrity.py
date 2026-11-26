@@ -377,5 +377,29 @@ check("nested loader chain with a valid base is complete",
 check("inheritance depth is bounded",
       installed["depth-0"].get("incomplete") is True)
 
+# The launcher should never reopen the version index or per-instance metadata
+# for each option while turning a large inventory into the Play list.
+from unittest.mock import patch
+from cubeon import instances, storage
+
+storage.initialize()
+for index in range(24):
+    make_version(f"1.21.{100 + index}", GOOD_JAR,
+                 manifest={**MANIFEST, "releaseTime": "2025-01-01T00:00:00Z"})
+with patch.object(storage, "registry", wraps=storage.registry) as registry:
+    snapshot = scan()
+    check("inventory reads the storage index a bounded number of times",
+          registry.call_count <= 5, str(registry.call_count))
+with patch.object(storage, "registry", wraps=storage.registry) as registry:
+    descriptions = [instances.describe(vid, entry, with_mods=False, play_store={})
+                    for vid, entry in snapshot.items() if vid.startswith("1.21.1")]
+    check("Play options reuse metadata from the scan without reopening the index",
+          len(descriptions) == 24 and registry.call_count == 0,
+          f"{len(descriptions)} options, {registry.call_count} index reads")
+with patch.object(storage, "registry", wraps=storage.registry) as registry:
+    V.find_unfinished_installs()
+    check("cleanup resolves the versions directory once per sweep", registry.call_count == 1,
+          str(registry.call_count))
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

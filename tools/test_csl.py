@@ -323,55 +323,8 @@ check("unparseable CSL config is treated as absent", csl.read_csl_config() is No
 write_csl_config({"loadlist": "not-a-list"})  # wrong shape, still must not raise
 check("malformed loadlist shape is tolerated", csl.registered_names() == set())
 
-# ---------------------------------------------------------------------------
-# 7. Drifted Worker root heal.
-#
-# The /skins/ migration moved the Worker's CustomSkinAPI route under /skins/,
-# but is_registered() / write_extralist_entries() key only on the entry NAME -
-# so an install that merged the "Cubeon" entry before the migration keeps a
-# bare-URL root forever. CSL then builds lookups as `root + name + ".json"`
-# against a path the Worker 404s: no network skin, and (the visible symptom)
-# the shared Cubeon cape silently never loads. refresh_stale_worker_entry()
-# corrects just that one field, in place, without disturbing load order.
-# ---------------------------------------------------------------------------
-STALE_ROOT = csl.CUBEON_API_BASE + "/"  # the pre-/skins/ root, as shipped then
-write_csl_config([
-    {"name": "CubeonLocalSkin", "type": "Legacy", "checkPNG": False,
-     "skin": "LocalSkin/skins/{USERNAME}.png", "model": "auto",
-     "cape": "LocalSkin/./capes/{USERNAME}.png",
-     "elytra": "LocalSkin/./elytras/{USERNAME}.png"},
-    {"name": "Cubeon", "type": "CustomSkinAPI", "root": STALE_ROOT},
-] + [dict(e) for e in CSL_DEFAULT_LOADLIST])
-
-check("drifted (bare) Worker root is detected as stale",
-      csl._worker_root_stale(csl._loadlist()))
-check("heal reports it corrected the root", csl.refresh_stale_worker_entry())
-healed = next(e for e in csl._loadlist() if e.get("name") == "Cubeon")
-check("root now matches the current /skins/ definition",
-      healed.get("root") == csl.CUBEON_SKIN_API_ROOT, healed.get("root"))
-check("healed root is no longer flagged stale",
-      not csl._worker_root_stale(csl._loadlist()))
-check("heal is idempotent (no second rewrite)", not csl.refresh_stale_worker_entry())
-hnames = [e["name"] for e in csl._loadlist()]
-check("heal preserves load order (local still wins the cape slot)",
-      hnames.index("CubeonLocalSkin") < hnames.index("Cubeon"), hnames)
-check("heal touches nothing but the root",
-      all(e.get("name") in ("CubeonLocalSkin", "Cubeon")
-          or e in CSL_DEFAULT_LOADLIST for e in csl._loadlist()))
-
-# A correct install is left completely alone.
-check("a current /skins/ root is not flagged stale",
-      not csl._worker_root_stale(csl._loadlist()))
-check("heal is a no-op on a correct install", not csl.refresh_stale_worker_entry())
-
-# And the heal fires through the real launch path, not just when called directly.
-write_csl_config([
-    {"name": "Cubeon", "type": "CustomSkinAPI", "root": STALE_ROOT},
-] + [dict(e) for e in CSL_DEFAULT_LOADLIST])
-csl.write_extralist_entries()
-via_launch = next(e for e in csl._loadlist() if e.get("name") == "Cubeon")
-check("write_extralist_entries() heals a drifted root at launch",
-      via_launch.get("root") == csl.CUBEON_SKIN_API_ROOT, via_launch.get("root"))
+# Older launchers wrote the bare URL as the root before /skins/ was added.
+STALE_ROOT = csl.CUBEON_API_BASE + "/"
 
 from unittest.mock import patch
 from cubeon import net
@@ -509,10 +462,32 @@ with patch.object(csl, "instance_csl_path", return_value=instance_config):
     check("priority writes target the active instance", csl.configure_source_order())
 check("another instance's priority never modifies shared config", open(CSL_CONFIG_PATH, "rb").read() == before)
 
-for invalid in ("{bad json", "[]", '{"loadlist":null}', '{"loadlist":"wrong shape"}'):
+# Upgrade registered entries from older releases through the normal launch path.
+older_local = {"name": "CubeonLocalSkin", "type": "Legacy", "skin": "old/{USERNAME}.png",
+               "model": "slim", "custom_option": "keep"}
+older_worker = {**worker, "root": STALE_ROOT, "custom_option": "keep"}
+write_csl_config([older_worker, custom, older_local])
+result = csl.ensure_ready(None, None)
+repaired = csl.read_csl_config()["loadlist"]
+check("older LocalSkin texture paths are repaired in place on the next launch",
+      repaired[0] == {**local, "custom_option": "keep"} and result["registered"])
+check("repair keeps third-party sources and unknown managed fields",
+      custom in repaired and repaired[1] == {**worker, "custom_option": "keep"})
+check("upgraded CSL config needs no ExtraList files", not os.listdir(CSL_EXTRALIST_DIR))
+stamp = os.stat(CSL_CONFIG_PATH).st_mtime_ns
+csl.ensure_ready(None, None)
+check("migrated CSL sources are stable on restart", os.stat(CSL_CONFIG_PATH).st_mtime_ns == stamp)
+
+for invalid in ("{bad json", "[]", "{}", '{"loadlist":null}', '{"loadlist":"wrong shape"}'):
     with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as stream:
         stream.write(invalid)
     check("malformed configs are left for CSL to repair", not csl.configure_source_order()
+          and open(CSL_CONFIG_PATH, encoding="utf-8").read() == invalid)
+    with open(os.path.join(CSL_EXTRALIST_DIR, "cubeon-api.json"), "w", encoding="utf-8") as stream:
+        json.dump(worker, stream)
+    csl.ensure_ready(None, None)
+    check("an unusable config only queues LocalSkin without rewriting CSL's file",
+          csl.pending_names() == {"CubeonLocalSkin"}
           and open(CSL_CONFIG_PATH, encoding="utf-8").read() == invalid)
 os.unlink(CSL_CONFIG_PATH)
 check("priority setup does not seed an incomplete first-run config",

@@ -38,6 +38,7 @@ import subprocess
 import sys
 import threading
 import time
+from unittest.mock import AsyncMock, Mock, patch
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
@@ -126,11 +127,12 @@ check("the image downloader is the only fetcher",
 print("\n3. the opt-in startup profiler works and is silent by default")
 
 _probe = (
-    "import logging, sys;"
+    "import logging, sys, time;"
     "logging.basicConfig(level=logging.INFO, stream=sys.stdout);"
     "from cubeon.startup_profile import mark, enabled;"
     "print('enabled', enabled());"
-    "mark('probe-mark')"
+    "mark('probe-mark');"
+    "mark('Play probe', since=time.perf_counter() - 1)"
 )
 _on = subprocess.run([sys.executable, "-c", _probe], capture_output=True,
                      text=True, cwd=_ROOT,
@@ -139,6 +141,10 @@ check("marks are emitted when CUBEON_STARTUP_PROFILE=1",
       "enabled True" in _on.stdout and "startup-profile" in _on.stdout
       and "probe-mark" in _on.stdout,
       (_on.stdout + _on.stderr)[-300:])
+_play_probe = next((line.split()[-4] for line in _on.stdout.splitlines()
+                    if line.endswith("ms  Play probe")), None)
+check("Play marks use the supplied attempt start time",
+      _play_probe is not None and 1000 <= float(_play_probe) < 1100, _on.stdout)
 _off = subprocess.run([sys.executable, "-c", _probe], capture_output=True,
                       text=True, cwd=_ROOT,
                       env={k: v for k, v in os.environ.items()
@@ -301,6 +307,21 @@ if callable(_fit):
     check("with no work area to probe (no xprop) the geometry is left alone",
           _fit(1900, 1170, 10, 10, None) == (1900, 1170, 10, 10),
           f"got {_fit(1900, 1170, 10, 10, None)}")
+
+# Exercise the real Windows reveal branch without changing sys.platform
+# for subprocesses, other modules, or the host event loop.
+from cubeon import winwindow
+
+for first_failure, expected_calls in ((None, 1), (TimeoutError(), 2)):
+    win_page = app_driver.DriverPage()
+    handshake = AsyncMock(side_effect=[first_failure, None])
+    win_page.window.wait_until_ready_to_show = handshake
+    win_page.window.center = AsyncMock()
+    with patch.object(app, "sys", Mock(wraps=sys, platform="win32")), \
+            patch.object(winwindow, "ensure_client_window_visible"):
+        app.run_sync(win_page)
+    check(f"Windows calls native readiness {expected_calls} time(s)",
+          handshake.await_count == expected_calls, handshake.await_count)
 
 print(f"\n{passed} passed, {failed} failed")
 if failed:

@@ -150,6 +150,35 @@ node worker/test-skins-cache.mjs
 Java compile checks need a JDK with `javac`. Stub compilation is not a
 replacement for building the mod jars or testing them in Minecraft.
 
+## Timing a slow Windows launch
+
+Close Cubeon, then start the default installation from PowerShell with timing
+enabled. Use the path from the shortcut if Cubeon was installed elsewhere.
+
+```powershell
+$env:CUBEON_STARTUP_PROFILE = '1'
+Start-Process "$env:LOCALAPPDATA\Cubeon\Cubeon.exe"
+```
+
+After the Play screen appears, launch the affected installed instance once and
+note how long the Minecraft window takes to appear. In that PowerShell window,
+extract the timing lines from the launcher log.
+
+```powershell
+Select-String -SimpleMatch 'startup-profile' "$env:USERPROFILE\.cubeon_launcher\cubeon.log" |
+    Select-Object -Last 25 -ExpandProperty Line
+```
+
+Startup timings start inside the Python entry point. A delay before Python runs
+is visible only in the measured time from opening Cubeon. Play timings follow
+the worker through Java preparation and process creation. Compare those with
+when the Minecraft window appeared to measure the game's own startup time.
+
+For startup regressions that grow with the instance count, compare the
+inventory and Play mount timings with an existing large library in an
+isolated game directory. The scan supplies instance metadata to both Play
+and the chooser. Launch still checks the selected instance's files directly.
+
 ## Isolation
 
 Tests that write launcher state should call `_sandbox_home.isolate()` before

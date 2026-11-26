@@ -264,7 +264,7 @@ def describe(version_id: str, meta: "dict | None" = None,
     """One installed instance as a flat dict the UI can render directly.
 
     ``meta`` is the entry from ``versions.get_installed_versions()`` (it
-    carries ``display_name`` / ``incomplete`` / ``issue``). ``label`` is the
+    carries the display name, integrity and instance metadata). ``label`` is the
     user's nickname from ``cfg["version_labels"]``, which wins over the
     auto display name. Never raises.
     """
@@ -279,12 +279,13 @@ def describe(version_id: str, meta: "dict | None" = None,
                 "issue": meta.get("issue") or "", "mod_count": 0,
                 "last_played": last_played(version_id, play_store),
                 "profile": "", "is_instance": True}
-    sidecar = {}
-    try:
-        from .mods import read_instance_meta
-        sidecar = read_instance_meta(version_id) or {}
-    except Exception:
-        sidecar = {}
+    sidecar = meta.get("instance") or {}
+    if "instance" not in meta:
+        try:
+            from .mods import read_instance_meta
+            sidecar = read_instance_meta(version_id) or {}
+        except Exception:
+            pass
     try:
         base = sidecar.get("mc_version") or extract_mc_version(version_id) or version_id
     except Exception:
@@ -361,11 +362,17 @@ def _hidden_build_sources(installed: "list[dict]") -> "set[str]":
         return set()
     ids = {v.get("id") for v in installed if v.get("id")}
     metas: dict[str, dict] = {}
-    for vid in ids:
-        try:
-            metas[vid] = read_instance_meta(vid) or {}
-        except Exception:
-            metas[vid] = {}
+    for entry in installed:
+        vid = entry.get("id")
+        if not vid:
+            continue
+        if "instance" in entry:
+            metas[vid] = entry["instance"] or {}
+        else:
+            try:
+                metas[vid] = read_instance_meta(vid) or {}
+            except Exception:
+                metas[vid] = {}
     # A version with its own sidecar is an instance, never a build input.
     plain_ids = {vid for vid, meta in metas.items() if not meta}
     hidden: set[str] = set()

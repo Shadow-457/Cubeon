@@ -155,9 +155,13 @@ the same Settings page.
   Item grids scroll independently; card menus contain Delete and skin arm-model actions.
   Use the rotation arrows or drag to inspect your look.
   Shoulder and back items are drawn in
-  game by Cubeon Client; skins and capes need compatible
-  skin support. A selection is stored in the instance the game plays in, so
-  each instance can keep a different item.
+  game by Cubeon Client. Skins and capes need compatible skin support.
+  The launcher copies your Wardrobe selections to the instance when you play.
+  With Cubeon Client and managed skin support enabled, switching skins in
+  Wardrobe also updates your character while Minecraft is running.
+  If Cubeon cannot prepare the downloaded cosmetics pack, equipped built-in cosmetics
+  still apply. Cubeon keeps your downloaded selections and tries them again
+  the next time you launch Minecraft.
   In game, shoulder pets breathe and look around; wings beat slowly at rest,
   speed up smoothly when sprinting and spread with lifting strokes during gliding.
   With an elytra equipped, your selected wings replace its appearance. You still

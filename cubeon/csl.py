@@ -232,28 +232,31 @@ def _drop_registered_queue_files(entries: list[dict]) -> None:
 def configure_source_order() -> bool:
     """Apply managed skin priority to an existing, readable CSL config.
 
-    Add missing Cubeon sources and supported fallbacks without duplicating
-    renamed providers. Preserve source fields, other providers, cache
-    preferences and arm models. Missing/malformed configs are left for CSL to
+    Repair Cubeon's known fields and add missing sources and fallbacks
+    without duplicating renamed providers. Preserve extra fields, other
+    providers, cache preferences and arm models. Missing/malformed configs are left for CSL to
     initialize itself with the deterministic LocalSkin-only bootstrap.
     """
     cfg = read_csl_config()
-    if cfg is None or not isinstance(cfg.get("loadlist"), list):
+    if cfg is None:
         return False
     original = cfg["loadlist"]
     entries = list(original)
     for filename, owned in EXTRALIST_ENTRIES.items():
-        if any(isinstance(entry, dict) and entry.get("name") == owned["name"]
-               for entry in entries):
-            continue
-        candidate = dict(owned)
+        index = next((i for i, entry in enumerate(entries)
+                      if isinstance(entry, dict) and entry.get("name") == owned["name"]), None)
+        existing = entries[index] if index is not None else {}
+        candidate = {**existing, **owned}
         if owned["name"] == LOCAL_ENTRY_NAME:
-            queued = _queued_content(os.path.join(
+            previous = existing if index is not None else _queued_content(os.path.join(
                 instance_csl_path(CSL_EXTRALIST_DIR), filename))
-            if (queued and queued.get("name") == LOCAL_ENTRY_NAME
-                    and queued.get("model") in ("slim", "default")):
-                candidate["model"] = queued["model"]
-        entries.append(candidate)
+            if (previous and previous.get("name") == LOCAL_ENTRY_NAME
+                    and previous.get("model") in ("slim", "default")):
+                candidate["model"] = previous["model"]
+        if index is None:
+            entries.append(candidate)
+        else:
+            entries[index] = candidate
     for fallback in FALLBACK_ENTRIES:
         priority = _source_priority(fallback)
         if not any(_source_priority(entry) == priority for entry in entries):
@@ -280,32 +283,21 @@ def configure_source_order() -> bool:
 from .paths import instance_csl_path
 
 def read_csl_config() -> dict | None:
-    """CSL's CustomSkinLoader.json, or None if absent/unparseable.
+    """Read a CSL config with a usable load list.
 
-    Absent is the normal state before the mod has ever run once - it writes
-    the file itself on first launch, so this is not an error.
+    CSL initializes missing or malformed configs on its next start.
     """
     try:
         with open(instance_csl_path(CSL_CONFIG_PATH), "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
-    return data if isinstance(data, dict) else None
+    return data if isinstance(data, dict) and isinstance(data.get("loadlist"), list) else None
 
 
 def registered_names() -> set[str]:
     """Names of Cubeon's sources that are already in CSL's load list."""
-    cfg = read_csl_config()
-    if not cfg:
-        return set()
-    loadlist = cfg.get("loadlist")
-    if not isinstance(loadlist, list):
-        return set()
-    return {
-        entry.get("name")
-        for entry in loadlist
-        if isinstance(entry, dict) and entry.get("name") in ENTRY_NAMES
-    }
+    return {entry["name"] for entry in _loadlist() if entry.get("name") in ENTRY_NAMES}
 
 
 def pending_names() -> set[str]:
@@ -459,98 +451,7 @@ def set_enabled(mc_version: str | None, loader: str | None, enabled: bool, *,
 def _loadlist() -> list[dict]:
     """The user's loadlist entries (empty if no config / not a list)."""
     cfg = read_csl_config() or {}
-    loadlist = cfg.get("loadlist")
-    return [e for e in loadlist if isinstance(e, dict)] if isinstance(loadlist, list) else []
-
-
-def _localskin_stale(loadlist: list[dict]) -> bool:
-    """Whether a registered CubeonLocalSkin entry can't do its job, so it
-    should be removed and re-merged (which re-prepends it to the front):
-
-      - old format: no cape field (merged by a build before cape support), or
-      - shadowed: the Worker entry sits ahead of it, so the shared cape wins
-        the cape slot before the local one is ever consulted.
-    """
-    local_idx = next((i for i, e in enumerate(loadlist)
-                      if e.get("name") == LOCAL_ENTRY_NAME), None)
-    if local_idx is None:
-        return False  # not registered - nothing stale (normal flow handles it)
-    if not loadlist[local_idx].get("cape"):
-        return True
-    worker_idx = next((i for i, e in enumerate(loadlist)
-                       if e.get("name") == WORKER_ENTRY_NAME), None)
-    return worker_idx is not None and worker_idx < local_idx
-
-
-def refresh_stale_localskin_entry() -> bool:
-    """Heals a stale/shadowed CubeonLocalSkin entry by removing that ONE
-    Cubeon-owned entry from the user's loadlist, so the normal queueing
-    re-merges it at the front of the list on CSL's next start.
-
-    This is a deliberate, narrowly-scoped exception to "never rewrite the
-    user's CustomSkinLoader.json": we only ever REMOVE an entry whose name we
-    own, only when it provably can't do its job (old format or shadowed by
-    the Worker entry), and the very next launch re-adds it in working form.
-    Anything the user added themselves is never touched.
-
-    Returns True when a removal happened (config was rewritten).
-    """
-    loadlist = _loadlist()
-    if not _localskin_stale(loadlist):
-        return False
-    cfg = read_csl_config()
-    cfg["loadlist"] = [e for e in loadlist if e.get("name") != LOCAL_ENTRY_NAME]
-    try:
-        write_json(instance_csl_path(CSL_CONFIG_PATH), cfg)
-    except OSError:
-        return False
-    return True
-
-
-def _worker_root_stale(loadlist: list[dict]) -> bool:
-    """Whether a registered Cubeon (Worker) entry's root has drifted away from
-    the current CUBEON_SKIN_API_ROOT.
-
-    The real case this catches: entries merged before the Worker moved its
-    CustomSkinAPI route under /skins/ carry the bare base URL as their root, so
-    every lookup CSL builds (`root + username + ".json"`) hits a path the Worker
-    404s - the shared cape (and any network skin) silently dies, with nothing in
-    the load list looking wrong because is_registered() only checks the name.
-    """
-    entry = next((e for e in loadlist if e.get("name") == WORKER_ENTRY_NAME), None)
-    if entry is None:
-        return False  # not registered - the normal write flow adds it correctly
-    return entry.get("root") != CUBEON_SKIN_API_ROOT
-
-
-def refresh_stale_worker_entry() -> bool:
-    """Corrects a drifted root on the registered Cubeon (Worker) entry, in place.
-
-    Unlike the localskin heal - which REMOVES its entry so the normal queueing
-    re-prepends it to fix load ORDER - the Worker entry's only problem is its
-    root URL; its position in the list is already correct. So this rewrites just
-    that one field and leaves everything else (including load order) untouched,
-    rather than removing and re-merging.
-
-    Same narrowly-scoped exception to "never rewrite the user's
-    CustomSkinLoader.json" as refresh_stale_localskin_entry: it only ever edits
-    an entry whose name Cubeon owns, and only when its root no longer matches
-    what this build ships. Anything the user added themselves is never touched.
-
-    Returns True when a correction was written.
-    """
-    loadlist = _loadlist()
-    if not _worker_root_stale(loadlist):
-        return False
-    cfg = read_csl_config()
-    for entry in cfg.get("loadlist", []):
-        if isinstance(entry, dict) and entry.get("name") == WORKER_ENTRY_NAME:
-            entry["root"] = CUBEON_SKIN_API_ROOT
-    try:
-        write_json(instance_csl_path(CSL_CONFIG_PATH), cfg)
-    except OSError:
-        return False
-    return True
+    return [entry for entry in cfg.get("loadlist", []) if isinstance(entry, dict)]
 
 
 def set_localskin_model(model: str) -> bool:
@@ -569,7 +470,7 @@ def set_localskin_model(model: str) -> bool:
     wanted = "slim" if model == "slim" else "default"
     changed = False
     cfg = read_csl_config()
-    if cfg and isinstance(cfg.get("loadlist"), list):
+    if cfg:
         for entry in cfg["loadlist"]:
             if isinstance(entry, dict) and entry.get("name") == LOCAL_ENTRY_NAME:
                 if entry.get("model") != wanted:
@@ -616,73 +517,40 @@ def configure_request_cache() -> bool:
 
 
 def write_extralist_entries() -> list[str]:
-    """Drops an ExtraList file for each source not already registered or queued.
+    """Repair registered sources or queue only LocalSkin for CSL's first start.
 
-    Returns the names actually written. A file already sitting in ExtraList/
-    with identical content is left alone, so this is a no-op on every launch
-    after the first - but one whose content has drifted (say a future Cubeon
-    release moves the API root) is rewritten rather than left stale.
-
-    ORDERING: a missing/malformed CSL config receives only CubeonLocalSkin.
-    Java does not guarantee File.listFiles() order, so one queue file is the
-    only portable way to guarantee the player's local PNG wins the first game
-    start. Once CSL has initialized a valid config, configure_source_order()
-    adds Cubeon directly and atomically normalizes local -> Worker before the
-    next start. See the ORDER CONTRACT above EXTRALIST_ENTRIES.
-
-    Note what this deliberately does NOT do: it cannot tell "the user removed
-    the Cubeon entry from CustomSkinLoader.json" apart from "we have never
-    registered it" - both look like *absent from the load list*. It re-adds in
-    both cases, because a silently-dead cape is a worse failure for this
-    launcher than an entry reappearing. The supported way to turn the whole
-    thing off is cfg["manage_skin_mod"], which gates this from ensure_ready().
+    Returns the names of newly written queue entries. Persistent setup adds the
+    Worker after LocalSkin once CSL has initialized a usable config.
     """
-    # Reordering first repairs shadowed local entries without losing a user's
-    # explicit arm model through removal/requeueing.
     configure_source_order()
-    # Heal a bad/stale merge from an older build: the removed entry is
-    # unregistered by this very removal, so the flow below re-queues it.
-    refresh_stale_localskin_entry()
-    # And correct a drifted Worker root in place (the /skins/ migration left
-    # older installs pointing at a bare URL that 404s, killing the cape).
-    refresh_stale_worker_entry()
     configure_request_cache()
+    if LOCAL_ENTRY_NAME in registered_names():
+        return []
 
-    fresh_config = read_csl_config() is None
-    if fresh_config:
-        # Migrate an interrupted launch from builds that queued the Worker
-        # first. Leaving it beside LocalSkin would restore the filesystem-order
-        # race this bootstrap is designed to remove.
-        worker_path = os.path.join(instance_csl_path(CSL_EXTRALIST_DIR),
-                                   "cubeon-api.json")
-        queued_worker = _queued_content(worker_path)
-        if queued_worker and queued_worker.get("name") == WORKER_ENTRY_NAME:
-            try:
-                os.remove(worker_path)
-            except OSError:
-                pass
-
-    have = registered_names()
-    written = []
-    for filename, entry in EXTRALIST_ENTRIES.items():
-        if entry["name"] in have:
-            continue
-        if fresh_config and entry["name"] == WORKER_ENTRY_NAME:
-            continue
-        path = os.path.join(instance_csl_path(CSL_EXTRALIST_DIR), filename)
-        queued = _queued_content(path)
-        if (queued and entry["name"] == LOCAL_ENTRY_NAME
-                and queued.get("name") == LOCAL_ENTRY_NAME
-                and queued.get("model") in ("slim", "default")):
-            entry = {**entry, "model": queued["model"]}
-        if queued == entry:
-            continue  # already waiting for CSL, and still correct
+    directory = instance_csl_path(CSL_EXTRALIST_DIR)
+    # Interrupted older builds may have queued the Worker. Withdraw that owned
+    # file so first launch cannot depend on the filesystem's iteration order.
+    worker_path = os.path.join(directory, "cubeon-api.json")
+    queued_worker = _queued_content(worker_path)
+    if queued_worker and queued_worker.get("name") == WORKER_ENTRY_NAME:
         try:
-            write_json(path, entry)
+            os.remove(worker_path)
         except OSError:
-            continue
-        written.append(entry["name"])
-    return written
+            pass
+
+    path = os.path.join(directory, "cubeon-localskin.json")
+    entry = EXTRALIST_ENTRIES["cubeon-localskin.json"]
+    queued = _queued_content(path)
+    if (queued and queued.get("name") == LOCAL_ENTRY_NAME
+            and queued.get("model") in ("slim", "default")):
+        entry = {**entry, "model": queued["model"]}
+    if queued == entry:
+        return []
+    try:
+        write_json(path, entry)
+    except OSError:
+        return []
+    return [LOCAL_ENTRY_NAME]
 
 
 def _queued_content(path: str) -> dict | None:

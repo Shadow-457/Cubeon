@@ -135,6 +135,33 @@ class InGameSkins:
                     "page_size": PAGE_SIZE,
                     "skin_support": bool(self.cfg.get("csl_enabled", True))}
 
+    def appearance_state(self, game_dir):
+        """Serve the worn skin alongside the existing authenticated cape poll."""
+        with self._lock:
+            response = self.capes.live_state(game_dir)
+            version = self.state.get("running_version")
+            expected = paths.game_dir_for(version, create=False) if version else None
+            if (not expected or not isinstance(game_dir, str)
+                    or os.path.realpath(game_dir) != os.path.realpath(expected)
+                    or not self.cfg.get("csl_enabled", True)):
+                skin = {"mode": "disabled"}
+            elif not self.cfg.get("manage_skin_mod", True):
+                skin = {"mode": "unmanaged"}
+            else:
+                skin = {"mode": "managed"}
+                active = self.cfg.get("active_skin") or ""
+                username = self.cfg.get("username")
+                # Leave a hand-managed LocalSkin entry to CSL when the user
+                # has not chosen a library skin or a Cubeon-owned default.
+                if active or (username and self.cfg.get("csl_synced_name") == username):
+                    try:
+                        skin["applied"] = self._image(self._entry(active))
+                    except (OSError, ValueError):
+                        # Keep the last good texture while the library file is
+                        # unavailable. Retry on the next poll.
+                        skin = {"mode": "unavailable"}
+            return {**response, "skin": skin}
+
     def _entry(self, filename):
         if filename == "":
             return {}

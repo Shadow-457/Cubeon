@@ -25,6 +25,7 @@ drawn by ``tools/gen_cosmetics.py``.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -500,19 +501,29 @@ def sync_to_game(cfg: dict, game_dir: str | None = None, *, strict: bool = False
     unchanged selection on every launch would make it reload its textures for
     nothing. Best-effort - a read-only game folder must never block a launch.
     """
+    from . import cosmetic_packages
+    game_dir = game_dir or active_game_dir()
     path = game_config_path(game_dir)
     payload = selection_payload(cfg)
+    try:
+        cosmetic_packages.sync_game(cfg, game_dir, mc_version=mc_version, version_id=version_id)
+    except (OSError, ValueError) as error:
+        if strict:
+            raise
+        logging.getLogger(__name__).warning("Could not prepare downloaded cosmetics: %s", error)
+        # The store pack may be incomplete. Keep built-in slots visible and
+        # retry the saved store selections when the instance next launches.
+        for slot in SLOTS:
+            if payload[slot] and payload[slot].startswith("store_"):
+                payload[slot] = None
     text = json.dumps(payload, indent=2) + "\n"
     try:
-        from . import cosmetic_packages
-        cosmetic_packages.sync_game(cfg, game_dir or active_game_dir(),
-                                    mc_version=mc_version, version_id=version_id)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         try:
             with open(path, encoding="utf-8") as fh:
                 if fh.read() == text:
                     return path
-        except OSError:
+        except (OSError, UnicodeError):
             pass
         handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path),
                                             prefix=".cubeon-cosmetics-",
@@ -524,7 +535,8 @@ def sync_to_game(cfg: dict, game_dir: str | None = None, *, strict: bool = False
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
-    except OSError:
+    except OSError as error:
         if strict:
             raise
+        logging.getLogger(__name__).warning("Could not write the instance cosmetic selection: %s", error)
     return path

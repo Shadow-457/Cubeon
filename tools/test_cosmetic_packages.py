@@ -110,6 +110,37 @@ class Packages(unittest.TestCase):
         cosmetics.sync_to_game(cfg, str(game), strict=True)
         self.assertEqual((game / "options.txt").read_text(), options)
 
+    def test_launch_sync_survives_invalid_legacy_options_with_a_downloaded_item(self):
+        payload, metadata = self.model("wing")
+        wing = packages.install(payload, metadata)
+        game = self.root / "game"
+        game.mkdir()
+        options = game / "options.txt"
+        broken_options = 'resourcePacks:["file/player-pack.zip"\nfov:0.7\n'
+        options.write_text(broken_options)
+        selection = Path(cosmetics.game_config_path(str(game)))
+        selection.parent.mkdir()
+        selection.write_bytes(b"\xff")
+        cfg = dict(last_version="1.21.1", active_back_item=wing["id"],
+                   active_shoulder_item="shoulder_ember_fox")
+        with self.assertRaises(ValueError):
+            cosmetics.sync_to_game(cfg, str(game), strict=True)
+        self.assertEqual(selection.read_bytes(), b"\xff")
+        with self.assertLogs(cosmetics.__name__, level="WARNING"):
+            cosmetics.sync_to_game(cfg, str(game))
+        applied = json.loads(selection.read_bytes())
+        self.assertEqual(applied["shoulder"], "shoulder_ember_fox")
+        self.assertIsNone(applied["back"])
+        self.assertEqual(cfg["active_back_item"], wing["id"])
+        self.assertEqual(options.read_text(), broken_options)
+        self.assertFalse((game / "resourcepacks/cubeon-store").exists())
+        self.assertFalse((game / "config/cubeon-store.json").exists())
+
+        options.write_text('resourcePacks:["file/player-pack.zip"]\nfov:0.7\n')
+        cosmetics.sync_to_game(cfg, str(game))
+        self.assertEqual(json.loads(selection.read_bytes())["back"], wing["id"])
+        self.assertIn("file/cubeon-store", options.read_text())
+
     def test_butterfly_aura_reuses_bundled_art_and_roundtrips_to_aura_slot(self):
         recipe = self.folder / 'auras/butterfly.json'
         recipe.write_text(json.dumps(dict(id='test-butterfly-aura', name='Butterfly Aura', based_on='aura_butterfly')))

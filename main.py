@@ -31,6 +31,10 @@ if __name__ == '__main__' and '--cubeon-installer' in sys.argv:
     from cubeon.installer_ui import run_installer
     run_installer()
     raise SystemExit(0)
+# Opt-in startup timing (CUBEON_STARTUP_PROFILE=1). Imported this early so the
+# first mark also covers most of main.py's own import cost.
+from cubeon.startup_profile import mark as _startup_mark
+
 import threading   # For running long tasks (e.g., network calls, game launch) without freezing the UI
 import time        # For the scheduled-backup timer loop
 import signal      # For ending the leftover flet client process on session end
@@ -40,10 +44,6 @@ import flet as ft  # Flet UI framework - provides widgets and app scaffolding
 
 # Local module imports - our own helper functions for Minecraft-related logic
 import launcher_core as core
-
-# Opt-in startup timing (CUBEON_STARTUP_PROFILE=1). Imported this early so the
-# first mark also covers most of main.py's own import cost.
-from cubeon.startup_profile import mark as _startup_mark
 
 # End-of-session cleanup slot. Flet 0.86 delivers no window events to
 # Python on the real X button, so quit-time cleanup (Discord presence
@@ -1214,7 +1214,10 @@ async def main(page: ft.Page):
         threading.Thread(target=_work, name="cubeon-window-visible",
                          daemon=True).start()
 
+    _splash_window_ready = False
+
     async def _reveal_splash():
+        nonlocal _splash_window_ready
         # Bounded: this is a handshake with the desktop client, and a client
         # that never answers (or a platform where it never resolves) must not
         # be allowed to keep a hidden window hidden forever. Showing the splash
@@ -1222,8 +1225,11 @@ async def main(page: ft.Page):
         try:
             from cubeon.desktop_runtime import wait_window_ready
             await wait_window_ready(page.window)
+            _splash_window_ready = True
         except Exception:
-            pass  # non-desktop, an odd runtime, or a slow client: visible still applies
+            _startup_mark("splash window readiness failed")
+        else:
+            _startup_mark("splash window readiness completed")
         try:
             if not _saved_maximized:
                 if _needs_center:
@@ -4813,6 +4819,8 @@ async def main(page: ft.Page):
         # Cancellation wiring, set up BEFORE the try so the finally block can
         # always clean it up. Registered on state so on_cancel_install finds
         # the right version even if the user changes the dropdown mid-install.
+        play_started = time.perf_counter()
+        _startup_mark("Play: worker started", since=play_started)
         cancel = _cancel_event(version_id)
         icon_choice = dict(icon_choice if icon_choice is not None else
                            state.get("pending_instance_icon") or {})
@@ -5364,8 +5372,10 @@ async def main(page: ft.Page):
                     progress_label.value = "Preparing Java"
                     progress_label.visible = True
                 thread_safe_ui.refresh(progress_card)
+                _startup_mark("Play: checking Java", since=play_started)
                 resolved_java = core.jre.prepare_launch_java(
                     target_version, cfg.get("java_path"), status_cb=status_cb)
+                _startup_mark("Play: Java ready", since=play_started)
                 with thread_safe_ui.TREE_LOCK:
                     progress_stage.value = "LAUNCHING"
                     progress_label.value = "Launching"
@@ -5383,6 +5393,7 @@ async def main(page: ft.Page):
                 cfg=cfg, status_cb=status_cb, log_cb=_game_log_cb,
             )
 
+            _startup_mark("Play: game process launched", since=play_started)
             # Use the same lock order as on_exit: tree, exit, launch state.
             # An immediate exit owns its result; it must never be repainted RUNNING.
             with thread_safe_ui.TREE_LOCK:
@@ -8018,16 +8029,17 @@ async def main(page: ft.Page):
     # the full control tree is mounted and the theme is applied, so applying
     # the saved geometry and making the finished UI visible is one clean
     # shot: no default-size flash, no hide-then-reshow.
-    # Keep the normal readiness path; on macOS the affected native method
-    # resets window state and can end the client instead of revealing it.
     async def _reveal_window():
         if not _geometry_ready:
             _apply_real_geometry()
-        try:
-            from cubeon.desktop_runtime import wait_window_ready
-            await wait_window_ready(page.window)
-        except Exception:
-            pass  # non-desktop or an odd runtime: fall through, visible still applies
+        # The Windows splash already initialized this native window. Retry
+        # readiness here only if that handshake failed or timed out.
+        if sys.platform != "win32" or not _splash_window_ready:
+            try:
+                from cubeon.desktop_runtime import wait_window_ready
+                await wait_window_ready(page.window)
+            except Exception:
+                pass  # fall through to the existing reveal paths
         _show_window()
         if sys.platform == "darwin":
             await _reveal_to_front()
@@ -9200,6 +9212,7 @@ if __name__ == "__main__":
 
     async def _filtered_open_flet_view_async(page_url, assets_dir, hidden):
         _client_closing.clear()
+        _startup_mark("preparing desktop client")
         args, flet_env, pid_file = \
             _flet_desktop.__locate_and_unpack_flet_view(
                 page_url, assets_dir, hidden)
@@ -9233,6 +9246,7 @@ if __name__ == "__main__":
             stderr=asyncio.subprocess.STDOUT,
             **_hidden_kw(),
         )
+        _startup_mark("desktop client process started")
         proc._cubeon_macos_helper = sys.platform == "darwin" and args[0] == "open"
         proc._cubeon_launched_at = launched_at
         if native_output is not None:
