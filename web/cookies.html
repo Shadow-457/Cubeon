@@ -4,10 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="index, follow, max-image-preview:large" />
-<title>Cubeon Cookies and Optional Doctor AI</title>
-<meta name="description" content="Cubeon uses no tracking cookies. Optional Doctor AI connects to Groq and Kilo through Cubeon’s server. Learn how logs and interface preferences are handled." />
-<meta property="og:title" content="Cubeon Cookies and Optional Doctor AI" />
-<meta property="og:description" content="Cubeon uses no tracking cookies. Optional Doctor AI connects to Groq and Kilo through Cubeon’s server. Learn how logs and interface preferences are handled." />
+<title>Cookies and browser storage | Cubeon</title>
+<meta name="description" content="How Cubeon counts page views and downloads, saves browser preferences, and handles crash logs." />
+<meta property="og:title" content="Cookies and browser storage | Cubeon" />
+<meta property="og:description" content="How Cubeon counts page views and downloads, saves browser preferences, and handles crash logs." />
 <meta property="og:site_name" content="Cubeon Launcher" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
@@ -23,8 +23,8 @@
 <meta property="og:image:type" content="image/png" />
 <meta property="og:locale" content="en_US" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Cubeon Cookies and Optional Doctor AI" />
-<meta name="twitter:description" content="Cubeon uses no tracking cookies. Optional Doctor AI connects to Groq and Kilo through Cubeon’s server. Learn how logs and interface preferences are handled." />
+<meta name="twitter:title" content="Cookies and browser storage | Cubeon" />
+<meta name="twitter:description" content="How Cubeon counts page views and downloads, saves browser preferences, and handles crash logs." />
 <meta name="twitter:image" content="https://www.ylet.online/assets/og.png" />
 <meta name="twitter:image:alt" content="Cubeon Launcher: free, open-source Minecraft Java launcher for Windows and Linux, with the launcher window, mods, modpacks and skins." />
 </head>
@@ -52,7 +52,7 @@
   <div class="wrap">
     <p class="crumbs"><a href="index.html">Home</a> / Cookies</p>
     <h1>Cookies</h1>
-    <p class="lede">Cubeon uses no tracking cookies. Optional Doctor AI uses Kilo through our server.</p>
+    <p class="lede">Cubeon uses no tracking cookies. Your browser can remember a few site preferences.</p>
     <p class="updated">Last updated 29 October 2026</p>
   </div>
 </header>
@@ -60,13 +60,13 @@
 <div class="prose">
   <h2>Why there's no banner</h2>
   <p>Cubeon has no advertising trackers and sets no tracking cookies. Page views are counted by Vercel Web Analytics, which is cookieless: it writes nothing to your device, so there is no cookie to ask you about. For each view it records the page, the referring site, your browser, operating system and device type, a rough location and the time, and keeps them only as aggregate totals. Visitors are told apart with a one-way hash of the request that is discarded after 24 hours - no identifier that follows you between sites or between days.</p>
-  <p>Fonts and pictures come from this site. The shared download count uses our download server. Uploading a Doctor log or choosing Analyze log sends a redacted excerpt to our Kilo endpoint; on-device checks run in your browser. See <a href="privacy.html#analytics">Privacy - page counts</a>.</p>
+  <p>See <a href="privacy.html#analytics">how page views are counted</a>.</p>
 
   <h2>The download counter</h2>
   <p>The download buttons keep a shared count of how many different people have downloaded - the same total for everyone, and one per visitor rather than one per click. Our download server records a one-way hash of the address the request already carries, only so the same visitor is not counted twice; the address itself is not stored, and the hash is not linked to any account, cookie or profile. If that request can't be made, the count simply doesn't appear.</p>
 
-  <h2>Optional Doctor AI</h2>
-  <p>Doctor does not load an AI provider script, create a visitor account or use provider sign-in cookies. Uploading a file or choosing Analyze log sends the excerpt to Cubeon's server, which calls Kilo auto/free. Local checks and file previews work without it. Logs and guides are kept in page memory, not Cubeon browser storage. See <a href="privacy.html#doctor">Doctor privacy details</a>.</p>
+  <h2>Crash log analysis</h2>
+  <p>Doctor keeps logs and results in page memory. Uploading a file or choosing Analyze log sends a redacted excerpt through Cubeon’s server to Groq or Kilo. Online analysis uses no provider sign-in cookies. See <a href="privacy.html#doctor">Doctor privacy details</a>.</p>
   <h2>Small interface preferences</h2>
   <p>The dismissal of our cookie information badge is remembered in localStorage on this browser. If a consent banner is enabled, its choice is also stored there. These preferences are not sent to an analytics service.</p>
 
@@ -74,9 +74,9 @@
   <p>The Cubeon launcher keeps your settings, your name and your skins in a folder on your computer. Those are ordinary files rather than cookies, and they stay on your machine unless you upload a skin so that other players can see it.</p>
 
   <h2>If we ever add something</h2>
-  <p>If a future feature needs to store something on your device - simple anonymous counts, say - we'll ask first. A clear yes and an equally easy no, nothing switched on until you choose, nothing ticked in advance. The <a href="privacy.html">privacy page</a> will say what and why.</p>
+  <p>If a feature needs permission to store data in your browser, the site will ask before enabling it. See the <a href="privacy.html">privacy policy</a>.</p>
 
-  <h2>Want the details?</h2>
+  <h2>Privacy policy</h2>
   <p>What Cubeon does and doesn't keep is set out on the <a href="privacy.html">privacy page</a>.</p>
 </div>
 </main>
@@ -85,7 +85,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

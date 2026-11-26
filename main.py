@@ -5731,7 +5731,7 @@ async def main(page: ft.Page):
                 content=ft.Column(
                     [
                         name_field,
-                        ft.Text("Just a nickname - leave blank to reset it.",
+                        ft.Text("Leave blank to use the original instance name.",
                                 size=12, color=TEXT_DIM),
                     ],
                     spacing=8, tight=True,

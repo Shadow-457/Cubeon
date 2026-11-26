@@ -74,7 +74,7 @@ async function browserChecks() {
     page.on('pageerror',error=>errors.push(String(error)));
     await page.route('**/*',route);
     await page.goto('https://cubeon.test/store');
-    await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('Available in Cubeon'));
+    await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('Download these cosmetics in Cubeon'));
     assert.equal(await page.locator('.store-card').count(),snapshot.length);
     for (const image of await page.locator('.store-card img').all()) {
       await image.scrollIntoViewIfNeeded();
@@ -113,7 +113,7 @@ async function browserChecks() {
   await page.route('**/*',route);
   items=[...snapshot,{...snapshot[0],id:'test-butterfly-aura',sha256:'b'.repeat(64),name:'Celestial Butterfly Aura',kind:'aura'}];
   await page.goto('https://cubeon.test/store');
-  await page.waitForFunction(()=>document.querySelector('#storeStatus').textContent.includes('Available in Cubeon'));
+  await page.waitForFunction(()=>document.querySelector('#storeStatus').textContent.includes('Download these cosmetics in Cubeon'));
   await page.locator('[data-store-kind="aura"]').click();
   assert.equal(await page.locator('.store-card:visible').count(),1);
   await page.locator('.store-card:visible .store-view').click();
@@ -130,7 +130,7 @@ async function browserChecks() {
   for (const failure of ['error','duplicate']) {
     mode=failure;
     await page.reload();
-    await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('latest availability'));
+    await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('Couldn’t load the latest items'));
     assert.equal(await page.locator('.store-card').count(),snapshot.length,'failed catalog leaves fallback intact');
   }
   items=[{...snapshot[0],id:'test-butterfly-aura',sha256:'b'.repeat(64),name:'Celestial Butterfly Aura',kind:'aura'},...snapshot];
@@ -140,17 +140,17 @@ async function browserChecks() {
   await page.reload();
   await page.locator('[data-store-kind="aura"]').click();
   await page.locator('[data-id="test-butterfly-aura"]').waitFor({state:'visible'});
-  assert.ok(!(await page.locator('#storeStatus').textContent()).includes('Available in Cubeon'));
+  assert.ok(!(await page.locator('#storeStatus').textContent()).includes('Download these cosmetics in Cubeon'));
   await page.locator('.store-card:visible .store-view').click();
   assert.equal(await page.locator('#storeDialogTitle').textContent(),'Celestial Butterfly Aura','Aura is usable before later pages complete');
   await page.keyboard.press('Escape');
   releaseCatalog();
   catalogGate=null;
-  await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('Available in Cubeon'));
+  await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('Download these cosmetics in Cubeon'));
   assert.equal(await page.locator('.store-card').count(),items.length);
   mode='late-error';
   await page.reload();
-  await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('latest availability'));
+  await page.waitForFunction(()=>document.getElementById('storeStatus').textContent.includes('Couldn’t load the latest items'));
   await page.locator('[data-store-kind="aura"]').click();
   assert.equal(await page.locator('.store-card:visible').count(),1,'later failure retains a validated Aura');
   assert.equal(await page.locator('.store-card').count(),snapshot.length+1,'later failure retains the offline collection');

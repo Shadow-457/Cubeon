@@ -55,7 +55,7 @@
     document.getElementById('storeDialogDescription').textContent = card.dataset.description;
     document.getElementById('storeDialogKind').textContent = kinds[card.dataset.kind] + ' / Free';
     document.getElementById('storeDialogEquip').textContent =
-      'In Cubeon, open Cosmetics → Store, download ' + card.dataset.name +
+      'In Cubeon, open Wardrobe → Browse, download ' + card.dataset.name +
       ', then equip it in ' + library[card.dataset.kind] + '.';
     dialog.showModal();
   });
@@ -132,10 +132,10 @@
       var fragment = document.createDocumentFragment();
       items.forEach(function (item) { fragment.appendChild(cards.get(item.id)); });
       grid.replaceChildren(fragment);
-      status.textContent = 'Available in Cubeon. All cosmetics are free.';
+      status.textContent = 'Download these cosmetics in Cubeon’s Wardrobe.';
       filter();
     } catch (_) {
-      status.textContent = 'Browse the collection below. Open Cubeon for the latest availability.';
+      status.textContent = 'Couldn’t load the latest items. Open Wardrobe → Browse in Cubeon to check what’s available.';
     } finally {
       clearTimeout(timeout);
     }

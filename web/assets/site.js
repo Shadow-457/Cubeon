@@ -223,8 +223,8 @@
       var done = allChecked();
       card.classList.toggle('all-checked', done);
       if(hint) hint.textContent = done
-        ? "That's the deal - click through whenever you're ready."
-        : "Check all three and this button turns into a launch pad.";
+        ? "Select Continue to downloads."
+        : "Select all three checkboxes to continue.";
     }
     boxes.forEach(function(b){ b.addEventListener('change', sync); });
     sync();
@@ -235,11 +235,11 @@
         card.classList.remove('wiggle');
         void card.offsetWidth; /* restart the animation */
         card.classList.add('wiggle');
-        if(hint) hint.textContent = 'Almost - three little boxes to go.';
+        if(hint) hint.textContent = 'Select all three checkboxes to continue.';
         return;
       }
       e.preventDefault();
-      if(label) label.textContent = 'Sealed! Off you go';
+      if(label) label.textContent = 'Opening downloads…';
       if(confetti) confetti.style.display = 'inline';
       window.setTimeout(function(){ window.location.href = btn.getAttribute('href'); }, 550);
     });
@@ -262,7 +262,7 @@
     el.className = 'cookie-note';
     el.setAttribute('role', 'status');
     el.innerHTML =
-      '<p>No Cubeon tracking cookies. Optional AI uses Kilo. <a href="cookies.html">Why</a></p>' +
+      '<p>No tracking cookies. <a href="cookies.html">Cookie details</a></p>' +
       '<button type="button" aria-label="Dismiss">&times;</button>';
     document.body.appendChild(el);
     var closeBtn = el.querySelector('button');
@@ -291,7 +291,7 @@
     el.innerHTML =
       '<div class="wrap">' +
         '<div class="txt"><b>Cookies &amp; your choices</b>' +
-        '<p>Cubeon uses no tracking cookies. Optional Doctor AI uses Kilo. If that ever changes, nothing extra runs until you say yes. Read the ' +
+        '<p>Choose whether to allow non-essential storage. See the ' +
         '<a href="cookies.html">cookie page</a>.</p></div>' +
         '<div class="acts">' +
           '<button class="btn" type="button" data-consent="all">Accept all</button>' +

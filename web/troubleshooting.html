@@ -52,7 +52,7 @@
     <div class="wrap">
       <p class="crumbs"><a href="index.html">Home</a> / <a href="docs.html">Docs</a> / Crashes &amp; fixes</p>
       <h1>Crashes and fixes</h1>
-      <p class="lede">Most failures are one of five things: Java, memory, a mismatched mod, a locked file, or a graphics driver. This page finds which one you have.</p>
+      <p class="lede">Check what failed, then look for the error in your game or launcher log.</p>
       <p class="updated">Updated 28 October 2026</p>
     </div>
   </header>
@@ -73,12 +73,12 @@
         </div>
         <div class="docs-nav-group">
           <span class="docs-nav-label">On this page</span>
-          <a class="docs-nav-link" href="#quick">Quick triage</a>
+          <a class="docs-nav-link" href="#quick">Start here</a>
           <a class="docs-nav-link" href="#launcher">The launcher won't start</a>
           <a class="docs-nav-link" href="#launch">The game won't start</a>
           <a class="docs-nav-link" href="#crashes">Reading a crash</a>
           <a class="docs-nav-link" href="#messages">Common crash messages</a>
-          <a class="docs-nav-link" href="#doctor">Using the Crash Doctor</a>
+          <a class="docs-nav-link" href="#doctor">Analyze a crash log</a>
           <a class="docs-nav-link" href="#mods-crash">Crashes with mods</a>
           <a class="docs-nav-link" href="#performance">Slow or stuttering</a>
           <a class="docs-nav-link" href="#world">A world won't load</a>
@@ -91,7 +91,7 @@
 
       <div class="docs-section" id="quick">
         <span class="docs-section-eyebrow">Start here</span>
-        <h2>Quick triage</h2>
+        <h2>Start here</h2>
         <p>Answer these in order - each one narrows it down a lot:</p>
         <div class="docs-table-wrap">
           <table class="docs-table">
@@ -140,7 +140,7 @@
         <p>The launcher is fine, the game window never appears, or it flashes and closes. Check these five, in order:</p>
         <ol>
           <li><strong>Version and loader.</strong> Does the selected instance's loader exist for that Minecraft version? Reinstalling the version fixes a broken install, and takes one press.</li>
-          <li><strong>Java.</strong> Leave <strong>Settings</strong> &gt; <strong>Java</strong> on the managed runtime unless you have a reason. If you pointed it at your own, check it is 64-bit and the right major version: 17 for 1.18-1.20.4, 21 for 1.20.5 and newer, 25 for 26.x.</li>
+          <li><strong>Java.</strong> Leave <strong>Settings → Game → Advanced Java settings</strong> on the managed runtime unless you have a reason. If you pointed it at your own, check it is 64-bit and the right major version: 17 for 1.18-1.20.4, 21 for 1.20.5 and newer, 25 for 26.x.</li>
           <li><strong>Memory.</strong> 4&nbsp;GB is the default and is right for vanilla. If you set 16&nbsp;GB on an 8&nbsp;GB machine, Java fails to start at all - put it back.</li>
           <li><strong>Another game already running.</strong> Two copies of Minecraft cannot share one mods folder. Cubeon refuses with "another Minecraft window is using these mods" instead of launching a broken game. Close the other window.</li>
           <li><strong>Disk space.</strong> The version files, mods and worlds all need room. A full disk fails in confusing ways.</li>
@@ -152,14 +152,13 @@
 
       <div class="docs-section" id="crashes">
         <h2>Reading a crash</h2>
-        <p>When Minecraft crashes, Cubeon opens a window with the report and three buttons: <strong>Doctor</strong>, <strong>Copy log</strong>, and <strong>Discord</strong>. The report itself is also on disk, in the instance's crash folder:</p>
-        <pre><code>~/.cubeon_minecraft/crash-reports/</code></pre>
+        <p>When Minecraft crashes, use <strong>Check compatibility</strong> to inspect the instance, <strong>Analyze log</strong> to open the report in your browser, or <strong>Copy log</strong> to copy the text. The game saves crash reports in the instance’s <code>crash-reports</code> folder.</p>
         <p>You do not need to read all of it. Two lines carry almost all of the information:</p>
         <ul>
           <li><strong>Description</strong> or <strong>The game crashed whilst ...</strong> - what Minecraft was doing.</li>
           <li>The first <strong>Caused by:</strong> line - which file or class actually failed.</li>
         </ul>
-        <p>The long list of <code>at ...</code> lines underneath is the call stack. It is useful to a developer and mostly noise to everyone else - except that a mod's name in there is a strong hint about who to blame.</p>
+        <p>Keep the call stack when reporting a crash. A mod name in the stack can help narrow down the cause, but the loading error may point to a different mod or dependency.</p>
       </div>
 
       <hr class="docs-divider">
@@ -177,30 +176,30 @@
               <tr><td>NoClassDefFoundError / ClassNotFoundException</td><td>A required library or mod is missing, or the loader is wrong</td><td>Install the dependency the log names; confirm the loader matches the mods</td></tr>
               <tr><td>NoSuchMethodError / NoSuchFieldError</td><td>A mod was built for another Minecraft version</td><td>Swap it for the build that matches this instance</td></tr>
               <tr><td>Mixin apply failed / MixinTransformerError</td><td>Two mods change the same thing, or one is too old</td><td>Switch off the newest mods and add them back one at a time</td></tr>
-              <tr><td>Unsupported class file major version</td><td>Java is older than the game or the mod expects</td><td>Use the managed Java in Settings &gt; Java, or install Java 21</td></tr>
-              <tr><td>Duplicate mods: ...</td><td>The same mod exists twice in the folder</td><td><a href="mods.html#repair">Check &amp; repair</a> renames the duplicate; or switch one off</td></tr>
+              <tr><td>Unsupported class file major version</td><td>Java is older than the game or the mod expects</td><td>Use the managed runtime in Settings → Game, or install the Java version the game or mod requires.</td></tr>
+              <tr><td>Duplicate mods: ...</td><td>The same mod exists twice in the folder</td><td><a href="mods.html#repair">Check compatibility</a> lists duplicates. Disable the extra copy.</td></tr>
               <tr><td>Entrypoint stage 'main' / 'client' failed</td><td>A mod failed while starting; the next "Caused by" names it</td><td>Read the cause, switch that mod off, report it to the mod author</td></tr>
               <tr><td>EXCEPTION_ACCESS_VIOLATION (often in a driver DLL)</td><td>The graphics driver crashed, not Java</td><td>Update the GPU driver, turn off overlays, lower graphics settings</td></tr>
             </tbody>
           </table>
         </div>
-        <p>A driver crash is worth saying out loud: an access violation inside <code>nvoglv64</code>, <code>atio6axx</code> or <code>ig*.dll</code> is the GPU driver's own module, and no amount of reinstalling Java will change it.</p>
+        <p>An access violation inside <code>nvoglv64</code>, <code>atio6axx</code> or <code>ig*.dll</code> is the GPU driver's own module, and no amount of reinstalling Java will change it.</p>
       </div>
 
       <hr class="docs-divider">
 
       <div class="docs-section" id="doctor">
-        <h2>Using the Crash Doctor</h2>
-        <p>The <a href="doctor.html">Doctor page</a> reads a crash log and writes a numbered list of things to try. It works on the report itself, so you do not have to know which line matters.</p>
+        <h2>Analyze a crash log</h2>
+        <p><a href="doctor.html">Cubeon Doctor</a> reads crash logs and suggests steps based on the errors it finds.</p>
         <ul>
-          <li><strong>From the crash window:</strong> press <strong>Doctor</strong>. The log opens already attached and redacted, and the on-device instructions are ready without an account.</li>
-          <li><strong>From the website:</strong> drop in a <code>.log</code> or <code>.txt</code> file (up to 2&nbsp;MB). Uploading starts the analysis by itself.</li>
+          <li><strong>From the crash window:</strong> select <strong>Analyze log</strong>. The browser opens with a redacted excerpt and runs an on-device check.</li>
+          <li><strong>From the website:</strong> drop in a <code>.log</code> or <code>.txt</code> file (up to 2&nbsp;MB). Uploading starts online analysis.</li>
           <li><strong>Paste instead:</strong> expand the log editor, paste the text, review it, then press <strong>Analyze log</strong>. Pasting never sends anything until you press that button.</li>
         </ul>
-        <p>The result names the mods, dependencies and settings the log points at, and lists the evidence under <strong>See the error lines</strong>. You can save the instructions as a Markdown file to keep next to the machine you are fixing.</p>
+        <p>The result names the mods, dependencies and settings the log points at, and lists the evidence under <strong>Error lines from the log</strong>. You can save the instructions as a Markdown file to keep next to the machine you are fixing.</p>
         <div class="note">
           <b>What leaves your computer</b>
-          <p>Optional AI analysis uses Kilo's free router through Cubeon's server. The excerpt is shared with Kilo and its selected free provider, which may retain or use it. Redaction removes obvious paths and names but cannot catch everything - delete private details before uploading, or paste and review it in the editor instead. If AI is unavailable, the on-device instructions still work.</p>
+          <p>Online analysis sends the redacted excerpt to Groq through Cubeon’s server. If that fails, Cubeon uses Kilo and the provider it selects. Review the log for private details before sharing it, or choose <strong>Check on this device instead</strong>. See <a href="privacy.html#doctor">how Doctor handles logs</a>.</p>
         </div>
         <p><strong>Clear</strong> removes the log and the instructions from the page. The original file on your disk is not touched.</p>
       </div>
@@ -211,10 +210,10 @@
         <h2>Crashes with mods</h2>
         <p>If vanilla launches and a modded instance does not, the mods are the difference. Work in this order:</p>
         <ol>
-          <li><strong>Press Check &amp; repair</strong> in <strong>Mods</strong> &gt; <strong>Installed</strong>. It catches duplicates, missing dependencies and version mismatches without disabling anything you did not ask it to.</li>
+          <li><strong>Press Check compatibility</strong> in <strong>Mods</strong> &gt; <strong>Installed</strong>. Review duplicates, missing dependencies and version mismatches before choosing a fix.</li>
           <li><strong>Switch off what you added last.</strong> If the game starts, that mod (or something it needed) was the problem. Report it, or find another build.</li>
-          <li><strong>Halve the list.</strong> Still crashing? Switch off half the mods. Working? The culprit is in the other half. Four or five launches finds almost any single bad mod.</li>
-          <li><strong>Run the Doctor</strong> with the crash report. It reads the "Caused by" chain and usually names the file.</li>
+          <li><strong>Halve the list.</strong> Still crashing? Switch off half the mods. Working? The culprit is in the other half. Keep required dependencies enabled and retest each group.</li>
+          <li><strong>Open Cubeon Doctor</strong> with the crash report. Check the quoted error lines before changing a mod.</li>
         </ol>
         <p>Two failures look like mods but are not: running a pack with a second copy of a library the pack already ships, and installing a mod while the game is open. Both are fixed by the list above, but neither is a bug in the mod.</p>
       </div>
@@ -266,7 +265,7 @@
         <h2>Next</h2>
         <div class="docs-guide-links">
           <a href="doctor.html">Open the Crash Doctor</a>
-          <a href="mods.html#repair">Check &amp; repair installed content</a>
+          <a href="mods.html#repair">Check compatibility installed content</a>
           <a href="files.html#logs">Find the right log</a>
           <a href="multiplayer.html#cant-join">Can't join a server</a>
         </div>
@@ -280,7 +279,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

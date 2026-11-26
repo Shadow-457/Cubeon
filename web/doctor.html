@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="index, follow, max-image-preview:large" />
 <meta name="referrer" content="no-referrer" />
-<title>Cubeon Doctor - Minecraft Crash Log Analyzer &amp; Fixes</title>
-<meta name="description" content="Upload a Minecraft crash log to Cubeon Doctor. Find Java errors, missing mod dependencies and conflicts, then follow clear, step-by-step repair instructions." />
-<meta property="og:title" content="Cubeon Doctor - Minecraft Crash Log Analyzer &amp; Fixes" />
-<meta property="og:description" content="Upload a Minecraft crash log to Cubeon Doctor. Find Java errors, missing mod dependencies and conflicts, then follow clear, step-by-step repair instructions." />
+<title>Cubeon Doctor | Minecraft Crash Logs</title>
+<meta name="description" content="Check a Minecraft crash log for Java errors, missing mods and conflicts. Run a check in your browser or send the log for online analysis." />
+<meta property="og:title" content="Cubeon Doctor | Minecraft Crash Logs" />
+<meta property="og:description" content="Check a Minecraft crash log for Java errors, missing mods and conflicts. Run a check in your browser or send the log for online analysis." />
 <meta property="og:site_name" content="Cubeon Launcher" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
@@ -26,8 +26,8 @@
 <meta property="og:image:type" content="image/png" />
 <meta property="og:locale" content="en_US" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Cubeon Doctor - Minecraft Crash Log Analyzer &amp; Fixes" />
-<meta name="twitter:description" content="Upload a Minecraft crash log to Cubeon Doctor. Find Java errors, missing mod dependencies and conflicts, then follow clear, step-by-step repair instructions." />
+<meta name="twitter:title" content="Cubeon Doctor | Minecraft Crash Logs" />
+<meta name="twitter:description" content="Check a Minecraft crash log for Java errors, missing mods and conflicts. Run a check in your browser or send the log for online analysis." />
 <meta name="twitter:image" content="https://www.ylet.online/assets/og.png" />
 <meta name="twitter:image:alt" content="Cubeon Launcher: free, open-source Minecraft Java launcher for Windows and Linux, with the launcher window, mods, modpacks and skins." />
 </head>
@@ -50,44 +50,43 @@
 </header>
 <main id="content" class="doctor-page">
   <header class="doctor-head wrap">
-    <p class="doc-eyebrow"><span aria-hidden="true">✚</span> Cubeon Doctor</p>
-    <h1>Let’s fix your crash.</h1>
-    <p class="lede">Upload a log. Get a clear, step-by-step fix.</p>
+    <h1>Cubeon Doctor</h1>
+    <p class="lede">Check a Minecraft crash log for errors and see what to try next.</p>
   </header>
   <div class="wrap doctor-grid">
     <section class="doc-input doc-panel" aria-labelledby="log-heading">
-      <div class="doc-panel-head"><h2 id="log-heading">Upload your log</h2><button id="clear-log" class="doc-link" type="button">Clear</button></div>
+      <div class="doc-panel-head"><h2 id="log-heading">Crash log</h2><button id="clear-log" class="doc-link" type="button">Clear</button></div>
       <label class="doc-drop" id="drop-zone" for="log-file">
         <svg class="doc-upload-icon" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 3h10l6 6v20H6V3h4Z M20 3v7h6 M16 24V13 M11 18l5-5 5 5"/></svg>
         <strong>Drop a crash log here</strong><span>or click to choose a file</span><small>.log or .txt · up to 2 MB</small>
         <input id="log-file" type="file" accept=".log,.txt,text/plain" aria-label="Choose a crash log file" aria-describedby="ai-privacy" />
       </label>
-      <p class="doc-ai-note" id="ai-privacy">Uploading starts AI analysis with Groq, with Kilo as a fallback. Common private details are removed first. Provider data policies apply. <a href="privacy.html#doctor">Privacy details</a></p>
+      <p class="doc-ai-note" id="ai-privacy">Uploading a file or choosing Analyze log sends a redacted excerpt for online analysis. Providers may keep the excerpt. To keep the log on this device, paste it and choose Check on this device instead. <a href="privacy.html#doctor">Privacy details</a></p>
       <p id="file-note" class="doc-sub" aria-live="polite"></p>
       <details class="doc-editor" id="log-editor">
         <summary>Paste a log or review the uploaded text</summary>
         <label class="doc-label" for="log-text">Crash log</label>
         <textarea id="log-text" spellcheck="false" maxlength="2000000" aria-describedby="file-note ai-privacy" placeholder="Paste your crash report or latest.log…"></textarea>
-        <button id="ai-check" class="doc-button doc-primary" type="button">Analyze log →</button>
+        <button id="ai-check" class="doc-button doc-primary" type="button">Analyze log</button>
         <button id="local-check" class="doc-link" type="button">Check on this device instead</button>
       </details>
       <details class="doc-help"><summary>Where do I find my log?</summary><p>In Cubeon’s crash report, choose <strong>Copy log</strong>. Or open <strong>Play → Folder</strong> for your instance and look in <code>logs/latest.log</code> or <code>crash-reports</code>.</p></details>
-      <p id="doctor-status" class="doc-status" role="status" aria-live="polite">Ready for your log.</p>
+      <p id="doctor-status" class="doc-status" role="status" aria-live="polite"></p>
       <button id="cancel-check" class="doc-link" type="button" hidden>Stop analysis</button>
     </section>
     <section class="doc-output" aria-label="Crash diagnosis" aria-live="polite" aria-busy="false" id="doctor-output">
       <div id="doctor-empty" class="doc-empty">
-        <p>No log handy? Try an example.</p>
+        <p>Try an example log.</p>
         <div class="doc-examples"><button data-example="memory" type="button">Out of memory</button><button data-example="java" type="button">Wrong Java</button><button data-example="mods" type="button">Missing mod</button></div>
       </div>
       <article id="doctor-result" class="doc-panel" hidden>
-        <div class="doc-panel-head"><p class="doc-kicker">What went wrong</p><span id="result-source" class="doc-sub"></span></div>
+        <div class="doc-panel-head"><p class="doc-kicker">Diagnosis</p><span id="result-source" class="doc-sub"></span></div>
         <h2 id="result-cause" tabindex="-1"></h2>
-        <h3 class="doc-steps-heading">How to fix it</h3>
+        <h3 class="doc-steps-heading">Steps to try</h3>
         <ol id="guide-steps" class="doc-instructions"></ol>
-        <div class="doc-verify"><p><strong>Check it worked</strong><br><span id="result-verify"></span></p><p><strong>To undo a change</strong><br><span id="result-rollback"></span></p></div>
-        <details class="doc-evidence"><summary>See the error lines</summary><div id="result-evidence"></div></details>
-        <button id="download-result" type="button" class="doc-link doc-save">↓ Save instructions as Markdown</button>
+        <div class="doc-verify"><p><strong>How to check</strong><br><span id="result-verify"></span></p><p><strong>How to undo changes</strong><br><span id="result-rollback"></span></p></div>
+        <details class="doc-evidence"><summary>Error lines from the log</summary><div id="result-evidence"></div></details>
+        <button id="download-result" type="button" class="doc-link doc-save">Save instructions (.md)</button>
       </article>
     </section>
   </div>
@@ -97,7 +96,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

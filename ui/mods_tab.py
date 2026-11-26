@@ -219,7 +219,7 @@ class ModsView:
                          weight=ft.FontWeight.W_600)], spacing=4, tight=True),
             border=ft.border.Border.all(1, CARD_BORDER), border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
-            tooltip="Quick offline check. Review missing dependencies and conflicts before making changes.",
+            tooltip="Check for missing dependencies and conflicts on this instance.",
             ink=False, on_click=self.run_mod_repair, data="mods-check-compatibility",
         ), "transparent", ROW_HOVER)
 
@@ -1085,7 +1085,7 @@ class ModsView:
             if self._is_mod():
                 empty_icon = ft.Icons.EXTENSION_OFF_ROUNDED
                 empty_title = "No mods installed yet"
-                empty_hint = "Find a mod with search, or use Import mods."
+                empty_hint = "Browse mods or select Import mods to add a JAR."
             else:
                 empty_icon = ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED
                 empty_title = f"No {core.CONTENT_TYPES[self._ct()]['label_plural'].lower()} installed yet"
@@ -1864,7 +1864,7 @@ class ModsView:
             self.header_subtitle.value = "Texture packs work in vanilla and modded Minecraft."
             self.mod_search_field.hint_text = "Search resource packs... e.g. faithful, stay true"
         else:
-            self.header_subtitle.value = "Download shaders - they need Iris, Oculus, or OptiFine to run."
+            self.header_subtitle.value = "Shaders need Iris, Oculus, or OptiFine."
             self.mod_search_field.hint_text = "Search shaders... e.g. complementary, BSL, sildurs"
         self.local_install_label.value = i18n.t('Import mods' if self._is_mod() else 'Import packs' if self._ct() == 'resourcepack' else 'Import shaders')
         self._refresh_browse_scope()
@@ -2240,7 +2240,7 @@ class ModsView:
                 cat_label = dict(core.category_choices(self._ct())).get(cat, "")
                 default_title = "POPULAR"
             self.browse_title_text.value = f"TOP {cat_label.upper()}" if cat else default_title
-            self.render_browse_results(empty_msg="Nothing found for this version/category.")
+            self.render_browse_results(empty_msg="No results for this Minecraft version and category.")
 
     def run_mod_search(self):
         """

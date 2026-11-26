@@ -1055,7 +1055,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             sync_store_buttons()
         thread_safe_ui.refresh(store_toolbar)
 
-    store_search = ft.TextField(hint_text="Search the collection…", prefix_icon=ft.Icons.SEARCH_ROUNDED,
+    store_search = ft.TextField(hint_text="Search cosmetics…", prefix_icon=ft.Icons.SEARCH_ROUNDED,
         border_color=CARD_BORDER, focused_border_color=ACCENT_DIM, color=TEXT,
         hint_style=ft.TextStyle(color=TEXT_DIM, size=13), text_style=ft.TextStyle(size=13),
         bgcolor=CARD_FILL, border_radius=RADIUS, height=40, dense=True,
@@ -1063,7 +1063,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         on_change=schedule_store_search, on_submit=search_store_now, expand=True,
         data="cosmetics-store-search")
 
-    store_refresh = ft.IconButton(ft.Icons.REFRESH_ROUNDED, tooltip="Refresh collection",
+    store_refresh = ft.IconButton(ft.Icons.REFRESH_ROUNDED, tooltip="Refresh cosmetics",
                                   on_click=lambda e: load_store(force=True))
     store_previous = ft.IconButton(ft.Icons.CHEVRON_LEFT_ROUNDED, tooltip="Previous store page",
         disabled=True, on_click=lambda e: load_store(store_state["offset"] - cosmetics_store.PAGE_SIZE))
@@ -1413,7 +1413,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     layout = ft.ResponsiveRow([
         ft.Container(content=ft.Column([
-            ft.Text("Your look", size=13, color=TEXT_DIM), appearance.control,
+            ft.Text("Character preview", size=13, color=TEXT_DIM), appearance.control,
         ], spacing=12, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
             col={"xs": 12, "md": 4, "lg": 3}, padding=12,
             bgcolor=SURFACE, border=ft.border.Border.all(1, CARD_BORDER),
@@ -1424,7 +1424,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     skin_section = ft.Column([
         ft.Column([
             ft.Text(i18n.t("Wardrobe"), size=24, color=TEXT, font_family=FONT_DISPLAY),
-            ft.Text("Make your Minecraft look your own.", size=12, color=TEXT_DIM),
         ], spacing=4),
         tab_row,
         layout,

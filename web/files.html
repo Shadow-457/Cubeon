@@ -52,7 +52,7 @@
     <div class="wrap">
       <p class="crumbs"><a href="index.html">Home</a> / <a href="docs.html">Docs</a> / Files &amp; backups</p>
       <h1>Files, folders and backups</h1>
-      <p class="lede">Two folders in your user folder hold everything Cubeon knows: one for the launcher, one for the game. Once you know which is which, deleting the safe things becomes obvious.</p>
+      <p class="lede">By default, Cubeon stores launcher settings and game data in separate folders under your home folder.</p>
       <p class="updated">Updated 28 October 2026</p>
     </div>
   </header>
@@ -118,36 +118,22 @@
 
       <div class="docs-section" id="instances">
         <h2>Inside an instance</h2>
-        <p>Every instance plays in its own folder:</p>
-        <pre><code>~/.cubeon_minecraft/instances/&lt;instance&gt;/</code></pre>
-        <p>These are real, separate copies per instance:</p>
+        <p>Select an instance on <strong>Play</strong> and choose <strong>Folder</strong> to open its game directory. New instances keep their game files in a <code>minecraft/</code> folder inside the instance. Older or migrated folders may look different.</p>
         <ul>
-          <li><code>saves/</code> - your worlds</li>
-          <li><code>config/</code> - mod configs</li>
-          <li><code>options.txt</code> - video settings, keybinds, language</li>
-          <li><code>servers.dat</code> - your server list</li>
+          <li><code>saves/</code> holds worlds.</li>
+          <li><code>config/</code> holds mod settings.</li>
+          <li><code>options.txt</code> holds video settings and keybinds.</li>
+          <li><code>servers.dat</code> holds the multiplayer server list.</li>
         </ul>
-        <p>These are shared with every other instance, and appear in the folder as links to one copy:</p>
-        <ul>
-          <li><code>mods/</code>, <code>resourcepacks/</code>, <code>shaderpacks/</code></li>
-          <li><code>CustomSkinLoader/</code> - the skin setup</li>
-          <li><code>screenshots/</code> and <code>crash-reports/</code></li>
-        </ul>
-        <p>So: changing a video setting in one instance does not change it in another, but installing a mod applies everywhere. That is the intended split - a world should be private, a mod library should not be downloaded twice.</p>
-        <p>Deleting an instance does <strong>not</strong> delete its <code>saves/</code> folder. If the world matters, copy that folder out first.</p>
+        <p>When you delete a managed instance, Cubeon archives its folder under <code>backups/deleted-instances/</code>. Back up worlds you need before deleting an instance.</p>
       </div>
 
       <hr class="docs-divider">
 
       <div class="docs-section" id="mods-folder">
         <h2>Mods and content folders</h2>
-        <p>Two layers, and it helps to know which is which before you drag a jar anywhere:</p>
-        <ul>
-          <li><code>~/.cubeon_minecraft/mods/</code>, <code>resourcepacks/</code>, <code>shaderpacks/</code> - what the game reads <em>right now</em>. Cubeon rebuilds these at launch from the instance you selected, so treat them as a staging area.</li>
-          <li><code>~/.cubeon_minecraft/global_mods/</code> and <code>global_content/</code> - the real library: one clearly named copy of each mod, pack and shader, shared by every instance.</li>
-        </ul>
-        <p>A jar you drop into <code>mods/</code> by hand is adopted for the instance you are playing and is never deleted - it is yours, not Cubeon's. See <a href="mods.html#manual">adding a jar by hand</a>.</p>
-        <p>If Cubeon has to move a jar out of the way, it puts it in <code>~/.cubeon_minecraft/mods_user_backup/</code> rather than destroying it. Files a modpack replaces are backed up under <code>.cubeon-override-backup/</code> with a timestamp.</p>
+        <p>Use the Mods tab to manage content for the selected instance. Use <strong>Import mods</strong> for a JAR you already downloaded. Resource Packs and Shaders have their own import controls.</p>
+        <p>To find the installed files, open <strong>Folder</strong> from the Play tab and look in <code>mods/</code>, <code>resourcepacks/</code> or <code>shaderpacks/</code>. See <a href="mods.html#manual">how to add a mod file</a>.</p>
       </div>
 
       <hr class="docs-divider">
@@ -161,8 +147,8 @@
             </thead>
             <tbody>
               <tr><td><code>~/.cubeon_launcher/cubeon.log</code></td><td>The launcher's own log: startup, downloads, installs and launcher errors. Send this one when the app itself misbehaves.</td></tr>
-              <tr><td><code>~/.cubeon_minecraft/crash-reports/</code></td><td>Minecraft's crash reports, one file per crash. Send the newest one when the game crashes.</td></tr>
-              <tr><td><code>~/.cubeon_minecraft/logs/</code></td><td>Minecraft's normal game log, including the <code>latest.log</code> from the last run. Useful when the game closed without a crash report.</td></tr>
+              <tr><td><code>crash-reports/</code></td><td>Minecraft's crash reports, one file per crash. Send the newest one when the game crashes.</td></tr>
+              <tr><td><code>logs/</code></td><td>Minecraft's normal game log, including the <code>latest.log</code> from the last run. Useful when the game closed without a crash report.</td></tr>
             </tbody>
           </table>
         </div>
@@ -175,7 +161,7 @@
       <div class="docs-section" id="backups">
         <h2>Backups</h2>
         <h3>Launcher backups</h3>
-        <p><strong>Settings</strong> &gt; <strong>Backups</strong> saves your launcher configuration and keeps a history you can restore from. It is the safety net for settings - RAM, Java path, language, cosmetic choices - and it means a bad change costs one button, not a reinstall.</p>
+        <p><strong>Settings → Account → Backups</strong> saves your launcher configuration and keeps a history you can restore from. It is the safety net for settings - RAM, Java path, language, cosmetic choices - and it means a bad change costs one button, not a reinstall.</p>
         <h3>World backups are yours to make</h3>
         <p>Cubeon does not copy your worlds on a schedule. A world lives in one folder; back it up by copying that folder somewhere else while the game is closed:</p>
         <pre><code>~/.cubeon_minecraft/instances/&lt;instance&gt;/saves/&lt;world&gt;/</code></pre>
@@ -192,7 +178,7 @@
           <li>Close Cubeon completely, and close Minecraft.</li>
           <li>Copy <code>~/.cubeon_launcher/</code> and <code>~/.cubeon_minecraft/</code> to the same paths on the new machine.</li>
           <li>Install Cubeon there and open it.</li>
-          <li>Check <strong>Settings</strong> &gt; <strong>Java</strong>: a saved path to a Java that only existed on the old PC will not work. Clear it and let Cubeon manage Java again.</li>
+          <li>Check <strong>Settings → Game → Advanced Java settings</strong>: a saved path to a Java that only existed on the old PC will not work. Clear it and let Cubeon manage Java again.</li>
         </ol>
         <p>Your Cubeon name travels with <code>.cubeon_launcher</code>, which is what keeps friends, skins and servers recognising you. Keep that folder private - it is identity, not just settings.</p>
         <p>Before you copy, know that <code>runtimes/</code> (downloaded Java) and caches are the bulky parts. Skipping them is safe: Cubeon downloads what it needs again.</p>
@@ -209,7 +195,7 @@
           <li><strong>Delete <code>~/.cubeon_minecraft/</code></strong> - removes installed versions, worlds, mods and packs. Everything in it can be re-downloaded except your worlds, so copy <code>saves/</code> out first.</li>
         </ul>
         <p>Never delete either folder while Cubeon or Minecraft is running: the app will write files back into the half-deleted folder, and that is how settings get corrupted. Close everything first, then delete.</p>
-        <p>If you only want to fix something, you rarely need either. <a href="troubleshooting.html">Troubleshooting</a> starts with the cheap checks, and <strong>Settings</strong> &gt; <strong>Java</strong> plus <a href="mods.html#repair">Check &amp; repair</a> fix most of what a reset would.</p>
+        <p>If you only want to fix something, you rarely need either. <a href="troubleshooting.html">Troubleshooting</a> starts with the cheap checks, and <strong>Settings → Game → Advanced Java settings</strong> plus <a href="mods.html#repair">Check &amp; repair</a> fix most of what a reset would.</p>
       </div>
 
       <hr class="docs-divider">
@@ -231,7 +217,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

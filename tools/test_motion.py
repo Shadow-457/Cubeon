@@ -544,7 +544,7 @@ check("it applies the level live and persists the key",
 check("the switch reflects the level that was actually applied",
       "sw.value = motion.transforms()" in _set_src)
 check("the row explains what the level does",
-      "Hover lifts and list motion. Off leaves fades only." in _set_src)
+      "Turn off movement animations and keep fades." in _set_src)
 
 # ------------------------------------------------------------------ done ----
 _reset()

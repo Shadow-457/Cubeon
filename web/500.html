@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>500 - a creeper got our server | Cubeon</title>
+<title>500 - Server error | Cubeon</title>
 <meta name="description" content="Something broke on our side. Head back to Cubeon's home page, download page or help page." />
 <meta name="robots" content="noindex" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
@@ -17,8 +17,6 @@
   .void .lede{margin:16px auto 0}
   .void-actions{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:32px}
   .void-hole{width:120px;height:120px;margin:34px auto 0;border:3px solid var(--ink);background-image:radial-gradient(circle at 30% 30%,#2c1a0c 0 6px,transparent 7px),radial-gradient(circle at 70% 60%,#2c1a0c 0 8px,transparent 9px),radial-gradient(circle at 45% 80%,#2c1a0c 0 5px,transparent 6px),repeating-linear-gradient(0deg,var(--dirt) 0 26px,var(--dirt-dark) 26px 28px),repeating-linear-gradient(90deg,transparent 0 26px,rgba(0,0,0,.4) 26px 28px);box-shadow:6px 6px 0 var(--dirt)}
-  .void-cmd{margin-top:36px;display:inline-flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);padding:10px 18px;font-family:'Minecraftia';font-weight:600;font-size:14px;letter-spacing:.02em;text-transform:uppercase;color:var(--text-soft)}
-  .void-cmd b{color:var(--dirt);font-family:inherit}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
   html.js .void-code{animation:pulse 1.6s ease-in-out infinite}
   @media(prefers-reduced-motion:reduce){html.js .void-code{animation:none}}
@@ -50,13 +48,12 @@
   <div class="wrap void-in">
     <span class="void-code">500</span>
     <div class="void-hole" aria-hidden="true"></div>
-    <h1>A creeper got to our server.</h1>
-    <p class="lede" style="margin-inline:auto">Something exploded on our end - not yours. The problem is logged and we're patching the hole. Give it a minute, then come back and try again.</p>
+    <h1>Server error</h1>
+    <p class="lede" style="margin-inline:auto">Cubeon couldn’t load this page. Try again in a minute.</p>
     <div class="void-actions">
       <a class="btn big" href="/">Back to home</a>
       <a class="btn quiet" href="/download">Download Cubeon</a>
     </div>
-    <span class="void-cmd">Still exploded? <b>/help</b> has fixes, Discord has us.</span>
   </div>
 </section>
 </main>
@@ -65,7 +62,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="/"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

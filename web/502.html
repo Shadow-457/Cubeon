@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>502 - the nether portal stalled | Cubeon</title>
+<title>502 - Bad gateway | Cubeon</title>
 <meta name="description" content="We got a bad response from upstream. Head back to Cubeon's home page." />
 <meta name="robots" content="noindex" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
@@ -18,8 +18,6 @@
   .void-actions{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:32px}
   .void-hole{width:120px;height:120px;margin:34px auto 0;border:3px solid var(--ink);background-image:repeating-linear-gradient(0deg,#2A1550 0 14px,#1B0E36 14px 16px),repeating-linear-gradient(90deg,transparent 0 14px,rgba(139,92,246,.35) 14px 16px);box-shadow:6px 6px 0 #8B5CF6}
   .void-hole::after{content:"";display:block;width:100%;height:100%;background:radial-gradient(circle at 50% 50%,rgba(139,92,246,.5) 0 22px,transparent 23px)}
-  .void-cmd{margin-top:36px;display:inline-flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);padding:10px 18px;font-family:'Minecraftia';font-weight:600;font-size:14px;letter-spacing:.02em;text-transform:uppercase;color:var(--text-soft)}
-  .void-cmd b{color:#8B5CF6;font-family:inherit}
   @keyframes flicker{0%,100%{opacity:1}45%{opacity:.7}55%{opacity:1}70%{opacity:.85}}
   html.js .void-code{animation:flicker 2s ease-in-out infinite}
   @media(prefers-reduced-motion:reduce){html.js .void-code{animation:none}}
@@ -51,13 +49,12 @@
   <div class="wrap void-in">
     <span class="void-code">502</span>
     <div class="void-hole" aria-hidden="true"></div>
-    <h1>The nether portal stalled.</h1>
-    <p class="lede" style="margin-inline:auto">We got a bad response from the server upstream of this one - the portal lit, but the trip didn't complete. Nothing you did. Step back through and give it another go.</p>
+    <h1>Bad gateway</h1>
+    <p class="lede" style="margin-inline:auto">A server Cubeon uses didn’t respond correctly. Try again in a minute.</p>
     <div class="void-actions">
       <a class="btn big" href="/">Back to home</a>
       <a class="btn quiet" href="/download">Download Cubeon</a>
     </div>
-    <span class="void-cmd">Portal jammed? <b>reload</b> to relight it.</span>
   </div>
 </section>
 </main>
@@ -66,7 +63,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="/"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

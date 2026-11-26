@@ -29,10 +29,6 @@ def _title(text, size=40):
                    style=ft.TextStyle(height=1.3))
 
 
-def _caption(text):
-    return ft.Text(text, size=9, color=TEXT_DIM, font_family=FONT_BODY)
-
-
 def build_onboarding(page, *, initial_name: str, friends_on: bool,
                      backdrop=None, validate_name, on_finish) -> ft.Container:
     """The caller mounts/reveals the overlay and owns saving the valid name.
@@ -58,14 +54,12 @@ def build_onboarding(page, *, initial_name: str, friends_on: bool,
                            font_family=FONT_BODY, max_lines=1,
                            overflow=ft.TextOverflow.ELLIPSIS)
     welcome = ft.Column([
-        _caption('WELCOME'),
-        _title('Welcome\nto Cubeon.'),
+        _title('Welcome to Cubeon'),
         ft.Text('Set your player name, then choose a Minecraft version.',
                 size=11, color=TEXT_DIM, width=380, font_family=FONT_BODY),
     ], spacing=20, tight=True, alignment=ft.MainAxisAlignment.CENTER)
     player = ft.Column([
-        _caption('PLAYER NAME'),
-        _title('Your name\nin Minecraft.', 30),
+        _title('Choose a player name', 30),
         ft.Text('This is the name other players will see.', size=11, color=TEXT_DIM,
                 font_family=FONT_BODY),
         name_field,
@@ -74,9 +68,8 @@ def build_onboarding(page, *, initial_name: str, friends_on: bool,
     ], spacing=18, tight=True, alignment=ft.MainAxisAlignment.CENTER,
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
     ready = ft.Column([
-        _caption('START'),
-        _title('Ready to play.', 32),
-        ft.Text('Open New instance on the Play tab to choose a version.',
+        _title('Create an instance', 32),
+        ft.Text('Open New instance on Play to choose a Minecraft version.',
                 size=11, color=TEXT_DIM, width=380, font_family=FONT_BODY),
         ft.Row([
             summary_name,

@@ -111,7 +111,7 @@ TABLE = {
     "Extra flags go after Cubeon's defaults. Leave both fields blank unless you need them.": 'تُضاف الوسوم المخصّصة بعد وسوم Cubeon الافتراضية. اترك الحقلين فارغين إذا لم تحتاجهما.',
     'Automatically detected. Set a path only to override it.': 'يُكتشف تلقائيًا. حدّد مسارًا فقط لتغييره.',
     'No friends yet. Add one above.': 'لا يوجد أصدقاء بعد. أضف صديقًا أعلاه.',
-    'Messages are private to you and them.': 'الرسائل خاصة بك وبصديقك.',
+    'Direct messages are private.': 'الرسائل المباشرة خاصة.',
     'Pick a friend to start chatting.': 'اختر صديقًا لبدء الدردشة.',
     'Search mods…': 'ابحث عن تعديلات…',
     'Search modpacks…': 'ابحث عن حزم تعديلات…',

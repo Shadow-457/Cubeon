@@ -696,10 +696,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                           visible=False,
                           vertical_alignment=ft.CrossAxisAlignment.END)
 
-    empty_title = ft.Text("Make room for good conversations", size=22,
+    empty_title = ft.Text("No friends added", size=22,
                           weight=ft.FontWeight.W_600, text_align=ft.TextAlign.CENTER,
                           color=TEXT)
-    empty_sub = ft.Text(i18n.t("Messages are private to you and them."), size=12,
+    empty_sub = ft.Text(i18n.t("Direct messages are private."), size=12,
                         color=TEXT_DIM, text_align=ft.TextAlign.CENTER, width=340)
     empty_add = ft.TextButton(
         "Add a friend", icon=ft.Icons.PERSON_ADD_ROUNDED,
@@ -753,16 +753,16 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         empty_add.visible = not name
         if name:
             label, _uid = _peer_identity(name, _friend_by_name(name) or {})
-            empty_title.value = f"Say hello to {label}"
-            empty_sub.value = "Plan your next world, share a win, or just catch up."
+            empty_title.value = f"No messages with {label} yet"
+            empty_sub.value = i18n.t("Direct messages are private.")
             if history["failed"] and not has_messages:
                 empty_title.value = "Couldn't load this conversation"
-                empty_sub.value = "Chat will retry when the connection is ready."
+                empty_sub.value = "Chat will retry when you reconnect."
         else:
             has_friends = bool((_last_roster["v"] or {}).get("friends"))
-            empty_title.value = "Your conversations" if has_friends else "Make room for good conversations"
-            empty_sub.value = ("Choose a friend on the left to pick up where you left off."
-                               if has_friends else "Add a friend with their Cubeon ID to start chatting.")
+            empty_title.value = "Your conversations" if has_friends else "No friends added"
+            empty_sub.value = ("Choose a friend on the left to open your chat."
+                               if has_friends else "Enter a friend’s Cubeon ID to send a request.")
         _refresh(conversation_host)
 
     conn_banner_text = ft.Text("", size=12, color=WARNING, expand=True)

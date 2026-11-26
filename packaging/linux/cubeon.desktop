@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Cubeon
-Comment=Minecraft launcher with a friends layer
+Comment=Minecraft Java Edition launcher
 Exec=cubeon
 Icon=cubeon
 Terminal=false

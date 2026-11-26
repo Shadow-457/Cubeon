@@ -4,10 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="index, follow, max-image-preview:large" />
-<title>Cubeon privacy - what we keep, and how to delete it</title>
-<meta name="description" content="Cubeon keeps as little as possible: the name you pick, your skins, your friends list, and your IP while connected. No email, no advertising, no tracking across sites - and you can have it all deleted." />
+<title>Cubeon privacy policy</title>
+<meta name="description" content="How Cubeon handles player profiles, messages, website visits and crash logs, and how to request data deletion." />
 <meta property="og:title" content="Cubeon privacy" />
-<meta property="og:description" content="No advertising or analytics profiles. Optional crash diagnosis uses Groq and Kilo; learn how logs are handled." />
+<meta property="og:description" content="How Cubeon handles player profiles, website visits and crash logs." />
 <meta property="og:site_name" content="Cubeon Launcher" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
@@ -24,7 +24,7 @@
 <meta property="og:locale" content="en_US" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Cubeon privacy" />
-<meta name="twitter:description" content="No advertising or analytics profiles. Optional crash diagnosis uses Groq and Kilo; learn how logs are handled." />
+<meta name="twitter:description" content="How Cubeon handles player profiles, website visits and crash logs." />
 <meta name="twitter:image" content="https://www.ylet.online/assets/og.png" />
 <meta name="twitter:image:alt" content="Cubeon Launcher: free, open-source Minecraft Java launcher for Windows and Linux, with the launcher window, mods, modpacks and skins." />
 </head>
@@ -52,7 +52,7 @@
   <div class="wrap">
     <p class="crumbs"><a href="index.html">Home</a> / Privacy</p>
     <h1>Privacy</h1>
-    <p class="lede">Cubeon has no advertising or analytics profiles. Page views are counted anonymously, without cookies. Optional Doctor AI uses Groq with Kilo as a fallback; review the details below.</p>
+    <p class="lede">How Cubeon handles player profiles, website visits and crash logs.</p>
     <p class="updated">Last updated 26 November 2026</p>
   </div>
 </header>
@@ -70,7 +70,7 @@
   <h2>What we don't do</h2>
   <ul>
     <li>No advertising and no ad networks, here or in the app.</li>
-    <li>No analytics profiles and no tracking cookies. The website counts anonymous page views - see <a href="#analytics">page counts</a> - and sets no cookie to do it. Optional Doctor AI requests are described below - see <a href="cookies.html">Cookies</a>. The only lasting per-visitor number the site keeps is the download counter: a shared running total of distinct visitors who downloaded. Our download server keeps a one-way hash of the address the request already carries, only so the same visitor is not counted twice; the address itself is not stored and the hash is not used for anything else.</li>
+    <li>No analytics profiles and no tracking cookies. The website counts anonymous page views - see <a href="#analytics">page counts</a> - and sets no cookie to do it. See <a href="cookies.html">Cookies</a> for browser preferences. The only lasting per-visitor number the site keeps is the download counter: a shared running total of distinct visitors who downloaded. Our download server keeps a one-way hash of the address the request already carries, only so the same visitor is not counted twice; the address itself is not stored and the hash is not used for anything else.</li>
     <li>No selling, renting or swapping your information with anybody.</li>
     <li>No emails, so no newsletters and nothing to unsubscribe from.</li>
     <li>No asking who you are: there's no age, name or address to hand over.</li>
@@ -87,15 +87,16 @@
   <h2>Where it's kept</h2>
   <p>On your own computer, where your name, skins, settings and logs sit in a Cubeon folder in your user folder. And on the small servers that connect players to each other, which is what makes your friends list and your shared skin work. Plus one number - the download counter (see <a href="cookies.html">Cookies</a>), a running total of distinct visitors who downloaded, with only a one-way hash of the address kept so the same visitor is not counted twice.</p>
 
-  <h2 id="doctor">Website Doctor and optional AI</h2>
-  <p>Choosing or dropping a log file starts AI analysis after reading and redacting it in your browser. Pasting a log does not send it until you choose Analyze log. Check on this device instead runs local diagnosis without sending a log to a server. A launcher handoff carries a compressed, redacted excerpt in a URL fragment, which the browser does not send to the website host. Doctor removes that fragment from the address bar when it opens. Browser and operating-system history or clipboard tools may still retain a copied link.</p>
-  <p>Common credentials, email addresses and user-folder names are redacted, but automated redaction cannot identify every private detail. Remove private details before uploading, or paste and review the editable preview before choosing Analyze log. Large logs are reduced to a tail excerpt; the original file remains on your device. Cubeon Doctor keeps the preview and results in page memory. Uploading a file or choosing Analyze log sends the excerpt to our diagnostic endpoint, which forwards it to Groq first and Kilo if Groq fails, without intentionally storing or logging the report.</p>
-  <p>Uploading a file or choosing Analyze log sends the redacted excerpt through Cubeon's server to Groq first. Doctor randomly selects one of three configured Groq models. If the request fails or returns an unusable guide, Doctor sends the excerpt to Kilo's <code>kilo-auto/free</code> gateway and the free model provider it selects. Kilo may be retried once within the same time limit. You do not need a provider account: our credentials stay on the server. Groq, Kilo and its providers apply their own terms, privacy policies and retention rules. See <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener">Groq privacy</a>. Auto Free providers may record prompts and responses and use them to improve their services; do not submit personal or confidential data. See <a href="https://kilo.ai/privacy" target="_blank" rel="noopener">Kilo privacy</a> and <a href="https://kilo.ai/docs/gateway/models-and-providers" target="_blank" rel="noopener">Auto Free data handling</a>. Cubeon cannot delete data held by these providers; contact them for requests about their services.</p>
-  <p>The endpoint uses short-lived, one-way address hashes in server memory to limit repeated requests. Hosting providers may keep ordinary access metadata such as request time and address under their own retention policies. Doctor does not intentionally store report bodies or record them in application logs.</p>
-  <p>Clear removes the log and guide from the page. Reloading also clears them. Saving a guide creates a local Markdown file containing the cited evidence and suggested steps.</p>
+  <h2 id="doctor">Crash logs in Cubeon Doctor</h2>
+  <p>Choosing or dropping a file starts online analysis. If you paste a log or open one from the launcher, Doctor sends the excerpt only when you choose Analyze log. Check on this device instead runs in your browser with no log upload.</p>
+  <p>Doctor removes common credentials, email addresses and user folder names. It can miss private details. Remove them before uploading, or paste your log and review it before sending. Doctor uses an excerpt from the end of long logs. The original file stays on your device.</p>
+  <p>For online analysis, Cubeon’s server sends the redacted excerpt to Groq first. If that fails or returns unusable results, it sends the excerpt to Kilo and the provider Kilo selects. Kilo may be retried once. Those services apply their own data policies. Kilo’s free providers may keep requests and responses and use them to improve their services. See <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener">Groq’s privacy policy</a>, <a href="https://kilo.ai/privacy" target="_blank" rel="noopener">Kilo’s privacy policy</a> and <a href="https://kilo.ai/docs/gateway/models-and-providers" target="_blank" rel="noopener">Kilo’s provider data policies</a>. Contact the providers about data they hold.</p>
+  <p>Cubeon does not intentionally store crash reports or write them to application logs. The server briefly keeps one-way hashes of request addresses to limit repeated use. Hosting providers may retain access details such as the request time and IP address.</p>
+  <p>Opening a log from the launcher puts the redacted excerpt in the part of the browser address after <code>#</code>. The browser does not send that part to the site, and Doctor removes it as the page opens. A copied link can still contain the excerpt.</p>
+  <p>Clear or reload the page to remove the log and results from page memory. Saving the instructions creates a Markdown file on your device with the steps and the quoted error lines.</p>
 
   <h2 id="delete">Deleting your data</h2>
-  <p>No forms and no hoops. Two ways to do it:</p>
+  <p>To remove local files or request deletion of shared data:</p>
   <ul>
     <li><strong>On your computer:</strong> delete the Cubeon folder in your user folder (or uninstall the app and then remove that folder). Your name, skins, settings and logs go with it.</li>
     <li><strong>On our side:</strong> message <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a> and say you'd like your data deleted. We'll remove the name, skin and cape tied to your install and tell you when it's done - normally within a few days.</li>
@@ -117,7 +118,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

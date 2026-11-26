@@ -59,7 +59,7 @@ def main():
         page.goto('https://cubeon.test/doctor')
         expect(page.locator('#doctor-empty')).to_be_visible()
         expect(page.locator('#log-text')).to_be_hidden()
-        expect(page.locator('#ai-privacy')).to_contain_text('Uploading starts AI analysis')
+        expect(page.locator('#ai-privacy')).to_contain_text('Uploading a file or choosing Analyze log sends a redacted excerpt')
         expect(page.locator('.cookie-note')).to_have_count(0)
         assert not ai_calls
         page.screenshot(path=str(captures/'doctor-empty-desktop.png'),full_page=True)
@@ -80,7 +80,7 @@ def main():
         print('PASS launcher redaction, no automatic sharing, all Markdown steps and error evidence')
 
         page.locator('#log-file').set_input_files({'name':'crash.log','mimeType':'text/plain','buffer':b'password=hidden\nGLFW error 65542: WGL: failed'})
-        expect(page.locator('#doctor-status')).to_contain_text('AI is unavailable')
+        expect(page.locator('#doctor-status')).to_contain_text('Online analysis is unavailable')
         assert len(ai_calls)==1, 'File upload must analyze automatically'
         assert 'hidden' not in ai_calls[-1]['log'], 'An uploaded log must be redacted before sharing'
         expect(page.locator('#result-cause')).to_contain_text('OpenGL')
@@ -92,17 +92,17 @@ def main():
         expect(page.locator('#doctor-status')).to_contain_text('over 2 MB')
         assert len(ai_calls)==1, 'Invalid uploads must not call AI'
         page.locator('#log-file').set_input_files({'name':'long.log','mimeType':'text/plain','buffer':b'x'*70000+b'\nUnrecognized VM option bogus'})
-        expect(page.locator('#doctor-status')).to_contain_text('AI is unavailable')
-        expect(page.locator('#file-note')).to_contain_text('tail excerpt')
+        expect(page.locator('#doctor-status')).to_contain_text('Online analysis is unavailable')
+        expect(page.locator('#file-note')).to_contain_text('excerpt from the end of the log')
         expect(page.locator('#guide-steps')).to_contain_text('bogus')
         assert len(ai_calls[-1]['log'])<=64000
         print('PASS automatic upload analysis, local fallback, size/type bounds and precise flags')
 
-        for reason, message in [('ai_not_configured','not configured on this server'),
-                                ('ai_credentials_invalid','rejected the server’s API key'),
-                                ('ai_quota_exhausted','credits or quota'),
-                                ('ai_timeout','time limit'),
-                                ('ai_bad_response','reliable repair instructions')]:
+        for reason, message in [('ai_not_configured','unavailable on this site'),
+                                ('ai_credentials_invalid','refused Cubeon’s connection'),
+                                ('ai_quota_exhausted','used up its requests'),
+                                ('ai_timeout','took too long'),
+                                ('ai_bad_response','couldn’t verify the online result')]:
             ai_mode[0]=reason
             page.locator('#ai-check').click()
             expect(page.locator('#doctor-status')).to_contain_text(message)
@@ -110,20 +110,20 @@ def main():
             expect(page.locator('#result-source')).to_have_text('On-device check')
         print('PASS distinct configuration, credential, quota, timeout and invalid-response messages')
 
-        for mode,message in [('visitor_limit','3 AI requests'),('ai_busy','AI is busy'),('provider_limit','shared provider quota')]:
+        for mode,message in [('visitor_limit','3 online checks'),('ai_busy','Doctor is busy'),('provider_limit','shared limit for online checks')]:
             ai_mode[0]=mode
             page.locator('#ai-check').click()
             expect(page.locator('#doctor-status')).to_contain_text(message)
             expect(page.locator('#result-source')).to_have_text('On-device check')
             expect(page.locator('#guide-steps')).to_contain_text('bogus')
             if mode=='visitor_limit': expect(page.locator('#doctor-status')).to_contain_text('2 minutes')
-            else: expect(page.locator('#doctor-status')).not_to_contain_text('3 AI requests')
+            else: expect(page.locator('#doctor-status')).not_to_contain_text('3 online checks')
         print('PASS visitor rolling quota, accurate wait and separate capacity/provider limits with local guide retained')
 
         ai_mode[0]='ok'
         page.locator('#log-text').fill('java.lang.OutOfMemoryError: Java heap space')
         page.locator('#ai-check').click()
-        expect(page.locator('#result-source')).to_have_text('AI analysis')
+        expect(page.locator('#result-source')).to_have_text('Online analysis')
         expect(page.locator('#guide-steps > li')).to_have_count(2)
         expect(page.locator('#guide-steps code')).to_have_text('options.txt')
         expect(page.locator('#guide-steps img')).to_have_count(0)
@@ -133,7 +133,7 @@ def main():
         download=info.value
         assert download.suggested_filename=='cubeon-doctor-guide.md'
         content=Path(download.path()).read_text()
-        assert '## How to fix it' in content and '1. **Raise memory**' in content
+        assert '## Steps to try' in content and '1. **Raise memory**' in content
         print('PASS Markdown bold/code, safe HTML handling, all steps and Markdown download')
 
         page.evaluate("""() => {
@@ -180,7 +180,7 @@ def main():
         page.locator('[data-example="mods"]').click()
         expect(page.locator('#result-cause')).to_contain_text('Example Mod')
         expect(page.locator('#guide-steps')).to_contain_text('fabric-api')
-        expect(page.locator('#guide-steps')).to_contain_text('Check & repair')
+        expect(page.locator('#guide-steps')).to_contain_text('Check compatibility')
         result_top=page.locator('#doctor-result').bounding_box()['y']
         assert 70<=result_top<180, 'The diagnosis should scroll into view below the navbar'
         page.evaluate('window.scrollTo(0,0)')

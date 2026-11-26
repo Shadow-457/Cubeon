@@ -48,7 +48,7 @@ def main():
                     await icon.decode();
                     return icon.naturalWidth === 256 && icon.naturalHeight === 256;
                 }'''), (width, path, 'favicon failed to load')
-                expect(page.locator('h1')).to_contain_text('best Minecraft launcher' if path == '/minecraft-launcher' else 'Cubeon')
+                expect(page.locator('h1')).to_contain_text('Choosing a Minecraft launcher' if path == '/minecraft-launcher' else 'Cubeon')
                 if path == '/minecraft-launcher':
                     expect(page.locator('table caption')).to_have_text('Launcher requirements and Cubeon support')
                     expect(page.locator('article a[href="download.html"]').last).to_be_visible()
@@ -171,7 +171,7 @@ def main():
         expect(page.locator('#choosing-minecraft-launcher .q-body p')).to_be_visible()
         expect(page.locator('#choosing-minecraft-launcher a[href="minecraft-launcher.html"]')).to_be_visible()
         page.goto('https://cubeon.test/minecraft-launcher')
-        expect(page.locator('h1')).to_contain_text('best Minecraft launcher')
+        expect(page.locator('h1')).to_contain_text('Choosing a Minecraft launcher')
         expect(page.locator('table tbody tr')).to_have_count(6)
         expect(page.locator('article')).to_contain_text('does not provide Microsoft sign-in')
         page.goto('https://cubeon.test/about')

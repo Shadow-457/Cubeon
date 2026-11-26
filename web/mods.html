@@ -52,7 +52,7 @@
     <div class="wrap">
       <p class="crumbs"><a href="index.html">Home</a> / <a href="docs.html">Docs</a> / Mods</p>
       <h1>Mods, resource packs and shaders</h1>
-      <p class="lede">Everything on this page follows one rule: match the version and the loader you actually launch. Get that right and the rest is mostly clicking Install.</p>
+      <p class="lede">Choose the instance you want to play. Mods must support that instance’s Minecraft version and loader.</p>
       <p class="updated">Updated 28 October 2026</p>
     </div>
   </header>
@@ -79,7 +79,7 @@
           <a class="docs-nav-link" href="#install">Installing</a>
           <a class="docs-nav-link" href="#manage">Turning off, updating, removing</a>
           <a class="docs-nav-link" href="#manual">Adding a jar by hand</a>
-          <a class="docs-nav-link" href="#repair">Check &amp; repair</a>
+          <a class="docs-nav-link" href="#repair">Check compatibility</a>
           <a class="docs-nav-link" href="#resourcepacks">Resource packs</a>
           <a class="docs-nav-link" href="#shaders">Shaders</a>
           <a class="docs-nav-link" href="#wont-load">Mods that don't load</a>
@@ -152,23 +152,16 @@
 
       <div class="docs-section" id="manual">
         <h2>Adding a jar by hand</h2>
-        <p>Some mods are only published as a file. Put the jar in the folder the game reads for the instance you are about to launch:</p>
-        <pre><code>~/.cubeon_minecraft/mods/</code></pre>
-        <p>On Windows that is <code>%USERPROFILE%\.cubeon_minecraft\mods\</code>. Close Minecraft first. Cubeon rebuilds that folder at each launch from the instance you selected, so a jar you drop in is picked up for that instance and remembered as yours.</p>
-        <p>Two things Cubeon does for you here, and one it cannot:</p>
-        <ul>
-          <li><strong>Your jars are yours.</strong> Cubeon only removes jars it installed itself. Anything else stays where it is; if a launcher-managed change needs the space, your jar is moved to <code>mods_user_backup/</code>, never deleted.</li>
-          <li><strong>The build still has to be right.</strong> The jar must be for that instance's Minecraft version and loader. Cubeon cannot rewrite a mod.</li>
-          <li><strong>Dependencies are on you.</strong> A hand-added mod does not get its dependencies resolved automatically. If it needs Fabric API, install that too.</li>
-        </ul>
-        <p>If a launcher-managed jar is locked by another running copy of the game, Cubeon stops with a "another Minecraft window is using these mods" message instead of skipping the file. Close the other window and press Play again.</p>
+        <p>On <strong>Play</strong>, select the instance and close Minecraft if it is running. Open <strong>Mods</strong> and select <strong>Import mods</strong> to add your <code>.jar</code> file.</p>
+        <p>Use a build for that instance’s Minecraft version and loader. Check the mod’s page for required dependencies.</p>
+        <p>If Minecraft is using the mod files, close the game before trying the import again.</p>
       </div>
 
       <hr class="docs-divider">
 
       <div class="docs-section" id="repair">
-        <h2>Check &amp; repair</h2>
-        <p><strong>Mods</strong> &gt; <strong>Installed</strong> has a <strong>Check &amp; repair</strong> button. The same button exists in the installed views for resource packs and shaders. It runs Cubeon's local Doctor in the background - no dialog, no upload - and looks for:</p>
+        <h2>Check compatibility</h2>
+        <p><strong>Mods</strong> &gt; <strong>Installed</strong> has a <strong>Check compatibility</strong> button. The same button exists in the installed views for resource packs and shaders. It checks installed files on your device for:</p>
         <ul>
           <li>the same mod installed twice, in two different files;</li>
           <li>a missing required dependency;</li>
@@ -176,7 +169,7 @@
           <li>conflicts the mods declare against each other;</li>
           <li>structural problems in an installed pack.</li>
         </ul>
-        <p>Pressing the button authorizes reversible repairs: it can fetch missing dependencies, and it renames duplicate or incompatible jars to disabled backups rather than deleting them. Re-enable anything you want back in Installed. The result appears next to the button, and hovering it explains anything it could not resolve.</p>
+        <p>The check lists problems before making changes. Use the action beside an issue to install a dependency, resolve a conflict, or disable a mod. You can re-enable disabled mods in Installed.</p>
         <div class="note">
           <b>Automatic checks stay quiet</b>
           <p>Checks at launch are limited to safe launcher settings and never wait on a question; installing content can also fetch dependencies without replacing a build you already have. Nothing gets disabled without you asking for a repair.</p>
@@ -222,8 +215,8 @@
             <tbody>
               <tr><td>Download is greyed out</td><td>The build is for another version or loader</td><td>Pick the instance that matches, or choose another mod build</td></tr>
               <tr><td>Game starts, mod does nothing</td><td>Jar is in the wrong instance, or the game was already open</td><td>Check Installed, then fully restart the game</td></tr>
-              <tr><td>"Missing or unsupported mod" on start</td><td>A dependency is missing or the wrong version</td><td>Install the dependency, or press Check &amp; repair</td></tr>
-              <tr><td>"Duplicate mod" on start</td><td>Two jars of the same mod</td><td>Check &amp; repair renames the extra one; or switch one off</td></tr>
+              <tr><td>"Missing or unsupported mod" on start</td><td>A dependency is missing or the wrong version</td><td>Install the dependency, or press Check compatibility</td></tr>
+              <tr><td>"Duplicate mod" on start</td><td>Two jars of the same mod</td><td>Run Check compatibility, then disable the extra copy</td></tr>
               <tr><td>Crash naming a class or method</td><td>The mod is built for a different Minecraft version</td><td>Install the build for this version - see <a href="troubleshooting.html#messages">crash messages</a></td></tr>
               <tr><td>Crash inside a mixin</td><td>Two mods change the same thing, or one is too old</td><td>Switch off the mods added most recently, then bisect</td></tr>
             </tbody>
@@ -251,7 +244,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

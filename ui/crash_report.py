@@ -93,7 +93,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         log_text = log_text[-MAX_LOG_CHARS:]
         trimmed = True
     if not log_text:
-        log_text = "The game wrote no output before it closed."
+        log_text = "Minecraft closed without writing a log."
 
     def _copy(e=None):
         payload = [reason.strip() or "Minecraft crashed"]
@@ -104,8 +104,8 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         ok = copy_text(page, "\n".join(payload))
         if callable(show_snack):
             show_snack(
-                "Crash log copied - paste it in Discord." if ok else
-                "Couldn't copy automatically - select the log text instead.",
+                "Crash log copied." if ok else
+                "Couldn't copy the log. Select the text to copy it.",
                 duration=5000)
 
     def _discord(e=None):
@@ -294,7 +294,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                     font_family=FONT_MONO, max_lines=2,
                     overflow=ft.TextOverflow.ELLIPSIS))
     footer_bits.append(
-        ft.Text("No account needed - the log is plain text from your game.",
+        ft.Text("Review the log for private details before sharing it.",
                 size=10, color=TEXT_FAINT))
 
     content = ft.Container(
@@ -339,8 +339,8 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
             ft.TextButton(
                 i18n.t("Analyze log"), icon=ft.Icons.MANAGE_SEARCH_ROUNDED,
                 on_click=_doctor, data="crash-web-doctor",
-                tooltip="Open log analysis with a redacted log excerpt. "
-                        "AI analysis shares that excerpt with Kilo.",
+                tooltip="Open a redacted excerpt in your browser. "
+                        "Doctor sends it for online analysis when you choose Analyze log.",
                 style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
             ),
             ft.TextButton(

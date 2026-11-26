@@ -644,7 +644,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     motion_switch = ft.Switch(
         value=motion.transforms(), active_color=ACCENT, scale=0.85,
         data="settings-motion-enabled",
-        tooltip=i18n.t("Hover lifts and list motion. Off leaves fades only."),
+        tooltip=i18n.t("Turn off movement animations and keep fades."),
     )
 
     def _on_motion_change(_e, sw=motion_switch):
@@ -699,7 +699,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         i18n.t("Game"),
         game_window,
         block("In game", group([
-            row("Cubeon Client", "Menu, HUD and Cubeon features", client_mod_cb),
+            row("Cubeon Client", "Adds the in-game menu, HUD and cosmetics.", client_mod_cb),
             row("CustomSkinLoader (CSL)", "Skin and cape loading", csl_cb),
         ])),
         ft.Text(i18n.t("Applies on the next launch."), size=11.5, color=TEXT_DIM),

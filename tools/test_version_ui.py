@@ -240,6 +240,8 @@ if browse:
     check("new instance starts with only the loader step",
           picker_model._new_step == 1 and picker_model.loader_row.visible
           and not picker_model.list.visible and not picker_model.filter_field.visible)
+    check("the Fabric card describes compatibility",
+          "for fabric mods." in subtree_text(picker_model._loader_chips["fabric"]))
     picker_model._next()
     deadline = time.monotonic() + 3
     from cubeon import thread_safe_ui

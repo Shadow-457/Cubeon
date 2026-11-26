@@ -75,7 +75,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     def _make_no_version_notice():
         return ft.Container(
             content=ft.Text(
-                "Pick a version on the Play tab first. The server hosts whatever's selected there.",
+                "On the Play tab, choose an instance to set the server’s Minecraft version.",
                 size=13, color=TEXT_DIM,
             ),
             bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=16,
@@ -680,7 +680,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             smooth_progress_ring.visible = True
             smooth_progress_bar.visible = True
             smooth_progress_bar.value = None
-            smooth_progress_text.value = "Setting up smooth mode..."
+            smooth_progress_text.value = "Installing server performance plugins…"
             threading.Thread(target=_smooth_install_worker, args=(version_id, _smooth_gen["v"]),
                              name="smooth-mode-plugin-install", daemon=True).start()
         else:
@@ -691,8 +691,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         page.update()
 
     high_ping_switch, high_ping_row = switch_row(
-        "Smooth mode for laggy friends",
-        "Lighter settings for players on slow connections.",
+        "Smooth mode",
+        "Reduce view distance, compress more traffic and install performance plugins on Paper.",
     )
     high_ping_switch.on_change = on_high_ping_toggle
 
@@ -892,7 +892,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             ft.Container(height=4),
             pixel_divider(),
             ft.Container(height=4),
-            section_label("Make it smoother"),
+            section_label("Performance"),
             ft.Row([high_ping_row], spacing=12),
             smooth_progress_row,
             ft.Container(height=4),
@@ -1524,7 +1524,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             v = active_version["value"]
             if not v:
                 plugins_not_paper_notice_text.value = (
-                    "Pick a version on the Play tab first - the server hosts whatever's selected there."
+                    "On the Play tab, choose an instance to set the server’s Minecraft version."
                 )
             else:
                 plugins_not_paper_notice_text.value = (

@@ -109,7 +109,7 @@ TABLE = {
     "Extra flags go after Cubeon's defaults. Leave both fields blank unless you need them.": 'Los parámetros adicionales van después de los predeterminados de Cubeon. Deja ambos campos vacíos si no los necesitas.',
     'Automatically detected. Set a path only to override it.': 'Se detecta automáticamente. Indica una ruta solo para cambiarlo.',
     'No friends yet. Add one above.': 'Aún no tienes amigos. Añade uno arriba.',
-    'Messages are private to you and them.': 'Los mensajes son privados entre vosotros.',
+    'Direct messages are private.': 'Los mensajes directos son privados.',
     'Pick a friend to start chatting.': 'Elige un amigo para empezar a conversar.',
     'Search mods…': 'Buscar mods…',
     'Search modpacks…': 'Buscar paquetes de mods…',

@@ -680,7 +680,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     # --- Browse Modrinth modpacks -------------------------------------------
 
     search_field = ft.TextField(
-        hint_text="Search modpacks... e.g. better mc",
+        hint_text="Search modpacks…",
         border_color=CARD_BORDER, focused_border_color=ACCENT_DIM, color=TEXT,
         hint_style=ft.TextStyle(color=TEXT_FAINT), bgcolor=CARD_FILL,
         border_radius=RADIUS, height=46,
@@ -1423,7 +1423,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         if not packs and query:
             rows.append(empty_state('No matching installed packs', 'Try a different search.'))
         elif not packs:
-            rows.append(empty_state("No modpacks installed yet", "Browse packs, or import a .mrpack file.",
+            rows.append(empty_state("No modpacks installed yet", "Browse modpacks or import a .mrpack file.",
                                     icon=ft.Icons.INVENTORY_2_ROUNDED, action_label="Browse",
                                     on_action=lambda e: on_view_change("browse")))
         else:

@@ -10,15 +10,15 @@
   const AI_ERRORS = ['ai_not_configured','ai_credentials_invalid','ai_quota_exhausted',
     'ai_request_rejected','ai_timeout','ai_bad_response','ai_provider_unavailable','ai_unavailable','ai_busy','rate_limited'];
   const ACTIONS = {
-    memory: {path: ['Settings', 'Performance', 'Memory'], label: 'Allocated RAM',
+    memory: {path: ['Settings', 'Game', 'Memory'], label: 'Maximum RAM',
       detail: 'Raise the RAM slider a little, while leaving memory for Windows or Linux.', kind: 'slider'},
-    java: {path: ['Settings', 'Performance', 'Java'], label: 'Java path',
+    java: {path: ['Settings', 'Game', 'Advanced Java settings'], label: 'Java path',
       detail: 'Clear a stale override to use automatic Java detection, or select a compatible runtime.', kind: 'field'},
-    flags: {path: ['Settings', 'Performance', 'Java'], label: 'Custom JVM flags',
+    flags: {path: ['Settings', 'Game', 'Advanced Java settings'], label: 'Custom JVM flags',
       detail: 'Copy your custom flags somewhere safe, then remove the option named in the error.', kind: 'field'},
-    backup: {path: ['Settings', 'System', 'Backups'], label: 'Back up now',
+    backup: {path: ['Settings', 'Account', 'Backups'], label: 'Back up now',
       detail: 'Save a backup before changing a modded instance. Keep the original files.', kind: 'button'},
-    repair: {path: ['Mods', 'Installed'], label: 'Check & repair',
+    repair: {path: ['Mods', 'Installed'], label: 'Check compatibility',
       detail: 'Select the affected instance first. This checks dependencies and conflicts in the background.', kind: 'button'},
     mods: {path: ['Mods', 'Installed'], label: 'Enabled mods',
       detail: 'Disable only the mod or extra copy identified in the error. Do not delete its jar.', kind: 'mods'},
@@ -51,7 +51,7 @@
   const rules = [
     {category:'memory', match:/OutOfMemoryError:\s*(?:Java heap space|GC overhead limit exceeded)/i,
      cause:'Minecraft ran out of Java heap memory.', confidence:'high',
-     steps:[step('memory','Give Java a little more room','Increase Allocated RAM within the safe range shown by Cubeon. If your computer is already short of memory, close other apps or use a lighter pack.'), step('retry','Launch once more','The same out-of-memory line should disappear. If it repeats, keep the new log and review the pack’s memory requirements.')]},
+     steps:[step('memory','Increase the memory limit','Increase Maximum RAM within the safe range shown by Cubeon. If your computer is already short of memory, close other apps or use a lighter pack.'), step('retry','Launch once more','The same out-of-memory line should disappear. If it repeats, keep the new log and review the pack’s memory requirements.')]},
     {category:'java', match:/UnsupportedClassVersionError|class file version \d+.*(?:recognizes|up to)|requires (?:Java|JDK) \d+/i,
      cause:'The selected Java runtime is too old for a game or mod class.', confidence:'high',
      steps:[step('java','Use a compatible Java runtime','Clear an old Java path override. Let Cubeon detect or install the runtime required by this instance.'), step('retry','Try the same instance','Check that the unsupported class version error no longer appears.')]},
@@ -60,13 +60,13 @@
      steps:[step('flags','Check the custom Java flags','Save a copy of your custom flags, then remove the rejected option or test with the field blank. Cubeon’s defaults remain available below the field.'), step('retry','Try the launch again','If it starts, restore custom options one at a time so you can identify the incompatible one.')]},
     {category:'mods', match:/Duplicate (?:mod|versions)|DuplicateModsFoundException|Found duplicate mods|duplicated mod/i,
      cause:'More than one copy of a mod is being loaded.', confidence:'high',
-     steps:[step('backup','Keep a recovery copy','Back up the instance before adjusting a modpack.'), step('repair','Check duplicate builds','Run Check & repair for the affected instance. Old jars remain recoverable as disabled backups.'), step('retry','Confirm one copy is loaded','Try the launch and check that the duplicate-mod error is gone.')]},
+     steps:[step('backup','Keep a recovery copy','Back up the instance before adjusting a modpack.'), step('repair','Check duplicate builds','Run Check compatibility for the affected instance. Review the duplicate files and disable the extra copy.'), step('retry','Confirm one copy is loaded','Try the launch and check that the duplicate-mod error is gone.')]},
     {category:'dependencies', match:/Mod resolution encountered|Incompatible mod set|Missing or unsupported mandatory dependenc|requires .*which is missing/i,
      cause:'A required mod dependency or compatible mod build is missing.', confidence:'medium',
-     steps:[step('backup','Keep the working files','Back up the instance before changing a modded setup.'), step('repair','Resolve the dependency conflict','Check & repair can fetch compatible missing dependencies and identify version conflicts. Use builds matching this instance’s Minecraft version and loader.'), step('retry','Verify the dependency error','Try one launch. If the dependency is still missing, use the exact mod name and required version from the new log.')]},
+     steps:[step('backup','Keep the working files','Back up the instance before changing a modded setup.'), step('repair','Resolve the dependency conflict','Run Check compatibility to find missing dependencies and conflicts. Review the issues and choose which ones to fix. Use builds matching this instance’s Minecraft version and loader.'), step('retry','Verify the dependency error','Try one launch. If the dependency is still missing, use the exact mod name and required version from the new log.')]},
     {category:'graphics', match:/GLFW error (?:65542|65543)|(?:does not support|required).*OpenGL|WGL:|Failed to create (?:an? )?OpenGL|No OpenGL context/i,
      cause:'Minecraft could not create the required OpenGL graphics context.', confidence:'high',
-     steps:[step('graphics','Check the real graphics driver','Install the appropriate driver from your GPU or computer manufacturer. If the GPU does not support the required OpenGL version, changing Java flags will not add that support.'), step('retry','Test graphics again','Try the same Minecraft version after the driver update. Keep the new log if the OpenGL error remains.')]},
+     steps:[step('graphics','Check the graphics driver','Install the appropriate driver from your GPU or computer manufacturer. If the GPU does not support the required OpenGL version, changing Java flags will not add that support.'), step('retry','Test graphics again','Try the same Minecraft version after the driver update. Keep the new log if the OpenGL error remains.')]},
     {category:'storage', match:/No space left on device|disk (?:is )?full|AccessDeniedException|Permission denied|being used by another process|Read-only file system/i,
      cause:'The game could not write or access a required file.', confidence:'medium',
      steps:[step('folder','Check the instance folder','Check free disk space and access to the file named in the error. Close other game windows that may be locking it. Keep worlds and configuration files.'), step('retry','Try the operation again','Confirm the same write or access error does not return.')]},
@@ -88,10 +88,10 @@
      steps:[step('retry','Update Cubeon and retry the instance','Install the latest Cubeon update, restart the launcher, and launch the same affected instance. Forge supplies its own Minecraft module; an extra vanilla client on the launch classpath can cause this error.'), step('log','Keep the module conflict if it repeats','Keep the full ResolutionException line and launch log. The name after “to module” is the consumer of the duplicated package and does not identify a broken mod.')]},
     {category:'native-memory', match:/OutOfMemoryError:\s*(?:Direct buffer memory|Metaspace|unable to create native thread)|Native memory allocation.*failed|insufficient memory for the Java Runtime|Could not reserve enough space/i,
      cause:'Java ran out of memory outside the game heap.', confidence:'high',
-     steps:[step('memory','Leave memory for your computer','Close other memory-heavy apps. If Allocated RAM takes most of your system memory, lower it a little. Increasing the heap can make this particular failure worse.'), step('retry','Test the memory change','Try once. If it repeats, keep the complete Java crash report so the native allocation or thread failure can be checked.')]},
+     steps:[step('memory','Leave memory for your computer','Close other memory-heavy apps. If Maximum RAM takes most of your system memory, lower it a little. Increasing the heap can make this particular failure worse.'), step('retry','Test the memory change','Try once. If it repeats, keep the complete Java crash report so the native allocation or thread failure can be checked.')]},
     {category:'flags', match:/Invalid (?:maximum|initial) heap size|Initial heap size set to a larger value than the maximum heap size|Improperly specified VM option/i,
      cause:'Java rejected the memory limits or a custom launch option.', confidence:'high',
-     steps:[step('flags','Reset conflicting custom limits','Copy your custom flags somewhere safe, then remove custom -Xmx or -Xms limits that conflict with Allocated RAM. For another rejected option, remove that exact option. Cubeon supplies its defaults when the field is blank.'), step('retry','Try the same instance','Check that Java now starts before restoring any custom options.')]},
+     steps:[step('flags','Reset conflicting custom limits','Copy your custom flags somewhere safe, then remove custom -Xmx or -Xms limits that conflict with Maximum RAM. For another rejected option, remove that exact option. Cubeon supplies its defaults when the field is blank.'), step('retry','Try the same instance','Check that Java now starts before restoring any custom options.')]},
     {category:'corrupt', match:/Invalid or corrupt(?:ed)? jarfile|ZipException|invalid (?:LOC|CEN) header|zip END header not found|error in opening zip file|zip file is empty/i,
      cause:'A jar or ZIP archive is damaged or incomplete.', confidence:'high',
      steps:[step('backup','Keep your original files','Back up the instance before replacing an archive.'), step('folder','Replace only the damaged archive','Check the exact archive in the error lines. Obtain a fresh compatible copy from its original source. Keep the old copy as a backup, and leave worlds and other files in place.'), step('retry','Check the new copy','Try once and confirm the same archive error is gone.')]},
@@ -106,7 +106,7 @@
      steps:[step('java','Check the runtime and architecture','Clear an old Java path override and use Cubeon’s automatic runtime. The Java and native-library architecture must match your system.'), step('retry','Test the native library','If it still fails, keep the exact library name and full error. A missing native library may also require a fresh installation of the same game version and loader.')]},
     {category:'classes', match:/NoClassDefFoundError|ClassNotFoundException|NoSuchMethodError|NoSuchFieldError|AbstractMethodError|IllegalAccessError|IncompatibleClassChangeError/i,
      cause:'A required class or method is missing or incompatible.', confidence:'medium',
-     steps:[step('repair','Check matching mod builds','Choose **Check & repair** to check required dependencies and version conflicts. Use builds matching this instance’s Minecraft version and loader.'), step('log','Keep the complete exception','If the check does not resolve it, use the complete crash report with all **Caused by** lines. A class package alone does not identify a mod to disable.')]},
+     steps:[step('repair','Check matching mod builds','Choose **Check compatibility** to check required dependencies and version conflicts. Use builds matching this instance’s Minecraft version and loader.'), step('log','Keep the complete exception','If the check does not resolve it, use the complete crash report with all **Caused by** lines. A class package alone does not identify a mod to disable.')]},
     {category:'stack', match:/StackOverflowError/i,
      cause:'The game exhausted its call stack, usually because a call kept repeating.', confidence:'medium',
      steps:[step('log','Keep the repeating stack trace','Use the full crash report, including repeated stack frames and any mod loading failure. A larger RAM allocation does not fix a recursive call.')]},
@@ -233,8 +233,8 @@
               'Use compatible builds of **' + (issue.owner || 'the affected mod') + '** and **' + issue.target + '**.' + required +
               ' If no compatible combination is available, switch off **' + issue.target + '** for one test. Keep its jar and re-enable it if the failure is unchanged.'));
           } else steps.push(step('repair','Install or repair ' + issue.target,
-            'Choose **Check & repair** to check **' + issue.target + '**' + (issue.owner ? ', required by **' + issue.owner + '**' : '') +
-            '. If it cannot install a compatible build, choose that dependency in Mods using the required version below and this instance’s Minecraft version and loader.' + required));
+            'Choose **Check compatibility** to check **' + issue.target + '**' + (issue.owner ? ', required by **' + issue.owner + '**' : '') +
+            '. Choose Install or Resolve if offered. Otherwise find a build in Mods that matches the required version, Minecraft version and loader.' + required));
         }
         steps.push(step('retry','Test the dependency changes','Try once and check that these dependency errors are gone. If another error appears, check the fresh log.'));
       }
@@ -254,7 +254,7 @@
       } else if (rule.category === 'mods') {
         const config = lines.join('\n').match(/\b([\w.-]+\.json)(?::[\w.$]+)?[^\n]{0,200}(?:Mixin|Injection|failed)|\b(?:Mixin|Injection)[^\n]{0,200}?([\w.-]+\.json)/i);
         cause = 'A mod’s startup change failed, but this log does not identify which installed mod owns it.';
-        steps = [step('repair','Check dependencies and versions','Choose **Check & repair** to check compatible builds and required dependencies.'),
+        steps = [step('repair','Check dependencies and versions','Choose **Check compatibility** to check compatible builds and required dependencies.'),
           step('log','Get the mod’s loading error',(config ? 'The failing mixin file is `' + cleanName(config[1] || config[2]) + '`. ' : '') +
             'Use the full crash report with **provided by**, **from mod**, or **Failure message** lines. There is no confirmed mod to disable in this excerpt.')];
         confidence = 'low';
@@ -267,7 +267,7 @@
         const name = cleanName(duplicate[1]);
         cause = 'More than one copy of “' + name + '” is being loaded.';
         steps = steps.map(s => s.action === 'repair' ? {...s,
-          instruction:'Choose **Check & repair** to check extra copies of **' + name + '**. Keep one compatible build enabled; extra jars remain recoverable as disabled backups.'} : s);
+          instruction:'Choose **Check compatibility** to check extra copies of **' + name + '**. Keep one compatible build enabled and disable the extra copy.'} : s);
       }
     }
     if (rule && rule.category === 'corrupt') {

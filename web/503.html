@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>503 - the server is taking a nap | Cubeon</title>
+<title>503 - Service unavailable | Cubeon</title>
 <meta name="description" content="The service is temporarily unavailable. Head back to Cubeon's home page." />
 <meta name="robots" content="noindex" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
@@ -18,8 +18,6 @@
   .void-actions{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:32px}
   .void-hole{width:120px;height:120px;margin:34px auto 0;border:3px solid var(--ink);background-image:repeating-linear-gradient(0deg,#1a1a1a 0 28px,#111 28px 30px),repeating-linear-gradient(90deg,transparent 0 28px,rgba(255,255,255,.05) 28px 30px);box-shadow:6px 6px 0 var(--text-soft)}
   .void-hole::after{content:"";display:block;width:100%;height:100%;background:radial-gradient(circle at 50% 50%,rgba(0,0,0,.85) 0 24px,transparent 25px)}
-  .void-cmd{margin-top:36px;display:inline-flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);padding:10px 18px;font-family:'Minecraftia';font-weight:600;font-size:14px;letter-spacing:.02em;text-transform:uppercase;color:var(--text-soft)}
-  .void-cmd b{color:var(--text);font-family:inherit}
   @keyframes zzz{0%{opacity:.3;transform:translateY(0)}50%{opacity:1;transform:translateY(-6px)}100%{opacity:.3;transform:translateY(0)}}
   html.js .void-code{animation:zzz 3s ease-in-out infinite}
   @media(prefers-reduced-motion:reduce){html.js .void-code{animation:none}}
@@ -51,13 +49,12 @@
   <div class="wrap void-in">
     <span class="void-code">503</span>
     <div class="void-hole" aria-hidden="true"></div>
-    <h1>The server is taking a nap.</h1>
-    <p class="lede" style="margin-inline:auto">We're either overloaded or doing maintenance - the mobs spawned faster than we could handle them. This one's temporary. Give us a minute and try again.</p>
+    <h1>Service unavailable</h1>
+    <p class="lede" style="margin-inline:auto">Cubeon can’t serve this page right now. Try again in a minute.</p>
     <div class="void-actions">
       <a class="btn big" href="/">Back to home</a>
       <a class="btn quiet" href="/download">Download Cubeon</a>
     </div>
-    <span class="void-cmd">Give it a minute, then <b>reload</b>.</span>
   </div>
 </section>
 </main>
@@ -66,7 +63,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="/"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

@@ -7,7 +7,7 @@
 <title>Getting started with Cubeon - install, first launch, versions</title>
 <meta name="description" content="Which Cubeon file to download, what the first launch asks for, how instances and Java work, and how to update the launcher." />
 <meta property="og:title" content="Getting started with Cubeon" />
-<meta property="og:description" content="Install it, pick a version, press Play - and the settings worth knowing on the way." />
+<meta property="og:description" content="Install Cubeon, set a player name and download your first Minecraft version." />
 <meta property="og:site_name" content="Cubeon Launcher" />
 <meta property="og:type" content="article" />
 <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
@@ -24,7 +24,7 @@
 <meta property="og:locale" content="en_US" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Getting started with Cubeon" />
-<meta name="twitter:description" content="Install it, pick a version, press Play - and the settings worth knowing on the way." />
+<meta name="twitter:description" content="Install Cubeon, set a player name and download your first Minecraft version." />
 <meta name="twitter:image" content="https://www.ylet.online/assets/og.png" />
 <meta name="twitter:image:alt" content="Cubeon Launcher: free, open-source Minecraft Java launcher for Windows and Linux, with the launcher window, mods, modpacks and skins." />
 </head>
@@ -52,7 +52,7 @@
     <div class="wrap">
       <p class="crumbs"><a href="index.html">Home</a> / <a href="docs.html">Docs</a> / Getting started</p>
       <h1>Getting started</h1>
-      <p class="lede">One download, one name, one Play button. This page covers the file to pick, what happens on the first run, and the handful of settings that are worth knowing about.</p>
+      <p class="lede">Install Cubeon, choose a player name and download a Minecraft version.</p>
       <p class="updated">Updated 28 October 2026</p>
     </div>
   </header>
@@ -80,7 +80,7 @@
           <a class="docs-nav-link" href="#instances">Instances</a>
           <a class="docs-nav-link" href="#java-memory">Java and memory</a>
           <a class="docs-nav-link" href="#fps-boost">FPS boost</a>
-          <a class="docs-nav-link" href="#settings">Settings worth knowing</a>
+          <a class="docs-nav-link" href="#settings">Launcher settings</a>
           <a class="docs-nav-link" href="#updates">Updating</a>
         </div>
       </nav>
@@ -115,11 +115,11 @@
 
       <div class="docs-section" id="first-launch">
         <h2>Your first launch</h2>
-        <p>Cubeon opens on the Play tab. Three things happen, in this order:</p>
+        <p>Set up a player name, then create an instance from the Play tab.</p>
         <ol>
-          <li><strong>Pick a name.</strong> Three to sixteen characters, no password, no email. The name is how friends find you, and names are first come, first served - so pick the one you want now rather than later.</li>
-          <li><strong>Choose a Minecraft version</strong> from the version picker. Leave the loader on <strong>Vanilla</strong> unless you already know you need mods.</li>
-          <li><strong>Press Play.</strong> The first launch downloads the game itself, so it takes a few minutes depending on your connection. A progress bar shows what is being fetched, and the button turns into Cancel while it works.</li>
+          <li><strong>Pick a name.</strong> Use 3–16 letters, numbers or underscores. Share your Cubeon ID from Chat so friends can add you.</li>
+          <li><strong>Choose a Minecraft version</strong> in <strong>New instance</strong>. Choose <strong>Vanilla</strong> to play without mods, or use the loader required by your mods.</li>
+          <li><strong>Choose Download &amp; Play.</strong> Cubeon downloads the game files. Use <strong>Cancel</strong> to stop the download.</li>
         </ol>
         <p>Cancelling during that first download is safe: nothing is half-installed, and pressing Play again picks up where it stopped.</p>
         <div class="note">
@@ -135,8 +135,8 @@
         <p>A "version" in Cubeon is a Minecraft release plus, optionally, a mod loader. The launcher can install these loaders for you:</p>
         <ul>
           <li><strong>Vanilla</strong> - the plain game. Resource packs work; mods and shaders do not.</li>
-          <li><strong>Fabric</strong> and <strong>Quilt</strong> - the usual choice for performance mods, cosmetic mods and most modern packs.</li>
-          <li><strong>Forge</strong> and <strong>NeoForge</strong> - needed by the mods and older packs that were built for them.</li>
+          <li><strong>Fabric</strong> runs Fabric mods. <strong>Quilt</strong> runs Quilt-compatible mods.</li>
+          <li><strong>Forge</strong> and <strong>NeoForge</strong> each need mods built for that loader and Minecraft version.</li>
         </ul>
         <p>The important rule: a mod only runs on the loader and the Minecraft version it was built for. A Fabric mod does not work because a Forge version is installed, and a 1.20.1 mod does not work on 1.21. The <a href="mods.html#before">mods guide</a> starts with that check for a reason.</p>
         <p>Install as many versions as you like. Each one is downloaded once and then starts quickly.</p>
@@ -161,10 +161,10 @@
         <h2>Java and memory</h2>
         <h3>Java is handled for you</h3>
         <p>Cubeon uses a Java it finds on your computer when that Java is new enough for the version you picked, and otherwise downloads a free one for you. You only need to touch this if you want a specific Java build.</p>
-        <p>In that case open <strong>Settings</strong> &gt; <strong>Java</strong> and point it at the <code>java</code> executable. Use a 64-bit build: 1.18 to 1.20.4 want Java 17, 1.20.5 and newer want Java 21, and the 26.x versions want Java 25. A path to a 32-bit Java, or to an old Java 8, is the most common reason a launch fails after someone changes this by hand.</p>
+        <p>In that case open <strong>Settings → Game → Advanced Java settings</strong> and point it at the <code>java</code> executable. Use a 64-bit build: 1.18 to 1.20.4 want Java 17, 1.20.5 and newer want Java 21, and the 26.x versions want Java 25. A path to a 32-bit Java, or to an old Java 8, is the most common reason a launch fails after someone changes this by hand.</p>
         <h3>Memory</h3>
         <p>Cubeon starts you at 4&nbsp;GB, which is right for vanilla and light modding. Raise it to 6-8&nbsp;GB for a heavy modpack. Going much higher on a 4&nbsp;GB or 8&nbsp;GB machine makes things worse, not better: the operating system and the rest of the game still need memory of their own.</p>
-        <p>In <strong>Settings</strong> &gt; <strong>Performance</strong> &gt; <strong>Java</strong>, expand <strong>Cubeon's default flags</strong> to see exactly what will be passed to the game, including which options were skipped on your hardware. Custom flags are added after the defaults.</p>
+        <p>In <strong>Settings → Game → Advanced Java settings</strong>, expand <strong>Cubeon's default flags</strong> to see exactly what will be passed to the game, including which options were skipped on your hardware. Custom flags are added after the defaults.</p>
       </div>
 
       <hr class="docs-divider">
@@ -182,14 +182,14 @@
       <hr class="docs-divider">
 
       <div class="docs-section" id="settings">
-        <h2>Settings worth knowing</h2>
-        <p>Settings sit inside the account panel, in a short rail down the left. The ones people actually change:</p>
+        <h2>Launcher settings</h2>
+        <p>Open Settings from the launcher sidebar.</p>
         <ul>
           <li><strong>Language</strong> - 22 languages, searchable by native name, English name or code. Arabic, Urdu, Persian and Pashto switch the whole launcher to right-to-left. A language change applies after a restart, and detailed messages without a translation fall back to English.</li>
           <li><strong>Custom title bar</strong> - on by default on Windows and Linux. Turn it off if your window manager draws its own title bar.</li>
-          <li><strong>Notifications</strong> - <strong>System</strong> &gt; <strong>Notifications</strong> &gt; <strong>Chat messages</strong> controls incoming message alerts. Open conversations do not alert you, and old history never does.</li>
+          <li><strong>Notifications</strong> - <strong>Notifications</strong> &gt; <strong>Chat messages</strong> controls incoming message alerts. Open conversations do not alert you, and old history never does.</li>
           <li><strong>Backups</strong> - save and restore your launcher settings and history. <a href="files.html#backups">Backups</a> explains what is covered.</li>
-          <li><strong>Screenshots</strong> - its own section, with the gallery of what you have captured in game.</li>
+          <li><strong>Screenshots</strong> - open the gallery with the Screenshots button at the top of the launcher.</li>
           <li><strong>Import</strong> - scan an old <code>.minecraft</code> folder and pick up mods, packs and worlds from it. <a href="modpacks.html#import">Packs and worlds from an old setup</a> covers that.</li>
         </ul>
       </div>
@@ -198,7 +198,7 @@
 
       <div class="docs-section" id="updates">
         <h2>Updating</h2>
-        <p>Launcher updates are manual. Download a stable release or beta preview from the <a href="download.html">download page</a>.</p>
+        <p>Cubeon can update supported Windows and Linux packages in the launcher. To install an update manually, including on macOS, use the <a href="download.html">download page</a>.</p>
         <ol>
           <li>Close Cubeon and Minecraft, and stop hosted servers.</li>
           <li>Run the installer for your existing Cubeon installation.</li>
@@ -228,7 +228,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

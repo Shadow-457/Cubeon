@@ -260,7 +260,7 @@ class SEOTests(unittest.TestCase):
 
     def test_launcher_guide_is_connected_and_has_accurate_structured_data(self):
         guide = self.pages['minecraft-launcher']
-        self.assertIn('best Minecraft launcher', guide.headings[0])
+        self.assertIn('Choosing a Minecraft launcher', guide.headings[0])
         for page in ('index', 'docs', 'download', 'getting-started', 'mods', 'modpacks'):
             self.assertIn('minecraft-launcher.html', self.pages[page].links, page)
         schema, = [json.loads(value) for value in guide.schemas]

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>404 - you mined into the void | Cubeon</title>
+<title>404 - Page not found | Cubeon</title>
 <meta name="description" content="This page doesn't exist. Head back to Cubeon's home page, download page or help page." />
 <meta name="robots" content="noindex" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
@@ -17,8 +17,6 @@
   .void .lede{margin:16px auto 0}
   .void-actions{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:32px}
   .void-hole{width:120px;height:120px;margin:34px auto 0;border:3px solid var(--ink);background-image:conic-gradient(#050505 90deg,#4FB4C7 90deg 180deg,#050505 180deg 270deg,#4FB4C7 270deg);background-size:30px 30px;box-shadow:6px 6px 0 var(--grass)}
-  .void-cmd{margin-top:36px;display:inline-flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);padding:10px 18px;font-family:'Minecraftia';font-weight:600;font-size:14px;letter-spacing:.02em;text-transform:uppercase;color:var(--text-soft)}
-  .void-cmd b{color:var(--grass-dark);font-family:inherit}
   @keyframes glitch{0%,100%{transform:translate(0,0)}20%{transform:translate(2px,-2px)}40%{transform:translate(-2px,2px)}60%{transform:translate(2px,2px)}80%{transform:translate(-2px,-2px)}}
   html.js .void-code{animation:glitch 1.1s steps(1,end) infinite}
   @media(prefers-reduced-motion:reduce){html.js .void-code{animation:none}}
@@ -50,13 +48,12 @@
   <div class="wrap void-in">
     <span class="void-code">404</span>
     <div class="void-hole" aria-hidden="true"></div>
-    <h1>You mined straight into the void.</h1>
-    <p class="lede" style="margin-inline:auto">Whatever you were looking for isn't on this block. Maybe it despawned, maybe the link's a typo, maybe a creeper got it. Either way, let's get you back on solid ground.</p>
+    <h1>Page not found</h1>
+    <p class="lede" style="margin-inline:auto">Check the address or return to the Cubeon homepage.</p>
     <div class="void-actions">
       <a class="btn big" href="/">Back to home</a>
       <a class="btn quiet" href="/download">Download Cubeon</a>
     </div>
-    <span class="void-cmd">Try <b>/help</b> if you're stuck, or <b>/download</b> to just go play.</span>
   </div>
 </section>
 </main>
@@ -65,7 +62,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="/"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+      <p>A free, open-source launcher for Minecraft Java Edition.</p>
     </div>
     <div>
       <h4>Cubeon</h4>

@@ -1,4 +1,4 @@
-/* Logs stay in page memory. File upload or Analyze explicitly starts AI analysis. */
+/* Logs stay in page memory. File upload or Analyze log starts online analysis. */
 (function () {
   'use strict';
   const D = window.CubeonDoctor;
@@ -8,7 +8,7 @@
   if (initialFragment.startsWith('#report=')) history.replaceState(null, '', location.pathname + location.search);
   let revision = 0, controller = null, diagnosis = null;
   let context = {}, reading = false;
-  const normalLabel = 'Analyze log →';
+  const normalLabel = 'Analyze log';
   function node(tag, value, className) {
     const el = document.createElement(tag);
     if (value !== undefined) el.textContent = value;
@@ -43,8 +43,8 @@
     const redacted = D.redactLog(raw);
     $('log-text').value = D.excerpt(redacted);
     $('file-note').textContent = label + (truncated || redacted.length > D.MAX_LOG
-      ? ' · Showing a redacted tail excerpt; keep the full log for any missing context.'
-      : ' · Common private details redacted.');
+      ? ' · Redacted excerpt from the end of the log'
+      : ' · Common private details removed');
   }
   function local() {
     const log = D.excerpt($('log-text').value);
@@ -77,7 +77,7 @@
     diagnosis = result;
     $('doctor-empty').hidden = true;
     $('doctor-result').hidden = false;
-    $('result-source').textContent = result.source === 'ai' ? 'AI analysis' : 'On-device check';
+    $('result-source').textContent = result.source === 'ai' ? 'Online analysis' : 'On-device check';
     $('result-cause').textContent = result.cause;
     $('result-evidence').replaceChildren(...(result.evidence.length
       ? result.evidence.map(line => node('pre', line))
@@ -128,33 +128,32 @@
     const run = revision;
     const current = new AbortController(); controller = current;
     busy(true); $('ai-check').textContent = 'Analyzing…';
-    status('Analyzing your log… This can take up to a minute.');
+    status('Checking the log online. This can take up to a minute.');
     try {
       const result = await D.analyzeViaEndpoint(log, context, {signal:current.signal});
       if (run !== revision) return;
-      render(result); status('Your instructions are ready.'); revealResult();
+      render(result); status('Online analysis complete.'); revealResult();
     } catch (error) {
       if (run !== revision) return;
       const code = String(error && error.message || '');
       const waitMinutes = Math.ceil((error.retryAfter || 1800)/60);
-      const provider = error.provider === 'groq' ? 'Groq' : error.provider === 'kilo' ? 'Kilo' : 'The AI provider';
       const reasons = {
-        ai_busy:'AI is busy right now. Try again shortly.',
-        ai_not_configured:'AI is not configured on this server. The site owner needs to enable it for this deployment.',
-        ai_credentials_invalid:provider + ' rejected the server’s API key. The site owner needs to check the server credential.',
-        ai_quota_exhausted:provider + ' refused the request because account credits or quota are unavailable.',
-        ai_request_rejected:provider + ' rejected Doctor’s request. The site owner needs to check the AI integration.',
-        ai_timeout:provider + ' did not finish within the time limit. Try AI again later.',
-        request_timeout:'The AI request timed out. Try AI again later.',
-        ai_bad_response:provider + ' returned a response that could not be turned into reliable repair instructions. Try AI again later.',
-        ai_provider_unavailable:provider + ' could not complete the request. Try AI again later.',
-        request_failed:'The AI endpoint could not be reached on this site. The site owner needs to check the deployment.'
+        ai_busy:'Doctor is busy. Try again in a minute.',
+        ai_not_configured:'Online analysis is unavailable on this site.',
+        ai_credentials_invalid:'The analysis service refused Cubeon’s connection.',
+        ai_quota_exhausted:'Cubeon has used up its requests with the analysis service.',
+        ai_request_rejected:'The analysis service couldn’t accept this request.',
+        ai_timeout:'The analysis service took too long to respond. Try again later.',
+        request_timeout:'Online analysis timed out. Try again later.',
+        ai_bad_response:'Doctor couldn’t verify the online result against the log.',
+        ai_provider_unavailable:'The analysis service is unavailable. Try again later.',
+        request_failed:'Couldn’t reach online analysis. Check your connection and try again.'
       };
       status(/cancelled/i.test(code) ? 'Analysis stopped. The on-device instructions are still below.'
-        : code === 'rate_limited' && error.scope === 'visitor' ? 'You’ve used your 3 AI requests for this 30-minute window. Try again in ' + waitMinutes + ' minute' + (waitMinutes === 1 ? '' : 's') + '. On-device instructions are still available.'
-        : /rate_limited/i.test(code) ? provider + ' reached the site’s shared provider quota. This is separate from your personal analysis limit. On-device instructions are below; try AI again later.'
+        : code === 'rate_limited' && error.scope === 'visitor' ? 'You’ve used your 3 online checks for this 30-minute window. Try again in ' + waitMinutes + ' minute' + (waitMinutes === 1 ? '' : 's') + '. On-device instructions are still available.'
+        : /rate_limited/i.test(code) ? 'Cubeon has reached its shared limit for online checks. Try again later. On-device instructions are below.'
         : Object.hasOwn(reasons,code) ? reasons[code] + ' On-device instructions are still below.'
-        : 'AI is unavailable. On-device instructions are below; try AI again later.');
+        : 'Online analysis is unavailable. Try again later. On-device instructions are below.');
       revealResult();
     } finally {
       if (controller === current) {
@@ -195,9 +194,9 @@
   });
   $('download-result').addEventListener('click', () => {
     if (!diagnosis) return;
-    const lines = ['# Cubeon Doctor', '', diagnosis.cause, '', '## How to fix it'];
+    const lines = ['# Cubeon Doctor', '', diagnosis.cause, '', '## Steps to try'];
     diagnosis.steps.forEach((s, i) => lines.push('', (i+1) + '. **' + s.title + '**', '', ...s.instruction.split('\n').map(line => '   ' + line)));
-    lines.push('', '## Check it worked', diagnosis.verify, '', '## Undo a change', diagnosis.rollback, '', '## Error lines', ...diagnosis.evidence.map(line => '> ' + line));
+    lines.push('', '## How to check', diagnosis.verify, '', '## How to undo changes', diagnosis.rollback, '', '## Error lines', ...diagnosis.evidence.map(line => '> ' + line));
     const url = URL.createObjectURL(new Blob([lines.join('\n')], {type:'text/markdown;charset=utf-8'}));
     const a = node('a'); a.href = url; a.download = 'cubeon-doctor-guide.md'; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -236,7 +235,7 @@
       preview(report.log, 'From Cubeon' + (context.version ? ' · ' + context.version : ''), report.truncated === true);
       const note = $('file-note').textContent;
       local(); $('file-note').textContent = note;
-      $('log-editor').open = true; status('Launcher log loaded. On-device instructions are below. Choose Analyze log for AI.');
+      $('log-editor').open = true; status('Launcher log opened. The on-device check is below. Select Analyze log to send the excerpt for online analysis.');
       revealResult();
     } catch (_) {
       if (run === revision) status('The launcher report could not be opened in this browser. Use Copy log in Cubeon, then paste it here.');

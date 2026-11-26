@@ -312,12 +312,12 @@ class VersionPicker:
         loader_chip_row = ft.Column(spacing=8, tight=True,
                                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
         loader_descriptions = {
-            "vanilla": "Classic Minecraft, without mods.",
-            "fabric": "Lightweight, with Fabric mods.",
+            "vanilla": "Minecraft without a mod loader.",
+            "fabric": "For Fabric mods.",
             "quilt": "For Quilt-compatible mods.",
             "forge": "For Forge mods and modpacks.",
             "neoforge": "For NeoForge mods and modpacks.",
-            "rust": "26.3 only · Local profiles · Experimental engine",
+            "rust": "Minecraft 26.3 only. Multiplayer servers are unavailable.",
         }
         for lid, label in self.loaders:
             title = ft.Text(label, size=14, color=TEXT, weight=ft.FontWeight.W_600)
@@ -352,9 +352,9 @@ class VersionPicker:
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
         self.loader_hint = ft.Text(
-            "Vanilla Minecraft, without mods.", size=11, color=TEXT_DIM)
+            "Minecraft without a mod loader.", size=11, color=TEXT_DIM)
         self.version_heading = ft.Text(
-            "2  CHOOSE A MINECRAFT VERSION", size=10.5, color=TEXT_DIM,
+            "Choose a Minecraft version", size=10.5, color=TEXT_DIM,
             weight=ft.FontWeight.W_600, visible=False)
         self.install_hint = ft.Text(
             "Select a version, then press Download & Play.",
@@ -522,11 +522,11 @@ class VersionPicker:
         if new:
             self.title.value = i18n.t('New instance')
             self.step_label.value = f"Step {self._new_step} of 3 · " + {
-                1: "Game engine / mod loader", 2: "Minecraft version", 3: "Instance icon"}[self._new_step]
+                1: "Loader", 2: "Minecraft version", 3: "Instance icon"}[self._new_step]
             loader = dict(self.loaders).get(self._install_loader, self._install_loader)
             self.subtitle.value = {
-                1: "Choose how you want to play.",
-                2: ("Rust · Beta · 26.3 only · Servers unavailable" if native
+                1: "Choose the loader your mods need.",
+                2: ("Minecraft 26.3 only. Multiplayer servers are unavailable." if native
                     else f"{loader} · Choose a Minecraft version."),
                 3: f"{loader} · Minecraft {self._new_version}",
             }[self._new_step]
@@ -570,12 +570,12 @@ class VersionPicker:
         self._new_icon = instance_icons.default(loader_id)
         self._icon_category = 'mob' if self._new_icon.startswith('mob-') else 'block'
         self.loader_hint.value = {
-            "vanilla": "Vanilla Minecraft, without mods.",
-            "fabric": "A lightweight loader for Fabric mods.",
-            "quilt": "A loader for Quilt-compatible mods.",
-            "forge": "For mods and modpacks built for Forge.",
-            "neoforge": "For mods and modpacks built for NeoForge.",
-            "rust": "Rust beta · Local profiles · Servers unavailable",
+            "vanilla": "Minecraft without a mod loader.",
+            "fabric": "For Fabric mods.",
+            "quilt": "For Quilt-compatible mods.",
+            "forge": "For Forge mods and modpacks.",
+            "neoforge": "For NeoForge mods and modpacks.",
+            "rust": "Minecraft 26.3 only. Multiplayer servers are unavailable.",
         }.get(loader_id, "Use mods made for this loader.")
         for lid, chip in self._loader_chips.items():
             active = lid == loader_id
