@@ -1404,6 +1404,26 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         except (OSError, ValueError, TypeError, KeyError) as error:
             raise RuntimeError("Couldn't apply the CustomSkinLoader setting. Close Minecraft and retry Play.") from error
 
+        # Prepare CSL before the final local mirror sync. On a fresh profile,
+        # ensure_ready() queues CubeonLocalSkin for this same game start; the
+        # sync below can then patch that queued entry with the selected arm
+        # model as well as write <USERNAME>.png. Doing this in the opposite
+        # order left first launch dependent on the asynchronous network upload.
+        try:
+            skin_setup = csl.ensure_ready(
+                mc_version, loader,
+                manage=skin_enabled and bool(cfg.get("manage_skin_mod", True)),
+                status_cb=status_cb,
+                version_id=version_id,
+            ) or {}
+            if (skin_enabled and cfg.get("manage_skin_mod", True) and loader in MOD_CAPABLE_LOADERS
+                    and not skin_setup.get("installed")):
+                logging.getLogger(__name__).warning("skin loader setup: %s",
+                                                     skin_setup.get("detail") or "not installed")
+        except Exception as error:
+            logging.getLogger(__name__).warning("skin loader setup failed: %s",
+                                                 type(error).__name__)
+
         # Offline skins are keyed by username, so the file CSL looks for is
         # <USERNAME>.png. Re-syncing here covers any path that changed the
         # name or the skin without going through set_active_skin().
@@ -1429,22 +1449,6 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         except Exception:
             logging.getLogger(__name__).debug(
                 "cosmetics sync failed", exc_info=True)
-
-        # Best-effort: never let a skin-mod problem stop the game launching.
-        try:
-            skin_setup = csl.ensure_ready(
-                mc_version, loader,
-                manage=skin_enabled and bool(cfg.get("manage_skin_mod", True)),
-                status_cb=status_cb,
-                version_id=version_id,
-            ) or {}
-            if (skin_enabled and cfg.get("manage_skin_mod", True) and loader in MOD_CAPABLE_LOADERS
-                    and not skin_setup.get("installed")):
-                logging.getLogger(__name__).warning("skin loader setup: %s",
-                                                     skin_setup.get("detail") or "not installed")
-        except Exception as error:
-            logging.getLogger(__name__).warning("skin loader setup failed: %s",
-                                                 type(error).__name__)
 
     # Ship the in-game Cubeon Client mod into the Fabric profile so the
     # Friends button exists in Minecraft's game menu. Best-effort, always

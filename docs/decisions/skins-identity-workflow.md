@@ -225,8 +225,9 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 1. Pick an unused username in the launcher; set **no** skin and **no** hat.
 2. Select a mod loader instance (Fabric/Forge - CSL is a client mod, vanilla
    can't load it). CSL downloads automatically.
-3. **Launch twice.** The first launch queues CSL's sources into ExtraList; the
-   second merges them ahead of Mojang (the deliberate stagger).
+3. Launch once for the deterministic local skin/cape source. Reopening Cubeon
+   and launching again also verifies the initialized config contains the
+   ordered network source; no filesystem-order stagger is involved.
 4. Press F5 (third person): Steve wearing the **Cubeon cape**. Any other
    player looking at you sees it too - on any server, including vanilla ones.
 
@@ -235,8 +236,8 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 You need two identities: two machines, or one machine with a second
 `.minecraft` directory and a different username.
 
-1. Account A: upload a distinctive skin in the Skin tab, launch (twice, as
-   above). Verify it reached the backend:
+1. Account A: upload a distinctive skin in the Skin tab and launch. It should
+   appear locally on that first start. Verify it reached the backend:
    ```bash
    curl -s https://cubeon-skins.hamza-457-shahbaz.workers.dev/skins/<PlayerA>.json
    # textures.default = https://.../textures/<sha256>, plus cape

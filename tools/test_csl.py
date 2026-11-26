@@ -133,61 +133,70 @@ def write_csl_config(loadlist: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. Fresh install, launch 1: the STAGGER queues only the Worker entry.
+# 1. Fresh install, launch 1: queue ONLY LocalSkin.
 #
-# The local entry is deliberately withheld until the Worker entry is merged, so
-# it is always prepended AFTER (=> ahead of) the Worker entry - which is how the
-# local source wins the cape slot. See the ORDER CONTRACT in cubeon/csl.py.
+# Java's File.listFiles() order is unspecified. A single queue file guarantees
+# the local PNG wins immediately on every filesystem; once CSL writes its real
+# config, managed setup inserts the Worker directly in deterministic order.
 # ---------------------------------------------------------------------------
 check("nothing registered before first run", csl.registered_names() == set())
 check("not registered on a clean machine", not csl.is_registered())
 
 written = csl.write_extralist_entries()
-check("launch 1 queues only the Worker entry (stagger)", written == ["Cubeon"], written)
-check("only the api file is on disk",
-      os.listdir(CSL_EXTRALIST_DIR) == ["cubeon-api.json"], os.listdir(CSL_EXTRALIST_DIR))
-check("local entry is withheld until the Worker is merged", not csl.is_registered())
+check("launch 1 queues only LocalSkin", written == ["CubeonLocalSkin"], written)
+check("only the local source file is on disk",
+      os.listdir(CSL_EXTRALIST_DIR) == ["cubeon-localskin.json"],
+      os.listdir(CSL_EXTRALIST_DIR))
+check("the clean bootstrap has no unordered Worker file",
+      csl.pending_names() == {"CubeonLocalSkin"} and not csl.is_registered())
 
 # The API root must keep its trailing slash: CustomSkinAPI.toJsonUrl is bare
 # `root + username + ".json"` with no normalization, so dropping it would
 # request ".../cubeon-skins.workers.devBlueFox.json".
 check("api root ends in a slash", csl.CUBEON_SKIN_API_ROOT.endswith("/"))
-api_entry = json.load(open(os.path.join(CSL_EXTRALIST_DIR, "cubeon-api.json")))
-check("api entry type is exactly CustomSkinAPI", api_entry["type"] == "CustomSkinAPI",
-      api_entry["type"])
-
-# CSL consumes launch 1's file, merging the Worker entry into the loadlist.
-merged = simulate_load_extra_list(list(CSL_DEFAULT_LOADLIST))
-mnames = [e["name"] for e in merged]
-check("Worker entry merged ahead of Mojang",
-      mnames.index("Cubeon") < mnames.index("Mojang"), mnames)
-write_csl_config(merged)
-
-# ---------------------------------------------------------------------------
-# 1b. Launch 2: with the Worker entry now registered, the local entry queues.
-# ---------------------------------------------------------------------------
-written2 = csl.write_extralist_entries()
-check("launch 2 queues the local entry", written2 == ["CubeonLocalSkin"], written2)
-check("both sources now registered-or-queued", csl.is_registered())
 
 # The local entry carries skin AND cape AND elytra. The cape/elytra paths carry
-# a "./" segment ("LocalSkin/./capes/...") so LegacyLoader.compare() - which is
-# Objects.equals on skin+cape+elytra - does NOT treat it as a duplicate of the
-# built-in LocalSkin entry, while still resolving to the same files. Declaring
-# the cape is what lets this entry win the cape slot for a custom local cape.
+# a "./" segment so LegacyLoader.compare() does not discard it as a duplicate.
 local_entry = json.load(open(os.path.join(CSL_EXTRALIST_DIR, "cubeon-localskin.json")))
 check("local entry carries skin, cape and elytra",
       bool(local_entry.get("skin")) and bool(local_entry.get("cape"))
       and bool(local_entry.get("elytra")))
 check("local cape path uses the './' dedupe-dodge", "/./" in local_entry.get("cape", ""))
-check("local entry model is auto (reads slim arms from the PNG)",
-      local_entry.get("model") == "auto")
+check("local entry model starts as auto", local_entry.get("model") == "auto")
+check("first-launch sync can set the queued LocalSkin arm model",
+      csl.set_localskin_model("slim")
+      and json.load(open(os.path.join(CSL_EXTRALIST_DIR,
+                                     "cubeon-localskin.json")))["model"] == "slim")
+
+# CSL consumes the one launch-1 file, so LocalSkin is unconditionally first.
+merged = simulate_load_extra_list(list(CSL_DEFAULT_LOADLIST))
+mnames = [e["name"] for e in merged]
+check("LocalSkin merged ahead of Mojang on first launch",
+      mnames.index("CubeonLocalSkin") < mnames.index("Mojang"), mnames)
+check("Worker is absent from the unordered first-launch queue", "Cubeon" not in mnames, mnames)
+write_csl_config(merged)
 
 # ---------------------------------------------------------------------------
-# 2. CSL consumes launch 2: both survive dedupe, land ahead of Mojang, AND the
-#    local source sits ahead of the Worker so its cape wins the cape slot.
+# 1b. Launch 2: normalize the persistent order before Minecraft starts.
 # ---------------------------------------------------------------------------
-merged = simulate_load_extra_list(merged)
+written2 = csl.write_extralist_entries()
+check("launch 2 queues nothing", written2 == [], written2)
+ordered_names = [e["name"] for e in csl._loadlist()]
+check("launch 2 normalizes LocalSkin ahead of Worker",
+      ordered_names.index("CubeonLocalSkin") < ordered_names.index("Cubeon"), ordered_names)
+api_entry = next(e for e in csl._loadlist() if e.get("name") == "Cubeon")
+check("launch 2 inserts the Worker directly with the correct API type/root",
+      api_entry.get("type") == "CustomSkinAPI"
+      and api_entry.get("root") == csl.CUBEON_SKIN_API_ROOT, api_entry)
+local_config = next(e for e in csl._loadlist() if e.get("name") == "CubeonLocalSkin")
+check("the first-launch explicit arm model survives config normalization",
+      local_config.get("model") == "slim", local_config)
+
+# ---------------------------------------------------------------------------
+# 2. Both survived dedupe and the normalized persistent order keeps local
+#    skin/cape/elytra ahead of the Worker.
+# ---------------------------------------------------------------------------
+merged = csl._loadlist()
 names = [e["name"] for e in merged]
 check("both sources survived CSL's dedupe",
       "Cubeon" in names and "CubeonLocalSkin" in names, names)
@@ -197,8 +206,6 @@ check("both sources survived CSL's dedupe",
 check("Cubeon is ahead of Mojang", names.index("Cubeon") < names.index("Mojang"), names)
 check("CubeonLocalSkin is ahead of Mojang",
       names.index("CubeonLocalSkin") < names.index("Mojang"), names)
-# The whole point of the stagger: the local source is prepended LAST, so it
-# sits ahead of the Worker and its (possibly custom) cape wins the cape slot.
 check("CubeonLocalSkin is ahead of the Worker entry (wins the cape slot)",
       names.index("CubeonLocalSkin") < names.index("Cubeon"), names)
 check("ExtraList files consumed (deleted) by CSL",
@@ -222,17 +229,31 @@ check("re-running never duplicates an entry",
 check("re-running never duplicates the local entry",
       [e["name"] for e in merged2].count("CubeonLocalSkin") == 1)
 
+# An affected older profile can contain only the Worker after its first run.
+# Upgrade it in place before Minecraft starts, without another ExtraList race.
+write_csl_config([
+    dict(csl.EXTRALIST_ENTRIES["cubeon-api.json"]),
+] + [dict(e) for e in CSL_DEFAULT_LOADLIST])
+check("Worker-only older config is upgraded without queueing",
+      csl.write_extralist_entries() == [] and csl.is_registered())
+upgraded_names = [e["name"] for e in csl._loadlist()]
+check("the upgraded config puts LocalSkin ahead of Worker and Mojang",
+      upgraded_names.index("CubeonLocalSkin") < upgraded_names.index("Cubeon")
+      < upgraded_names.index("Mojang"), upgraded_names)
+
 # ---------------------------------------------------------------------------
-# 4. Self-healing: a wiped .minecraft re-registers - Worker first, then local,
-#    exactly like a first install. The stagger is not a one-time thing.
+# 4. Self-healing: a wiped CSL config returns to LocalSkin-only bootstrap.
 # ---------------------------------------------------------------------------
 os.remove(CSL_CONFIG_PATH)
 check("wiped CSL config -> not registered", not csl.is_registered())
-check("wiped CSL config -> re-queues the Worker entry first",
-      csl.write_extralist_entries() == ["Cubeon"])
-# CSL consumes it; the local entry then re-queues behind the merged Worker.
-write_csl_config(simulate_load_extra_list(list(CSL_DEFAULT_LOADLIST)))
-check("then re-queues the local entry", csl.write_extralist_entries() == ["CubeonLocalSkin"])
+# Simulate an interrupted older build that left its Worker file pending. The
+# new bootstrap must remove that owned file before writing LocalSkin.
+os.makedirs(CSL_EXTRALIST_DIR, exist_ok=True)
+with open(os.path.join(CSL_EXTRALIST_DIR, "cubeon-api.json"), "w", encoding="utf-8") as f:
+    json.dump(csl.EXTRALIST_ENTRIES["cubeon-api.json"], f)
+check("wiped config removes an old pending Worker and queues only LocalSkin",
+      csl.write_extralist_entries() == ["CubeonLocalSkin"]
+      and os.listdir(CSL_EXTRALIST_DIR) == ["cubeon-localskin.json"])
 
 # ---------------------------------------------------------------------------
 # 4b. Already queued: an identical file is left alone, a drifted or corrupt one
@@ -263,7 +284,8 @@ check("queued explicit arms are not reset to auto on launch", csl.write_extralis
 with open(local_path, "w", encoding="utf-8") as f:
     f.write("{truncated write")
 check("corrupt queued entry is rewritten", csl.write_extralist_entries() == ["CubeonLocalSkin"])
-check("still registered after repair", csl.is_registered())
+check("local bootstrap remains pending after repair",
+      csl.pending_names() == {"CubeonLocalSkin"} and not csl.is_registered())
 
 # ---------------------------------------------------------------------------
 # 5. Opt-out: manage=False withdraws anything still queued
@@ -278,9 +300,20 @@ check("manage=False never downloads", result["installed"] is False)
 # 6. Vanilla: registration still happens, no download is attempted
 # ---------------------------------------------------------------------------
 result = csl.ensure_ready("1.20.1", "vanilla")
-check("vanilla still registers the sources", result["registered"], result)
+check("vanilla prepares deterministic first-launch LocalSkin",
+      not result["registered"] and csl.pending_names() == {"CubeonLocalSkin"}, result)
 check("vanilla reports it needs a loader", "loader" in result["detail"], result["detail"])
 check("vanilla attempts no install", result["installed"] is False)
+
+# After CSL consumes LocalSkin and creates its config, the next managed setup
+# adds the Worker directly; no second ExtraList file or filesystem order is used.
+write_csl_config(simulate_load_extra_list(list(CSL_DEFAULT_LOADLIST)))
+result = csl.ensure_ready("1.20.1", "vanilla")
+check("the next launch has both ordered sources", result["registered"]
+      and [e["name"] for e in csl._loadlist()].index("CubeonLocalSkin")
+      < [e["name"] for e in csl._loadlist()].index("Cubeon"), result)
+check("the deterministic promotion leaves no queue files",
+      os.listdir(CSL_EXTRALIST_DIR) == [], os.listdir(CSL_EXTRALIST_DIR))
 
 # A malformed CustomSkinLoader.json must not raise - CSL quarantines it and
 # rebuilds, and we should just treat it as "nothing registered".

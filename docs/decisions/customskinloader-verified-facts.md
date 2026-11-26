@@ -75,13 +75,20 @@ and take the id from the last path segment.
 - ExtraList entries are PREPENDED to CSL's load list, which puts Cubeon ahead
   of Mojang (priority 100) - otherwise a taken username gets Mojang's skin and
   the player's own is silently discarded.
+- CSL 15.1 bytecode (`Config.loadExtraList`) iterates the raw
+  `java.io.File.listFiles()` array and appends accepted entries in that returned
+  order before the existing load list. Java provides no ordering guarantee, so
+  correctness must never depend on two ExtraList filenames being read in a
+  particular sequence.
 - `CustomSkinAPI.toJsonUrl` is bare `root + username + ".json"`: the root's
   trailing slash is load-bearing. Current root:
   `https://cubeon-skins.hamza-457-shahbaz.workers.dev/skins/`
   (see `cubeon/csl.py CUBEON_SKIN_API_ROOT` = `CUBEON_API_BASE + "/skins/"`;
   do not edit by hand).
-- Two-launch stagger: Worker entry queues first, LocalSkin entry only after it
-  is confirmed merged (see ORDER CONTRACT in `cubeon/csl.py`).
+- Deterministic bootstrap: a missing/malformed config queues only LocalSkin, so
+  first-launch self-skin loading has no `File.listFiles()` ordering dependency.
+  Once CSL creates a valid config, managed setup atomically inserts the Worker
+  after LocalSkin and removes any obsolete owned queue file.
 - Managed launch normalizes an existing config to **CubeonLocalSkin → Cubeon →
   TLauncher → ElyBy → other existing sources → GameProfile → Mojang**. Missing
   TLauncher/ElyBy/Mojang entries are added using CSL's existing loaders; renamed

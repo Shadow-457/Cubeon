@@ -284,9 +284,10 @@ The publish state is tracked in `skin_net.json` (separate from config to avoid r
 
 **What this module does:**
 1. Downloads the CSL jar into the active mod profile (via Modrinth)
-2. Registers two skin sources in CSL's ExtraList:
-   - **Cubeon** - the network API (serves your uploaded skin + shared cape)
-   - **CubeonLocalSkin** - the local file (serves your skin to yourself)
+2. Bootstraps **CubeonLocalSkin** alone through CSL's ExtraList so the first
+   launch cannot depend on filesystem enumeration or network timing.
+3. Once CSL has initialized its config, atomically adds **Cubeon** (the network
+   API) after LocalSkin and preserves the remaining user sources/settings.
 
 **The load-order trick:** CSL merges sources in order and is "first-source-wins" per texture slot. Cubeon's entries are prepended to the load list so they win over Mojang (which would otherwise serve a premium player's skin if your name matches theirs). The `./` in the cape path (`LocalSkin/./capes/...`) is load-bearing: it resolves to the same file but compares differently, dodging CSL's dedupe logic.
 

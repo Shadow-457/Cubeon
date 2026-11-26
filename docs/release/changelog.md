@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed newly selected skins sometimes missing on the first macOS game launch.
+  Fresh CustomSkinLoader profiles now bootstrap from the local PNG without a
+  directory-order or background-upload race, then add the network source in a
+  deterministic atomic config update.
+
 ## 1.4.70 — Beta: Wardrobe and smoother item lists
 
 - Renamed launcher Cosmetics to Wardrobe with My items and Browse modes.

@@ -134,12 +134,12 @@ class GameFeatureSwitches(unittest.TestCase):
         cubeonfriends.remove_installed(str(self.profile), strict=True)
         self.assertEqual(list(self.profile.glob("*.jar")), [other])
 
-    def play(self, cfg):
+    def play(self, cfg, *, skin_order=None):
         with ExitStack() as stack:
+            sync_skin = (lambda _cfg: skin_order.append("sync")) if skin_order is not None else None
             for obj, name, value in ((versions, "validate_launch_profile", None),
                                      (watchdog, "stale_session", None),
                                      (launch, "game_dir_for", str(self.root)),
-                                     (launch, "sync_local_skin_to_csl", None),
                                      (launch, "save_config", None),
                                      (capes, "sync_local_cape_to_csl", None),
                                      (cosmetics, "sync_to_game", None),
@@ -149,6 +149,16 @@ class GameFeatureSwitches(unittest.TestCase):
                                      (perf_mods, "seed_renderer_options", []),
                                      (launch, "build_launch_command", ["java"])):
                 stack.enter_context(patch.object(obj, name, return_value=value))
+            stack.enter_context(
+                patch.object(launch, "sync_local_skin_to_csl", side_effect=sync_skin)
+                if sync_skin is not None
+                else patch.object(launch, "sync_local_skin_to_csl", return_value=None))
+            if skin_order is not None:
+                stack.enter_context(patch.object(
+                    csl, "ensure_ready",
+                    side_effect=lambda *args, **kwargs: (
+                        skin_order.append("setup") or
+                        {"installed": True, "registered": True, "detail": ""})))
             client = stack.enter_context(patch.object(cubeonfriends, "ensure_installed", return_value=True))
             api = stack.enter_context(patch.object(cubeonfriends, "ensure_fabric_api", return_value="installed"))
             download = stack.enter_context(patch.object(csl, "install", side_effect=AssertionError("Unexpected CSL download")))
@@ -223,6 +233,13 @@ class GameFeatureSwitches(unittest.TestCase):
                     spawn.assert_not_called()
                 self.assertTrue(jar.exists())
                 jar.unlink()
+
+    def test_skin_setup_precedes_the_final_first_launch_sync(self):
+        self.jar("CustomSkinLoader.jar")
+        order = []
+        self.play({"csl_enabled": True, "client_mod_enabled": False,
+                   "manage_skin_mod": True}, skin_order=order)
+        self.assertEqual(order, ["setup", "sync"])
 
 
 if __name__ == "__main__":

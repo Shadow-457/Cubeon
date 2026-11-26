@@ -389,13 +389,15 @@ player named `Dream` gets the real Dream's skin and their own local skin is
 silently discarded - the impersonation risk flagged above, confirmed from
 source. Registering Cubeon ahead of Mojang is what fixes it.
 
-Registration writes one JSON file per source into
+On a missing or malformed config, registration writes only the local source to
 `.minecraft/CustomSkinLoader/ExtraList/`, which CSL **prepends** to the load
-list and then deletes. That's the supported extension point, so the user's
-hand-tuned `CustomSkinLoader.json` is never rewritten:
+list and then deletes. Using one first-launch file avoids Java's unspecified
+`File.listFiles()` ordering and guarantees the player's own PNG wins immediately.
+Once CSL has initialized a valid config, managed setup atomically inserts the
+Worker source and orders Cubeon's entries while preserving unrelated sources:
 
 ```json
-// ExtraList/cubeon-api.json          -> the cape + uploaded skins, from this Worker
+// Added directly to an initialized config -> cape + uploaded skins from this Worker
 { "name": "Cubeon", "type": "CustomSkinAPI", "root": "<worker root, trailing slash>" }
 
 // ExtraList/cubeon-localskin.json    -> the player's own skin/cape/elytra, local
@@ -414,10 +416,9 @@ Two of CSL's rules constrain those files, and both are asserted in
   the built-in LocalSkin already claims the plain `LocalSkin/capes/...` path - so
   ours carries a `./` segment (`LocalSkin/./capes/...`). It resolves to the same
   file but compares unequal, so the entry survives dedupe instead of being dropped
-  as a duplicate and leaving LocalSkin stranded behind Mojang at 710. (The two
-  entries are also queued in a deliberate order - Worker first, local second - so
-  the local source is prepended last and sits ahead of the Worker; see the ORDER
-  CONTRACT in `cubeon/csl.py`.)
+  as a duplicate and leaving LocalSkin stranded behind Mojang at 710. The Worker
+  is added only after CSL has a valid config, when Cubeon can atomically place it
+  after LocalSkin without relying on directory enumeration order.
 - `CustomSkinAPI.toJsonUrl` is bare `root + username + ".json"` with no
   normalization, so the root's **trailing slash is load-bearing**.
 

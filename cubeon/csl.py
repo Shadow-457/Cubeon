@@ -131,18 +131,16 @@ LOCAL_SKIN_TEMPLATE = "LocalSkin/skins/{USERNAME}.png"
 # (java File.listFiles() - filesystem order, not alphabetical, not
 # controllable), so "just add a second file" is a coin flip. Instead:
 #
-#   1. The localskin entry carries skin AND cape AND elytra, so whichever of
-#      the two sources is merged last is prepended FIRST and wins every local
-#      slot while leaving gaps for the Worker to fill.
-#   2. write_extralist_entries() therefore STAGGERS the queueing: the Worker
-#      entry is written first and the localskin entry only once the Worker is
-#      confirmed merged into the loadlist - guaranteeing the localskin entry
-#      is always the last (=> first) one prepended.
-#   3. Loadlists merged by older builds (or in a bad file order) are healed
-#      by refresh_stale_localskin_entry(): if the registered localskin entry
-#      is missing the cape field or sits behind the Worker entry, that ONE
-#      Cubeon-owned entry is removed from the loadlist so it re-queues and
-#      re-prepends ahead. Nothing that isn't ours is ever touched.
+#   1. The localskin entry carries skin AND cape AND elytra. Once it is first
+#      in the persistent load list, it wins every available local slot while
+#      leaving gaps for the Worker to fill.
+#   2. A missing/malformed config queues ONLY CubeonLocalSkin. One ExtraList
+#      file has no enumeration race, so the player's own selected PNG wins on
+#      the first game start even when network publication is slow or stale.
+#   3. Once CSL has created a valid config, configure_source_order() atomically
+#      adds the Worker entry and writes the deterministic local -> Worker order
+#      before the next game starts. Older/partial installs are upgraded through
+#      the same path. Nothing that isn't ours is removed.
 #
 # The "./" in the cape/elytra paths is load-bearing: LegacyLoader.compare()
 # drops an ExtraList entry whose skin+cape+elytra strings all equal an
@@ -216,24 +214,53 @@ def _source_priority(entry) -> int:
     return 4
 
 
+def _drop_registered_queue_files(entries: list[dict]) -> None:
+    """Remove only Cubeon-owned queue files already present in ``entries``."""
+    names = {entry.get("name") for entry in entries if isinstance(entry, dict)}
+    for filename, owned in EXTRALIST_ENTRIES.items():
+        if owned["name"] not in names:
+            continue
+        path = os.path.join(instance_csl_path(CSL_EXTRALIST_DIR), filename)
+        queued = _queued_content(path)
+        if queued and queued.get("name") == owned["name"]:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
 def configure_source_order() -> bool:
     """Apply managed skin priority to an existing, readable CSL config.
 
-    Add missing supported fallbacks without duplicating renamed providers.
-    Preserve source fields, other providers, cache preferences and arm models.
-    Missing/malformed configs are left for CSL to initialize itself.
+    Add missing Cubeon sources and supported fallbacks without duplicating
+    renamed providers. Preserve source fields, other providers, cache
+    preferences and arm models. Missing/malformed configs are left for CSL to
+    initialize itself with the deterministic LocalSkin-only bootstrap.
     """
     cfg = read_csl_config()
     if cfg is None or not isinstance(cfg.get("loadlist"), list):
         return False
     original = cfg["loadlist"]
     entries = list(original)
+    for filename, owned in EXTRALIST_ENTRIES.items():
+        if any(isinstance(entry, dict) and entry.get("name") == owned["name"]
+               for entry in entries):
+            continue
+        candidate = dict(owned)
+        if owned["name"] == LOCAL_ENTRY_NAME:
+            queued = _queued_content(os.path.join(
+                instance_csl_path(CSL_EXTRALIST_DIR), filename))
+            if (queued and queued.get("name") == LOCAL_ENTRY_NAME
+                    and queued.get("model") in ("slim", "default")):
+                candidate["model"] = queued["model"]
+        entries.append(candidate)
     for fallback in FALLBACK_ENTRIES:
         priority = _source_priority(fallback)
         if not any(_source_priority(entry) == priority for entry in entries):
             entries.append(dict(fallback))
     ordered = sorted(entries, key=_source_priority)
     if ordered == original and cfg.get("forceLoadAllTextures", True) is True:
+        _drop_registered_queue_files(ordered)
         return False
     cfg["loadlist"] = ordered
     cfg["forceLoadAllTextures"] = True
@@ -242,6 +269,7 @@ def configure_source_order() -> bool:
         write_json(instance_csl_path(CSL_CONFIG_PATH), cfg)
     except OSError:
         return False
+    _drop_registered_queue_files(ordered)
     return True
 
 
@@ -595,12 +623,12 @@ def write_extralist_entries() -> list[str]:
     after the first - but one whose content has drifted (say a future Cubeon
     release moves the API root) is rewritten rather than left stale.
 
-    ORDERING: the Worker entry is always queued first, and the localskin
-    entry only once the Worker entry is confirmed merged into the loadlist.
-    ExtraList entries are prepended in merge order (last merged wins the
-    front), so this stagger guarantees the local source - which carries the
-    user's skin, hat-composed skin, cape, and elytra - always sits ahead of
-    the Worker. See the ORDER CONTRACT above EXTRALIST_ENTRIES.
+    ORDERING: a missing/malformed CSL config receives only CubeonLocalSkin.
+    Java does not guarantee File.listFiles() order, so one queue file is the
+    only portable way to guarantee the player's local PNG wins the first game
+    start. Once CSL has initialized a valid config, configure_source_order()
+    adds Cubeon directly and atomically normalizes local -> Worker before the
+    next start. See the ORDER CONTRACT above EXTRALIST_ENTRIES.
 
     Note what this deliberately does NOT do: it cannot tell "the user removed
     the Cubeon entry from CustomSkinLoader.json" apart from "we have never
@@ -620,24 +648,26 @@ def write_extralist_entries() -> list[str]:
     refresh_stale_worker_entry()
     configure_request_cache()
 
+    fresh_config = read_csl_config() is None
+    if fresh_config:
+        # Migrate an interrupted launch from builds that queued the Worker
+        # first. Leaving it beside LocalSkin would restore the filesystem-order
+        # race this bootstrap is designed to remove.
+        worker_path = os.path.join(instance_csl_path(CSL_EXTRALIST_DIR),
+                                   "cubeon-api.json")
+        queued_worker = _queued_content(worker_path)
+        if queued_worker and queued_worker.get("name") == WORKER_ENTRY_NAME:
+            try:
+                os.remove(worker_path)
+            except OSError:
+                pass
+
     have = registered_names()
     written = []
     for filename, entry in EXTRALIST_ENTRIES.items():
         if entry["name"] in have:
             continue
-        # Stagger (see ORDER CONTRACT): the localskin entry waits until the
-        # Worker entry is confirmed merged, so it is always prepended after
-        # (=> ahead of) it. On a genuinely fresh install this costs one
-        # launch: the Worker registers on launch 1, the local source on 2.
-        #
-        # That one-launch gap does NOT delay a player seeing their OWN skin
-        # online: the Worker entry (launch 1, already ahead of Mojang) now
-        # serves this player's own uploaded skin too (skins._publish_skin),
-        # so a taken-name player - the case Mojang would hijack - gets their
-        # real skin from the first launch. The launch-2 local entry is what
-        # then wins the CAPE slot (for a custom local cape) and covers the
-        # fully-offline case where the Worker is unreachable.
-        if entry["name"] == LOCAL_ENTRY_NAME and WORKER_ENTRY_NAME not in have:
+        if fresh_config and entry["name"] == WORKER_ENTRY_NAME:
             continue
         path = os.path.join(instance_csl_path(CSL_EXTRALIST_DIR), filename)
         queued = _queued_content(path)

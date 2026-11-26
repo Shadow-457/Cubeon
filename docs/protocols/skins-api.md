@@ -153,11 +153,12 @@ player named `Dream` gets the real Dream's skin and their own local skin is
 silently discarded - the impersonation risk flagged above, confirmed from
 source. Registering Cubeon ahead of Mojang is what fixes it.
 
-Registration writes one JSON file per source into
-`.minecraft/CustomSkinLoader/ExtraList/`, which CSL **prepends** to the load
-list and then deletes. That's the supported extension point, so the user's
-source definitions survive registration. Managed setup also atomically orders
-an existing `CustomSkinLoader.json` as **CubeonLocalSkin → Cubeon → TLauncher →
+With a missing or malformed config, registration writes only CubeonLocalSkin
+into `.minecraft/CustomSkinLoader/ExtraList/`, which CSL **prepends** to the
+load list and then deletes. A single first-launch file avoids Java's unspecified
+directory enumeration and guarantees the local PNG wins immediately. Managed
+setup then atomically adds Cubeon to an initialized `CustomSkinLoader.json` and
+orders it as **CubeonLocalSkin → Cubeon → TLauncher →
 ElyBy → other existing providers → GameProfile → Mojang**, adding missing
 supported TLauncher/ElyBy/Mojang sources and enabling per-texture fallback
 (`forceLoadAllTextures=true`). Other provider fields, cache preferences and
@@ -166,7 +167,7 @@ CSL initializes missing/malformed configs itself before the next managed launch
 can normalize their order:
 
 ```json
-// ExtraList/cubeon-api.json          -> the cape + uploaded skins, from this Worker
+// Added directly to an initialized config -> cape + uploaded skins from this Worker
 { "name": "Cubeon", "type": "CustomSkinAPI", "root": "<worker root, trailing slash>" }
 
 // ExtraList/cubeon-localskin.json    -> the player's own skin/cape/elytra, local
@@ -185,10 +186,9 @@ Two of CSL's rules constrain those files, and both are asserted in
   the built-in LocalSkin already claims the plain `LocalSkin/capes/...` path - so
   ours carries a `./` segment (`LocalSkin/./capes/...`). It resolves to the same
   file but compares unequal, so the entry survives dedupe instead of being dropped
-  as a duplicate and leaving LocalSkin stranded behind Mojang at 710. (The two
-  entries are also queued in a deliberate order - Worker first, local second - so
-  the local source is prepended last and sits ahead of the Worker; see the ORDER
-  CONTRACT in `cubeon/csl.py`.)
+  as a duplicate and leaving LocalSkin stranded behind Mojang at 710. Once CSL's
+  config exists, Cubeon inserts the Worker after LocalSkin atomically rather than
+  relying on ExtraList file order.
 - `CustomSkinAPI.toJsonUrl` is bare `root + username + ".json"` with no
   normalization, so the root's **trailing slash is load-bearing**.
 
