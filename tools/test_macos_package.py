@@ -156,7 +156,8 @@ def native(arch):
         marker.unlink(missing_ok=True)
         before = set(psutil.pids())
         with tempfile.TemporaryDirectory(prefix="cubeon-macos-smoke-") as directory:
-            env = dict(os.environ, CUBEON_GAME_DIR=str(Path(directory) / "game"))
+            env = dict(os.environ, CUBEON_GAME_DIR=str(Path(directory) / "game"),
+                       CUBEON_STARTUP_PROFILE="1")
             output = Path(directory) / "startup.log"
             launcher_log = Path.home() / ".cubeon_launcher/cubeon.log"
             log_start = len(launcher_log.read_text(errors="replace")) if launcher_log.exists() else 0

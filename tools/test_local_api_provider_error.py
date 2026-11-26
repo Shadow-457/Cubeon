@@ -17,6 +17,7 @@ import http.client
 import json
 import os
 import sys
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -52,9 +53,12 @@ def main():
     local_api.set_status_provider(bad_status)
     local_api.set_players_provider(lambda: {"players": []})
 
-    if not local_api.start():
+    with patch("socket.getfqdn", side_effect=AssertionError("bridge startup attempted DNS")) as lookup:
+        started = local_api.start()
+    check("loopback bridge startup never looks up a hostname", not lookup.called)
+    if not started:
         print("  SKIP could not bind a local port in this environment")
-        return 0
+        return 1 if failed else 0
     server = local_api.start._server
 
     def get(route, token):

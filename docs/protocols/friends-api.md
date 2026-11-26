@@ -19,7 +19,9 @@ signalling - all over one WebSocket.
 
 ## Local bridge response failures
 
-The authenticated loopback bridge returns JSON errors with HTTP 500 when a
+The authenticated bridge binds directly to numeric loopback without reverse DNS
+so local startup can proceed when the resolver is unavailable.
+The bridge returns JSON errors with HTTP 500 when a
 provider fails. If Minecraft disconnects while response headers or the body
 are being written, the bridge closes that connection and logs at debug level.
 Broken pipes, connection resets and connection aborts during response writes

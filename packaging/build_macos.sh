@@ -28,8 +28,10 @@ APP_DIR="$(python -c 'import flet_desktop, os; print(os.path.join(os.path.dirnam
 mkdir -p "$APP_DIR"
 if [ ! -s "$APP_DIR/$CLIENT_TAR" ]; then
   echo "+ downloading flet client $FLET_VERSION"
-  curl --retry 3 -fL "https://github.com/flet-dev/flet/releases/download/v${FLET_VERSION}/${CLIENT_TAR}" \
-    -o "$APP_DIR/$CLIENT_TAR"
+  curl --retry 5 --retry-all-errors --retry-max-time 180 --connect-timeout 15 --max-time 120 \
+    -fL "https://github.com/flet-dev/flet/releases/download/v${FLET_VERSION}/${CLIENT_TAR}" \
+    -o "$APP_DIR/$CLIENT_TAR.part"
+  mv "$APP_DIR/$CLIENT_TAR.part" "$APP_DIR/$CLIENT_TAR"
 fi
 echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
 

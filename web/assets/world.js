@@ -16,6 +16,7 @@
     root.style.setProperty('--tex-dirt',tile(16,7,.13,.09));
     root.style.setProperty('--tex-stone',tile(16,21,.1,.12));
     root.style.setProperty('--tex-deep',tile(16,33,.16,.05));
+    root.style.setProperty('--tex-bed',tile(16,57,.1,.26));
     root.style.setProperty('--tex-ore',tile(48,5,.12,.04,{count:1,color:'#3FD6D0'}));
   }catch(e){}
   /* make the textures crisp when scaled */
@@ -58,11 +59,8 @@
     var tint={sunrise:'rgba(255,150,130,.22)',sunset:'rgba(150,50,90,.30)',night:'rgba(4,8,40,.62)'}[(window.__tod||{}).phase];
     if(tint){g.globalCompositeOperation='source-atop';g.fillStyle=tint;g.fillRect(0,0,w,H);g.globalCompositeOperation='source-over'}
   }
-  /* sun / moon travels an arc with the visitor's clock; rises from behind the hills */
-  var hero=cv.parentNode,sun=hero.querySelector('.sun'),T=window.__tod;
-  function place(){if(!sun||!T)return;var h=T.h,p=T.phase==='night'?((h-18+24)%24)/12:(h-6)/13,
-    W=hero.clientWidth,Hh=hero.clientHeight,sz=sun.offsetWidth,hor=Hh-cv.offsetHeight*.78,top=Math.max(108,hor*.12);
-    sun.style.left=(W*(.04+.92*p)-sz/2)+'px';sun.style.top=(hor-Math.sin(Math.PI*p)*(hor-top)-sz/2)+'px'}
+  /* sun / moon is pinned to the top-right of the hero (CSS); only the sky changes with the clock */
+  var hero=cv.parentNode,T=window.__tod;
   /* stars (night only) */
   if(T){var st=document.createElement('div');st.className='stars';st.setAttribute('aria-hidden','true');
     var r=rnd(77),html='';for(var i=0;i<70;i++)html+='<i style="left:'+(r()*100).toFixed(1)+'%;top:'+(r()*100).toFixed(1)+'%"></i>';
@@ -72,8 +70,48 @@
   var forced=/[?&](time|hour)=/.test(location.search);
   function tick(){if(forced||!T)return;var n=new Date(),h=n.getHours()+n.getMinutes()/60,
     ph=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset',ch=ph!==T.phase;T.h=h;T.phase=ph;
-    if(ch){root.dataset.tod=ph;draw()}place()}
+    if(ch){root.dataset.tod=ph;draw()}}
   setInterval(tick,30000);document.addEventListener('visibilitychange',function(){if(!document.hidden)tick()});
-  if(sun)sun.style.transition='left 2s linear,top 2s linear';
-  draw();place();var rt;addEventListener('resize',function(){clearTimeout(rt);rt=setTimeout(function(){draw();place()},120)});
+  draw();var rt;addEventListener('resize',function(){clearTimeout(rt);rt=setTimeout(draw,120)});
+
+  /* Live weather from Open-Meteo using rounded coordinates. Preview: ?weather=rain|storm|snow|fog|clear */
+  var wx=document.createElement('div');wx.className='wx';wx.setAttribute('aria-hidden','true');
+  wx.innerHTML='<div class="wx-rain"></div><div class="wx-flash"></div><svg class="wx-bolt" viewBox="0 0 60 120"><path d="M38 0 14 54h16L18 120 50 44H33z"/></svg>';
+  hero.insertBefore(wx,hero.querySelector('canvas'));
+  var rainEl=wx.querySelector('.wx-rain'),boltEl=wx.querySelector('.wx-bolt'),boltT;
+  function drops(n){var r=rnd(n*7),h='';for(var i=0;i<n;i++)h+='<i style="left:'+(r()*100).toFixed(1)+'%;animation-delay:-'+(r()*2).toFixed(2)+'s;animation-duration:'+(.45+r()*.5).toFixed(2)+'s;height:'+(14+Math.floor(r()*3)*6)+'px"></i>';return h}
+  function strike(){
+    boltEl.style.left=(8+Math.random()*84)+'%';wx.classList.remove('zap');void wx.offsetWidth;wx.classList.add('zap');
+    boltT=setTimeout(strike,3500+Math.random()*7000)}
+  function setWx(kind){
+    clearTimeout(boltT);wx.className='wx';root.removeAttribute('data-wx');
+    if(!kind||kind==='clear')return;
+    root.dataset.wx=kind;wx.classList.add('on','k-'+kind);
+    if(kind==='rain'||kind==='storm')rainEl.innerHTML=drops(kind==='storm'?260:170);
+    else if(kind==='snow')rainEl.innerHTML=drops(70);
+    else rainEl.innerHTML='';
+    if(kind==='storm')boltT=setTimeout(strike,1200)}
+  function fromCode(c){ /* WMO weather codes */
+    if(c>=95)return 'storm';
+    if((c>=51&&c<=67)||(c>=80&&c<=82))return 'rain';
+    if((c>=71&&c<=77)||c===85||c===86)return 'snow';
+    if(c===45||c===48)return 'fog';
+    return 'clear'}
+  var forcedWx=new URLSearchParams(location.search).get('weather');
+  if(['rain','storm','thunder','snow','fog','clear'].indexOf(forcedWx)!==-1){
+    setWx(forcedWx==='thunder'?'storm':forcedWx);return}
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  function load(lat,lon){
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
+    fetch('https://api.open-meteo.com/v1/forecast?latitude='+lat.toFixed(1)+'&longitude='+lon.toFixed(1)+'&current=weather_code')
+      .then(function(r){return r.json()}).then(function(j){if(j&&j.current)setWx(fromCode(j.current.weather_code))}).catch(function(){})}
+  function byIp(){fetch('https://ipwho.is/?fields=latitude,longitude,success').then(function(r){return r.json()})
+    .then(function(j){if(j&&j.success!==false&&j.latitude!=null)load(j.latitude,j.longitude)}).catch(function(){})}
+  function go(){
+    if(document.hidden)return;
+    if(navigator.permissions&&navigator.geolocation){
+      navigator.permissions.query({name:'geolocation'}).then(function(p){
+        if(p.state==='granted')navigator.geolocation.getCurrentPosition(function(g){load(g.coords.latitude,g.coords.longitude)},byIp,{timeout:5000,maximumAge:600000});else byIp()},byIp)}
+    else byIp()}
+  go();setInterval(go,600000);
 })();

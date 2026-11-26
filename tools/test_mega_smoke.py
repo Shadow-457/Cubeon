@@ -164,16 +164,36 @@ def _flet_none_in_controls(tree, rel):
 
     The gray-box bug: `ft.Column([ft.Text(...) if c else None])` serializes a
     null child the Dart client can't build. Catch Constant None and an IfExp
-    with a None branch in any list literal that is a call argument.
+    with a None branch in list literals passed to Flet calls.
     """
+    flet_modules = {
+        alias.asname or alias.name.split(".")[0]
+        for statement in ast.walk(tree) if isinstance(statement, ast.Import)
+        for alias in statement.names if alias.name.split(".")[0] == "flet"
+    }
+    flet_names = {
+        alias.asname or alias.name
+        for statement in ast.walk(tree) if isinstance(statement, ast.ImportFrom)
+        and statement.module and statement.module.split(".")[0] == "flet"
+        for alias in statement.names
+    }
     hits = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
+        target = node.func
+        if isinstance(target, ast.Name):
+            if target.id not in flet_names:
+                continue
+        else:
+            while isinstance(target, ast.Attribute):
+                target = target.value
+            if not isinstance(target, ast.Name) or target.id not in flet_modules | flet_names:
+                continue
         for arg in list(node.args) + [kw.value for kw in node.keywords]:
             if not isinstance(arg, ast.List):
                 continue
-            for i, el in enumerate(arg.elts):
+            for el in arg.elts:
                 if isinstance(el, ast.Constant) and el.value is None:
                     hits.append(f"{rel}:{getattr(el, 'lineno', '?')} "
                                 f"None literal in list arg")

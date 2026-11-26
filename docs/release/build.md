@@ -135,7 +135,8 @@ The smoke check follows the actual Cubeon and native Flet processes; macOS's
 `open -W` helper can exit while the application is still starting or running.
 Flet retains its supported LaunchServices startup on macOS. CI follows its
 per-session native PID file, so an exited `open` helper cannot pass or fail the
-client liveness check by itself.
+client liveness check by itself. The native smoke test enables the launcher’s
+startup timing logs.
 Mac reveals bypass Flet 0.86.5's unsafe `wait_until_ready_to_show()` native
 method and await `to_front()` after applying hidden window geometry. The
 minimal native probe reproduces an early exit when the readiness call is

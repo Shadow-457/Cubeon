@@ -27,6 +27,7 @@ import secrets
 import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit
 
 from .paths import CUBEON_HOME  # ~/.cubeon_launcher
@@ -580,6 +581,12 @@ class _Handler(BaseHTTPRequestHandler):
 class _Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def server_bind(self):
+        # HTTPServer.server_bind does a synchronous reverse DNS lookup.
+        # The bridge uses a numeric loopback address and starts on the UI loop.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address
 
 
 def start() -> bool:

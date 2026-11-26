@@ -53,7 +53,7 @@
     <p class="crumbs"><a href="index.html">Home</a> / Privacy</p>
     <h1>Privacy</h1>
     <p class="lede">Cubeon has no advertising or analytics profiles. Page views are counted anonymously, without cookies. Optional Doctor AI uses Groq with Kilo as a fallback; review the details below.</p>
-    <p class="updated">Last updated 29 October 2026</p>
+    <p class="updated">Last updated 26 November 2026</p>
   </div>
 </header>
 
@@ -80,6 +80,9 @@
   <p>The website counts page views with Vercel Web Analytics. It is cookieless: nothing is written to your device, there is no consent banner to dismiss, and no identifier is left behind for another site to read. For each view it records the page address, the site that referred you, your browser, operating system and device type, a rough location (city level) and the time. It is stored as aggregate totals, never tied to your name, your Cubeon account or your IP address.</p>
   <p>A visitor is counted with a one-way hash built from the incoming request. That hash is discarded after 24 hours, so nothing survives that could follow you across days or across websites. There are no advertising pixels, no cross-site profiles and nothing here that could be sold.</p>
   <p>This section covers the website only. The launcher has no analytics at all: it sends us nothing about how you use it, which mods you pick or how often you play.</p>
+
+  <h2 id="weather">Homepage weather</h2>
+  <p>The animated homepage uses local weather to style the sky. If you have already granted this site location access, your browser supplies the location. Otherwise your browser contacts IPWhois to estimate your area from your IP address. The page rounds latitude and longitude to one decimal place before sending them to Open-Meteo for the forecast. Both services receive the IP address carried by requests to them. Your browser’s reduced-motion preference disables automatic weather lookups.</p>
 
   <h2>Where it's kept</h2>
   <p>On your own computer, where your name, skins, settings and logs sit in a Cubeon folder in your user folder. And on the small servers that connect players to each other, which is what makes your friends list and your shared skin work. Plus one number - the download counter (see <a href="cookies.html">Cookies</a>), a running total of distinct visitors who downloaded, with only a one-way hash of the address kept so the same visitor is not counted twice.</p>
