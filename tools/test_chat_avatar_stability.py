@@ -54,6 +54,13 @@ def closure(function):
                     (cell.cell_contents for cell in function.__closure__)))
 
 
+def avatar_image(row):
+    avatar = row.content.controls[0]
+    if isinstance(avatar, ft.Stack):
+        avatar = avatar.controls[0]
+    return avatar.content
+
+
 with tempfile.TemporaryDirectory() as directory:
     picture = Path(directory) / "profile.png"
     picture.write_bytes(b"uploaded profile picture")
@@ -96,13 +103,13 @@ with tempfile.TemporaryDirectory() as directory:
 
         friend_rows = tuple(friends_list.controls)
         request_rows = tuple(requests_list.controls)
-        avatars = tuple(row.content.controls[0].content for row in friend_rows + request_rows)
+        avatars = tuple(avatar_image(row) for row in friend_rows + request_rows)
         self_image = you_avatar.content
         friend_rows[0].on_click(SimpleNamespace(control=friend_rows[0]))
         header_image = header_avatar.content
         check("selecting a conversation retains roster rows and avatars",
               tuple(friends_list.controls) == friend_rows
-              and all(row.content.controls[0].content is image
+              and all(avatar_image(row) is image
                       for row, image in zip(friend_rows + request_rows, avatars)))
         check("avatars use gapless playback with separate header and roster controls",
               all(image.gapless_playback for image in avatars + (self_image, header_image))
@@ -120,9 +127,9 @@ with tempfile.TemporaryDirectory() as directory:
               not added and not removed and b"src" not in encoded)
         check("presence updates retain header and roster images",
               header_avatar.content is header_image
-              and friend_rows[0].content.controls[0].content is avatars[0])
+              and avatar_image(friend_rows[0]) is avatars[0])
         check("roster labels and capped unread badge update in place",
-              friend_rows[0].content.controls[1].controls[2].value == "new message"
+              friend_rows[0].content.controls[1].controls[1].value == "new message"
               and friend_rows[0].content.controls[2].controls[1].content.value == "99+")
         check("friend and request rows survive unrelated roster changes",
               tuple(friends_list.controls) == friend_rows
@@ -131,14 +138,14 @@ with tempfile.TemporaryDirectory() as directory:
         sources["Alice"] = base64.b64encode(b"changed face").decode("ascii")
         refresh()
         check("a real face change updates src without replacing the image",
-              friend_rows[0].content.controls[0].content is avatars[0]
+              avatar_image(friend_rows[0]) is avatars[0]
               and avatars[0].src == sources["Alice"]
               and header_avatar.content is header_image
               and header_image.src == sources["Alice"])
         sources["Carol"] = base64.b64encode(b"changed request face").decode("ascii")
         refresh()
         check("request face changes update the existing avatar",
-              request_rows[0].content.controls[0].content is avatars[2]
+              avatar_image(request_rows[0]) is avatars[2]
               and avatars[2].src == sources["Carol"])
 
         service.roster["friends"][1]["minecraft_username"] = "Bobby"
@@ -147,7 +154,7 @@ with tempfile.TemporaryDirectory() as directory:
         check("renaming a friend retains the row and updates their face",
               friends_list.controls[1] is friend_rows[1]
               and friend_rows[1].content.controls[1].controls[0].value == "Bobby"
-              and friend_rows[1].content.controls[0].content is avatars[1]
+              and avatar_image(friend_rows[1]) is avatars[1]
               and avatars[1].src == sources["Bobby"])
 
         friend_rows[1].on_click(SimpleNamespace(control=friend_rows[1]))

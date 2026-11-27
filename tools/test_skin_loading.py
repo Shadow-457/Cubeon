@@ -64,12 +64,9 @@ def regression():
         # The open pane can reuse a thumbnail worker queued during construction.
         for job in list(jobs):
             job()
-        grid = next(c for c in fz.walk(root) if isinstance(c, ft.GridView) and c.controls
-                    and any('ember wings' in fz.subtree_text(card) for card in c.controls))
+        grid = root.wardrobe.panes['back'].grid
         assert raster.call_count == len(grid.thumb_window) < len(cosmetics.items('back'))
-        stack = next(c for c in fz.walk(root) if c.data == 'cosmetics-panes')
-        back_pane = next(c for c in stack.controls if c.visible)
-        back_images = [c for c in fz.walk(back_pane) if isinstance(c, ft.Image) and c.width == 76]
+        back_images = [card.image for card in grid.cards if card.image is not None]
         assert back_images and sum(c.visible for c in back_images) == len(grid.thumb_window)
         cached_count = raster.call_count
         tab(root, 'Skin').on_click(None)
@@ -258,18 +255,15 @@ async def native_picker(page):
         async def ready(grid):
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
-                near = [card for card in grid.controls if id(card) in grid.thumb_window]
-                if near and all(any(isinstance(c, ft.Image) and c.visible for c in fz.walk(card)) for card in near):
+                near = grid.window_cards()
+                if near and all(card.image.visible for card in near):
                     return
                 await asyncio.sleep(.03)
-            states = [(card.tooltip, [(c.visible, c.data) for c in fz.walk(card)
-                       if isinstance(c, ft.Image) or c.data == 'content-artwork-unavailable'])
-                      for card in grid.controls if id(card) in grid.thumb_window]
+            states = [(card.control.tooltip, card.image.visible) for card in grid.window_cards()]
             raise AssertionError(f'Nearby thumbnails did not finish: {raster.call_count=}, {states=}')
         def current_grid():
-            stack = next(c for c in fz.walk(root) if c.data == 'cosmetics-panes')
-            pane = next(c for c in stack.controls if c.visible)
-            return next(c for c in fz.walk(pane) if isinstance(c, ft.GridView))
+            wardrobe = root.wardrobe
+            return wardrobe.panes[wardrobe.active_id].grid
         with patch.object(type(page), 'update', counted):
             delays = []
             stop = asyncio.Event()
@@ -289,13 +283,13 @@ async def native_picker(page):
                 tab(root, name).on_click(None)
                 timings.append(time.monotonic() - start)
                 deadline = time.monotonic() + 5
-                while len(current_grid().controls) != 200 and time.monotonic() < deadline:
+                while len(current_grid().cards) != 200 and time.monotonic() < deadline:
                     await asyncio.sleep(.02)
                 grid = current_grid()
-                assert len(grid.controls) == 200
+                assert len(grid.cards) == 200
                 await ready(grid)
-                cards = [id(c) for c in fz.walk(grid)]
-                painted = sum(any(isinstance(c, ft.Image) and c.visible for c in fz.walk(card)) for card in grid.controls)
+                cards = [id(c) for c in fz.walk(grid.view)]
+                painted = sum(card.image.visible for card in grid.cards)
                 assert painted < 40, f'Opening {name} rendered the entire list: {painted}'
                 before = raster.call_count
                 # Real desktop wheel events must reach the inner viewport.
@@ -307,17 +301,16 @@ async def native_picker(page):
                 assert grid.scroll_pixels >= 300, 'Native wheel did not scroll the item grid.'
                 await ready(grid)
                 assert raster.call_count > before, 'Scrolling did not load the new rows.'
-                assert cards == [id(c) for c in fz.walk(grid)], 'Scrolling remounted cards.'
-                first = next(card for card in grid.controls if id(card) in grid.thumb_window)
+                assert cards == [id(c) for c in fz.walk(grid.view)], 'Scrolling remounted cards.'
+                first = grid.window_cards()[0].control
                 apply = next(c for c in fz.walk(first) if isinstance(c, ft.Container) and callable(c.on_click))
                 apply.cubeon_keyboard_button.on_click(None)
                 ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / f'large-{name.lower()}-scrolled.png')
-                print('NATIVE_LIST', name, 'items', len(grid.controls), 'initial_thumbnails', painted,
+                print('NATIVE_LIST', name, 'items', len(grid.cards), 'initial_thumbnails', painted,
                       'scroll_pixels', round(grid.scroll_pixels), flush=True)
             tab(root, 'Back').on_click(None)
-            tab(root, 'Small wings').on_click(None)
             await asyncio.sleep(.2)
-            ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'large-back-filtered.png')
+            ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'large-back-return.png')
             stop.set()
             await pulse
             assert full_diffs == 0, f'Item interaction caused {full_diffs} whole-page diffs.'

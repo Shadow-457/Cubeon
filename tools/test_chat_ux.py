@@ -468,7 +468,7 @@ class ChatUXTests(unittest.TestCase):
         tick()
         bodies = [row.content.controls[0].content.controls[0].value
                   for row in transcript.controls
-                  if len(row.content.controls) == 1]
+                  if isinstance(row.content, ft.Row)]
         self.assertEqual(bodies[0], 'ordered 449')
         self.assertEqual(bodies[-1], 'ordered 50')
         self.assertEqual(len(bodies), chat._MAX_TRANSCRIPT)
@@ -481,9 +481,9 @@ class ChatUXTests(unittest.TestCase):
         self.select('alice')
         rows = self.controls['transcript'].controls
         self.assertEqual(rows[0].content.controls[0].content.controls[0].value, 'today message')
-        self.assertEqual(rows[1].content.controls[1].value, 'Today')
+        self.assertEqual(rows[1].content.value, 'Today')
         self.assertEqual(rows[2].content.controls[0].content.controls[0].value, 'yesterday message')
-        self.assertEqual(rows[3].content.controls[1].value, 'Yesterday')
+        self.assertEqual(rows[3].content.value, 'Yesterday')
 
 
 async def native_emoji(page):

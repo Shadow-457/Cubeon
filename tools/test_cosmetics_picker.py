@@ -1,4 +1,4 @@
-"""One-click selection/filtering reuses artwork and repaints only the picker."""
+"""Wardrobe selection and navigation retain cards and repaint locally."""
 import contextlib
 import os
 import sys
@@ -65,8 +65,11 @@ class CosmeticsPicker(unittest.TestCase):
         control.on_click(None)
 
     def cards(self):
-        return [c for c in self.picker_controls() if callable(getattr(c, 'set_selected', None))
-                and callable(getattr(c, 'set_sublabel', None))]
+        return self.grid().view.controls.copy()
+
+    def pane(self):
+        wardrobe = self.root.wardrobe
+        return wardrobe.panes[wardrobe.active_id]
 
     def picker_controls(self):
         stack = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-panes')
@@ -74,7 +77,7 @@ class CosmeticsPicker(unittest.TestCase):
         return fz.walk(pane)
 
     def grid(self):
-        return next(c for c in self.picker_controls() if isinstance(c, ft.GridView))
+        return self.pane().grid
 
     def apply(self, tooltip):
         next(c for c in self.picker_controls() if isinstance(c, ft.Container)
@@ -98,24 +101,20 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertEqual(self.raster.call_count, rendered)
         self.assertEqual(len(self.jobs), jobs)
         self.assertEqual(self.page.update_calls, 0)
-        self.assertIn('equipped: ember wings (small)', fz.subtree_text(self.root))
+        self.assertTrue(self.pane().cards['back_ember_wings_small'].selected)
 
-    def test_filters_and_pane_returns_preserve_cards(self):
+    def test_pane_returns_preserve_cards_and_selection(self):
         self.tab('Back')
         cards = self.cards()
-        self.tab('Small wings')
-        visible = [c for c in self.cards() if c.visible]
-        self.assertEqual(len(visible), 5)
-        self.assertTrue(all('small' in fz.subtree_text(c) for c in visible))
+        self.assertTrue(any('apply ember wings (giant)' in fz.subtree_text(c) for c in cards))
+        self.apply('Apply Ember Wings (Small)')
         self.tab('Skin')
         self.tab('Back')
         self.assertEqual(cards, self.cards())
-        self.assertEqual(visible, [c for c in self.cards() if c.visible])
-        self.tab('All')
-        self.assertTrue(all(c.visible for c in cards))
+        self.assertTrue(self.pane().cards['back_ember_wings_small'].selected)
         self.assertEqual(self.page.update_calls, 0)
 
-    def test_one_thumbnail_worker_defers_hidden_panes_and_filtered_cards(self):
+    def test_one_thumbnail_worker_defers_hidden_panes_and_distant_cards(self):
         self.tab('Back')
         self.assertEqual(len(self.jobs), 1)
         self.tab('Pets')
@@ -124,24 +123,23 @@ class CosmeticsPicker(unittest.TestCase):
         shoulder_count = len(self.grid().thumb_window)
         self.assertEqual(self.raster.call_count, shoulder_count)
         self.assertTrue(all(call.args[0]['slot'] == 'shoulder' for call in self.raster.call_args_list))
-        self.assertTrue(all(call.kwargs['size'] == (64, 64) for call in self.raster.call_args_list))
+        self.assertTrue(all(call.kwargs['size'] == skin_ui.COSMETIC_THUMB_SIZE
+                            for call in self.raster.call_args_list))
         self.tab('Back')
-        self.tab('Small wings')
         self.assertEqual(len(self.jobs), 1)
         before = self.raster.call_count
         self.jobs.pop(0)()
-        self.assertEqual(self.raster.call_count - before, 5)
-        self.assertTrue(all(call.args[0]['id'].endswith('_small')
+        self.assertEqual(self.raster.call_count - before, len(self.grid().thumb_window))
+        self.assertTrue(all(call.args[0]['slot'] == 'back'
                             for call in self.raster.call_args_list[before:]))
-        self.tab('All')
-        self.jobs.pop(0)()
         rendered_ids = [call.args[0]['id'] for call in self.raster.call_args_list]
         self.assertEqual(len(rendered_ids), len(set(rendered_ids)))
         self.assertLess(self.raster.call_count, len(cosmetics.items('back')) + len(cosmetics.items('shoulder')))
         self.tab('Pets')
         self.tab('Back')
         self.assertFalse(self.jobs)
-        self.assertTrue(all(image.cache_width == image.width for card in self.cards()
+        self.assertTrue(all(image.cache_width == min(image.width, skin_ui.THUMB_CACHE_WIDTH)
+                            for card in self.cards()
                             for image in fz.walk(card) if isinstance(image, ft.Image)))
 
     def test_switching_during_thumbnail_render_does_not_drain_old_pane(self):
@@ -161,13 +159,13 @@ class CosmeticsPicker(unittest.TestCase):
         self.cfg['active_shoulder_item'] = 'shoulder_ember_fox'
         self.tab('Back')
         self.apply('Apply Ember Wings (Small)')
-        remove = next(c for c in self.picker_controls() if c.tooltip == 'Remove the equipped item')
+        remove = self.pane().remove
         self.assertFalse(remove.disabled)
         remove.on_click(None)
         self.assertIsNone(self.cfg['active_back_item'])
         self.assertEqual(self.cfg['active_shoulder_item'], 'shoulder_ember_fox')
         self.assertTrue(remove.disabled)
-        self.assertIn('nothing equipped', fz.subtree_text(self.root))
+        self.assertFalse(any(card.selected for card in self.pane().cards.values()))
 
     def test_butterfly_aura_equips_independently_and_loads_art_only_on_open(self):
         self.cfg['active_back_item'] = 'back_ember_wings_small'
@@ -282,10 +280,11 @@ class CosmeticsPicker(unittest.TestCase):
 
     def test_superseded_library_read_cannot_restore_a_removed_item(self):
         self.tab('Back')
-        stack = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-panes')
-        reload_items = next(pane for pane in stack.controls if pane.visible).content.load_items
+        pane = self.pane()
+        reload_items = pane.load
         current = cosmetics.items('back')
         stale = dict(id='store_removed_fixture', slot='back', name='Removed Wings', blurb='Old revision')
+        pane._loaded = False
         first = True
         def read(slot=None, directory=None):
             nonlocal first
@@ -307,7 +306,7 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertEqual(self.cfg['active_skin'], 'steve.png')
         self.apply('Apply Steve (Default Minecraft skin)')
         self.assertIsNone(self.cfg['active_skin'])
-        self.assertIn('steve · default skin', fz.subtree_text(self.root))
+        self.assertTrue(self.pane().cards[None].selected)
         self.assertIn(image, list(fz.walk(self.root)))
         self.assertEqual(self.page.update_calls, 0)
 
@@ -316,64 +315,63 @@ class CosmeticsPicker(unittest.TestCase):
         self.apply('Apply Ember Wings (Small)')
         cards = self.cards()
         images = [c for c in fz.walk(self.root) if isinstance(c, ft.Image)]
-        grid = next(c for c in fz.walk(self.root) if isinstance(c, ft.GridView)
-                    and cards[0] in c.controls)
+        grid = self.grid()
         jobs = len(self.jobs)
         for width in (280, 620, 180, 900):
-            grid.on_size_change(SimpleNamespace(control=grid, width=width))
+            grid.view.on_size_change(SimpleNamespace(control=grid.view, width=width))
             self.assertEqual(cards, self.cards())
             self.assertEqual(images, [c for c in fz.walk(self.root) if isinstance(c, ft.Image)])
-            columns = max(1, min(4, int((width + 12) / 160)))
-            self.assertEqual(grid.runs_count, columns)
-            cell_width = grid.child_aspect_ratio * grid.card_height
-            self.assertAlmostEqual(columns * cell_width + (columns - 1) * 12, width)
+            columns = max(1, min(grid.MAX_COLUMNS, int((width + grid.GAP) / (grid.CELL_MIN + grid.GAP))))
+            self.assertEqual(grid.view.runs_count, columns)
+            cell_width = grid.view.child_aspect_ratio * grid.card_height
+            self.assertAlmostEqual(columns * cell_width + (columns - 1) * grid.GAP, width, delta=1)
         self.assertEqual(self.cfg['active_back_item'], 'back_ember_wings_small')
         self.assertEqual(len(self.jobs), jobs)
         self.assertEqual(self.raster.call_count, 0)
         self.assertEqual(self.page.update_calls, 0)
 
     def test_compact_layout_keeps_preview_small_and_picker_scroll_bounded(self):
-        layout = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-layout')
-        picker = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-picker')
-        scroll = next(c for c in fz.walk(self.root) if c.data == 'cosmetics-picker-scroll')
+        layout = self.root.wardrobe.layout
+        layout._apply = layout.apply  # drive each measurement synchronously
+        picker = layout.picker
+        scroll = self.grid().view
         model = next(c for c in fz.walk(self.root) if c.data == 'appearance-model')
         viewport = next(c for c in fz.walk(self.root) if isinstance(c, ft.Container)
                         and isinstance(c.content, ft.GestureDetector))
         image = model.controls[1]
         self.assertEqual(self.root.opacity, 0)
-        layout.on_size_change(SimpleNamespace(width=640))
+        layout.row.on_size_change(SimpleNamespace(width=640))
         viewport.on_size_change(SimpleNamespace(width=640))
         self.assertEqual(self.root.opacity, 0)
         scroll.on_size_change(SimpleNamespace(control=scroll, width=608, height=150))
         self.assertEqual(self.root.opacity, 1)
         self.assertLessEqual(model.width, 176)
         for width in (640, 980, 380):
-            layout.on_size_change(SimpleNamespace(width=width))
+            layout.row.on_size_change(SimpleNamespace(width=width))
             viewport.on_size_change(SimpleNamespace(width=width if width < 760 else 300))
             self.assertIs(model.controls[1], image)
-            self.assertLessEqual(model.width, 176 if width < 760 else 256)
+            self.assertLessEqual(model.width, 176 if width < 760 else 320)
             self.root.set_viewport_height(600)
-            self.assertEqual(picker.height, 200 if width < 760 else 500)
+            self.assertEqual(picker.height, 200 if width < 760 else 410)
             self.root.set_viewport_height(900)
-            self.assertEqual(picker.height, 320 if width < 760 else 520)
+            self.assertEqual(picker.height, 320 if width < 760 else 710)
             self.assertIn(scroll, list(fz.walk(picker)))
-        self.assertEqual(scroll.scroll, ft.ScrollMode.ALWAYS)
+        self.assertEqual(scroll.scroll, ft.ScrollMode.AUTO)
         self.assertTrue(scroll.expand)
         self.assertEqual(self.page.update_calls, 0)
 
-    def test_wardrobe_modes_keep_categories_and_controls_without_a_dropdown(self):
-        modes = next(c for c in fz.walk(self.root) if c.data == 'wardrobe-modes')
+    def test_store_and_library_keep_categories_without_a_dropdown(self):
         categories = next(c for c in fz.walk(self.root) if c.data == 'wardrobe-categories')
-        controls = [id(c) for c in fz.walk(modes)] + [id(c) for c in fz.walk(categories)]
+        controls = list(fz.walk(categories))
         self.assertFalse(any(isinstance(c, ft.Dropdown) for c in fz.walk(self.root)))
         self.tab('Head')
         cards = self.cards()
-        self.tab('Browse')
-        self.assertFalse(categories.visible)
-        self.tab('My items')
+        self.tab('Store')
+        self.assertEqual(self.root.wardrobe.active_id, 'store')
+        self.tab('Head')
         self.assertTrue(categories.visible)
         self.assertEqual(cards, self.cards())
-        self.assertEqual(controls, [id(c) for c in fz.walk(modes)] + [id(c) for c in fz.walk(categories)])
+        self.assertEqual(controls, list(fz.walk(categories)))
 
     def test_hidden_capes_are_lazy_and_initial_preview_is_requested_once(self):
         self.preview.reset_mock()
@@ -398,37 +396,34 @@ class CosmeticsPicker(unittest.TestCase):
                 patch.object(cosmetics, 'get', side_effect=lambda key, *_: lookup.get(key)):
             self.tab('Head')
             grid = self.grid()
-            self.assertTrue(grid.build_controls_on_demand)
-            self.assertEqual(grid.cache_extent, grid.card_height + 12)
-            controls = [id(c) for c in fz.walk(grid)]
+            self.assertTrue(grid.view.build_controls_on_demand)
+            self.assertEqual(grid.view.cache_extent, grid.card_height + grid.GAP)
+            controls = [id(c) for c in fz.walk(grid.view)]
             self.jobs.pop(0)()
             self.assertEqual(self.raster.call_count, len(grid.thumb_window))
             self.assertLess(self.raster.call_count, 20)
             before = self.raster.call_count
             with patch.object(ft.context, 'disable_auto_update') as disable:
-                grid.on_scroll(SimpleNamespace(control=grid, pixels=2000))
+                grid.view.on_scroll(SimpleNamespace(control=grid.view, pixels=2000))
                 disable.assert_called_once()
             self.jobs.pop(0)()
             self.assertGreater(self.raster.call_count, before)
             self.assertLess(self.raster.call_count, 40)
-            self.assertEqual(controls, [id(c) for c in fz.walk(grid)])
-            grid.on_scroll(SimpleNamespace(control=grid, pixels=0))
+            self.assertEqual(controls, [id(c) for c in fz.walk(grid.view)])
+            grid.view.on_scroll(SimpleNamespace(control=grid.view, pixels=0))
             self.assertFalse(self.jobs)
             self.assertEqual(self.page.update_calls, 0)
 
-    def test_equipping_and_filters_do_not_refresh_the_whole_page_or_remount_filters(self):
+    def test_equipping_refreshes_the_changed_card_without_diffing_the_grid(self):
         self.tab('Back')
-        grid = self.grid()
-        filters = [c for c in self.picker_controls() if callable(getattr(c, 'set_selected', None))
-                   and not callable(getattr(c, 'set_sublabel', None))]
+        grid = self.grid().view
+        card = self.pane().cards['back_ember_wings_small'].control
         with patch.object(thread_safe_ui, 'refresh') as repaint:
             self.apply('Apply Ember Wings (Small)')
-            self.assertNotIn(grid, [call.args[0] for call in repaint.call_args_list])
-        with patch.object(ft.context, 'disable_auto_update') as disable:
-            self.tab('Small wings')
-            self.assertTrue(disable.called)
-        self.assertEqual(filters, [c for c in self.picker_controls() if callable(getattr(c, 'set_selected', None))
-                                  and not callable(getattr(c, 'set_sublabel', None))])
+            repainted = [call.args[0] for call in repaint.call_args_list]
+            self.assertIn(card, repainted)
+            self.assertNotIn(grid, repainted)
+        self.assertEqual(self.page.update_calls, 0)
 
     def test_upload_adds_skin_and_arm_menu_changes_only_that_card(self):
         entry = dict(filename='new.png', name='New skin', slim=False, model='auto')
@@ -436,12 +431,8 @@ class CosmeticsPicker(unittest.TestCase):
         with patch.object(skin_ui.core, 'add_custom_skin', return_value=entry), \
                 patch.object(skin_ui.core, 'list_custom_skins', return_value=originals + [entry]):
             before = self.cards()
-            # The upload handler is retained on the shared picker.
-            import inspect
-            upload = next(c for c in self.picker_controls() if isinstance(c, ft.Container)
-                          and callable(c.on_click) and 'upload skin' in fz.subtree_text(c))
-            handle = inspect.getclosurevars(upload.on_click).nonlocals['handle_skin_files']
-            handle([SimpleNamespace(name='New skin.png', path='/fixture.png')])
+            self.pane().picker.on_result(SimpleNamespace(files=[
+                SimpleNamespace(name='New skin.png', path='/fixture.png')]))
             self.jobs[-1]()
             self.assertEqual(self.cfg['active_skin'], entry['filename'])
             self.assertTrue(all(card in self.cards() for card in before))

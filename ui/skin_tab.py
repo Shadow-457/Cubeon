@@ -883,6 +883,7 @@ class SkinPane(LibraryPane):
 
     def make_fixed_card(self, key):
         return Card(self.ctx.tokens, src=DEFAULT_SKIN_PREVIEW_SRC, label="Steve",
+                    sublabel="Default Minecraft skin",
                     active=not self.ctx.cfg.get("active_skin"),
                     on_use=lambda e: self.activate(None), on_delete=None)
 
@@ -1350,11 +1351,14 @@ class CosmeticPane(Pane):
     def _make_card(self, item) -> Card:
         wing = bool(item.get("feathers"))
         small = item["id"].endswith("_small") or (wing and item.get("wing_flare") is False)
+        label = item["name"]
+        if wing:
+            label = label.removesuffix(" (Small)").removesuffix(" (Giant)")
         cached = self.ctx.thumbs.cached("cosmetic", item["id"])
         card = Card(
             self.ctx.tokens, src=cached,
             thumb=None if cached else (self.grid, self.slot, "cosmetic", item["id"]),
-            label=item["name"].split(" (")[0] if wing else item["name"],
+            label=label,
             sublabel=("Small" if small else "Giant") if wing else "",
             active=self.ctx.cfg.get(self.key) == item["id"],
             on_use=lambda e, i=item["id"]: self.choose(i),
