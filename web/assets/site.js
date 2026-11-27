@@ -201,6 +201,40 @@
     });
   })();
 
+  /* ---- live Cubeon presence on the homepage ---- */
+  (function onlineCount(){
+    var counter = document.querySelector('[data-online-count]');
+    if(!counter || !window.fetch) return;
+    var url = 'https://cubeon-friends.hamza-457-shahbaz.workers.dev/online';
+    var format = new Intl.NumberFormat();
+    var pending = false;
+
+    async function refresh(){
+      if(document.hidden || pending) return;
+      pending = true;
+      try{
+        var response = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(8000) });
+        var data = response.ok ? await response.json() : null;
+        if(!data || !Number.isSafeInteger(data.online) || data.online < 0){
+          counter.hidden = true;
+          return;
+        }
+        var label = format.format(data.online) +
+          (data.online === 1 ? ' player online in Cubeon' : ' players online in Cubeon');
+        if(counter.textContent !== label) counter.textContent = label;
+        counter.hidden = false;
+      }catch(_){
+        counter.hidden = true;
+      }finally{
+        pending = false;
+      }
+    }
+
+    refresh();
+    window.setInterval(refresh, 60000);
+    document.addEventListener('visibilitychange', refresh);
+  })();
+
   /* ---- fun terms-acceptance checklist (terms.html only) ------------------
      Pure decoration on top of a plain link: with JS off, the button is just
      a link straight to the download page, so nothing here is required to

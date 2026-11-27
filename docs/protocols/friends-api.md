@@ -30,6 +30,15 @@ JSON serialization errors and unrelated I/O failures retain their error handling
 `python3 tools/test_local_api_disconnect.py` covers response disconnects,
 completed POST actions and a real client disconnect followed by a healthy request.
 
+## Public online count
+
+`GET /online` returns `{"online": 0}` with the number of distinct authenticated
+Cubeon names on open Friends WebSockets. The hub reuses the socket attachments
+from the existing `hello` handshake, including older launcher releases. It
+reuses the aggregate for up to 15 seconds and writes no presence history. The
+homepage reads the count every minute while visible. Offline launchers and
+builds with the Friends service disabled are outside the count.
+
 ## Why It's a Durable Object, Not KV
 
 Presence is a heartbeat: every online friend's status changes several times a

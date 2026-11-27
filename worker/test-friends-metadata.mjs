@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { Hub, MAX_DM_ENVELOPE_CHARS } from "./cubeon-friends.js";
+import { Hub } from "./cubeon-friends.js";
+
+const MAX_DM_ENVELOPE_CHARS = 2000;
 
 const db = new DatabaseSync(":memory:");
 const sql = {

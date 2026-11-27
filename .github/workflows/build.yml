@@ -82,10 +82,11 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Check public cosmetics and retired-page APIs
+      - name: Check public APIs
         run: |
           node worker/test-cosmetics.mjs
           node worker/test-neon-cosmetics.cjs
+          node worker/test-online.mjs
           node tools/test_website_store.cjs
 
       - name: Run test suite

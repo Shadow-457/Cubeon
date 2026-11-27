@@ -16,11 +16,19 @@ def main():
     with sync_playwright() as p:
         executable = os.environ.get('CUBEON_TEST_CHROMIUM')
         browser = p.chromium.launch(headless=True, **({'executable_path': executable} if executable else {}))
+        online = {'value': 1}
 
         def route(request):
             url = request.request.url
             if url.startswith('https://cubeon-downloads.'):
                 request.fulfill(json={'count': 0})
+                return
+            if url == 'https://cubeon-friends.hamza-457-shahbaz.workers.dev/online':
+                if online['value'] is None:
+                    request.fulfill(status=503, headers={'Access-Control-Allow-Origin': '*'})
+                else:
+                    request.fulfill(json={'online': online['value']},
+                                    headers={'Access-Control-Allow-Origin': '*'})
                 return
             if not url.startswith('https://cubeon.test/'):
                 request.abort()
@@ -101,6 +109,7 @@ def main():
                 assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, path, 'horizontal overflow')
                 assert page.locator('h1').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1'), (width, path, 'heading clipped')
                 if path.startswith('/?'):
+                    expect(page.locator('[data-online-count]')).to_have_text('1 player online in Cubeon')
                     assert page.locator('.hero .shot img').evaluate('''async (img, size) => {
                         await img.decode();
                         return img.currentSrc.endsWith('/assets/cubeon-play.webp') &&
@@ -132,6 +141,19 @@ def main():
                     expect(page.locator('.project-facts')).to_contain_text('Minecraft Java Edition')
             assert not errors, errors
             page.close()
+        page = browser.new_page(reduced_motion='reduce')
+        page.route('**/*', route)
+        page.goto('https://cubeon.test/')
+        count = page.locator('[data-online-count]')
+        expect(count).to_be_visible()
+        online['value'] = None
+        page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+        expect(count).to_be_hidden()
+        online['value'] = 0
+        page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+        expect(count).to_be_visible()
+        expect(count).to_have_text('0 players online in Cubeon')
+        page.close()
         # Retired browser preferences and a foreign browser locale must leave
         # English pages in place, with working shared controls.
         for width in [1440, 390, 320]:

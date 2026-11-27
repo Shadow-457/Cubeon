@@ -12,6 +12,7 @@
  *   POST /pubkey       publish this name's E2EE public key {name, secret, pubkey}
  *   GET  /pubkey/<name>  fetch a friend's E2EE public key (opaque to us)
  *   GET  /ws           WebSocket upgrade - the realtime channel
+ *   GET  /online       aggregate count of connected Cubeon identities
  *   GET  /health       plain-text OK, for debugging by hand
  *
  * ------------------------------------------------------------------------
@@ -105,11 +106,12 @@ const EMOTE_DURATIONS = Object.freeze({ wave: 3, dance: 6, bow: 3, salute: 3, sh
   clap: 4, laugh: 4, sit: 6, celebrate: 4.5 });
 
 const MAX_TEXT = 2000;        // one chat message
-export const MAX_DM_ENVELOPE_CHARS = 2000;
+const MAX_DM_ENVELOPE_CHARS = 2000;
 const MAX_GROUP_NAME = 32;
 const MAX_GROUP_MEMBERS = 50;
 const HISTORY_KEEP = 50;      // messages retained per conversation
 const MAX_BODY_BYTES = 1024;  // /claim body - a handful of short fields
+const ONLINE_COUNT_TTL_MS = 15_000;
 
 // --------------------------------------------------------------------- Worker
 
@@ -141,7 +143,8 @@ export default {
     // request wholesale keeps the Worker a thin router and the DO the single
     // source of truth for names, the friend graph, chat, and presence.
     if (path === "/claim" || path === "/pubkey" || path.startsWith("/name/") ||
-        path.startsWith("/uid/") || path.startsWith("/pubkey/") || path === "/ws") {
+        path.startsWith("/uid/") || path.startsWith("/pubkey/") ||
+        path === "/ws" || path === "/online") {
       const id = env.HUB.idFromName("global");
       return env.HUB.get(id).fetch(request);
     }
@@ -226,6 +229,13 @@ export class Hub {
     }
     if (path.startsWith("/pubkey/")) {
       return this.httpPubkeyLookup(path.slice("/pubkey/".length).toLowerCase());
+    }
+    if (path === "/online") {
+      if (request.method !== "GET") return methodNotAllowed("GET");
+      const response = json({ online: this.onlineCount() },
+        `public, max-age=${ONLINE_COUNT_TTL_MS / 1000}`);
+      response.headers.set("Access-Control-Allow-Origin", "*");
+      return response;
     }
     if (path === "/ws") {
       if (request.headers.get("Upgrade") !== "websocket") {
@@ -989,6 +999,20 @@ export class Hub {
   }
 
   // --------------------------------------------------------------- presence
+
+  onlineCount() {
+    const now = Date.now();
+    if (!this.onlineSnapshot || now >= this.onlineSnapshot.expires) {
+      const names = new Set();
+      for (const ws of this.ctx.getWebSockets()) {
+        if (ws.readyState !== 1) continue;  // OPEN, including hibernated sockets
+        const name = ws.deserializeAttachment()?.name;
+        if (name) names.add(name);
+      }
+      this.onlineSnapshot = { count: names.size, expires: now + ONLINE_COUNT_TTL_MS };
+    }
+    return this.onlineSnapshot.count;
+  }
 
   // A user is online iff at least one live socket carries their name. Derived
   // from getWebSockets() every time so it's correct across hibernation, where
