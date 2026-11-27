@@ -52,10 +52,11 @@ Minecraft/loader build. Automatic install/launch preparation preserves the
 pack's JAR versions: no performance additions, dependency repair, retired-mod
 deletion, More Culling migration, or missing Client/CSL/Fabric API downloads.
 Existing enabled client/skin copies work without replacement. Explicit Mods
-installs and Resolve remain available. Saved client/skin opt-outs still apply;
-CSL opt-in restores only Cubeon's own setting backups and preserves manually
-disabled copies. Pack ownership remains protective when a marker is missing,
-relocated, unreadable or temporarily hidden during an update.
+installs and Resolve remain available. The Cubeon Client and CustomSkinLoader
+switches store disabled JARs in the selected instance and restore their own
+backups when turned back on. Manually disabled copies are preserved. Pack
+ownership remains protective when a marker is missing, relocated, unreadable
+or temporarily hidden during an update.
 
 Read-only pack checks (Installed, post-install and Play) validate the enabled
 JAR files and leave dependency resolution to the installed loader. Cubeon

@@ -1363,15 +1363,12 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                         exc_info=True)
             status_cb("Skin support could not be set up")
         try:
-            from .mods import get_profile_dir as _get_profile_dir
             from . import cubeonfriends as _friends_mod
             from .features import friends_enabled
             client_enabled = friends_enabled() and feature_cfg.get("client_mod_enabled", True)
-            if not client_enabled:
-                _friends_mod.remove_installed(profile_dir, strict=True)
+            _friends_mod.set_enabled(profile_dir, loader_id, client_enabled)
             _friends_ok = _friends_mod.ensure_installed(
-                mc_version, loader_id,
-                _get_profile_dir(mc_version, loader_id, version_id),
+                mc_version, loader_id, profile_dir,
                 automatic=True, version_id=version_id) if client_enabled else False
             if client_enabled and loader_id not in ("fabric", "quilt"):
                 # The Friends mod is Fabric-only (see mod/brackets.json).

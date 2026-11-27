@@ -86,6 +86,30 @@ class LoadingSkeletons(unittest.TestCase):
             self.assertEqual([(id(c), c.height) for c, _ in hosts], [(id(c), height) for c, height in hosts])
             self.assertTrue(all(metric is find(root, f'stats-metric:{index}') for index, metric in enumerate(metrics)))
 
+    def test_stats_first_paint_uses_measured_viewport_and_overview(self):
+        for width, height, overview_height, viewport_first, panel_widths in (
+            (640, 580, 204, True, (640, 640)),
+            (1168, 700, 102, False, (865.5, 288.5)),
+        ):
+            with self.subTest(width=width), patch.object(milestones, 'snapshot', return_value={}):
+                root, _ = self.stats()
+                overview = find(root, 'stats-overview')
+                timeline = find(root, 'stats-timeline')
+                server_panel = find(root, 'stats-server-panel')
+                events = [(root, height), (overview, overview_height)]
+                if not viewport_first:
+                    events.reverse()
+                self.assertEqual(root.content.opacity, 0)
+                control, measured = events[0]
+                control.on_size_change(SimpleNamespace(width=width, height=measured))
+                QueuedThread.jobs.pop(0)()
+                self.assertEqual(root.content.opacity, 0)
+                control, measured = events[1]
+                control.on_size_change(SimpleNamespace(width=width, height=measured))
+                self.assertEqual(root.content.opacity, 1)
+                self.assertEqual((timeline.width, server_panel.width), panel_widths)
+                self.assertEqual(timeline.height, height - overview_height - 14)
+
     def test_stats_failure_clears_loading_and_retry_recovers(self):
         with patch.object(milestones, 'snapshot', side_effect=OSError('offline fixture')):
             root, refresh = self.stats()
@@ -121,8 +145,60 @@ class LoadingSkeletons(unittest.TestCase):
             tick()
         self.assertFalse(loading.visible)
         self.assertEqual(transcript.controls, [])
-        self.assertTrue('Say hello to Alice' in texts(root))
+        self.assertTrue('No messages with Alice yet' in texts(root))
         self.assertIs(loading, find(root, 'chat-history-loading'))
+
+    def test_chat_search_and_add_use_the_same_field(self):
+        service = FakeService()
+        root, _, tick = self.chat(service)
+        tick()
+        search = find(root, 'chat-friend-search')
+        add = find(root, 'chat-add-friend')
+        self.assertTrue(any(isinstance(row, ft.Row) and row.controls == [search, add] for row in walk(root)))
+        self.assertNotIn('BETA', texts(root))
+        self.assertNotIn('Private conversation', texts(root))
+        self.assertFalse(any(isinstance(c, ft.TextButton) and c.content == 'Add a friend' for c in walk(root)))
+        search.value = 'bob'
+        search.on_change(None)
+        self.assertIn('No friend matches that name or ID.', texts(root))
+        with patch.object(service, 'add_friend', create=True, return_value={'ok': True}) as send:
+            search.on_submit(None)
+            add.on_click(None)
+            send.assert_not_called()
+            self.assertIn("Enter your friend's 8-digit Cubeon ID.", texts(root))
+            search.value = '12345678'
+            search.on_change(None)
+            add.on_click(None)
+            self.assertTrue(add.disabled)
+            search.on_submit(None)
+            QueuedThread.jobs.pop(1)()
+            send.assert_called_once_with('12345678')
+            self.assertFalse(add.disabled)
+            self.assertEqual(search.value, '')
+            self.assertNotIn('No friend matches that name or ID.', texts(root))
+            self.assertIn('Friend request sent to ID 12345678.', texts(root))
+
+    def test_chat_add_completion_preserves_a_new_search_and_failed_input(self):
+        service = FakeService()
+        root, _, tick = self.chat(service)
+        tick()
+        search = find(root, 'chat-friend-search')
+        add = find(root, 'chat-add-friend')
+        with patch.object(service, 'add_friend', create=True, side_effect=[
+            {'ok': True}, {'ok': False, 'error': 'ID not found.'},
+        ]) as send:
+            search.value = '12345678'
+            add.on_click(None)
+            search.value = 'alice'
+            search.on_change(None)
+            QueuedThread.jobs.pop(1)()
+            self.assertEqual(search.value, 'alice')
+            search.value = '12345679'
+            search.on_submit(None)
+            QueuedThread.jobs.pop(1)()
+            self.assertEqual(search.value, '12345679')
+            self.assertIn('ID not found.', texts(root))
+            self.assertEqual([call.args for call in send.call_args_list], [('12345678',), ('12345679',)])
 
     def test_chat_failure_clears_placeholder_and_next_poll_recovers(self):
         service = FakeService()

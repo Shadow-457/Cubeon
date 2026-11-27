@@ -31,7 +31,7 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
                     BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                     TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO):
     selected = {"weekly": False}
-    layout = {"width": 1000, "height": 600, "overview": 112}
+    layout = {"viewport": None, "overview": None}
     cached = {"stats": {}, "ready": False}
     rim = ft.Colors.with_opacity(.65, BORDER)
 
@@ -102,42 +102,50 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     panels = ft.Row([timeline, server_panel], wrap=True, spacing=14, run_spacing=14,
                     vertical_alignment=ft.CrossAxisAlignment.START)
-    body = ft.Column([overview, panels],
+    # Opacity keeps the controls measurable while Flet reports the first
+    # viewport and overview sizes. Painting guessed dimensions jumps on entry.
+    body = ft.Column([overview, panels], opacity=0,
                      spacing=14, scroll=ft.ScrollMode.AUTO, data="stats-content")
     root = ft.Container(content=body, expand=True, data="stats-dashboard")
 
     def apply_layout():
+        viewport, overview_height = layout["viewport"], layout["overview"]
+        if viewport is None or overview_height is None:
+            return
+        width, height = viewport
         # Geometry follows the viewport alone. The first snapshot used to arrive
         # with a server count, flipping the panels from a full-width chart to
         # two columns and resizing the chart - the dashboard jumped under the
         # pointer on the first visit. Stacked layouts leave the server panel on
         # auto height so its list grows below the chart instead of shrinking it.
-        stacked = layout["width"] < 900
-        available = layout["height"] - layout["overview"] - 14
+        stacked = width < 900
+        available = height - overview_height - 14
         timeline_height = max(280, min(available, 420) if stacked else available)
         # The toolbar wraps below 576px of chart width, independent of window width.
-        chart_width = layout["width"] if stacked else (layout["width"] - 14) * .75
+        chart_width = width if stacked else (width - 14) * .75
         toolbar_height = 60 if chart_width - 32 < 576 else 32
-        timeline.width = layout["width"] if stacked else (layout["width"] - 14) * .75
-        server_panel.width = layout["width"] if stacked else (layout["width"] - 14) * .25
+        timeline.width = chart_width
+        server_panel.width = width if stacked else (width - 14) * .25
         timeline.height = timeline_height
         server_panel.height = None if stacked else timeline_height
         chart.set_height(timeline_height - 32 - toolbar_height - 8)
         chart_host.height = chart.height
+        body.opacity = 1
         thread_safe_ui.refresh(body)
 
     def layout_changed(event):
         with thread_safe_ui.TREE_LOCK:
-            width, height = float(event.width or 1000), float(event.height or 600)
-            if (width, height) != (layout["width"], layout["height"]):
-                layout.update(width=width, height=height, overview=112 if width >= 768 else 224)
+            width, height = float(event.width or 0), float(event.height or 0)
+            if width > 0 and height > 0 and (width, height) != layout["viewport"]:
+                layout["viewport"] = (width, height)
                 apply_layout()
     root.on_size_change = layout_changed
 
     def overview_changed(event):
         with thread_safe_ui.TREE_LOCK:
-            height = float(event.height or layout["overview"])
-            if abs(height - layout["overview"]) > 1:
+            height = float(event.height or 0)
+            previous = layout["overview"]
+            if height > 0 and (previous is None or abs(height - previous) > 1):
                 layout["overview"] = height
                 apply_layout()
     overview.on_size_change = overview_changed
@@ -193,9 +201,9 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
                     text(f"{count} session{'s' if count != 1 else ''}", size=10, muted=True)], spacing=8)
             for server, count in counts.most_common(5)]
         finish_loading()
-        apply_layout()
         draw_chart()
         thread_safe_ui.refresh(overview)
+        thread_safe_ui.refresh(chart_host)
         thread_safe_ui.refresh(server_host)
 
     def failed_stats(error):
@@ -204,8 +212,8 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         finish_loading()
         metric_details[0].value = "Couldn't load stats. Reopen Stats to retry."
         servers.controls[:] = [text("Activity unavailable.", size=11, muted=True)]
-        apply_layout()
         thread_safe_ui.refresh(overview)
+        thread_safe_ui.refresh(chart_host)
         thread_safe_ui.refresh(server_host)
 
     worker = BackgroundRefresh(read_stats, apply_stats, name="cubeon-stats-refresh", failed=failed_stats)
@@ -219,6 +227,5 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
             with thread_safe_ui.TREE_LOCK:
                 apply_stats(result)
 
-    apply_layout()
     refresh_stats(background=True)
     return root, refresh_stats

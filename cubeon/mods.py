@@ -1035,6 +1035,76 @@ def list_mods(mc_version: str | None, loader: str | None,
     return mods
 
 
+def set_managed_mod_enabled(directory, marker_name, enabled, active_names, matches_backup):
+    """Move only active feature JARs and restore only this switch's backups."""
+    from .atomicio import write_json
+    from .file_safety import entry_name
+    marker = os.path.join(directory, marker_name)
+    try:
+        with open(marker, encoding="utf-8") as source:
+            previous = json.load(source)["jars"]
+    except FileNotFoundError:
+        previous = []
+    if not isinstance(previous, list):
+        raise ValueError("Managed mod opt-out record is unreadable")
+    if enabled and not previous:
+        return 0
+    originals, backups = set(), set()
+    for entry in previous:
+        if not isinstance(entry, dict):
+            raise ValueError("Managed mod opt-out record contains an invalid path")
+        for key, suffix in (("enabled", ".jar"), ("disabled", ".jar.disabled")):
+            entry_name(entry.get(key), extensions=(suffix,))
+        if entry["enabled"] in originals or entry["disabled"] in backups:
+            raise ValueError("Managed mod opt-out record contains duplicate paths")
+        originals.add(entry["enabled"])
+        backups.add(entry["disabled"])
+    selected, moves = [], []
+    names = list(active_names())
+    if enabled:
+        # A pack update or manual installation may have supplied a newer mod
+        # while this setting was off. Keep the older backups disabled rather
+        # than restoring them alongside the new active copy.
+        for entry in (previous if not names else []):
+            original = os.path.join(directory, entry["enabled"])
+            backup = os.path.join(directory, entry["disabled"])
+            if (os.path.isfile(backup) and not os.path.lexists(original)
+                    and matches_backup(entry["disabled"])):
+                selected.append((backup, original))
+        remaining = []
+    else:
+        remaining = [entry for entry in previous
+                     if os.path.isfile(os.path.join(directory, entry["disabled"]))]
+        reserved = {entry["disabled"] for entry in remaining}
+        for name in names:
+            backup, suffix = name + ".disabled", 1
+            while backup in reserved or os.path.lexists(os.path.join(directory, backup)):
+                backup = name.removesuffix(".jar") + f".cubeon-off-{suffix}.jar.disabled"
+                suffix += 1
+            reserved.add(backup)
+            # If the same filename was reinstalled while off, preserve its
+            # older backup but restore only the latest copy on opt-in.
+            remaining = [entry for entry in remaining if entry["enabled"] != name]
+            remaining.append(dict(enabled=name, disabled=backup))
+            selected.append((os.path.join(directory, name), os.path.join(directory, backup)))
+    if not selected and remaining == previous:
+        return 0
+    try:
+        if not enabled:
+            write_json(marker, dict(jars=remaining))
+        for source, target in selected:
+            os.replace(source, target)
+            moves.append((source, target))
+        if enabled:
+            write_json(marker, dict(jars=remaining))
+    except Exception:
+        for source, target in reversed(moves):
+            os.replace(target, source)
+        write_json(marker, dict(jars=previous))
+        raise
+    return len(moves)
+
+
 def toggle_mod(mc_version: str | None, loader: str | None, filename: str,
                version_id: str | None = None) -> None:
     from . import rust_engine, rust_mods

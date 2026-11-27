@@ -487,7 +487,11 @@ to use a build configured for Cubeon's services.
 Choose **Chat** from Minecraft’s main menu, press **G** in game, or choose
 **Friends** in the **K** client menu to message your Cubeon friends. Keep the launcher open: both views share the same
 encrypted conversations, so messages sent in either place appear in both.
-In the launcher's **Chat** tab, type `:` to open the scrollable emoji picker.
+In the launcher's **Chat** tab, search your friends by name or Cubeon ID.
+To send a friend request, paste their 8-digit Cubeon ID into the same field
+and click **Add**.
+
+Type `:` in the message field to open the scrollable emoji picker.
 Keep typing a name to search and press Enter to insert the first match (for
 example, `:wilte` then Enter inserts 🥀), or finish a code such as `:smile:`, `:flag_us:` or
 `:woman_astronaut:` to convert when you send. The complete bundled Unicode catalog includes flags, skin
@@ -544,7 +548,7 @@ the block illustration hides on narrow windows while the links remain accessible
 **CustomSkinLoader (CSL)** switches. Turn either off to stop its in-game features
 on the next launch. CSL controls skins and capes; Cubeon Client controls the
 Cubeon menu and HUD. Choices save immediately and also apply to modpack installs.
-Turn CSL back on to restore the copy disabled by this setting.
+Turn either switch back on to restore the copy disabled by that setting.
 You can also switch **Cubeon Client** on or off in **Mods → Installed**.
 It shares the Settings preference for all instances and stays available after
 the client has been disabled.
@@ -665,8 +669,12 @@ paths; keep using the updated launcher after migration.
 
 If the app will not start, run it from a terminal and record the error.
 For a failed game launch, check the selected version, loader, Java path,
-and memory setting. For missing cosmetics, check the instance's skin support
-rather than repeatedly reinstalling the launcher.
+and memory setting. For missing skins, capes or cosmetics on 26.3, check that
+the selected instance uses Fabric and that **Cubeon Client** and
+**CustomSkinLoader** are on under **Settings → Game → In game**. In
+**Mods → Installed**, check for an enabled **Fabric API** in that instance.
+If Cubeon Client is missing, use **Mods → Browse** to install it into the
+selected instance. Restart Minecraft after changing these settings.
 
 [Report an issue](https://github.com/Shadow-457/Cubeon/issues) with your
 operating system, Cubeon version, steps to reproduce, and relevant log

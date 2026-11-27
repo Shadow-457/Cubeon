@@ -2361,7 +2361,8 @@ async def main(page: ft.Page):
     # repaint their lists in place, so nothing on it goes stale in
     # between visits. ---
 
-    skin_section_container = ft.Container(loading_rows('Loading wardrobe…'))
+    skin_section_container = ft.Container()
+    profile_viewport = {"height": None}
 
     _skin_section_key = {"built": False, "version": None, "loader": None}
 
@@ -2381,12 +2382,16 @@ async def main(page: ft.Page):
             file_picker=skin_file_picker,
             cape_file_picker=cape_file_picker,
             assets_dir=resolve_assets_dir(),
+            measure_viewport=thread_safe_ui.has_ui_loop(page),
         )
         with thread_safe_ui.TREE_LOCK:
             if (mc_version != (version_dropdown.value or cfg.get('last_version'))
                     or mc_loader != state.get('mod_loader')):
                 return
             skin_section_container._pending_mount = True
+            resize = getattr(section, 'set_viewport_height', None)
+            if resize is not None:
+                resize(profile_viewport["height"])
             skin_section_container.content = section
             _skin_section_key.update(built=True, version=mc_version, loader=mc_loader)
         return True
@@ -2439,10 +2444,13 @@ async def main(page: ft.Page):
 
     def _resize_cosmetics_picker(event):
         ft.context.disable_auto_update()
-        section = skin_section_container.content
-        resize = getattr(section, 'set_viewport_height', None)
-        if callable(resize):
-            resize(event.height)
+        if not event.height or event.height <= 0:
+            return
+        with thread_safe_ui.TREE_LOCK:
+            profile_viewport["height"] = event.height
+            resize = getattr(skin_section_container.content, 'set_viewport_height', None)
+            if resize is not None:
+                resize(event.height)
 
     profile_tab.on_size_change = _resize_cosmetics_picker
 
@@ -6384,8 +6392,8 @@ async def main(page: ft.Page):
     modpacks_tab = ft.Container(expand=True)
     server_console_tab = ft.Container(loading_rows('Loading console…'), expand=True)
     server_plugins_tab = ft.Container(loading_rows('Loading plugins…'), expand=True)
-    server_settings_tab = ft.Container(loading_rows('Loading server…'), expand=True)
-    stats_tab_host = ft.Container(loading_rows('Loading stats…'), expand=True)
+    server_settings_tab = ft.Container(expand=True)
+    stats_tab_host = ft.Container(expand=True)
     chat_tab_host = ft.Container(loading_rows('Loading chat…'), expand=True)
 
     def _cb(key, name):
@@ -7865,7 +7873,11 @@ async def main(page: ft.Page):
             if view is None:
                 label = next((label for nav_key, icon, label in top_nav_items
                               if nav_key == key or (nav_key == SERVER_TOP_KEY and key in SERVER_GROUP_KEYS)), key.title())
-                initial = loading_rows(f'Loading {label.lower()}…') if entry_queue.deferred else tabs[key]
+                initial = tabs[key]
+                if entry_queue.deferred:
+                    # These panes reveal their own measured or populated layout.
+                    initial = (ft.Container() if key in {"profile", "server_settings", "stats"} else
+                               loading_rows(f'Loading {label.lower()}…'))
                 view = TabPane(initial, padding=ft.padding.Padding.symmetric(
                     horizontal=32, vertical=24), expand=True,
                     opacity=1.0)

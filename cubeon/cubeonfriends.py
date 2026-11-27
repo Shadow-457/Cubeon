@@ -79,6 +79,7 @@ JAR_GLOB = "cubeon-client-*.jar"
 # two Cubeon buttons, two bridges, two pollers. Every cleanup pass therefore
 # sweeps the old name as well as the current one; nothing installs it.
 LEGACY_JAR_GLOBS = ("cubeon-friends-*.jar",)
+CLIENT_JAR_PREFIXES = ("cubeon-client-", "cubeon-friends-")
 _MC_VERSION_RE = re.compile(r"(?<![A-Za-z0-9.])\d+(?:\.\d+)*(?![A-Za-z0-9]*[A-Za-z])")
 _matrix_cache: dict | None = None
 BRACKETS_FILE = _resource_path("mod", "brackets.json")
@@ -291,21 +292,37 @@ def _remove_other_jars(profile_dir: str, keep: str | None, *, strict=False) -> N
                     raise
 
 
+def _is_client_jar(profile_dir, name, loader=None):
+    from .mods import read_mod_metadata
+    metadata = read_mod_metadata(os.path.join(profile_dir, name), loader) or {}
+    identity = str(metadata.get("id") or "").lower().replace("-", "").replace("_", "")
+    return identity in ("cubeonclient", "cubeonfriends")
+
+
+def set_enabled(profile_dir, loader, enabled):
+    if not profile_dir or not os.path.isdir(profile_dir):
+        return 0
+    from .mods import set_managed_mod_enabled
+
+    def active_names():
+        return (name for name in os.listdir(profile_dir) if name.endswith(".jar") and
+                (name.startswith(CLIENT_JAR_PREFIXES)
+                 or _is_client_jar(profile_dir, name, loader)))
+
+    return set_managed_mod_enabled(
+        profile_dir, ".cubeon-client-disabled.json", enabled, active_names,
+        lambda name: _is_client_jar(profile_dir, name, loader))
+
+
 def remove_installed(profile_dir: str | None, *, strict=False) -> None:
     """Remove Cubeon Client JARs; strict opt-out also finds renamed copies."""
     if not profile_dir:
         return
     _remove_other_jars(profile_dir, None, strict=strict)
     if strict and os.path.isdir(profile_dir):
-        from .mods import read_mod_metadata
         for name in os.listdir(profile_dir):
-            if not name.endswith(".jar"):
-                continue
-            path = os.path.join(profile_dir, name)
-            metadata = read_mod_metadata(path) or {}
-            identity = str(metadata.get("id") or "").lower().replace("-", "").replace("_", "")
-            if identity in ("cubeonclient", "cubeonfriends"):
-                os.remove(path)
+            if name.endswith(".jar") and _is_client_jar(profile_dir, name):
+                os.remove(os.path.join(profile_dir, name))
 
 def ensure_installed(mc_version: str | None, loader: str | None,
                      profile_dir: str | None = None, *, automatic: bool = False,
@@ -321,23 +338,16 @@ def ensure_installed(mc_version: str | None, loader: str | None,
     """
     if not profile_dir:
         return False
-    from .mods import is_modpack_profile, read_mod_metadata
+    from .mods import is_modpack_profile
     if automatic and is_modpack_profile(mc_version, loader, version_id, profile_dir=profile_dir):
         # The browse Install action remains explicit; automatic preparation
         # uses an existing pack copy without changing its pinned bytes/state.
-        for name in os.listdir(profile_dir) if os.path.isdir(profile_dir) else ():
-            if name.endswith(".jar"):
-                metadata = read_mod_metadata(os.path.join(profile_dir, name), loader) or {}
-                identity = str(metadata.get("id") or "").lower().replace("-", "").replace("_", "")
-                if identity in ("cubeonclient", "cubeonfriends"):
-                    return True
-        return False
+        return os.path.isdir(profile_dir) and any(
+            name.endswith(".jar") and _is_client_jar(profile_dir, name, loader)
+            for name in os.listdir(profile_dir))
     from . import storage
     storage.assert_writable()
     storage.reconcile_mod_removals(profile_dir, loader)
-    if storage.managed_removed(profile_dir, "cubeon-"):
-        return False
-
     supported = loader in ("fabric", "quilt") or (loader == "forge" and parse_mc_version(mc_version) == (1, 8, 9))
     if not mc_version or not supported:
         # A profile that switched away from Fabric must not keep the jar: the
@@ -345,6 +355,20 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         if os.path.isdir(profile_dir):
             _remove_other_jars(profile_dir, None)
         return False
+
+    # A restored, renamed client already supplies the mod ID. Adding the
+    # bundled file alongside it can give the loader duplicate entrypoints.
+    names = os.listdir(profile_dir) if os.path.isdir(profile_dir) else []
+    renamed = [name for name in names
+               if name.endswith((".jar", ".jar.disabled")) and not name.startswith(CLIENT_JAR_PREFIXES)
+               and _is_client_jar(profile_dir, name, loader)]
+    if any(name.endswith(".jar") for name in renamed):
+        return True
+    if automatic:
+        has_named_client = any(name.endswith(".jar") and name.startswith(CLIENT_JAR_PREFIXES)
+                               for name in names)
+        if not has_named_client and (renamed or storage.managed_removed(profile_dir, CLIENT_JAR_PREFIXES)):
+            return False
 
     src = find_jar(mc_version, loader=loader)
     name = os.path.basename(src) if src else None
@@ -380,17 +404,14 @@ FABRIC_API_SLUG = "fabric-api"
 
 
 def _looks_like_fabric_api(mod: dict) -> bool:
-    """Whether one list_mods() entry is Fabric API.
-
-    Matches on anything identifying, because the jar gets into a profile three
-    ways and only one of them records a slug: our own download (slug), the mod
-    browse view (slug), and the player dropping it in by hand (filename only).
-    Re-downloading over a hand-installed copy would be both rude and a second
-    copy of the same mod id, which Fabric refuses to load.
-    """
-    text = " ".join(str(mod.get(field) or "") for field in
-                    ("slug", "project_id", "filename", "display_name")).lower()
-    return "fabric-api" in text or "fabric api" in text
+    """Identify the full API rather than one of its nested modules."""
+    identity = str(mod.get("mod_id") or "").casefold()
+    if identity:
+        return identity in {"fabric-api", "quilted_fabric_api"}
+    return (mod.get("slug") == FABRIC_API_SLUG or mod.get("project_id") == "P7dR8mSH"
+            or str(mod.get("display_name") or "").casefold() == "fabric api"
+            or any(re.match(r"^fabric[- ]api[- ]\d", str(mod.get(field) or "").casefold())
+                   for field in ("display_name", "filename")))
 
 
 def fabric_api_installed(mc_version: str | None, loader: str | None,
@@ -400,7 +421,7 @@ def fabric_api_installed(mc_version: str | None, loader: str | None,
         return False
     try:
         from .mods import list_mods
-        return any(_looks_like_fabric_api(mod)
+        return any(mod.get("enabled", True) and _looks_like_fabric_api(mod)
                    for mod in list_mods(mc_version, loader, version_id=version_id))
     except Exception:
         # Best-effort: unreadable profile means "don't know", and the caller
@@ -422,7 +443,10 @@ def ensure_fabric_api(mc_version: str | None, loader: str | None,
 
     if fabric_api_installed(mc_version, loader, version_id):
         return "Fabric API already installed"
-    from .mods import is_modpack_profile
+    from .mods import is_modpack_profile, list_mods
+    if any(not mod.get("enabled", True) and _looks_like_fabric_api(mod)
+           for mod in list_mods(mc_version, loader, version_id=version_id)):
+        return "Fabric API is disabled. Enable it in Mods → Installed to use cosmetics."
     if is_modpack_profile(mc_version, loader, version_id):
         return "Fabric API is not included in this modpack; install it in Mods if needed"
 

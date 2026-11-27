@@ -2350,7 +2350,8 @@ class ModsView:
                     # exactly this and no slug, so it's often the only match
                     # for a pack-installed mod.
                     pid = (mod.get("project_id") or "").strip().lower()
-                    is_installed = (any(self._is_client_mod(item) for item in self._cached_installed('mod'))
+                    is_installed = (any(self._is_client_mod(item) and item.get('enabled', True)
+                                        for item in self._cached_installed('mod'))
                                     if mod.get('builtin_client') else
                                     slug in already or (bool(compact) and compact in already)
                                     or (bool(pid) and pid in already)) if mod_catalogue.source_of(mod) == "modrinth" else (mod_catalogue.identity(mod) in already)

@@ -1728,6 +1728,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         ],
         spacing=4,
         scroll=ft.ScrollMode.AUTO,
+        opacity=0,
+        data="server-settings-view",
     )
 
     def _read_server_snapshot(version_id, fields):
@@ -1769,6 +1771,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             public_hint_text.value = ""
             refresh_plugins_visibility()
             refresh_controls_enabled()
+            settings_view.opacity = 1
             thread_safe_ui.refresh(console_view)
             thread_safe_ui.refresh(settings_view)
             return
@@ -1816,6 +1819,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             install_status.value = i18n.t("Installed") if snapshot['installed'] else "Not installed yet"
             install_progress.visible = False
 
+        settings_view.opacity = 1
         set_running_ui(snapshot['running'], snapshot=snapshot)
         refresh_orphan_notice(snapshot)
         refresh_plugins_list(snapshot)
@@ -1826,6 +1830,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         refresh_controls_enabled({'installed': False, 'running': False})
         install_status.value = "Couldn't load this server. Open Servers again to retry."
         install_status.color = DANGER
+        settings_view.opacity = 1
         thread_safe_ui.refresh(console_view)
         thread_safe_ui.refresh(settings_view)
 

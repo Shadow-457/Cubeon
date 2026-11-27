@@ -96,10 +96,20 @@ class NavigationBackground(unittest.TestCase):
                     # Other clicks/animations can acquire the UI lock too.
                     self.assertTrue(thread_safe_ui.TREE_LOCK.acquire(timeout=0.5))
                     thread_safe_ui.TREE_LOCK.release()
+                    if tab == 'server':
+                        settings = next(c for c in fz.every_control(page) if c.data == 'server-settings-view')
+                        self.assertEqual(settings.opacity, 0)
                 finally:
                     release.set()
                     navigation.join(4)
                     time.sleep(0.05)
+                if tab == 'server':
+                    deadline = time.monotonic() + 2
+                    while settings.opacity == 0 and time.monotonic() < deadline:
+                        time.sleep(.01)
+                    self.assertEqual(settings.opacity, 1)
+                    self.assertTrue(any(getattr(c, 'value', '') == 'Not installed yet'
+                                        for c in fz.walk(settings)))
         # No network or user game data was touched by the driver.
 
     def test_large_server_log_reads_only_bounded_tail(self):

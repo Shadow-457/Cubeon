@@ -1384,8 +1384,6 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         raise RuntimeError("Minecraft is already running. Close it before starting another instance.")
     setup_started = time.perf_counter()
     _startup_mark("Play setup: preparing instance", since=setup_started)
-    from .mods import is_modpack_profile
-    pack_profile = is_modpack_profile(mc_version, loader, version_id)
     if cfg is not None:
         # Each install plays in its OWN game folder (worlds, configs,
         # options.txt), with the shared staging folders linked into it - see
@@ -1455,48 +1453,42 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
 
     _startup_mark("Play setup: skin and cosmetics ready", since=setup_started)
 
-    # Ship the in-game Cubeon Client mod into the Fabric profile so the
-    # Friends button exists in Minecraft's game menu. Best-effort, always
-    # before the mods sync so a fresh drop is live this launch.
+    # Prepare the companion before staging mods so its appearance renderer
+    # and live skin/cape bridge are available on this launch.
     from .features import friends_enabled
     from .mods import get_profile_dir
     from . import cubeonfriends
     client_enabled = friends_enabled() and (cfg or {}).get("client_mod_enabled", True)
-    client_optout = False
-    if storage.game_dir(version_id):
-        client_optout = storage.managed_removed(get_profile_dir(mc_version, loader, version_id), "cubeon-")
-        client_enabled = client_enabled and not client_optout
-    if not client_enabled and not client_optout:
-        try:
-            # Off: either a public build (no Friends backend at all) or the
-            # user's Settings toggle. Both must also REMOVE any jar a
-            # previous run left behind - a stale copy would still load.
-            cubeonfriends.remove_installed(
-                get_profile_dir(mc_version, loader, version_id), strict=True)
-        except OSError as error:
+    client_profile = get_profile_dir(mc_version, loader, version_id)
+    try:
+        cubeonfriends.set_enabled(client_profile, loader, client_enabled)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        if not client_enabled:
             raise RuntimeError("Couldn't disable Cubeon Client. Close Minecraft and retry Play.") from error
-    elif client_enabled:
+        logging.getLogger(__name__).warning("Could not restore the disabled Cubeon Client", exc_info=True)
+    if client_enabled:
         try:
-            _profile_dir = get_profile_dir(mc_version, loader, version_id)
-            friends_ok = cubeonfriends.ensure_installed(mc_version, loader,
-                                           _profile_dir, automatic=True, version_id=version_id)
-            if not friends_ok and status_cb and loader in ("fabric", "quilt"):
-                status_cb("Cubeon Client is not included in this modpack; install it in Mods if needed"
-                          if pack_profile else "Cubeon Friends mod not built for this Minecraft "
-                          "version - the in-game Friends button will be missing")
-            if friends_ok:
+            client_ready = cubeonfriends.ensure_installed(
+                mc_version, loader, client_profile, automatic=True, version_id=version_id)
+            if not client_ready and status_cb and loader in ("fabric", "quilt"):
+                if cubeonfriends.client_support_status(mc_version, loader):
+                    status_cb("Cubeon Client is missing. Install it from Mods → Browse to use cosmetics.")
+                else:
+                    status_cb("Cubeon Client is unavailable for this Minecraft version.")
+            if client_ready:
                 # The HUD half of the client mod is built on Fabric API, which
                 # is a mod rather than part of the loader. Install it too, so
                 # "the overlays work" is not something the player has to arrange
                 # - but only alongside a jar we actually shipped, and only
                 # best-effort: a profile without it still gets the button.
                 try:
-                    _api_detail = cubeonfriends.ensure_fabric_api(
-                        mc_version, loader, status_cb=status_cb,
-                        version_id=version_id)
-                    if _api_detail.startswith(("couldn't", "no ", "download")):
-                        logging.getLogger(__name__).info(
-                            "Fabric API not installed: %s", _api_detail)
+                    api_detail = cubeonfriends.ensure_fabric_api(
+                        mc_version, loader, status_cb=status_cb, version_id=version_id)
+                    if api_detail.startswith(("couldn't", "no ", "download", "Fabric API is ")):
+                        logging.getLogger(__name__).info("Fabric API not installed: %s", api_detail)
+                        if status_cb:
+                            status_cb(api_detail if api_detail.startswith("Fabric API is ") else
+                                      f"Fabric API setup failed ({api_detail}). Cosmetics need Fabric API.")
                 except Exception:
                     logging.getLogger(__name__).warning(
                         "Fabric API setup failed", exc_info=True)

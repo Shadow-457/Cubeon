@@ -30,10 +30,11 @@ import ui.appearance_preview as preview_ui
 NATIVE_POPEN = subprocess.Popen
 
 
-def build(page, cfg=None, cape_file_picker=None):
+def build(page, cfg=None, cape_file_picker=None, *, measure_viewport=False):
     return skin_ui.build_skin_section(page, cfg if cfg is not None else {'active_back_item': 'back_ember_wings'},
         section_label=section_label, pixel_divider=pixel_divider, **THEME,
         mc_version='1.20.1', mc_loader='fabric', assets_dir=str(ROOT / 'assets'),
+        measure_viewport=measure_viewport,
         file_picker=ft.FilePicker(), cape_file_picker=cape_file_picker or ft.FilePicker())
 
 
@@ -88,20 +89,21 @@ async def native(page):
     page.title = 'Cubeon Skin Loading Check'
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = THEME['BG']
-    page.scroll = ft.ScrollMode.AUTO
     thread_safe_ui.install(page)
     began = time.monotonic()
-    root = build(page)
+    root = build(page, measure_viewport=True)
     print('SKIN_BUILD_SECONDS', round(time.monotonic() - began, 3), flush=True)
-    page.add(root)
+    page.add(ft.Column([root], expand=True, scroll=ft.ScrollMode.AUTO,
+                       on_size_change=lambda event: root.set_viewport_height(event.height)))
     thread_safe_ui.mark_mounted(page)
     scene = next(c for c in fz.walk(root) if c.data == 'appearance-model')
     rotate = next(c for c in fz.walk(root) if getattr(c, 'tooltip', None) == 'Rotate right')
     preview = inspect.getclosurevars(rotate.on_click).nonlocals['self']
     deadline = time.monotonic() + 20
-    while preview._shown is None and time.monotonic() < deadline:
+    while (preview._shown is None or root.opacity == 0) and time.monotonic() < deadline:
         await asyncio.sleep(.05)
     assert preview._shown is not None, 'No initial character frame appeared.'
+    assert root.opacity == 1, 'The measured Wardrobe never appeared.'
     print('FIRST_FRAME_SECONDS', round(time.monotonic() - began, 3), flush=True)
     assert len(scene.controls) == 3 and scene.controls[-1] is preview.skeleton and not preview.skeleton.visible, 'Preview skeleton did not retire after the first frame.'
     assert len(preview._model.faces) < 150, 'The turntable loaded the full Giant feather mesh.'

@@ -340,6 +340,13 @@ class CosmeticsPicker(unittest.TestCase):
         viewport = next(c for c in fz.walk(self.root) if isinstance(c, ft.Container)
                         and isinstance(c.content, ft.GestureDetector))
         image = model.controls[1]
+        self.assertEqual(self.root.opacity, 0)
+        layout.on_size_change(SimpleNamespace(width=640))
+        viewport.on_size_change(SimpleNamespace(width=640))
+        self.assertEqual(self.root.opacity, 0)
+        scroll.on_size_change(SimpleNamespace(control=scroll, width=608, height=150))
+        self.assertEqual(self.root.opacity, 1)
+        self.assertLessEqual(model.width, 176)
         for width in (640, 980, 380):
             layout.on_size_change(SimpleNamespace(width=width))
             viewport.on_size_change(SimpleNamespace(width=width if width < 760 else 300))
