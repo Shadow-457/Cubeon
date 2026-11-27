@@ -1,5 +1,6 @@
 """Settings resize retention, failed saves and background backup recovery."""
 import inspect
+from itertools import product
 import json
 from pathlib import Path
 import sys
@@ -16,7 +17,8 @@ _sandbox_home.isolate()
 import flet as ft
 import app_driver
 from _fuzz_common import walk
-from cubeon import atomicio, backup, thread_safe_ui
+from cubeon import atomicio, backup, config, thread_safe_ui
+from ui.chrome import BAR_HEIGHT, BAR_WIDTH, HORIZONTAL_EDGES, SIDEBAR_WIDTH
 from test_content_install_feedback import QueuedThread
 
 
@@ -67,7 +69,7 @@ class SettingsPolish(unittest.TestCase):
 
     def test_merged_sections_keep_actions_and_existing_links(self):
         panes=scope(self.root.select_section)['panes']
-        self.assertEqual(set(panes),{'account','versions','appearance','notifications','import','about'})
+        self.assertEqual(set(panes),{'account','versions','appearance','customize','notifications','import','about'})
         def texts(key):
             return {str(c.value).casefold() for c in walk(panes[key]) if isinstance(c,ft.Text)}
         self.assertTrue({'backups','launcher','automatic backups'} <= texts('account'))
@@ -85,6 +87,64 @@ class SettingsPolish(unittest.TestCase):
             self.root.select_section(alias)
             self.assertEqual([key for key,pane in panes.items() if pane.visible],[target])
         self.assertEqual(tuple(id(c) for c in walk(self.root)),original)
+
+    def test_customize_moves_live_shell_retains_tabs_and_restores_defaults(self):
+        self.root.select_section('customize')
+        bar = self.control(data='launcher-layout-top_bar')
+        sidebar = self.control(data='launcher-layout-sidebar')
+        reset = self.control(data='launcher-layout-reset')
+        status = self.control(data='launcher-layout-status')
+        change = scope(bar.on_select)['update_positions']
+        cfg = scope(change)['cfg']
+        layout = scope(scope(change)['on_layout_change'])['launcher_layout']
+        nav = next(c for c in walk(layout.control) if c.data == 'launcher-nav-list')
+        marker = layout.slider.marker
+        mounted = tuple(id(control) for control in walk(layout.control))
+        starting = config.launcher_layout(cfg)
+        self.assertEqual([option.key for option in bar.options], list(config.LAUNCHER_EDGES))
+        self.assertEqual([option.key for option in sidebar.options], list(config.LAUNCHER_EDGES))
+        self.addCleanup(layout.place, starting)
+        self.addCleanup(setattr, sidebar, 'value', starting['sidebar'])
+        self.addCleanup(setattr, bar, 'value', starting['top_bar'])
+
+        with patch.dict(cfg), patch.object(config, 'save_config', side_effect=OSError('fixture')):
+            bar.value = 'bottom'
+            bar.on_select(SimpleNamespace(control=bar))
+            self.assertEqual(bar.value, 'top')
+            self.assertEqual(layout.bar.top, 0)
+            self.assertEqual(config.launcher_layout(cfg), starting)
+            self.assertIn("Couldn't save", status.value)
+
+        with tempfile.TemporaryDirectory() as folder, patch.dict(cfg), \
+             patch.object(config, 'CONFIG_PATH', str(Path(folder) / 'config.json')):
+            for bar_position, side_position in product(config.LAUNCHER_EDGES, repeat=2):
+                with self.subTest(bar=bar_position, sidebar=side_position):
+                    bar.value = bar_position
+                    bar.on_select(SimpleNamespace(control=bar))
+                    sidebar.value = side_position
+                    sidebar.on_select(SimpleNamespace(control=sidebar))
+                    saved = config.launcher_layout(config.load_config())
+                    self.assertEqual(saved, {'top_bar': bar_position, 'sidebar': side_position})
+                    self.assertEqual(tuple(id(control) for control in walk(layout.control)), mounted)
+                    offsets = dict.fromkeys(config.LAUNCHER_EDGES, 0)
+                    bar_size = BAR_HEIGHT if bar_position in HORIZONTAL_EDGES else BAR_WIDTH
+                    offsets[bar_position] = bar_size
+                    self.assertEqual(getattr(layout.rail, side_position), offsets[side_position])
+                    offsets[side_position] += SIDEBAR_WIDTH
+                    self.assertEqual({edge: getattr(layout.content, edge) for edge in offsets}, offsets)
+                    self.assertEqual(nav.horizontal, side_position in HORIZONTAL_EDGES)
+                    self.assertEqual(getattr(marker, side_position), 5)
+            self.assertFalse(status.value)
+            reset.on_click(None)
+            self.assertEqual((bar.value, sidebar.value), ('top', 'left'))
+            self.assertEqual(config.launcher_layout(config.load_config()), starting)
+            self.assertEqual(tuple(id(control) for control in walk(layout.control)), mounted)
+
+    def test_customize_config_defaults_each_invalid_position_independently(self):
+        self.assertEqual(config.launcher_layout({'launcher_layout': ['right']}),
+                         {'top_bar': 'top', 'sidebar': 'left'})
+        self.assertEqual(config.launcher_layout({'launcher_layout': {'top_bar': [], 'sidebar': 'right'}}),
+                         {'top_bar': 'top', 'sidebar': 'right'})
 
     def test_about_shows_installed_build_and_project_links(self):
         from cubeon.updater import APP_VERSION

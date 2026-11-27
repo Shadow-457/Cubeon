@@ -114,6 +114,7 @@ jobs:
               tools/test_webdoctor.py
               tools/test_cosmetics_picker.py
               tools/test_skin_loading.py
+              tools/test_settings_polish.py
               tools/test_fuzzy_search.py
               tools/test_modpack_search.py
               tools/test_mod_search.py

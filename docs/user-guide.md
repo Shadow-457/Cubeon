@@ -569,6 +569,11 @@ Arabic, Urdu, Persian, and Pashto use a right-to-left layout.
 **Custom title bar** defaults on for Windows (including Windows 10) and Linux. An
 explicit saved choice to switch it off is preserved. Restart after changing it.
 
+**Settings → Customize** lets you move the top bar and sidebar to any edge of
+the launcher. If they share an edge, the top bar sits on the outside. Changes
+apply immediately and are saved for the next launch. **Reset layout** returns
+the bars to the top and left edges. This setting is experimental.
+
 **Settings → Appearance → Launcher color** has a color wheel. Drag around it to
 choose a hue and toward the center for a softer color. Adjust **Brightness** or
 enter six hex digits in **Color** for an exact choice. A miniature launcher

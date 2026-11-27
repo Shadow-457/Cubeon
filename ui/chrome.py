@@ -5,64 +5,152 @@ import threading
 
 from cubeon import motion, thread_safe_ui, version_art
 
+BAR_HEIGHT = 44
+BAR_WIDTH = 56
+SIDEBAR_WIDTH = 64
+
+HORIZONTAL_EDGES = ("top", "bottom")
+
+
+def _place_band(control, edge, thickness, insets):
+    for side, offset in insets.items():
+        setattr(control, side, None if side == _OPPOSITE[edge] else offset)
+    horizontal = edge in HORIZONTAL_EDGES
+    control.width = None if horizontal else thickness
+    control.height = thickness if horizontal else None
+
+
+_OPPOSITE = {"top": "bottom", "bottom": "top", "left": "right", "right": "left"}
+
+
+class LauncherLayout:
+    """Position retained chrome around the content, with the title bar outermost."""
+
+    def __init__(self, bar, rail, content, *, bar_art, rail_art,
+                 orient_bar, orient_rail, slider, positions, viewport):
+        self.bar = ft.Container(bar, data="launcher-bar")
+        self.rail = ft.Container(rail, data="launcher-sidebar")
+        self.content = ft.Container(content, data="launcher-content")
+        self.bar_art, self.rail_art = bar_art, rail_art
+        self.orient_bar, self.orient_rail = orient_bar, orient_rail
+        self.slider = slider
+        self.viewport = viewport
+        self.control = ft.Stack([self.bar, self.rail, self.content], fit=ft.StackFit.EXPAND,
+                                expand=True, data="launcher-shell")
+        self.control._shell_only = True
+        self.place(positions)
+
+    def place(self, positions):
+        bar_edge, rail_edge = positions["top_bar"], positions["sidebar"]
+        bar_horizontal = bar_edge in HORIZONTAL_EDGES
+        rail_horizontal = rail_edge in HORIZONTAL_EDGES
+        bar_thickness = BAR_HEIGHT if bar_horizontal else BAR_WIDTH
+        gutter = dict.fromkeys(_OPPOSITE, 0)
+        _place_band(self.bar, bar_edge, bar_thickness, gutter)
+        gutter[bar_edge] = bar_thickness
+        _place_band(self.rail, rail_edge, SIDEBAR_WIDTH, gutter)
+
+        for artwork, edge, insets in (
+            (self.bar_art, bar_edge, dict.fromkeys(_OPPOSITE, 0)),
+            (self.rail_art, rail_edge, gutter),
+        ):
+            # Crop the same window-sized image at this band's screen position.
+            for near, far in (("left", "right"), ("top", "bottom")):
+                setattr(artwork, near, None if edge == far else -insets[near])
+                setattr(artwork, far, -insets[far] if edge == far else None)
+
+        self.rail_edge = rail_edge
+        self.rail_cross_inset = sum(gutter[side] for side in (
+            ("left", "right") if rail_horizontal else ("top", "bottom")))
+        gutter[rail_edge] += SIDEBAR_WIDTH
+        for edge, offset in gutter.items():
+            setattr(self.content, edge, offset)
+        self.orient_bar(bar_horizontal)
+        self.orient_rail(rail_horizontal)
+        self.resize(*self.viewport)
+
+    def content_size(self):
+        width, height = self.viewport
+        return (max(1, width - self.content.left - self.content.right),
+                max(1, height - self.content.top - self.content.bottom))
+
+    def resize(self, width, height):
+        self.viewport = width, height
+        rail_length = (width if self.rail_edge in HORIZONTAL_EDGES else height) - self.rail_cross_inset
+        return self.slider.resize(max(1, rail_length), edge=self.rail_edge)
+
+    def apply(self, positions):
+        with thread_safe_ui.TREE_LOCK:
+            self.place(positions)
+            thread_safe_ui.refresh(self.control)
+
 
 class NavSlider:
-    """Move the small rail marker with a paint transform, never rail layout.
-
-    Native offset tweening owns every animation frame. Window resizing uses
-    the shell's existing event; scrolling only paints when the target changes.
-    """
+    """Use a paint transform to move the accent marker along the rail."""
 
     ANIMATION = ft.Animation(120, motion.EASE)
+    MARKER_LENGTH = 22
+    START, END = 24, 12
 
-    def __init__(self, keys, height, accent, *, tile_height=44, gap=6, footer_extra=0):
-        self.positions = {key: index * (tile_height + gap) for index, key in enumerate(keys)}
-        self.height, self.tile_height = height, tile_height
-        self.footer_extra, self.scroll_offset = footer_extra, 0
-        self.key = next(iter(self.positions))
+    def __init__(self, keys, length, accent, *, tile_width=48, tile_height=44,
+                 gap=6, footer_extra=0):
+        self.indices = {key: index for index, key in enumerate(keys)}
+        self.tile_width, self.tile_height = tile_width, tile_height
+        self.gap, self.footer_extra, self.scroll_offset = gap, footer_extra, 0
+        self.key = next(iter(self.indices))
+        self.edge, self.length = None, 0
         self.marker = ft.Container(
-            width=3, height=22, left=5, top=0,
             bgcolor=accent, border_radius=2, ignore_interactions=True,
             offset=ft.Offset(0, 0, transform_hit_tests=False),
-            animate_offset=self.ANIMATION, data='nav-marker',
+            animate_offset=self.ANIMATION, data="nav-marker",
         )
-        # Flet has no public RepaintBoundary control. A single, noninteractive
-        # viewport supplies Flutter's native paint boundary, keeping marker
-        # frames inside the 64px rail instead of repainting the tab/backdrop.
-        self.paint_area = ft.Container(ft.Stack([self.marker]), height=height)
+        # One noninteractive native viewport supplies the paint boundary.
+        self.paint_area = ft.Container(ft.Stack([self.marker]))
         self.layer = ft.Container(
             ft.ListView([self.paint_area], padding=0, spacing=0),
             left=0, top=0, right=0, bottom=0, ignore_interactions=True,
-            data='nav-marker-layer',
+            data="nav-marker-layer",
         )
-        self.select(self.key, animate=False)
+        self.resize(length, edge="left")
 
     def select(self, key, *, animate=True):
         with thread_safe_ui.TREE_LOCK:
             self.key = key
-            inset = (self.tile_height - self.marker.height) / 2
-            settings_top = self.height - 12 - self.tile_height - self.footer_extra
-            if key == 'settings':
-                top, shown = settings_top + inset, True
-            elif key in self.positions:
-                top = 24 + self.positions[key] + inset - self.scroll_offset
-                shown = 24 <= top and top + self.marker.height <= settings_top - 8
+            horizontal = self.edge in HORIZONTAL_EDGES
+            tile = self.tile_width if horizontal else self.tile_height
+            inset = (tile - self.MARKER_LENGTH) / 2
+            settings_start = self.length - self.END - tile - self.footer_extra
+            index = self.indices.get(key)
+            if key == "settings":
+                position, shown = settings_start + inset, True
+            elif index is not None:
+                position = self.START + index * (tile + self.gap) + inset - self.scroll_offset
+                shown = self.START <= position and position + self.MARKER_LENGTH <= settings_start - 8
             else:
-                top, shown = self.marker.offset.y * self.marker.height, False
-            offset = top / self.marker.height
-            if self.marker.offset.y == offset and self.marker.opacity == int(shown):
+                position, shown = 0, False
+            along = position / self.MARKER_LENGTH
+            x, y = (along, 0) if horizontal else (0, along)
+            if (self.marker.offset.x, self.marker.offset.y, self.marker.opacity) == (x, y, int(shown)):
                 return False
             self.marker.animate_offset = self.ANIMATION if animate and motion.transforms() else ft.Animation(0)
-            self.marker.offset = ft.Offset(0, offset, transform_hit_tests=False)
+            self.marker.offset = ft.Offset(x, y, transform_hit_tests=False)
             self.marker.opacity = int(shown)
             return True
 
-    def resize(self, height):
+    def resize(self, length, *, edge):
         with thread_safe_ui.TREE_LOCK:
-            if height <= 0 or abs(height - self.height) < .5:
+            if edge == self.edge and abs(length - self.length) < .5:
                 return False
-            self.height = height
-            self.paint_area.height = height
+            self.edge, self.length = edge, length
+            horizontal = edge in HORIZONTAL_EDGES
+            self.paint_area.height = SIDEBAR_WIDTH if horizontal else length
+            self.marker.width, self.marker.height = ((self.MARKER_LENGTH, 3) if horizontal
+                                                     else (3, self.MARKER_LENGTH))
+            self.marker.left = 5 if edge == "left" else 0 if horizontal else None
+            self.marker.right = 5 if edge == "right" else None
+            self.marker.top = 5 if edge == "top" else 0 if not horizontal else None
+            self.marker.bottom = 5 if edge == "bottom" else None
+            self.marker.animate_offset = ft.Animation(0)
             self.select(self.key, animate=False)
             return True
 
@@ -145,14 +233,14 @@ class ChromeBackdrop:
         self.width, self.height = width, height
         self.images = []
 
-    def panel(self, content, *, width=None, height=None, top=0):
+    def panel(self, content, *, width=None, height=None):
         artwork = ft.Image(
             src=self.source, width=self.width, height=self.height,
-            left=0, top=-top, fit=ft.BoxFit.COVER,
+            left=0, top=0, fit=ft.BoxFit.COVER,
             gapless_playback=True, filter_quality=ft.FilterQuality.LOW,
         )
         self.images.append(artwork)
-        return ft.Container(
+        panel = ft.Container(
             ft.Stack([
                 artwork,
                 ft.Container(left=0, top=0, right=0, bottom=0,
@@ -163,6 +251,7 @@ class ChromeBackdrop:
             width=width, height=height,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
         )
+        return panel, artwork
 
     def set_version(self, version):
         source = version_art.key_art_blurred_src(version)

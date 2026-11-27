@@ -10,6 +10,7 @@ from cubeon import i18n
 from cubeon import motion
 from cubeon import osnotify
 from cubeon import thread_safe_ui, scrolling
+from cubeon.config import LAUNCHER_EDGES, launcher_layout
 from cubeon.theme import (
     BORDER, RADIUS, RADIUS_LG, ROW_HOVER, ACCENT_TINT, TEXT_FAINT, keyboard_target,
 )
@@ -21,6 +22,7 @@ SECTIONS = [
     ("account", ft.Icons.PERSON_ROUNDED, "Account"),
     ("versions", ft.Icons.SPORTS_ESPORTS_ROUNDED, "Game"),
     ("appearance", ft.Icons.PALETTE_ROUNDED, "Appearance"),
+    ("customize", ft.Icons.DASHBOARD_CUSTOMIZE_ROUNDED, "Customize"),
     ("notifications", ft.Icons.NOTIFICATIONS_OUTLINED, "Notifications"),
     ("import", ft.Icons.DOWNLOAD_ROUNDED, "Import"),
     ("about", ft.Icons.INFO_OUTLINE_ROUNDED, "About"),
@@ -520,6 +522,7 @@ def _group(rows, *, SURFACE_HI, BORDER):
 
 def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        set_status, save_width_height_java,
+                       on_layout_change,
                        browse_online_row, legacy_btn, legacy_note,
                        client_mod_cb, csl_cb, tidy_btn, ram_slider, ram_range_row, ram_label,
                        custom_chrome_cb,
@@ -807,6 +810,49 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "Appearance", color_studio.control, group(launcher_rows),
     )
 
+    positions = launcher_layout(cfg)
+    position_status = ft.Text(size=12, color=DANGER, data="launcher-layout-status")
+    position_fields = {}
+
+    def update_positions(changes):
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            current = launcher_layout(cfg)
+            requested = launcher_layout({"launcher_layout": {**current, **changes}})
+            position_status.value = ""
+            if requested != current and _save_preference(
+                cfg, "launcher_layout", requested,
+                set_status=lambda message: setattr(position_status, "value", message),
+                error="Couldn't save this layout. Try again.",
+            ):
+                on_layout_change(requested)
+                current = requested
+            for key, field in position_fields.items():
+                field.value = current[key]
+                thread_safe_ui.refresh(field)
+            thread_safe_ui.refresh(position_status)
+
+    for key, label in (("top_bar", "Top bar"), ("sidebar", "Sidebar")):
+        position_fields[key] = ft.Dropdown(
+            label=i18n.t(label), value=positions[key], data=f"launcher-layout-{key}", expand=True,
+            options=[ft.dropdown.Option(edge, i18n.t(edge.title())) for edge in LAUNCHER_EDGES],
+            on_select=lambda event, key=key: update_positions({key: event.control.value}),
+            border_color=BORDER, focused_border_color=ACCENT, color=TEXT,
+            bgcolor=SURFACE_HI, border_radius=RADIUS,
+        )
+
+    customize_pane = pane(
+        "Customize",
+        ft.Text(i18n.t("Experimental. Move the launcher bars instantly."), size=12, color=TEXT_DIM),
+        group([_body(ft.ResponsiveRow([
+            ft.Container(ft.Row([field], spacing=0), col={"xs": 12, "wide": 6})
+            for field in position_fields.values()
+        ], breakpoints={"xs": 0, "wide": 500}, spacing=16, run_spacing=12))]),
+        ft.Row([ft.TextButton(i18n.t("Reset layout"), data="launcher-layout-reset",
+                             on_click=lambda event: update_positions(launcher_layout({})))]),
+        ft.Container(position_status, height=36),
+    )
+
     # ======================================================================
     # NOTIFICATIONS
     # ======================================================================
@@ -935,7 +981,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     ))
 
     panes = {'account': account_section, 'versions': versions_pane,
-             'appearance': appearance_pane,
+             'appearance': appearance_pane, 'customize': customize_pane,
              'notifications': notifications_pane, 'import': imports_pane, 'about': about_pane}
     aliases = {'display': 'appearance', 'theme': 'appearance',
                'backups': 'account', 'storage': 'account',

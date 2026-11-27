@@ -216,6 +216,7 @@ from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files(
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
 from cubeon import i18n  # Launcher language + reading direction (cubeon/lang/*)
 from cubeon import motion  # The animation layer (hover/press/cascade/shimmer/ambience)
+from cubeon.config import launcher_layout as get_launcher_layout
 from cubeon import milestones as cubeon_milestones
 from cubeon import library_stats as cubeon_library_stats
 from cubeon import eta as cubeon_eta  # Measured "time left" for downloads
@@ -229,7 +230,9 @@ from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab build
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
 from ui.stats_tab import build_stats_tab  # Stats tab: playtime overview and server activity
 from ui.play_home import PlayHome
-from ui.chrome import ChromeBackdrop, NavSlider, TabPane, TabEntryQueue
+from ui.chrome import (
+    BAR_HEIGHT, SIDEBAR_WIDTH, ChromeBackdrop, LauncherLayout, NavSlider, TabPane, TabEntryQueue,
+)
 from ui.content_states import loading_rows
 from ui.activity_widgets import build_badges
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
@@ -1541,7 +1544,6 @@ async def main(page: ft.Page):
     # ------------------------------------------------------------------
     # Fixed tile pitch preserves rail geometry across selection.
     NAV_BTN_W, NAV_BTN_H, NAV_GAP = 48, 44, 6
-    NAV_COL_HEIGHT = (len(top_nav_items) * (NAV_BTN_H + NAV_GAP)) - NAV_GAP
 
     def build_nav_button(key, icon, label, *, icon_size=18, indent=0):
         """A labeled chip button - used for the server sub-tabs (Console /
@@ -1810,11 +1812,10 @@ async def main(page: ft.Page):
     # SIDEBAR_MIN/MAX and the double-click reset are gone - a rail that can be
     # any width is a rail nobody designs for). The rail carries the nav tiles
     # and Settings; the account chip lives in the top bar.
-    SIDEBAR_W = 64
-    sidebar_ui = {"width": SIDEBAR_W}
     nav_slider = NavSlider(
-        [key for key, _icon, _label in top_nav_items], _gh - 44, ACCENT,
-        tile_height=NAV_BTN_H, gap=NAV_GAP, footer_extra=38 if _inspector_enabled else 0)
+        [key for key, _icon, _label in top_nav_items], _gh - BAR_HEIGHT, ACCENT,
+        tile_width=NAV_BTN_W, tile_height=NAV_BTN_H, gap=NAV_GAP,
+        footer_extra=38 if _inspector_enabled else 0)
     chrome_backdrop = ChromeBackdrop(
         core.resolve_mc_version(cfg.get("last_version")) or cfg.get("last_version"), _gw, _gh)
 
@@ -1836,34 +1837,21 @@ async def main(page: ft.Page):
             thread_safe_ui.refresh(nav_slider.marker)
 
     def _build_sidebar():
-        """Fixed-size navigation targets above pinned Settings."""
-        inner = SIDEBAR_W - 16
-        nav_column = ft.Column(
-            [build_top_nav_button(key, icon, label)
-             for key, icon, label in top_nav_items],
-            spacing=NAV_GAP,
-            tight=True,
+        """Keep one scrolling rail and a pinned Settings target."""
+        nav_list = ft.ListView(
+            [build_top_nav_button(key, icon, label) for key, icon, label in top_nav_items],
+            spacing=NAV_GAP, padding=0, scroll=ft.ScrollMode.AUTO, rtl=False,
+            build_controls_on_demand=False, on_scroll=_on_nav_scroll,
+            data="launcher-nav-list",
         )
-        nav_stack = ft.Container(
-            nav_column,
-            width=inner,
-            height=NAV_COL_HEIGHT,
-        )
-        # Only the rail tiles: nav_buttons also holds the server sub-tab chips,
-        # which must keep their natural width.
-        for key, _icon, _label in top_nav_items:
-            nav_buttons[key].width = inner
-
-        # Settings is a retained destination, with the same active/focus
-        # treatment as the other tabs, pinned below the scrolling rail.
         settings_tile = build_top_nav_button("settings", ft.Icons.SETTINGS_ROUNDED,
                                              i18n.t("Settings"))
-        settings_tile.width = inner
-        nav_buttons["settings"].width = inner
-        foot = [settings_tile]
+        settings_slot = ft.Container(settings_tile)
+        nav_slot = ft.Container(nav_list)
+        controls = [nav_slot, settings_slot]
+        inspector_slot = None
         if _inspector_enabled:
-            # Dev-only UI inspector (CUBEON_INSPECT=1).
-            foot.append(ft.IconButton(
+            inspector_slot = ft.Container(ft.IconButton(
                 icon=ft.Icons.BUG_REPORT, icon_size=16, icon_color=TEXT_FAINT,
                 tooltip="Inspect UI",
                 size_constraints=ft.BoxConstraints(min_width=0, min_height=0),
@@ -1871,45 +1859,35 @@ async def main(page: ft.Page):
                 on_click=lambda e: _open_inspector(),
                 style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
             ))
+            controls.append(inspector_slot)
 
-        box = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Container(height=8),
-                    # The nav takes the flexible middle and scrolls when the
-                    # window is short; Settings stays pinned at the bottom.
-                    ft.Column(
-                        [nav_stack],
-                        spacing=0,
-                        expand=True,
-                        scroll=ft.ScrollMode.AUTO,
-                        on_scroll=_on_nav_scroll,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    *foot,
-                ],
-                spacing=8,
-                expand=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            width=SIDEBAR_W,
-            padding=ft.padding.Padding.only(left=8, right=8, top=8, bottom=12),
-        )
-        sidebar_ui.update({"box": box, "stack": nav_stack})
-        return chrome_backdrop.panel(
-            ft.Stack([box, nav_slider.layer], fit=ft.StackFit.EXPAND),
-            width=SIDEBAR_W, top=44)
+        def orient_rail(horizontal):
+            nav_list.horizontal = horizontal
+            footer = NavSlider.END + nav_slider.footer_extra
+            # The scroll viewport and marker share the same axis and offsets.
+            if horizontal:
+                nav_slot.left, nav_slot.right = NavSlider.START, footer + NAV_BTN_W + 8
+                nav_slot.top = nav_slot.bottom = (SIDEBAR_WIDTH - NAV_BTN_H) // 2
+                settings_slot.left, settings_slot.right = None, footer
+                settings_slot.top, settings_slot.bottom = nav_slot.top, None
+                if inspector_slot is not None:
+                    inspector_slot.left, inspector_slot.right = None, NavSlider.END
+                    inspector_slot.top, inspector_slot.bottom = (SIDEBAR_WIDTH - 30) // 2, None
+            else:
+                nav_slot.top, nav_slot.bottom = NavSlider.START, footer + NAV_BTN_H + 8
+                nav_slot.left = nav_slot.right = (SIDEBAR_WIDTH - NAV_BTN_W) // 2
+                settings_slot.top, settings_slot.bottom = None, footer
+                settings_slot.left, settings_slot.right = nav_slot.left, None
+                if inspector_slot is not None:
+                    inspector_slot.top, inspector_slot.bottom = None, NavSlider.END
+                    inspector_slot.left, inspector_slot.right = (SIDEBAR_WIDTH - 30) // 2, None
+
+        band, artwork = chrome_backdrop.panel(
+            ft.Stack([*controls, nav_slider.layer], fit=ft.StackFit.EXPAND))
+        return band, artwork, orient_rail
 
     def _build_top_bar():
-        """The slim bar above the content: brand on the left, account chip and
-        the window buttons on the right.
-
-        With the custom frame this strip is also the title bar -
-        ``WindowDragArea`` gives it move / double-click-maximize - so the
-        min/max/close cluster rides the same row. The account chip is a plain
-        tap target inside it (the drag area's pan recognizer does not consume
-        taps, same as the chrome buttons).
-        """
+        """Keep brand, account and window controls mounted on every edge."""
         brand = ft.Container(
             content=sidebar_brand,
             padding=ft.padding.Padding.only(left=16),
@@ -1937,18 +1915,43 @@ async def main(page: ft.Page):
             on_click=lambda e, k="screenshots": switch_tab(k),
             style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
         )
-        children = [brand, ft.Container(expand=True),
-                    screenshots_button, ft.Container(width=4),
-                    theme.keyboard_target(account_chip, i18n.t("Account"))]
+        account_target = theme.keyboard_target(account_chip, i18n.t("Account"))
+        items = [screenshots_button, account_target]
         if chrome_row is not None:
-            children += [ft.Container(width=8), chrome_row]
-        bar = ft.Container(
-            content=ft.Row(children, spacing=0,
-                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            height=44,
-            padding=ft.padding.Padding.only(right=8),
-        )
-        return chrome_backdrop.panel(bar, height=44)
+            items.append(chrome_row)
+        action_row = ft.Row(items, spacing=4, run_spacing=4, tight=True,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        actions = ft.Container(action_row, alignment=ft.Alignment.CENTER)
+        rtl = bool(getattr(page, "rtl", False))
+
+        def orient_bar(horizontal):
+            sidebar_brand.controls[1].visible = horizontal
+            sidebar_brand.alignment = (ft.MainAxisAlignment.START if horizontal
+                                       else ft.MainAxisAlignment.CENTER)
+            brand.alignment = (ft.Alignment.CENTER_RIGHT if rtl else ft.Alignment.CENTER_LEFT
+                               ) if horizontal else ft.Alignment.CENTER
+            brand.padding = ft.Padding(0 if rtl else 16, 0, 16 if rtl else 0, 0) if horizontal else 0
+            brand.top, brand.bottom = (0, 0) if horizontal else (6, None)
+            brand.left = None if horizontal and rtl else 0
+            brand.right = None if horizontal and not rtl else 0
+            actions.left = (8 if rtl else None) if horizontal else 6
+            actions.right = (None if rtl else 8) if horizontal else 6
+            actions.top, actions.bottom = (0, 0) if horizontal else (None, 8)
+            action_row.wrap = not horizontal
+            sidebar_username_text.visible = horizontal
+            account_chip.padding = ft.Padding(8, 4, 12, 4) if horizontal else 0
+            account_chip.width = account_target.width = None if horizontal else BAR_HEIGHT
+            account_chip.height = account_target.height = None if horizontal else 36
+            account_chip.alignment = None if horizontal else ft.Alignment.CENTER
+            if chrome_row is not None:
+                chrome_row.width = None if horizontal else BAR_HEIGHT
+                chrome_row.wrap = not horizontal
+                for button in chrome_row.controls:
+                    button.width = None if horizontal else BAR_HEIGHT
+
+        band, artwork = chrome_backdrop.panel(ft.Stack([brand, actions], fit=ft.StackFit.EXPAND))
+        return band, artwork, orient_bar
 
     # "Signed in as" widgets - pulled out as named variables so the
     # username field's on_change handler can update them live, since offline
@@ -2672,10 +2675,10 @@ async def main(page: ft.Page):
         ft.context.disable_auto_update()
         try:
             chrome_backdrop.resize(float(page.width), float(page.height))
-            if nav_slider.resize(float(page.height) - 44):
-                thread_safe_ui.refresh(nav_slider.layer)
-            _fit_play(max(1, float(page.width) - SIDEBAR_W),
-                      max(1, float(page.height) - 44))
+            with thread_safe_ui.TREE_LOCK:
+                if launcher_layout.resize(float(page.width), float(page.height)):
+                    thread_safe_ui.refresh(nav_slider.layer)
+                _fit_play(*launcher_layout.content_size())
         except (NameError, TypeError, AttributeError):
             pass  # Play is built later; native viewport updates also fit it.
         for preview in tuple(getattr(page, "_cubeon_appearance_previews", ())):
@@ -2719,15 +2722,15 @@ async def main(page: ft.Page):
             ft.Image(src="cube.svg", width=24, height=24, fit=ft.BoxFit.CONTAIN),
             ft.Text("Cubeon", size=17, color=TEXT, font_family=FONT_DISPLAY),
         ],
-        spacing=12,
+        spacing=12, tight=True,
     )
 
     # Compact left icon rail (nav + Account/Settings) and the branded top bar
     # above the content. The top bar is always drawn now (the logo lives there,
     # 2026-10-26) and doubles as the title bar under the custom frame. The
     # dev-only UI inspector toggle is built into the sidebar.
-    sidebar = _build_sidebar()
-    top_bar = _build_top_bar()
+    sidebar, sidebar_art, orient_sidebar = _build_sidebar()
+    top_bar, top_bar_art, orient_top_bar = _build_top_bar()
 
     # -----------------------------------------------------------------
     # PLAY TAB - the main "Play" tab content
@@ -6356,8 +6359,6 @@ async def main(page: ft.Page):
     def _fit_play(width, height, repaint=True):
         play_home.fit(width, height, repaint=repaint)
 
-    _fit_play(max(160, int(_gw) - SIDEBAR_W),
-              max(160, int(_gh) - 44), repaint=False)
     play_tab = play_home.root
 
     # -----------------------------------------------------------------
@@ -7631,9 +7632,15 @@ async def main(page: ft.Page):
     # Build the Settings tab UI - two panes (section rail + content), all
     # controls prebuilt above, arranged by ui/settings_tab.py. Every field
     # saves instantly on blur/submit; there is no Save button anymore.
+    def _apply_launcher_layout(positions):
+        with thread_safe_ui.TREE_LOCK:
+            launcher_layout.apply(positions)
+            _fit_play(*launcher_layout.content_size())
+
     settings_tab = build_settings_tab(
         page, cfg,
         assets_dir=resolve_assets_dir(), artwork_version=state.get('selected_mc_version'),
+        on_layout_change=_apply_launcher_layout,
         on_replay_onboarding=lambda: _show_onboarding(replay=True),
         account_pane=account_pane,
         section_label=section_label, pixel_divider=pixel_divider,
@@ -7963,8 +7970,7 @@ async def main(page: ft.Page):
         ),
     )
     _backdrop["layer"] = _backdrop_layer
-    # The window's content: the compact left sidebar beside the rest of the
-    # shell. With the custom frame (Windows) two things change here:
+    # With the custom frame (Windows and Linux) two things change here:
     #   1. the slim top strip IS the title bar - WindowDragArea gives it the
     #      native behaviours (drag to move, double-click to maximize/restore,
     #      and, because a drag is a WM_NCLBUTTONDOWN/HTCAPTION under the hood,
@@ -7979,20 +7985,15 @@ async def main(page: ft.Page):
             _top_region = ft.WindowDragArea(content=top_bar, maximizable=True)
         except Exception:
             _top_region = top_bar  # a frame that can't be dragged beats none
-    # The top bar spans the FULL window width, above the rail as well as the
-    # content. Running it beside the rail left a hard vertical seam at the
-    # rail's edge (2026-11-15 report), because the glass strip started exactly
-    # where the artwork behind it changed. One continuous bar fixes that.
     _main_column = ft.Column([subnav_bar, content_surface],
                              expand=True, spacing=0)
-    _root_content = ft.Column(
-        [
-            _top_region,
-            ft.Row([sidebar, _main_column], expand=True, spacing=0,
-                   vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-        ],
-        spacing=0, expand=True,
+    launcher_layout = LauncherLayout(
+        _top_region, sidebar, _main_column, bar_art=top_bar_art, rail_art=sidebar_art,
+        orient_bar=orient_top_bar, orient_rail=orient_sidebar, slider=nav_slider,
+        positions=get_launcher_layout(cfg), viewport=(_gw, _gh),
     )
+    _fit_play(*launcher_layout.content_size(), repaint=False)
+    _root_content = launcher_layout.control
     if _custom_chrome:
         try:
             _resize_edges = build_resize_edges(_on_resize_edge)

@@ -178,6 +178,7 @@ DEFAULT_CONFIG = {
     # Color Studio's sampled color and two atmosphere dials. Applied before
     # UI imports on the next start; None retains the original green palette.
     "launcher_palette": None,
+    "launcher_layout": None,
     # Translucent ("glass") launcher window: the native window AND the page
     # canvas are painted with an alpha channel so the desktop shows through
     # faintly behind the UI. Only the BACKGROUND goes translucent - panels and
@@ -306,6 +307,18 @@ def _sibling_paths(path: str, marker: str) -> list:
                 if name.startswith(prefix)]
     except OSError:
         return []
+
+
+LAUNCHER_EDGES = ("top", "bottom", "left", "right")
+
+
+def launcher_layout(cfg: dict) -> dict:
+    """Read the placement of each bar, with defaults for older configs."""
+    layout = cfg.get("launcher_layout")
+    if not isinstance(layout, dict):
+        layout = {}
+    return {key: layout[key] if layout.get(key) in LAUNCHER_EDGES else default
+            for key, default in (("top_bar", "top"), ("sidebar", "left"))}
 
 
 def load_config() -> dict:
