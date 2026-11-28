@@ -154,7 +154,7 @@ class MacClientLifetimeTests(unittest.IsolatedAsyncioTestCase):
         self.folder = Path(self.temp.name)
         self.pid_file = self.folder / "client.pid"
         # Load just the existing hook, without importing the launcher/UI.
-        node = next(item for item in ast.parse((ROOT / "main.py").read_text()).body
+        node = next(item for item in ast.parse((ROOT / "main.py").read_text(encoding="utf-8")).body
                     if isinstance(item, ast.FunctionDef)
                     and item.name == "_capture_flet_client_exit")
         namespace = {}
