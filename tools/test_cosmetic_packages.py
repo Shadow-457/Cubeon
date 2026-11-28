@@ -170,6 +170,16 @@ class Packages(unittest.TestCase):
         for key in ('texture', 'emissive_texture'):
             self.assertTrue((game / 'resourcepacks/cubeon-store/assets/cubeon-client/textures/cosmetics' / models[0][key]).is_file())
 
+        cfg['manage_skin_mod'] = False
+        cfg['active_head_item'] = 'head_horns'
+        with patch.object(cosmetics, 'save_config') as save:
+            cosmetics.set_active(cfg, 'aura', None, game_dir=str(game), strict=True)
+            save.assert_called_once_with(cfg)
+        selection = json.loads((game / 'config/cubeon-cosmetics.json').read_text())
+        self.assertIsNone(selection['aura'])
+        self.assertEqual(selection['head'], 'head_horns')
+        self.assertIsNotNone(packages.installed(metadata))
+
     def test_revisions_preserve_equipped_models_and_bundled_assets(self):
         payload, metadata = self.model()
         original = packages.install(payload, metadata)

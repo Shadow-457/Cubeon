@@ -98,6 +98,8 @@ def validate(package):
         with Image.open(io.BytesIO(decoded[entry["texture"]])) as image:
             if (entry.get("tex_w"), entry.get("tex_h")) != image.size:
                 raise ValueError("Model texture dimensions do not match its PNG.")
+        if "orbital_burst" in entry and (slot != "aura" or type(entry["orbital_burst"]) is not bool):
+            raise ValueError("Only auras can opt into an orbital burst.")
         glow = entry.get("emissive_texture")
         if glow is not None:
             if not isinstance(glow,str) or not _NAME.fullmatch(glow) or glow not in decoded:

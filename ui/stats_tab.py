@@ -96,7 +96,8 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
     server_loading = ft.Row([skeleton_block(height=12, fill=BORDER, expand=True),
                              skeleton_block(60, 10, fill=BORDER)], spacing=16,
                             data="stats-servers-loading")
-    server_host = ft.Column([servers, server_loading], spacing=0)
+    server_host = ft.Column([servers, server_loading], spacing=0, expand=True,
+                            scroll=ft.ScrollMode.AUTO)
     server_panel = panel(ft.Column([text("Where you play", weight=ft.FontWeight.W_600), server_host], spacing=16),
                          height=264, data="stats-server-panel")
 
@@ -113,11 +114,8 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         if viewport is None or overview_height is None:
             return
         width, height = viewport
-        # Geometry follows the viewport alone. The first snapshot used to arrive
-        # with a server count, flipping the panels from a full-width chart to
-        # two columns and resizing the chart - the dashboard jumped under the
-        # pointer on the first visit. Stacked layouts leave the server panel on
-        # auto height so its list grows below the chart instead of shrinking it.
+        # Both panels are bounded by layout. Loading and activity results share
+        # the same server viewport, including when the panels stack.
         stacked = width < 900
         available = height - overview_height - 14
         timeline_height = max(280, min(available, 420) if stacked else available)
@@ -127,13 +125,14 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         timeline.width = chart_width
         server_panel.width = width if stacked else (width - 14) * .25
         timeline.height = timeline_height
-        server_panel.height = None if stacked else timeline_height
+        server_panel.height = 196 if stacked else timeline_height
         chart.set_height(timeline_height - 32 - toolbar_height - 8)
         chart_host.height = chart.height
         body.opacity = 1
         thread_safe_ui.refresh(body)
 
     def layout_changed(event):
+        ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
             width, height = float(event.width or 0), float(event.height or 0)
             if width > 0 and height > 0 and (width, height) != layout["viewport"]:
@@ -142,6 +141,7 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
     root.on_size_change = layout_changed
 
     def overview_changed(event):
+        ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
             height = float(event.height or 0)
             previous = layout["overview"]

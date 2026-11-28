@@ -124,6 +124,113 @@ public class AnimationTest {
             }
         }
     }
+    static void verifyOrbitalAura() {
+        var catalog = CosmeticCatalog.Catalog.parse("""
+            {"items":[{"id":"store_gojo_fixture","slot":"aura","texture":"test.png",
+             "tex_w":16,"tex_h":16,"emissive_texture":"glow.png","orbital_burst":true,"boxes":[
+              {"origin":[10,-3,5],"size":[1,1,1],"uv":[0,0],"px":1,"motion":"aura"}]}]}
+            """);
+        var aura = catalog.orbitalAura("store_gojo_fixture");
+        check(aura != null && catalog.auraUsesTorso(aura.id), "Download opts into the torso orbit");
+        check(aura.usesAuraFullbright(), "Luminous orbital auras draw full-bright");
+        var red = pivot("aura", -10, -4.5f, 5);
+        var blue = pivot("aura", 10, -3, 5);
+        var sparks = pivot("orbit", 7, 1, -3);
+        var pose = new CosmeticAnimation.PosedQuad();
+        var restingSparks = new CosmeticAnimation.PosedQuad();
+        var tracker = new CosmeticAnimation.Tracker();
+        boolean alreadyOrbiting = false;
+        int laps = 0;
+        float lastReturn = 0, lastStart = 0;
+        boolean passedInFront = false, surgedOut = false, changedLevels = false;
+        for (int tick = 0; tick <= 6000; tick++) {
+            float t = tick * .05f;
+            var frame = tracker.sample(t, 0, false, false, -1, aura).forItem(aura);
+            pose.set(red, frame);
+            float redX = pose.x[0], redY = pose.y[0], redZ = pose.z[0];
+            pose.set(blue, frame);
+            double redRadius = Math.hypot(redX, redZ), blueRadius = Math.hypot(pose.x[0], pose.z[0]);
+            check(redRadius > 11.15f && blueRadius > 11.15f && redRadius < 15.25f && blueRadius < 15.25f,
+                    "The sweep stays clear of the wearer and within reach");
+            check(Math.hypot(pose.x[0] - redX, pose.z[0] - redZ) > 18,
+                    "The orbs never crowd each other during the chase");
+            boolean orbiting = Math.abs(redX + 10) + Math.abs(redZ - 5) > .01f;
+            if (orbiting && !alreadyOrbiting) {
+                check(t - lastReturn >= 44.85f && t - lastReturn <= 75.15f, "Lap waits 45–75 seconds");
+                lastStart = t;
+                passedInFront = false;
+                surgedOut = false;
+                changedLevels = false;
+            }
+            if (orbiting && redZ < -9 && pose.z[0] < 7) passedInFront = true;
+            if (orbiting && Math.max(redRadius, blueRadius) > 13.3) surgedOut = true;
+            if (orbiting && Math.abs((redY + 4.5f) - (pose.y[0] + 3)) > 3.8f) changedLevels = true;
+            if (!orbiting && alreadyOrbiting) {
+                check(passedInFront && surgedOut && changedLevels && t - lastStart > 4.7f && t - lastStart < 5.2f,
+                        "Five-second chase sweeps outward, changes levels and returns");
+                laps++;
+                lastReturn = t;
+            }
+            alreadyOrbiting = orbiting;
+            pose.set(sparks, frame);
+            restingSparks.set(sparks, CosmeticAnimation.sample(t, 0, false));
+            near(pose.x[0], restingSparks.x[0], "Sparks keep their usual orbit");
+            near(pose.z[0], restingSparks.z[0], "Sparks keep their usual orbit");
+        }
+        check(laps >= 3, "The random lap repeats");
+        pose.set(red, tracker.disabled());
+        near(pose.z[0], 5, "Motion OFF puts orbs behind the shoulders");
+        pose.set(red, tracker.sample(301, 0, false, false, -1, aura).forItem(aura));
+        near(pose.z[0], 5, "Re-enabling starts a fresh waiting period");
+    }
+    static void verifyAuraSpiral() {
+        var catalog = CosmeticCatalog.Catalog.parse("""
+            {"items":[{"id":"store_spiral_fixture","slot":"aura","texture":"test.png",
+             "tex_w":16,"tex_h":16,"orbital_burst":true,"boxes":[
+              {"origin":[16,4,0],"size":[1,1,1],"uv":[0,0],"px":1,"motion":"orbit","pivot":[16,4,0]},
+              {"origin":[-16,9,0],"size":[1,1,1],"uv":[0,0],"px":1,"motion":"orbit","pivot":[-16,9,0]},
+              {"origin":[0,13,16],"size":[1,1,1],"uv":[0,0],"px":1,"motion":"orbit","pivot":[0,13,16]},
+              {"origin":[0,17,-16],"size":[1,1,1],"uv":[0,0],"px":1,"motion":"orbit","pivot":[0,17,-16]}]}]}
+            """);
+        var item = catalog.orbitalAura("store_spiral_fixture");
+        check(item.orbitRigs.size() == 4, "Four independent spiral rigs");
+        var quads = CosmeticGeometry.quads(item, 0);
+        check(quads.stream().allMatch(q -> q.orbit >= 0), "Spiral faces share their rig between drawing passes");
+        var pose = new CosmeticAnimation.PosedQuad();
+        var start = CosmeticAnimation.sample(0, 0, false).forItem(item);
+        var next = CosmeticAnimation.sample(.5f, 0, false).forItem(item);
+        for (int i = 0; i < 4; i++) {
+            var pivot = item.orbitRigs.get(i);
+            var arc = pivot("orbit", pivot.x, pivot.y, pivot.z);
+            arc.orbit = i;
+            pose.set(arc, start);
+            float x = pose.x[0], y = pose.y[0], z = pose.z[0];
+            pose.set(arc, next);
+            float signedTurn = x * pose.z[0] - z * pose.x[0];
+            check((i % 2 == 0 ? -signedTurn : signedTurn) > 30, "Adjacent spirals turn in opposite directions");
+            check((i < 2 ? y - pose.y[0] : pose.y[0] - y) > .3f, "Two spirals rise and two start by drifting down");
+        }
+        float nearest = 99, farthest = 0, highest = 99;
+        var first = pivot("orbit", 16, 4, 0);
+        first.orbit = 0;
+        for (int tick = 0; tick <= 800; tick++) {
+            var frame = CosmeticAnimation.sample(tick * .05f, 0, false).forItem(item);
+            pose.set(first, frame);
+            float radius = (float)Math.hypot(pose.x[0], pose.z[0]);
+            nearest = Math.min(nearest, radius);
+            farthest = Math.max(farthest, radius);
+            highest = Math.min(highest, pose.y[0]);
+            for (var q : quads) {
+                pose.set(q, frame);
+                float width = (float)Math.hypot(pose.x[1] - pose.x[0], pose.z[1] - pose.z[0]);
+                near(width, 1, "Every spiral stays fully visible throughout the orbit");
+            }
+        }
+        check(nearest > 15.99f && farthest - nearest > 3.1f, "Spiral drifts out and back without cutting inward");
+        check(highest < -9, "The upper spiral reaches above the head");
+        pose.set(first, null);
+        near(pose.y[0], 4, "Motion OFF restores the authored spiral height");
+    }
     static void verifyAttachments(CosmeticCatalog.Item wings) {
         var body = pivot("body", -6, 1, 0);
         var hinge = wings.boxes.get(0);
@@ -451,6 +558,8 @@ public class AnimationTest {
         var catalog = CosmeticCatalog.Catalog.parse(Files.readString(Path.of(args[0])));
         verifyFrames(catalog);
         verifyAmbientAnimations(catalog);
+        verifyOrbitalAura();
+        verifyAuraSpiral();
         verifyAttachments(catalog.get("back_void_wings"));
         verifyTime(catalog.get("back_void_wings"));
         verifyTime(catalog.get("back_void_wings_small"));

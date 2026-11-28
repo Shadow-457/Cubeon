@@ -142,6 +142,7 @@ T_EMOTE_ROOM = "emote_room"
 T_EMOTE_READY = "emote_ready"
 T_EMOTE = "emote"
 T_TYPING = "typing"          # {to} or {gid} - "I'm typing in this conversation right now"
+T_DM_SEEN = "dm_seen"         # {to, id} - recipient read through this message
 T_CALL_INVITE = "call_invite"  # {to} - ring a friend
 T_CALL_ACCEPT = "call_accept"  # {room} - pick up
 T_CALL_DECLINE = "call_decline"  # {room}
@@ -1137,7 +1138,7 @@ class FriendsClient:
             T_GROUP_CREATED: "group_created", T_GROUP_UPDATE: "group_update",
             T_SYSTEM: "system", T_ERROR: "error",
             T_DM: "dm", T_GROUP_MSG: "group_msg", T_HISTORY: "history",
-            T_TYPING: "typing", T_METADATA: "metadata",
+            T_TYPING: "typing", T_DM_SEEN: "dm_seen", T_METADATA: "metadata",
             T_CALL_INVITE: "call_invite", T_CALL_ACCEPT: "call_accept",
             T_CALL_DECLINE: "call_decline", T_CALL_END: "call_end",
             T_SIGNAL: "signal", T_EMOTE: "emote", T_EMOTE_READY: "emote_ready",
@@ -1357,6 +1358,9 @@ class FriendsClient:
         if gid:
             payload["gid"] = gid
         return self._raw_send(payload)
+
+    def send_dm_seen(self, peer: str, message_id: str) -> bool:
+        return self._raw_send({"t": T_DM_SEEN, "to": peer, "id": message_id})
 
     def set_version(self, version: "str | None") -> None:
         """Announce the Minecraft version this user is now in (None when they

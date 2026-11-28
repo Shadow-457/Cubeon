@@ -125,10 +125,11 @@ copied** shows the source folder and additional details.
 
 Import copies your mods, configs, worlds, packs, options, servers and screenshots
 into a separate instance. It uses FastClient's local game, loader, libraries and
-assets without downloads. Missing or changed local files stop the import; the
-original profile stays intact. FastClient's HUD is skipped, and accounts and
-launcher Java/memory settings are left behind. You can cancel the copy from
-the same Settings page.
+assets without downloads. You can import a Minecraft version you already have in
+Cubeon. Each import uses FastClient's asset index revision. Missing or changed
+local files stop the import. FastClient's original profile stays intact. Accounts,
+launcher Java and memory settings, and FastClient's HUD stay with FastClient.
+You can cancel the copy from the same Settings page.
 
 ## Mods, packs, and cosmetics
 

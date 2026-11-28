@@ -142,6 +142,12 @@ public final class CosmeticSelection {
         return selected;
     }
 
+    public static CosmeticCatalog.Item orbitalAura(Items items) {
+        if (items.aura() == null) return null;
+        CosmeticCatalog.Catalog catalog = CosmeticCatalog.get();
+        return catalog == null ? null : catalog.orbitalAura(items.aura());
+    }
+
     /** Only rigged wings can play the N action; packs and unknown ids cannot. */
     public static String selectedWing() {
         String id = get("back");

@@ -76,6 +76,28 @@ class ChatUXTests(unittest.TestCase):
         self.composer.value = text
         self.composer.on_change(None)
 
+    def test_typing_and_seen_follow_the_active_conversation(self):
+        self.service.send_chat_typing = Mock(return_value=True)
+        payload = self.service.chat_payload
+        self.service.chat_payload = lambda name, after: {
+            **payload(name, after), "typing": name == "alice", "seen_id": "confirmed" if name == "alice" else None}
+        self.service.echo("Hello")
+        self.service.ring[-1]["id"] = "confirmed"
+        self.select("alice")
+        typing = next(c for c in walk(self.root) if c.data == "chat-typing")
+        seen = next(c for c in walk(self.root) if c.data == "chat-seen")
+        self.assertTrue(typing.visible and seen.visible)
+        self.type("Next message")
+        self.refresh()
+        self.refresh()
+        self.service.send_chat_typing.assert_called_once_with("alice")
+        self.service.echo("Not read yet")
+        self.service.ring[-1]["id"] = "unread"
+        self.refresh()
+        self.assertFalse(seen.visible)
+        self.select("bob")
+        self.assertFalse(typing.visible or seen.visible)
+
     def test_shortcode_suggestions_complete_and_survive_switch(self):
         self.select('alice')
         self.type('Bring a :diam')
@@ -527,11 +549,11 @@ async def native_emoji(page):
         process = subprocess.Popen(['xdotool', *args])
         assert await asyncio.to_thread(process.wait, timeout=10) == 0
         await asyncio.sleep(.3)
-    await command('mousemove', '750', str(int(page.height - 90)), 'click', '1')
+    await command('mousemove', '750', str(int(page.height - 64)), 'click', '1')
     assert state.get('chat_composing'), 'The native editor did not gain focus.'
     blur_events.clear()
     await command('type', '--clearmodifiers', '--delay', '55', ':')
-    assert len(results['codes']) == emoji.EMOJI_COUNT
+    assert len(results['codes']) == emoji.EMOJI_COUNT, repr(composer.value)
     ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'all-emojis.png')
     loaded = results['loaded']
     await command('mousemove', '600', str(int(page.height - 150)), 'click', '--repeat', '12', '--delay', '90', '5')

@@ -3,6 +3,7 @@ import inspect
 import os
 import sys
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -110,6 +111,28 @@ class LoadingSkeletons(unittest.TestCase):
                 self.assertEqual((timeline.width, server_panel.width), panel_widths)
                 self.assertEqual(timeline.height, height - overview_height - 14)
 
+    def test_stats_server_panel_keeps_its_compact_height_when_data_arrives(self):
+        history = [{'id': 'server-session', 'started': time.time() - 60, 'seconds': 60,
+                    'servers': [f'server-{index}.example.org' for index in range(5)]}]
+        with patch.object(milestones, 'snapshot', return_value={'session_history': history}) as snapshot:
+            root, refresh = self.stats()
+            root.on_size_change(SimpleNamespace(width=640, height=580))
+            find(root, 'stats-overview').on_size_change(SimpleNamespace(width=640, height=204))
+            panel = find(root, 'stats-server-panel')
+            height = panel.height
+            self.assertGreater(height, 0)
+            self.assertTrue(find(root, 'stats-servers-loading').visible)
+            QueuedThread.jobs.pop(0)()
+            self.assertFalse(find(root, 'stats-servers-loading').visible)
+            servers = find(root, 'stats-servers')
+            self.assertEqual(len(servers.controls), 5)
+            self.assertEqual(panel.height, height)
+            snapshot.return_value = {'session_history': []}
+            refresh(background=True)
+            QueuedThread.jobs.pop(0)()
+            self.assertIn('No servers in this range.', texts(servers))
+            self.assertEqual(panel.height, height)
+
     def test_stats_failure_clears_loading_and_retry_recovers(self):
         with patch.object(milestones, 'snapshot', side_effect=OSError('offline fixture')):
             root, refresh = self.stats()
@@ -145,8 +168,33 @@ class LoadingSkeletons(unittest.TestCase):
             tick()
         self.assertFalse(loading.visible)
         self.assertEqual(transcript.controls, [])
-        self.assertTrue('No messages with Alice yet' in texts(root))
+        self.assertIn('No messages yet', texts(root))
+        self.assertIn('Say hi to Alice.', texts(root))
         self.assertIs(loading, find(root, 'chat-history-loading'))
+
+    def test_chat_activity_and_reconnect_use_existing_space(self):
+        service = FakeService()
+        root, _, tick = self.chat(service)
+        tick()
+        friend_click(root, 'alice')
+        slot = find(root, 'chat-activity-slot')
+        host = find(root, 'chat-conversation')
+        banner = find(root, 'chat-connection-warning')
+        height = slot.height
+        self.assertGreater(height, 0)
+        self.assertTrue(slot.visible)
+        self.assertFalse(find(root, 'chat-typing').visible)
+        with patch.object(service, 'chat_payload', return_value={'typing': True}):
+            tick()
+        self.assertTrue(find(root, 'chat-typing').visible)
+        self.assertEqual(slot.height, height)
+        self.assertTrue(slot.visible)
+        service.connected = False
+        tick()
+        self.assertTrue(banner.visible)
+        self.assertIn(banner, host.controls)
+        self.assertEqual(banner.top, 0)
+        self.assertEqual(slot.height, height)
 
     def test_chat_search_and_add_use_the_same_field(self):
         service = FakeService()
@@ -267,16 +315,16 @@ class LoadingSkeletons(unittest.TestCase):
             root = build_skin(FakePage())
             start = len(QueuedThread.jobs)
             tab(root, 'Back').on_click(None)
-            placeholders = [c for c in walk(root) if getattr(c, 'data', None) == 'content-skeleton' and c.width == 76]
+            back = root.wardrobe.panes['back']
+            placeholders = [card.placeholder for card in back.cards.values()
+                            if isinstance(card.placeholder, ft.Container)]
             self.assertTrue(placeholders)
             geometry = [(c.width, c.height) for c in placeholders]
             for job in QueuedThread.jobs[start:]:
                 job()
             self.assertEqual([(c.width, c.height) for c in placeholders], geometry)
-            grid = next(c for c in walk(root) if isinstance(c, ft.GridView)
-                        and any(id(card) in c.thumb_window for card in c.controls))
-            nearby = [c for card in grid.controls if id(card) in grid.thumb_window
-                      for c in walk(card) if c in placeholders]
+            nearby = [card.placeholder for card in back.grid.window_cards()
+                      if isinstance(card.placeholder, ft.Container)]
             self.assertTrue(nearby)
             self.assertTrue(all(isinstance(c.content, ft.Icon) for c in nearby))
             self.assertTrue(all(c.bgcolor is None for c in nearby))

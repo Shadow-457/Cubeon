@@ -43,6 +43,18 @@ def _without_nulls(value):
     return value
 
 
+def _virtual_asset_args(value):
+    # MLL normally resolves this placeholder to the shared virtual/legacy.
+    if isinstance(value, str):
+        path = os.sep.join(("${assets_root}", "virtual", "${assets_index_name}"))
+        return value.replace("${game_assets}", path)
+    if isinstance(value, list):
+        return [_virtual_asset_args(arg) for arg in value]
+    if isinstance(value, dict) and "value" in value:
+        return {**value, "value": _virtual_asset_args(value["value"])}
+    return value
+
+
 def _runtime_inventory(profile, event=None):
     from minecraft_launcher_lib._helper import get_library_path, parse_rule_list
 
@@ -91,6 +103,8 @@ def _runtime_inventory(profile, event=None):
             raise ValueError(f"FastClient's installed {loader.title()} {build} for {mc} is missing. Nothing will be downloaded.")
 
     shared, version_entries, seen, library_keys = {}, [], set(), set()
+    asset_names = {}
+    virtual_assets = False
 
     def file_entry(slot, rel, info=None):
         rel = _relative(rel)
@@ -107,9 +121,9 @@ def _runtime_inventory(profile, event=None):
         return {"source": str(source), "relative": f"{slot}/{rel.as_posix()}",
                 "stamp": _stamp(source.stat()), "sha1": sha1}
 
-    def add_shared(slot, rel, info=None):
+    def add_shared(slot, rel, info=None, *, destination=None):
         entry = file_entry(slot, rel, info)
-        shared.setdefault(entry["relative"], entry)
+        shared.setdefault(destination or entry["relative"], entry)
 
     pending = [source_id]
     while pending:
@@ -135,6 +149,7 @@ def _runtime_inventory(profile, event=None):
             if ref and ref != ident:
                 _identity(ref, "inherited runtime")
                 pending.append(ref)
+        own_library_keys = set()
         for library in data.get("libraries", []):
             if not isinstance(library, dict) or not isinstance(library.get("name"), str):
                 raise ValueError("Invalid FastClient runtime library metadata.")
@@ -143,7 +158,7 @@ def _runtime_inventory(profile, event=None):
             key = ":".join(library["name"].split(":")[:-1])
             if key in library_keys:
                 continue
-            library_keys.add(key)
+            own_library_keys.add(key)
             if library.get("rules") and not parse_rule_list(library["rules"], {}):
                 continue
             # get_library_path supplies a libraries prefix, even if the local
@@ -165,30 +180,41 @@ def _runtime_inventory(profile, event=None):
                 else:
                     native_rel = Path(get_library_path(library["name"] + "-" + native, "/runtime")).relative_to(Path("/runtime/libraries"))
                     add_shared("libraries", native_rel.as_posix())
+        library_keys.update(own_library_keys)
         index = data.get("assetIndex")
         if index:
             index_id = _identity(index.get("id"), "asset index")
             index_rel = f"indexes/{index_id}.json"
-            add_shared("assets", index_rel, index)
-            asset_data = _json(roots["assets"] / index_rel, 16 * 1024 * 1024)
+            entry = file_entry("assets", index_rel, index)
+            asset_data = _json(entry["source"], 16 * 1024 * 1024)
+            # Mojang can republish an index under the same ID. Keep each
+            # imported revision addressable without changing the shared ID.
+            alias = "fastclient-" + _digest(entry["source"], "sha256", event)
+            asset_names[index_id] = alias
+            shared.setdefault(f"assets/indexes/{alias}.json", entry)
             objects = asset_data.get("objects")
             if not isinstance(objects, dict) or len(objects) > 100000:
                 raise ValueError("Invalid FastClient local asset index.")
+            virtual = bool(asset_data.get("virtual"))
+            virtual_assets |= virtual
             for logical, obj in objects.items():
                 _check_cancel(event)
                 digest = obj.get("hash") if isinstance(obj, dict) else None
                 if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{40}", digest):
                     raise ValueError("Invalid local asset object hash.")
                 add_shared("assets", f"objects/{digest[:2]}/{digest}", {"sha1": digest, "size": obj.get("size")})
-                if asset_data.get("virtual"):
-                    add_shared("assets", f"virtual/{index_id}/{logical}", {"sha1": digest, "size": obj.get("size")})
+                if virtual:
+                    add_shared("assets", f"virtual/{index_id}/{logical}",
+                               {"sha1": digest, "size": obj.get("size")},
+                               destination=f"assets/virtual/{alias}/{logical}")
         logging_file = ((data.get("logging") or {}).get("client") or {}).get("file")
         if logging_file:
             add_shared("assets", "log_configs/" + _identity(logging_file.get("id"), "logging config"), logging_file)
     if mc not in seen:
         raise ValueError("FastClient's loader does not reference the selected Minecraft version.")
     return {"source_id": source_id, "roots": {k: str(v) for k, v in roots.items()},
-            "versions": version_entries, "shared": list(shared.values())}
+            "versions": version_entries, "shared": shared,
+            "asset_names": asset_names, "virtual_assets": virtual_assets}
 
 
 CONTENT_DIRS = frozenset(("mods", "config", "saves", "resourcepacks", "shaderpacks",
@@ -375,7 +401,7 @@ def review(profile, cancel_event=None):
     _current(profile)
     inventory = _inventory(profile, cancel_event)
     runtime = _runtime_inventory(profile, cancel_event)
-    runtime_bytes = sum(e["stamp"][3] for e in runtime["shared"])
+    runtime_bytes = sum(e["stamp"][3] for e in runtime["shared"].values())
     runtime_bytes += sum(v["json"]["stamp"][3] + sum(e["stamp"][3] for e in v["files"])
                          for v in runtime["versions"])
     return {"profile": dict(profile), **inventory,
@@ -467,14 +493,15 @@ def _import_runtime(plan, vid, token, targets, event, report):
     runtime_root = Path(storage.runtime_dir(paths.MINECRAFT_DIR))
     runtime_root.mkdir(parents=True, exist_ok=True)
     source_runtime = plan["runtime"]
+    asset_names = source_runtime["asset_names"]
     identities = {v["id"]: (vid if v["id"] == source_runtime["source_id"] else
                   f"{plan['profile']['mc_version']}-vanilla-fastclient-runtime-{token}-{i}")
                   for i, v in enumerate(source_runtime["versions"])}
     with _RUNTIME_LOCK:
-        for entry in source_runtime["shared"]:
+        for relative, entry in source_runtime["shared"].items():
             _check_cancel(event)
             report(0, 0, "Reusing local runtime: " + entry["relative"])
-            dest = storage._owned(runtime_root, *_relative(entry["relative"]).parts)
+            dest = storage._owned(runtime_root, *_relative(relative).parts)
             _copy_runtime_file(entry, dest, event, report)
         for source in source_runtime["versions"]:
             _check_cancel(event)
@@ -484,6 +511,19 @@ def _import_runtime(plan, vid, token, targets, event, report):
             targets.append(target)
             data = dict(source["data"])
             data["id"] = ident
+            index = data.get("assetIndex")
+            asset_name = data.get("assets")
+            if index:
+                asset_name = index["id"]
+                data["assetIndex"] = {**index, "id": asset_names[asset_name]}
+            if isinstance(asset_name, str) and asset_name in asset_names:
+                data["assets"] = asset_names[asset_name]
+            if source_runtime["virtual_assets"]:
+                if "minecraftArguments" in data:
+                    data["minecraftArguments"] = _virtual_asset_args(data["minecraftArguments"])
+                args = data.get("arguments")
+                if args and "game" in args:
+                    data["arguments"] = {**args, "game": _virtual_asset_args(args["game"])}
             for field in ("inheritsFrom", "jar"):
                 if field in data:
                     data[field] = identities[data[field]]

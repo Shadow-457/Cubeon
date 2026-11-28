@@ -103,6 +103,32 @@ check("each sender carries its own current metadata", history.messages.map((m) =
 ]);
 check("history is not broadcast to peer", peer.frames, []);
 
+caller.frames.length = 0;
+await send(peer, { t: "typing", to: "Player_11111111" });
+check("typing is routed only to the friend", caller.frames.map(({ t, from }) => [t, from]),
+  [["typing", "Player_22222222"]]);
+caller.frames.length = 0;
+await send(peer, { t: "dm_seen", to: "Player_11111111", id: "m2" });
+await send(peer, { t: "dm_seen", to: "Player_11111111", id: "unknown" });
+check("read receipts cannot name the reader's own or unknown message", caller.frames, []);
+await send(peer, { t: "dm_seen", to: "Player_11111111", id: "m1" });
+const firstSeen = caller.frames.at(-1);
+check("read receipt is sent to the author", [firstSeen.t, firstSeen.from, firstSeen.id],
+  ["dm_seen", "Player_22222222", "m1"]);
+await send(caller, { t: "dm", to: "Player_22222222", text: "third", id: "m3" });
+caller.frames.length = 0;
+sockets.splice(sockets.indexOf(caller), 1);
+await send(peer, { t: "dm_seen", to: "Player_11111111", id: "m3" });
+await send(peer, { t: "dm_seen", to: "Player_11111111", id: "m1" });
+check("an offline sender gets no live receipt", caller.frames, []);
+sockets.push(caller);
+await send(caller, { t: "history", peer: "Player_22222222" });
+const latestSeen = caller.frames.at(-1).seen;
+check("history recovers the latest receipt and older reads cannot replace it", latestSeen.id, "m3");
+check("receipt position moves forward", latestSeen.position > firstSeen.position, true);
+await send(peer, { t: "dm_seen", to: "Player_11111111", id: "m3" });
+check("repeat reads send no extra receipt", caller.frames.length, 1);
+
 await send(caller, { t: "group_new", name: "Room", members: ["Player_22222222"] });
 const gid = caller.frames.find((f) => f.t === "group_created").gid;
 hub.store(`g:${gid}`, "player_22222222", "OldDisplay", "known", 1, "g1");
@@ -122,5 +148,9 @@ await send(caller, { t: "history", peer: "Player_22222222" });
 const partialHistory = caller.frames.at(-1);
 check("unknown peer username stays absent while known UID remains", [partialHistory.peer_uid, "peer_minecraft_username" in partialHistory], ["00000002", false]);
 check("unknown sender username stays absent while known UID remains", [partialHistory.messages[1].from_uid, "from_minecraft_username" in partialHistory.messages[1]], ["00000002", false]);
+await send(peer, { t: "remove", name: "Player_11111111" });
+caller.frames.length = 0;
+await send(peer, { t: "dm_seen", to: "Player_11111111", id: "m3" });
+check("read receipts require an active friendship", caller.frames, []);
 db.close();
 console.log(`\n${passed} passed, 0 failed`);

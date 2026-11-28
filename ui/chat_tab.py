@@ -345,6 +345,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     # --- live model ------------------------------------------------------
     selected = {"name": None}
+    activity = {"out": None, "seen": None, "typing": False}
+    typing_edit = {"at": 0.0, "sent": 0.0}
     last_seq = {}          # canon friend -> highest message seq seen
     cursor = {"v": -1}     # events cursor; -1 = first sync (no backlog)
     _last_roster = {"v": None}
@@ -506,6 +508,24 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                              cache_extent=160,
                              padding=ft.padding.Padding.symmetric(
                                  vertical=8, horizontal=4), visible=False)
+    typing_label = ft.Text("Typing…", size=11, color=TEXT_DIM, visible=False, data="chat-typing")
+    seen_label = ft.Text("Seen", size=11, color=TEXT_DIM, visible=False, data="chat-seen")
+    composer_status = ft.Text("", size=11, color=DANGER, max_lines=2,
+                              overflow=ft.TextOverflow.ELLIPSIS, visible=False)
+    activity_row = ft.Container(
+        ft.Row([typing_label, ft.Container(content=composer_status, expand=True), seen_label]),
+        height=28, visible=False, data="chat-activity-slot")
+
+    def _sync_activity():
+        typing = bool(selected["name"] and activity["typing"])
+        seen = bool(activity["out"] and activity["out"] == activity["seen"] and not any(
+            not item["failed"] for item in _pending.get(selected["name"], ())))
+        visible = bool(selected["name"])
+        if (typing, seen, visible) == (typing_label.visible, seen_label.visible, activity_row.visible):
+            return
+        typing_label.visible, seen_label.visible = typing, seen
+        activity_row.visible = visible
+        thread_safe_ui.refresh(activity_row)
 
     def _on_composer_change(_e=None):
         """Keep the open conversation's draft fresh while typing, so leaving
@@ -521,8 +541,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             # Rewriting value here can overwrite the next fast keystroke.
             if value.strip():
                 _drafts[key] = value
+                typing_edit["at"] = time.monotonic()
             else:
                 _drafts.pop(key, None)
+                typing_edit["at"] = 0.0
             _sync_composer()
             _sync_emoji_suggestions()
 
@@ -652,8 +674,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         else:
             _do_send()
 
-    composer_status = ft.Text("", size=11, color=DANGER, max_lines=2,
-                              overflow=ft.TextOverflow.ELLIPSIS, visible=False)
     composer_row = ft.Row([composer, send_target], spacing=4,
                           visible=False,
                           vertical_alignment=ft.CrossAxisAlignment.END)
@@ -717,7 +737,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             empty_sub.value = "Paste a friend’s Cubeon ID into the search box to add them."
         _refresh(conversation_host)
 
-    conn_banner_text = ft.Text("", size=12, color=WARNING, expand=True)
+    conn_banner_text = ft.Text("", size=12, color=WARNING, expand=True, max_lines=2,
+                              overflow=ft.TextOverflow.ELLIPSIS)
     reconnect_btn = ft.TextButton(
         "Reconnect", on_click=lambda e: _run(
             service.reconnect_chat,
@@ -730,12 +751,13 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                 color=WARNING),
                         conn_banner_text, reconnect_btn],
                        spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        bgcolor=ft.Colors.with_opacity(0.10, WARNING),
+        bgcolor=SURFACE_HI,
         border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-        visible=False,
+        top=0, left=0, right=0, visible=False,
         data="chat-connection-warning",
     )
+    conversation_host.controls.append(conn_banner)
 
     # --- small builders --------------------------------------------------
     def _avatar_color(name):
@@ -1085,6 +1107,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             retry_in = connection.get("retry_in")
             if retry_in:
                 conn_banner_text.value += f" Next attempt in {retry_in}s."
+            conn_banner_text.tooltip = conn_banner_text.value
             reconnect_btn.visible = available
             conn_banner.visible = True
         else:
@@ -1551,6 +1574,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             while len(q) > _MAX_PENDING:
                 q.pop(0)
             _trim_transcript()
+            _sync_activity()
         thread_safe_ui.refresh(transcript)
         _sync_empty_state()
         _stick_bottom(force=True)
@@ -1587,6 +1611,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 entry["wrap"] = fresh
             except ValueError:
                 pass   # the conversation was rebuilt - nothing to mark
+            _sync_activity()
         thread_safe_ui.refresh(transcript)
 
     def _sweep_pending():
@@ -1617,6 +1642,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             # "Couldn't send" bubble plus the real line) whenever the echo
             # arrived after the 12s sweep.
             if mine:
+                activity["out"] = m.get("id")
                 q = _pending.get(name) or []
                 handled_in_place = False
                 for p in list(q):
@@ -1685,6 +1711,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 _drafts[prev] = composer.value
             state["chat_composing"] = False
             selected["name"] = name
+            activity.update(out=None, seen=None, typing=False)
+            typing_edit["at"] = 0.0
+            _sync_activity()
             history.update(generation=history["generation"] + 1, loading=True, failed=False)
             last_seq[name] = -1
             _last_day[name] = None
@@ -1753,6 +1782,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         # below; if it's accepted, the relay's echo files the real line which
         # replaces the pending bubble in _append_messages.
         composer.value = ""
+        with thread_safe_ui.TREE_LOCK:
+            typing_edit["at"] = 0.0
         _drafts.pop(name, None)   # the message left the box - draft is spent
         thread_safe_ui.refresh(composer)
         _sync_composer()
@@ -1880,6 +1911,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         composer.value = ""
         with thread_safe_ui.TREE_LOCK:
             transcript.controls.clear()
+            activity.update(out=None, seen=None, typing=False)
+            typing_edit["at"] = 0.0
+            _sync_activity()
         transcript.visible = False
         empty_state.visible = True
         transcript_header.value = ""
@@ -1956,11 +1990,18 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 cursor["v"] = ev.get("cursor", cursor["v"])
                 name = selected["name"]
                 generation = history["generation"]
+                typed_at = typing_edit["at"]
+                should_send_typing = typed_at > typing_edit["sent"] and time.monotonic() - typed_at < 3
             if name:
                 viewing = (state.get("active_tab", "chat") == "chat"
                            and state.get("window_focused", True)
                            and not state.get("account_open", False))
                 _set_open(name, viewing)
+                send_typing = getattr(service, "send_chat_typing", None)
+                if viewing and should_send_typing and callable(send_typing):
+                    if send_typing(name):
+                        with thread_safe_ui.TREE_LOCK:
+                            typing_edit["sent"] = max(typing_edit["sent"], typed_at)
                 with thread_safe_ui.TREE_LOCK:
                     _sweep_pending()
                 history_failed = False
@@ -1979,6 +2020,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         history.update(loading=False, failed=history_failed)
                         messages = payload.get("messages") or []
                         _append_messages(messages, name)
+                        activity.update(typing=bool(payload.get("typing")), seen=payload.get("seen_id"))
+                        _sync_activity()
                         if changed and not messages:
                             _sync_empty_state()
                 if viewing:
@@ -2033,7 +2076,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 ft.Column([
                     requests_label, requests_col, roster_loading, friends_col,
                 ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True),
-                status_text,
+                ft.Container(content=status_text, height=32),
                 ft.Container(height=1, bgcolor=CARD_BORDER),
                 ft.Container(
                     content=ft.Row(
@@ -2084,10 +2127,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         content=ft.Column(
             [
                 header_row,
-                conn_banner,
                 header_rule,
                 conversation_host,
-                composer_status,
+                activity_row,
                 emoji_host,
                 composer_row,
             ],

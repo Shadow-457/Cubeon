@@ -115,11 +115,13 @@ public final class CosmeticCatalog {
         public final Item flatVariant;
         public final String emissiveTexture;
         public final boolean floatingHead;
+        public final boolean orbitalBurst;
         public final List<OrbitRig> orbitRigs;
 
         Item(String id, String slot, String name, String texture,
              int texWidth, int texHeight, List<Box> boxes, List<Feather> feathers,
-             boolean wingFlare, boolean separateFeathers, Item flatVariant, String emissiveTexture) {
+             boolean wingFlare, boolean separateFeathers, Item flatVariant,
+             String emissiveTexture, boolean orbitalBurst) {
             this.id = id;
             this.slot = slot;
             this.name = name;
@@ -132,9 +134,10 @@ public final class CosmeticCatalog {
             this.separateFeathers = separateFeathers;
             this.flatVariant = flatVariant;
             this.emissiveTexture = emissiveTexture;
+            this.orbitalBurst = orbitalBurst && "aura".equals(slot);
             floatingHead = "head".equals(slot) && boxes.stream().anyMatch(box -> "float".equals(box.motion));
             var rigs = new ArrayList<OrbitRig>();
-            if ("aura_butterfly".equals(id)) {
+            if ("aura_butterfly".equals(id) || this.orbitalBurst) {
                 for (var box : boxes) {
                     if (!box.motion.startsWith("orbit")) continue;
                     if (rigs.stream().noneMatch(rig -> rig.x == box.pivotX && rig.y == box.pivotY && rig.z == box.pivotZ))
@@ -142,6 +145,11 @@ public final class CosmeticCatalog {
                 }
             }
             orbitRigs = Collections.unmodifiableList(rigs);
+        }
+
+        /** Draw luminous orbital auras in one full-bright pass so the base cannot cover the glow. */
+        public boolean usesAuraFullbright() {
+            return orbitalBurst && emissiveTexture != null;
         }
 
         /** Resolve once before queued rendering so a setting change cannot mix meshes. */
@@ -162,6 +170,15 @@ public final class CosmeticCatalog {
 
         public Item get(String id) {
             return id == null ? null : items.get(id);
+        }
+
+        public Item orbitalAura(String id) {
+            Item item = get(id);
+            return item != null && item.orbitalBurst ? item : null;
+        }
+
+        public boolean auraUsesTorso(String id) {
+            return "aura_butterfly".equals(id) || orbitalAura(id) != null;
         }
 
         public List<Item> items() {
@@ -248,7 +265,7 @@ public final class CosmeticCatalog {
             return new Item(id, slot, Json.str(raw, "name", id), texture,
                     texWidth, texHeight, boxes, feathers, Json.bool(raw, "wing_flare", true),
                     Json.bool(raw, "separate_feathers", false), flat,
-                    Json.str(raw, "emissive_texture", null));
+                    Json.str(raw, "emissive_texture", null), Json.bool(raw, "orbital_burst", false));
         }
 
         private static Box parseBox(Object raw) {

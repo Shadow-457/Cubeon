@@ -106,7 +106,8 @@ class FastClientImports(unittest.TestCase):
             index.write_text(json.dumps({"objects": {"minecraft/sounds/test.ogg": {"hash": digest, "size": len(asset)}}}))
             (directory / f"{mc}.json").write_text(json.dumps({
                 "id": mc, "type": "release", "mainClass": "net.minecraft.client.Main", "libraries": [],
-                "minecraftArguments": None, "arguments": {"game": [], "jvm": ["-cp", "${classpath}"]},
+                "assets": "34", **({"minecraftArguments": None} if "_root" in _kwargs else {}),
+                "arguments": {"game": ["--assetIndex", "${assets_index_name}"], "jvm": ["-cp", "${classpath}"]},
                 "downloads": {"client": {"size": len(client), "sha1": hashlib.sha1(client).hexdigest()}},
                 "assetIndex": {"id": "34", "size": index.stat().st_size, "sha1": hashlib.sha1(index.read_bytes()).hexdigest()}}))
 
@@ -218,19 +219,99 @@ class FastClientImports(unittest.TestCase):
         self.assertFalse(next(v for v in versions.get_installed_versions()
                               if v["id"] == result["version_id"]).get("incomplete"))
 
-    def test_existing_runtime_cache_is_reused_and_conflicts_are_preserved(self):
-        first = importer.import_review(self.plan())["version_id"]
-        cached = self.snapshot(self.runtime.parent / "assets")
-        importer.import_review(self.plan())
-        self.assertEqual(self.snapshot(self.runtime.parent / "assets"), cached)
-        index = self.runtime.parent / "assets/indexes/34.json"
-        index.write_text("existing conflicting data")
-        registry = storage.registry()
+    def test_sibling_library_classifiers_are_checked_independently(self):
+        from minecraft_launcher_lib._helper import get_library_path
+        from minecraft_launcher_lib.command import get_minecraft_command
+
+        needed = "example:natives:1.0:current"
+        library = Path(get_library_path(needed, str(self.fast_runtime)))
+        library.parent.mkdir(parents=True)
+        library.write_bytes(b"local library")
+        path = self.fast_runtime / "versions/26.3/26.3.json"
+        data = json.loads(path.read_text())
+        data["libraries"] = [
+            {"name": "example:natives:1.0:other", "rules": [{"action": "disallow"}]},
+            {"name": needed},
+        ]
+        path.write_text(json.dumps(data))
+        vid = importer.import_review(self.plan())["version_id"]
+        command = get_minecraft_command(vid, self.runtime.parent,
+                                         {"username": "Fixture", "executablePath": "java"})
+        imported = Path(get_library_path(needed, str(self.runtime.parent)))
+        self.assertIn(str(imported), command[command.index("-cp") + 1].split(os.pathsep))
+        self.assertEqual(imported.read_bytes(), b"local library")
+
+    def test_imported_asset_revision_coexists_with_an_existing_version(self):
+        from minecraft_launcher_lib.command import get_minecraft_command
+
+        self.install_base("26.3")
+        storage.folder_for("26.3", create=True)
+        assets = self.runtime.parent / "assets"
+        index = assets / "indexes/34.json"
+        index.parent.mkdir(parents=True)
+        index.write_text('{"objects": {}}')
+        original = self.snapshot(assets)
+        source_index = (self.fast_runtime / "assets/indexes/34.json").read_bytes()
+        options = {"username": "Fixture", "uuid": "0", "token": "0", "executablePath": "java"}
+        imported = []
+        for _ in range(2):
+            vid = importer.import_review(self.plan())["version_id"]
+            imported.append(vid)
+            command = get_minecraft_command(vid, self.runtime.parent, options)
+            alias = command[command.index("--assetIndex") + 1]
+            self.assertNotEqual(alias, "34")
+            self.assertEqual((assets / "indexes" / f"{alias}.json").read_bytes(), source_index)
+            base = storage.manifest(vid)["source_version_id"]
+            metadata = json.loads((self.runtime / base / f"{base}.json").read_text())
+            self.assertEqual(metadata["assetIndex"]["id"], alias)
+            if len(imported) == 1:
+                cached = self.snapshot(assets)
+        self.assertNotEqual(*imported)
+        self.assertEqual(self.snapshot(assets), cached)
+        self.assertEqual(cached["indexes/34.json"], original["indexes/34.json"])
+        command = get_minecraft_command("26.3", self.runtime.parent, options)
+        self.assertEqual(command[command.index("--assetIndex") + 1], "34")
+
+    def test_legacy_virtual_asset_paths_are_isolated(self):
+        from minecraft_launcher_lib.command import get_minecraft_command
+
+        source_assets = self.fast_runtime / "assets"
+        logical = "minecraft/sounds/test.ogg"
+        index = json.loads((source_assets / "indexes/34.json").read_text())
+        index["virtual"] = True
+        raw = json.dumps(index).encode()
+        (source_assets / "indexes/legacy.json").write_bytes(raw)
+        source_virtual = source_assets / "virtual/legacy" / logical
+        source_virtual.parent.mkdir(parents=True)
+        source_virtual.write_bytes(b"local-asset")
+        manifest = self.fast_runtime / "versions/26.3/26.3.json"
+        data = json.loads(manifest.read_text())
+        data.update(assets="legacy", minecraftArguments="--gameAssets ${game_assets}",
+                    assetIndex={"id": "legacy", "size": len(raw), "sha1": hashlib.sha1(raw).hexdigest()})
+        manifest.write_text(json.dumps(data))
+        assets = self.runtime.parent / "assets"
+        existing = assets / "virtual/legacy" / logical
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"original-asset")
+
+        vid = importer.import_review(self.plan())["version_id"]
+        command = get_minecraft_command(vid, self.runtime.parent,
+                                         {"username": "Fixture", "executablePath": "java"})
+        virtual = Path(command[command.index("--gameAssets") + 1])
+        self.assertNotEqual(virtual, assets / "virtual/legacy")
+        self.assertEqual((virtual / logical).read_bytes(), b"local-asset")
+        self.assertEqual(existing.read_bytes(), b"original-asset")
+
+    def test_conflicting_cached_library_is_preserved(self):
+        plan = self.plan()
+        relative = next(path for path in plan["runtime"]["shared"] if path.startswith("libraries/"))
+        library = self.runtime.parent / relative
+        library.parent.mkdir(parents=True)
+        library.write_bytes(b"existing library")
         with self.assertRaisesRegex(ValueError, "different runtime file"):
-            importer.import_review(self.plan())
-        self.assertEqual(storage.registry(), registry)
-        self.assertEqual(index.read_text(), "existing conflicting data")
-        self.assertTrue(Path(storage.game_dir(first)).is_dir())
+            importer.import_review(plan)
+        self.assertEqual(library.read_bytes(), b"existing library")
+        self.assert_clean()
 
     def test_cancel_during_local_runtime_copy_removes_private_attempt(self):
         event = threading.Event()

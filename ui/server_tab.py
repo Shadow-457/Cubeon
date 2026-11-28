@@ -1542,7 +1542,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             plugins_content,
         ],
         spacing=0,
-        expand=True,
+        expand=True, opacity=0,
     )
     plugins_view.close_detail = plugins_content.close_detail
 
@@ -1554,14 +1554,19 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     # this line picks the public address out of the log the moment the
     # plugin announces it.
     public_text = ft.Text("", size=12, color=ACCENT, font_family=FONT_MONO,
-                          weight=ft.FontWeight.W_600, selectable=True)
-    public_hint_text = ft.Text("", size=11, color=TEXT_DIM, font_family=FONT_MONO)
+                          weight=ft.FontWeight.W_600, selectable=True,
+                          max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+    public_hint_text = ft.Text("", size=11, color=TEXT_DIM, font_family=FONT_MONO,
+                               max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+    public_address_slot = ft.Container(ft.Column([public_text, public_hint_text], spacing=3),
+                                       height=34, data="server-public-address-slot")
 
     def _refresh_public_address_line(snapshot=None):
         """Apply a collected address snapshot, or refresh it for server events."""
         version_id = active_version["value"]
         if not version_id or not (snapshot['installed'] if snapshot is not None else core.is_server_installed(version_id)):
             public_text.value = ""
+            public_text.tooltip = None
             public_hint_text.value = ""
             return
         endpoint = snapshot['endpoint'] if snapshot is not None else core.minekube.get_endpoint(version_id)
@@ -1580,6 +1585,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         else:
             public_text.value = ""
             public_hint_text.value = ""
+        public_text.tooltip = public_text.value or None
 
     def _public_watcher():
         """Keeps the public-address line live without any user action -
@@ -1596,6 +1602,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 addr = core.minekube.read_public_address(version_id)
                 if addr and f"Public address: {addr}" != public_text.value:
                     public_text.value = f"Public address: {addr}"
+                    public_text.tooltip = public_text.value
                     public_hint_text.value = ("Share this with friends. "
                                               "No port forwarding needed.")
                     # The address belongs in the player's Minecraft chat too:
@@ -1687,8 +1694,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 [status_dot, status_text, address_text],
                 spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            public_text,
-            public_hint_text,
+            public_address_slot,
             orphan_notice,
             ft.Row([stop_orphan_button], spacing=12),
             ft.Container(height=8),
@@ -1698,7 +1704,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         ],
         spacing=8,
         scroll=ft.ScrollMode.AUTO,
-        expand=True,
+        expand=True, opacity=0,
     )
 
     # --- Settings view (the "Servers > Settings" sidebar sub-item) --------
@@ -1715,7 +1721,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                     [
                         section_label(i18n.t("Install")),
                         ft.Row([install_button, install_status], spacing=12),
-                        install_progress,
+                        ft.Container(content=install_progress, height=4,
+                                     data="server-install-progress-slot"),
                         ft.Container(height=4),
                         eula_checkbox,
                     ],
@@ -1753,6 +1760,12 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             'lan': core.get_local_lan_address() if running else None,
         }
 
+    def _reveal_server_views():
+        for view in (console_view, settings_view, plugins_view):
+            if view.opacity == 0:
+                view.opacity = 1
+                thread_safe_ui.refresh(view)
+
     def _apply_server_snapshot(snapshot):
         version_id = snapshot['version']
         if version_id != state.get('selected_version'):
@@ -1768,12 +1781,13 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             orphan_notice.visible = False
             plugins_tab_visible["value"] = False
             public_text.value = ""
+            public_text.tooltip = None
             public_hint_text.value = ""
             refresh_plugins_visibility()
             refresh_controls_enabled()
-            settings_view.opacity = 1
             thread_safe_ui.refresh(console_view)
             thread_safe_ui.refresh(settings_view)
+            _reveal_server_views()
             return
 
         no_version_notice.visible = False
@@ -1819,10 +1833,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             install_status.value = i18n.t("Installed") if snapshot['installed'] else "Not installed yet"
             install_progress.visible = False
 
-        settings_view.opacity = 1
         set_running_ui(snapshot['running'], snapshot=snapshot)
         refresh_orphan_notice(snapshot)
         refresh_plugins_list(snapshot)
+        _reveal_server_views()
         if plugins_tab_visible["value"] and not plugin_results_list.controls:
             run_plugin_search()
 
@@ -1830,9 +1844,9 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         refresh_controls_enabled({'installed': False, 'running': False})
         install_status.value = "Couldn't load this server. Open Servers again to retry."
         install_status.color = DANGER
-        settings_view.opacity = 1
         thread_safe_ui.refresh(console_view)
         thread_safe_ui.refresh(settings_view)
+        _reveal_server_views()
 
     server_refresh = BackgroundRefresh(_read_server_snapshot, _apply_server_snapshot,
                                        name='server-refresh', failed=_server_read_failed)

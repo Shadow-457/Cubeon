@@ -62,6 +62,8 @@ _MAX_EVENTS = 200
 # event log: the mod polls GET /chat once a second while a chat is open, and an
 # unbounded ring would grow forever on a machine left running for a week.
 _MAX_CHAT = 200
+_TYPING_TTL = 5.0
+_TYPING_INTERVAL = 2.5
 
 # The "most recent messages" page size GET /chat serves on a first sync.
 _CHAT_PAGE = 40
@@ -299,6 +301,10 @@ class FriendsService:
         self._chat = {}            # canon peer -> {"next_seq": int, "msgs": deque}
         self._chat_seeded = {}     # canon -> {"gen": int, "t": float} | "done"
         self._chat_read = {}       # canon peer -> highest seq marked seen
+        self._chat_typing = {}     # canon peer -> short-lived typing deadline
+        self._typing_sent_at = float("-inf")
+        self._chat_seen = {}       # canon peer -> (relay position, outbound message id)
+        self._seen_sent = {}       # canon peer -> last inbound id reported this connection
         # canon peer -> monotonic deadline while some UI is showing that
         # conversation. Its only job is to keep the incoming-message OS toast
         # quiet for a line the player is already looking at (see
@@ -767,6 +773,8 @@ class FriendsService:
                           ("call_end", self._on_call_end),
                           ("signal", self._on_signal),
                           ("dm", self._on_dm),
+                          ("typing", self._on_typing),
+                          ("dm_seen", self._on_dm_seen),
                           ("history", self._on_history),
                           ("emote", self.emotes.receive),
                           ("emote_ready", self.emotes.acknowledge)):
@@ -1482,6 +1490,8 @@ class FriendsService:
         mid = str(p.get("id") or "")
         env_str = str(p.get("text") or "")
         if self._chat_append(canon, "in", sender, plain, ts, mid=mid, envelope=env_str):
+            with self._chat_lock:
+                self._chat_typing.pop(canon, None)
             self._notify_incoming_message(canon, sender, plain)
             if not self._conversation_on_screen(canon):
                 self._notify(f"New message from {self.peer_label(sender)}.")
@@ -1528,6 +1538,7 @@ class FriendsService:
         if not isinstance(peer, str) or not peer:
             return
         canon = friends.canonical_name(peer) or peer.lower()
+        self._remember_seen(canon, p.get("seen"))
         mine = self._my_name() or ""
         keypair = self._ensure_e2ee()
         if not mine or not keypair:
@@ -1707,6 +1718,55 @@ class FriendsService:
             return self._err("Message not confirmed yet. Check the conversation before sending again.")
         return self._ok()
 
+    def send_chat_typing(self, friend: str) -> bool:
+        peer = friends.canonical_name(friend)
+        if not peer or not self.client.is_connected:
+            return False
+        with self._chat_lock:
+            now = time.monotonic()
+            if now - self._typing_sent_at < _TYPING_INTERVAL:
+                return False
+            self._typing_sent_at = now
+        return self.client.send_typing(peer=peer)
+
+    def _on_typing(self, frame) -> None:
+        peer = friends.canonical_name(frame.get("from"))
+        if peer and not frame.get("gid"):
+            with self._chat_lock:
+                now = time.monotonic()
+                self._chat_typing = {name: end for name, end in self._chat_typing.items() if end > now}
+                self._chat_typing[peer] = now + _TYPING_TTL
+
+    def _on_dm_seen(self, frame) -> None:
+        self._remember_seen(friends.canonical_name(frame.get("from")), frame)
+
+    def _remember_seen(self, peer, receipt) -> None:
+        if not peer or not isinstance(receipt, dict):
+            return
+        position, mid = receipt.get("position"), receipt.get("id")
+        if type(position) is not int or position <= 0 or not isinstance(mid, str) or not 0 < len(mid) <= 32:
+            return
+        with self._chat_lock:
+            if position > self._chat_seen.get(peer, (0, ""))[0]:
+                self._chat_seen[peer] = position, mid
+
+    def _report_seen(self, peer, messages) -> None:
+        send = getattr(self.client, "send_dm_seen", None)
+        if not callable(send) or not self.client.is_connected:
+            return
+        mid = next((line.get("id") for line in reversed(messages)
+                    if line.get("dir") == "in" and line.get("id")), None)
+        if not mid:
+            return
+        with self._chat_lock:
+            if self._seen_sent.get(peer) == mid:
+                return
+            self._seen_sent[peer] = mid
+        if not send(peer, mid):
+            with self._chat_lock:
+                if self._seen_sent.get(peer) == mid:
+                    self._seen_sent.pop(peer, None)
+
     def chat_payload(self, friend: str, after, *, viewing: bool = True,
                      viewer: str = "bridge") -> dict:
         """GET /chat. friend=<name>, after=-1 means "most recent page" (and the
@@ -1730,6 +1790,8 @@ class FriendsService:
             seeded = self._chat_seeded.get(canon)
             connected = bool(getattr(self.client, "is_connected", False))
             now = time.monotonic()
+            typing = connected and self._chat_typing.get(canon, 0) > now
+            seen = self._chat_seen.get(canon, (0, ""))[1]
             # Determine if we need to (re)request history:
             # - never requested (None)
             # - marked for retry ("retry")
@@ -1753,33 +1815,18 @@ class FriendsService:
                 after = int(after) if after is not None else -1
             except (TypeError, ValueError):
                 after = -1
-        if after >= 0:
-            # Polling for new messages: if we haven't successfully seeded yet,
-            # trigger a request so gaps get filled.
-            if need_seed:
-                with self._chat_lock:
-                    self._chat_seeded[canon] = {
-                        "gen": self._connect_gen, "t": time.monotonic(), "attempts": 1}
-                if peer:
-                    self.client.request_history(peer=peer)
-            # The in-game screen polls this route while a conversation is
-            # open, exactly as the launcher's Chat tab does in-process - so
-            # reading in Minecraft must also clear the unread badge the roster
-            # shows. Same monotonic marker, idempotent, one line of parity.
-            if viewing and peer and msgs:
-                self.mark_read(peer)
-            return {"friend": peer, "you": you,
-                    "messages": [m for m in msgs if m["seq"] > after]}
         if need_seed:
             with self._chat_lock:
                 self._chat_seeded[canon] = {
                     "gen": self._connect_gen, "t": time.monotonic(), "attempts": 1}
             if peer:
                 self.client.request_history(peer=peer)
-        if viewing and peer and msgs:
+        if viewing and canon and msgs:
             self.mark_read(peer)
+            self._report_seen(canon, msgs)
         return {"friend": peer, "you": you,
-                "messages": msgs[-_CHAT_PAGE:]}
+                "messages": [m for m in msgs if m["seq"] > after] if after >= 0 else msgs[-_CHAT_PAGE:],
+                "typing": typing, "seen_id": seen}
 
     def close_bridge_chat(self, friend: str) -> dict:
         """Release only Minecraft's viewing lease; launcher viewing is independent."""
@@ -3412,9 +3459,9 @@ class FriendsService:
         if isinstance(payload, dict) and payload.get("connected"):
             with self._chat_lock:
                 self._connect_gen += 1
-                for canon, seeded in self._chat_seeded.items():
-                    if seeded != "done":
-                        self._chat_seeded[canon] = "retry"
+                self._chat_typing.clear()
+                self._seen_sent.clear()
+                self._chat_seeded.clear()
             # A reconnect re-resolves peer keys on next use: a friend who
             # rotated their key while we were offline must not keep receiving
             # messages sealed to the cached dead key (S15).

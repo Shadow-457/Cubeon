@@ -1,23 +1,28 @@
 package com.cubeon.client.cosmetics;
 
+import java.util.concurrent.ThreadLocalRandom;
+
 /** Tick-based cosmetic poses shared by all Minecraft render APIs.
  * Cached rest geometry and UVs are never changed. One scratch quad per draw
  * avoids allocating thousands of vertices or rebuilding feather meshes each frame.
  */
 public final class CosmeticAnimation {
     private static final float TAU = (float) (Math.PI * 2);
+    private static final float AURA_LAP_SECONDS = 5f;
     private CosmeticAnimation() { }
 
     /** Seconds come from interpolated entity age, so pause freezes animation. */
     public static Frame sample(float seconds, float movement, boolean gliding) {
         float t = Float.isFinite(seconds) ? seconds : 0;
         float move = Float.isFinite(movement) ? Math.max(0, Math.min(1, movement)) : 0;
-        return new Frame(t, move, gliding ? 1 : 0, 0, t * 2.6f % TAU, -1);
+        return new Frame(t, move, gliding ? 1 : 0, 0, t * 2.6f % TAU, -1, null);
     }
 
     /** Render-local response smoothing; no timer, global map or background work. */
     public static final class Tracker {
         private float previous = Float.NaN, movement, flight, sprint, phase;
+        private float nextAuraLap;
+        private CosmeticCatalog.Item orbitalAura;
 
         public Frame sample(float seconds, float targetMovement, boolean gliding) {
             return sample(seconds, targetMovement, gliding, false);
@@ -30,6 +35,11 @@ public final class CosmeticAnimation {
 
         public Frame sample(float seconds, float targetMovement, boolean gliding,
                             boolean sprinting, float dragonElapsed) {
+            return sample(seconds, targetMovement, gliding, sprinting, dragonElapsed, null);
+        }
+
+        public Frame sample(float seconds, float targetMovement, boolean gliding,
+                            boolean sprinting, float dragonElapsed, CosmeticCatalog.Item auraItem) {
             float t = Float.isFinite(seconds) ? seconds : 0;
             float target = Float.isFinite(targetMovement)
                     ? Math.max(0, Math.min(1, targetMovement)) : 0;
@@ -51,13 +61,28 @@ public final class CosmeticAnimation {
                 phase %= TAU;
                 sprint += (goal - sprint) * response;
             }
+            AuraLap auraLap = sampleAuraLap(t, auraItem);
             previous = t;
-            return new Frame(t, movement, flight, sprint, phase, dragonElapsed);
+            return new Frame(t, movement, flight, sprint, phase, dragonElapsed, auraLap);
+        }
+
+        private AuraLap sampleAuraLap(float time, CosmeticCatalog.Item item) {
+            if (item == null || !item.orbitalBurst) {
+                orbitalAura = null;
+                return null;
+            }
+            if (item != orbitalAura || time < previous || time >= nextAuraLap + AURA_LAP_SECONDS) {
+                orbitalAura = item;
+                nextAuraLap = time + 45 + 30 * ThreadLocalRandom.current().nextFloat();
+            }
+            float progress = (time - nextAuraLap) / AURA_LAP_SECONDS;
+            return progress > 0 ? new AuraLap(progress) : null;
         }
 
         /** Null denotes the cached rest pose; no Frame or transforms are allocated. */
         public Frame disabled() {
             previous = Float.NaN;
+            orbitalAura = null;
             return null;
         }
     }
@@ -70,9 +95,13 @@ public final class CosmeticAnimation {
         private final Transform floatingHead;
         private final float floatingHover;
         private final OrbitPose[] orbitPoses;
+        private final SpiralPose[] spiralPoses;
+        private final AuraLap auraLap;
 
-        private Frame(float t, float move, float gliding, float sprint, float phase, float dragonElapsed) {
+        private Frame(float t, float move, float gliding, float sprint, float phase,
+                      float dragonElapsed, AuraLap auraLap) {
             time = t; movement = move; flight = gliding; sprinting = sprint;
+            this.auraLap = auraLap;
             hover = .12f * sin(t * 1.8f);
             aura = new Transform(0, t * .8f % TAU, 0, 1);
             orbit = new Transform(0, t * .28f % TAU, 0, 1);
@@ -80,7 +109,7 @@ public final class CosmeticAnimation {
             flutterLeft = new Transform(0, flutter, 0, 1);
             flutterRight = new Transform(0, -flutter, 0, 1);
             wingPhase = phase; dragon = dragonElapsed; feathers = null; featherItem = null;
-            floatingHead = null; floatingHover = hover; orbitPoses = null;
+            floatingHead = null; floatingHover = hover; orbitPoses = null; spiralPoses = null;
             float breath = 0.018f * sin(t * 2.2f);
             body = new Transform(0, 0, 0.012f * sin(t * 1.1f)
                     + move * 0.025f * sin(t * 9), 1 + breath);
@@ -125,6 +154,7 @@ public final class CosmeticAnimation {
             body = source.body; head = source.head; leftWing = source.leftWing;
             rightWing = source.rightWing; pack = source.pack; aura = source.aura;
             orbit = source.orbit; flutterLeft = source.flutterLeft; flutterRight = source.flutterRight;
+            auraLap = source.auraLap;
             time = source.time; movement = source.movement; flight = source.flight;
             hover = source.hover;
             sprinting = source.sprinting; wingPhase = source.wingPhase; dragon = source.dragon;
@@ -132,9 +162,14 @@ public final class CosmeticAnimation {
             floatingHead = item.floatingHead
                     ? new Transform(.025f * sin(time * .9f), .16f * sin(time * .6f), .025f * sin(time * 1.2f), 1) : null;
             floatingHover = item.floatingHead ? .5f * sin(time * 1.8f) + .08f * sin(time * .6f) : hover;
-            orbitPoses = item.orbitRigs.isEmpty() ? null : new OrbitPose[item.orbitRigs.size()];
+            int rigs = item.orbitRigs.size();
+            orbitPoses = rigs == 0 || item.orbitalBurst ? null : new OrbitPose[rigs];
+            spiralPoses = rigs == 0 || !item.orbitalBurst ? null : new SpiralPose[rigs];
             if (orbitPoses != null)
                 for (int i = 0; i < orbitPoses.length; i++) orbitPoses[i] = new OrbitPose(time, i);
+            if (spiralPoses != null)
+                for (int i = 0; i < spiralPoses.length; i++)
+                    spiralPoses[i] = new SpiralPose(time, i, item.orbitRigs.get(i));
             feathers = new float[item.feathers.size() * 3];
             float action = item.wingFlare && Float.isFinite(dragon) && dragon >= 0 && dragon < WingAction.DURATION
                     ? smooth(dragon / .35f) * smooth((WingAction.DURATION - dragon) / .65f) : 0;
@@ -163,9 +198,59 @@ public final class CosmeticAnimation {
             // A just-swapped Small selection must ignore an already-captured Giant flare,
             // even before the next input tick cancels it.
             if (!item.wingFlare && Float.isFinite(dragon) && dragon >= 0 && dragon < WingAction.DURATION)
-                return new Frame(time, movement, flight, sprinting, wingPhase, -1).forItem(item);
+                return new Frame(time, movement, flight, sprinting, wingPhase, -1, auraLap).forItem(item);
             return item == featherItem || item.feathers.isEmpty() && !item.floatingHead && item.orbitRigs.isEmpty()
+                    && !(item.orbitalBurst && auraLap != null)
                     ? this : new Frame(this, item);
+        }
+    }
+
+    /** Rush through the middle of the lap and coast back into the idle pose. */
+    private static final class AuraLap {
+        final LapOrb left, right;
+
+        AuraLap(float progress) {
+            float eased = smooth(progress);
+            float angle = TAU * (.32f * eased + .68f * smooth(eased));
+            float pulse = sin(progress * TAU / 2);
+            pulse *= pulse;
+            left = new LapOrb(angle, pulse, -1);
+            right = new LapOrb(angle, pulse, 1);
+        }
+    }
+
+    private static final class LapOrb {
+        final Transform sweep, tumble;
+        final float radius, lift, scale;
+
+        LapOrb(float angle, float pulse, int side) {
+            float chase = sin(angle + .65f) * side;
+            sweep = new Transform(0, angle + .20f * pulse * chase, 0, 1);
+            tumble = new Transform(pulse * (.24f + .32f * chase),
+                    .38f * pulse * sin(angle * 2) * side, pulse * (.18f + .30f * chase) * side, 1);
+            radius = 1 + pulse * (.25f + .11f * chase);
+            lift = pulse * (-2.3f + 2.9f * chase);
+            scale = 1 + pulse * (.13f - .08f * chase);
+        }
+    }
+
+    /** Adjacent spirals counter-rotate and drift between heights without a reset. */
+    private static final class SpiralPose {
+        final Transform turn;
+        final float lift, radialOffset;
+
+        SpiralPose(float seconds, int rig, CosmeticCatalog.OrbitRig pivot) {
+            int band = rig % 4;
+            float direction = (band & 1) == 0 ? 1 : -1;
+            float azimuth = seconds * (.52f + band * .035f);
+            float vertical = sin(seconds * (.56f + band * .035f) + band * .24f);
+            float headReach = Math.max(0, 12 - pivot.y);
+            // Model Y increases downward. The lower spirals start by drifting down.
+            lift = -.86f * headReach + (band < 2 ? -vertical : vertical) * (2.7f + .55f * headReach);
+            float drift = sin(seconds * (.49f + band * .02f) + band * .62f);
+            float radius = (float) Math.hypot(pivot.x, pivot.z);
+            radialOffset = 3.2f * drift * drift / Math.max(1, radius);
+            turn = new Transform(0, direction * (azimuth % TAU + .12f * sin(azimuth)), 0, 1);
         }
     }
 
@@ -229,6 +314,8 @@ public final class CosmeticAnimation {
             }
             OrbitPose butterfly = frame.orbitPoses != null && quad.orbit >= 0
                     ? frame.orbitPoses[quad.orbit] : null;
+            SpiralPose spiral = frame.spiralPoses != null && quad.orbit >= 0
+                    ? frame.spiralPoses[quad.orbit] : null;
             Transform inner = switch (quad.motion) {
                 case "head", "hover_head" -> frame.head;
                 case "wing" -> quad.mirrored ? frame.rightWing : frame.leftWing;
@@ -242,6 +329,11 @@ public final class CosmeticAnimation {
             boolean pet = "head".equals(quad.motion) || "body".equals(quad.motion)
                     || "hover_body".equals(quad.motion) || "hover_head".equals(quad.motion);
             boolean orbiting = quad.motion.startsWith("orbit");
+            LapOrb lap = null;
+            if ("aura".equals(quad.motion) && frame.auraLap != null
+                    && frame.featherItem != null && frame.featherItem.orbitalBurst) {
+                lap = quad.pivotX < 0 ? frame.auraLap.left : frame.auraLap.right;
+            }
             boolean feather = quad.feathers != null && frame.feathers != null;
             if (feather && offsetsFrame != frame) {
                 offsetsFrame = frame;
@@ -285,10 +377,25 @@ public final class CosmeticAnimation {
                         pz += butterfly.radius * quad.pivotZ / radius;
                     }
                 }
-                if (orbiting) point(butterfly == null ? frame.orbit : butterfly.orbit, 0, -11, 0);
+                if (spiral != null) {
+                    px += quad.pivotX * spiral.radialOffset;
+                    pz += quad.pivotZ * spiral.radialOffset;
+                    point(spiral.turn, 0, 0, 0);
+                    py += spiral.lift;
+                } else if (orbiting) {
+                    point(butterfly == null ? frame.orbit : butterfly.orbit, 0, -11, 0);
+                }
+                if (lap != null) {
+                    scaleAround(quad.pivotX, quad.pivotY, quad.pivotZ, lap.scale);
+                    point(lap.tumble, quad.pivotX, quad.pivotY, quad.pivotZ);
+                    px += quad.pivotX * (lap.radius - 1);
+                    pz += quad.pivotZ * (lap.radius - 1);
+                    point(lap.sweep, 0, 0, 0);
+                    py += lap.lift;
+                }
                 x[vertex] = px; y[vertex] = py; z[vertex] = pz;
                 if ("float".equals(quad.motion) || "aura".equals(quad.motion)
-                        || quad.motion.startsWith("hover_") || orbiting)
+                        || quad.motion.startsWith("hover_") || orbiting && spiral == null)
                     y[vertex] += butterfly != null ? butterfly.bob
                             : "float".equals(quad.motion) ? frame.floatingHover : frame.hover;
             }
@@ -308,9 +415,20 @@ public final class CosmeticAnimation {
             if (inner != null) normal(inner);
             if (pet) normal(frame.body);
             if (butterfly != null) normal(butterfly.bank);
-            if (orbiting) normal(butterfly == null ? frame.orbit : butterfly.orbit);
+            if (spiral != null) normal(spiral.turn);
+            else if (orbiting) normal(butterfly == null ? frame.orbit : butterfly.orbit);
+            if (lap != null) {
+                normal(lap.tumble);
+                normal(lap.sweep);
+            }
             float length = (float) Math.sqrt(px * px + py * py + pz * pz);
             normalX = px / length; normalY = py / length; normalZ = pz / length;
+        }
+
+        private void scaleAround(float x, float y, float z, float scale) {
+            px = x + (px - x) * scale;
+            py = y + (py - y) * scale;
+            pz = z + (pz - z) * scale;
         }
 
         private void point(Transform m, float pivotX, float pivotY, float pivotZ) {

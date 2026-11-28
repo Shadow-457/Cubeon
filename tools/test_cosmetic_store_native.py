@@ -75,6 +75,38 @@ public class StoreProbe implements ClientModInitializer {
             counts[index++]=polygons(data.getMethod("get"+part+"Mesh").invoke(player));
         return counts;
     }
+    java.awt.image.BufferedImage applyProbeSkin() throws IOException {
+        var sheet=new java.awt.image.BufferedImage(64,64,java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        for(int y=0;y<64;y++)for(int x=0;x<64;x++)sheet.setRGB(x,y,0xFF000000|x*3<<16|y*3<<8|90);
+        var bytes=new ByteArrayOutputStream();javax.imageio.ImageIO.write(sheet,"png",bytes);
+        LiveSkin.apply(new SkinLibrary.Skin("probe","Probe",false,"classic",bytes.toByteArray(),
+            sheet.getRGB(0,0,64,64,null,0,64),64,64,false,bytes.toByteArray(),null,null,null));
+        return sheet;
+    }
+    void checkSkinCache(Object client) throws Exception {
+        Object player=client.getClass().getField(name("player")).get(client);
+        Path selection=net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve(CosmeticSelection.FILE_NAME);
+        Files.writeString(selection,Json.object("head","head_horns")); CosmeticSelection.bind(selection);
+        applyProbeSkin();
+        Object source=LiveSkinTexture.class.getMethod("texture").invoke(null);
+        Object fitted=call(body(player),"location");
+        check(!fitted.equals(source),"Equipping horns primes the fitted texture cache");
+        int entityId=(Integer)call(player,"entityId");
+        Method setId=player.getClass().getMethod(name("setEntityId"),int.class);
+        setId.invoke(player,entityId+1);
+        try {
+            check(call(body(player),"location").equals(fitted),"Changing the player's network ID reuses its fitted texture");
+            // Put the cache in its pre-transition state while leaving the real client's world active.
+            Field world=CosmeticSkinTexture.class.getDeclaredField("world");world.setAccessible(true);
+            world.set(null,new Object());
+            Object afterSwitch=call(body(player),"location");
+            check(!afterSwitch.equals(source)&&!afterSwitch.equals(fitted),"A world change retires and rebuilds the fitted texture");
+            Field cache=CosmeticSkinTexture.class.getDeclaredField("CACHE");cache.setAccessible(true);
+            check(((Map<?,?>)cache.get(null)).size()==1,"Only the new world's fitted texture stays cached");
+        } finally {
+            setId.invoke(player,entityId);
+        }
+    }
     public void onInitializeClient() {
         try {
             names=Json.parseObject(Files.readString(Path.of(System.getProperty("cubeon.probe.names"))));
@@ -93,6 +125,11 @@ public class StoreProbe implements ClientModInitializer {
         try {
             if(client.getClass().getField(name("player")).get(client)==null || ++ticks<30) return;
             finished=true;
+            if(Boolean.TRUE.equals(names.get("skin_cache_only"))) {
+                checkSkinCache(client);
+                System.out.println("CUBEON_STORE_NATIVE_PASS "+checks+" skin cache checks across a player ID and world change");
+                return;
+            }
             Object packs=call(client,"packs");
             check(((Collection<?>)call(packs,"enabled")).contains("file/cubeon-store"),"Minecraft retained the store pack");
             for(Object profile:(Collection<?>)call(packs,"profiles")) {
@@ -162,11 +199,7 @@ public class StoreProbe implements ClientModInitializer {
             Path selection=net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve(CosmeticSelection.FILE_NAME);
             Files.writeString(selection,"{\"aura\":\"aura_butterfly\"}"); CosmeticSelection.bind(selection);
             check((Boolean)visible.invoke(player,hat),"Removing the wearable restores the player's original layer setting");
-            var sheet=new java.awt.image.BufferedImage(64,64,java.awt.image.BufferedImage.TYPE_INT_ARGB);
-            for(int y=0;y<64;y++)for(int x=0;x<64;x++)sheet.setRGB(x,y,0xFF000000|x*3<<16|y*3<<8|90);
-            var bytes=new ByteArrayOutputStream();javax.imageio.ImageIO.write(sheet,"png",bytes);
-            LiveSkin.apply(new SkinLibrary.Skin("probe","Probe",false,"classic",bytes.toByteArray(),
-                sheet.getRGB(0,0,64,64,null,0,64),64,64,false,bytes.toByteArray(),null,null,null));
+            var sheet=applyProbeSkin();
             Object source=Class.forName("com.cubeon.client.skins.LiveSkinTexture").getMethod("texture").invoke(null);
             check(call(body(player),"location").equals(source),"Unequipped body uses the original live skin");
             Object originalImage=image(textures,source,identifier);
@@ -202,6 +235,7 @@ public class StoreProbe implements ClientModInitializer {
             }
             Field cache=CosmeticSkinTexture.class.getDeclaredField("CACHE");cache.setAccessible(true);
             check(((Map<?,?>)cache.get(null)).isEmpty(),"Unequipping releases all fitted display textures");
+            checkSkinCache(client);
             System.out.println("CUBEON_STORE_NATIVE_PASS "+checks+" checks; compatible pack, GPU textures, precise skin coverage, preserved 3D meshes and restoration");
         } catch(Throwable error) {
             finished=true; System.out.println("CUBEON_STORE_NATIVE_FAIL "+error); error.printStackTrace();
@@ -220,7 +254,7 @@ def names_for(version):
                     resources="getResourceManager", textures="getTextureManager", identifier="net.minecraft.resources.Identifier",
                     of="fromNamespaceAndPath", resource="getResource", packId="sourcePackId", input="open",
                     texture="getTexture", gpu="getTexture", stop="stop",skin="getSkin",body="body",location="texturePath",
-                    image="getPixels",color="getPixel",
+                    image="getPixels",color="getPixel",entityId="getId",setEntityId="setId",
                     playerParts="net.minecraft.world.entity.player.PlayerModelPart",hatPart="HAT",jacketPart="JACKET",partVisible="isModelPartShown")
     mapping = next((Path.home() / ".gradle/caches/fabric-loom" / version).glob("net.fabricmc.yarn*/mappings.tiny"))
     wanted = {
@@ -239,6 +273,8 @@ def names_for(version):
         "net/minecraft/util/AssetInfo$TextureAssetInfo": dict(texturePath="location"),
         "net/minecraft/client/texture/NativeImageBackedTexture": dict(getImage="image"),
         "net/minecraft/client/texture/NativeImage": dict(getColorArgb="color"),
+        "net/minecraft/entity/Entity": dict(setId="setEntityId"),
+        "net/minecraft/world/entity/EntityLike": dict(getId="entityId"),
         "net/minecraft/entity/PlayerLikeEntity": dict(isModelPartVisible="partVisible"),
         "net/minecraft/entity/player/PlayerModelPart": dict(HAT="hatPart",JACKET="jacketPart")}
     result, owner = {}, None
@@ -253,14 +289,14 @@ def names_for(version):
     return result
 
 
-def verify(version):
+def verify(version, *, skin_cache_only=False, client=None):
     loader = next((RUNTIME / "versions").glob(f"fabric-loader-*-{version}")).name
     profile = Path(storage.game_dir(loader))
     api = next((profile / "mods").glob("fabric-api-*.jar"))
-    client = ROOT / "assets/jars" / f"cubeon-client-1.0.0+mc{version}.jar"
-    items = [item for item in cosmetic_packages.installed_items()
+    client = client or ROOT / "assets/jars" / f"cubeon-client-1.0.0+mc{version}.jar"
+    items = [] if skin_cache_only else [item for item in cosmetic_packages.installed_items()
              if item["slot"] in ("head", "feet") or item.get("wing_flare") and item["slot"] == "back"]
-    assert items, "Download a store wing before running the native probe"
+    assert skin_cache_only or items, "Download a store wing before running the native probe"
     with tempfile.TemporaryDirectory(prefix=f"cubeon-store-native-{version}-") as temporary:
         work = Path(temporary)
         (work / "mods").mkdir()
@@ -283,11 +319,13 @@ def verify(version):
                 shutil.copyfile(texture, staged_textures / texture.name)
         for texture in staged_textures.glob("*.png"):
             shutil.copyfile(texture, textures / texture.name)
-        (work / "config/cubeon-store.json").write_text(json.dumps(dict(items=all_models, anchors=cosmetics.ANCHORS)))
         selection=work / "config/cubeon-cosmetics.json"
-        selected=json.loads(selection.read_text())
-        selected.update(head="head_horns",feet=None,aura="aura_butterfly")
-        selection.write_text(json.dumps(selected))
+        selection.parent.mkdir(exist_ok=True)
+        if not skin_cache_only:
+            (work / "config/cubeon-store.json").write_text(json.dumps(dict(items=all_models, anchors=cosmetics.ANCHORS)))
+            selected=json.loads(selection.read_text())
+            selected.update(head="head_horns",feet=None,aura="aura_butterfly")
+            selection.write_text(json.dumps(selected))
         expected = []
         for item in all_models:
             entries = []
@@ -301,7 +339,7 @@ def verify(version):
                 emissive=bool(item.get("emissive_texture"))))
         names = work / "names.json"
         wearables = [cosmetics.get("head_horns"), *[item for item in items if item['slot'] in ('head', 'feet')]]
-        names.write_text(json.dumps({**names_for(version), "models": expected, "skinlayers": bool(skinlayers),
+        names.write_text(json.dumps({**names_for(version), "models": expected, "skinlayers": bool(skinlayers), "skin_cache_only": skin_cache_only,
             "wearables": [dict(id=item['id'],slot=item['slot'],pixels=sorted(cosmetics.covered_skin_pixels(item))) for item in wearables]}))
         source = work / "StoreProbe.java"; source.write_text(PROBE)
         classes = work / "classes"; classes.mkdir()
@@ -316,7 +354,7 @@ def verify(version):
             jvmArguments=["-Xmx1536M", "-Xms256M", f"-Dcubeon.probe.names={names}"], launcherName="CubeonStoreProbe", launcherVersion="1"))
         command = _normalize_inherited_client_jar(command, loader) + ["--quickPlaySingleplayer", "Store probe"]
         OUT.mkdir(parents=True, exist_ok=True)
-        log = OUT / f"{version}.log"
+        log = OUT / (f"{version}-skin-cache.log" if skin_cache_only else f"{version}.log")
         with log.open("w") as output:
             process = subprocess.Popen(command, cwd=work, stdout=output, stderr=subprocess.STDOUT)
             try: result = process.wait(timeout=150)
@@ -327,10 +365,14 @@ def verify(version):
         assert result == 0 and "CUBEON_STORE_NATIVE_PASS" in text and "CUBEON_STORE_NATIVE_FAIL" not in text, log
         print(version, next(line for line in text.splitlines() if "CUBEON_STORE_NATIVE_PASS" in line))
         assert "Removed resource pack file/cubeon-store" not in text, log
-        print(f"Verified {len(items)} store models with resource format {packformat.resource_format_for(version, loader)}")
+        if not skin_cache_only:
+            print(f"Verified {len(items)} store models with resource format {packformat.resource_format_for(version, loader)}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("versions", nargs="*", default=["1.21.11"])
-    for version in parser.parse_args().versions: verify(version)
+    parser.add_argument("--skin-cache-only", action="store_true", help="check world transitions without downloaded cosmetics")
+    args = parser.parse_args()
+    for version in args.versions:
+        verify(version, skin_cache_only=args.skin_cache_only)

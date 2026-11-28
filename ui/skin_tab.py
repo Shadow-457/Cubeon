@@ -46,7 +46,7 @@ from cubeon.theme import (
     ROW_HOVER,
 )
 from cubeon import thread_safe_ui
-from cubeon import cosmetics, cosmetics_store
+from cubeon import cosmetic_packages, cosmetics, cosmetics_store
 from ui.appearance_preview import AppearancePreview
 from ui.image_memory import preview_image
 from ui.content_states import skeleton_block
@@ -995,10 +995,12 @@ class StorePane(Pane):
     DESTINATION = {"cape": "Cape", "pet": "Pets", "wing": "Back", "head": "Head",
                    "feet": "Feet", "aura": "Aura"}
 
-    def __init__(self, ctx: Context, capes: CapePane):
+    def __init__(self, ctx: Context, capes: CapePane,
+                 on_model_downloaded: Callable[[str], None]):
         super().__init__(ctx)
         t = ctx.tokens
         self.capes = capes
+        self.on_model_downloaded = on_model_downloaded
         self.grid = ctx.new_grid()
         self.status = StatusLine(t)
         self.page_label = ft.Text("Page 1", size=12, color=t.text_dim)
@@ -1113,6 +1115,8 @@ class StorePane(Pane):
         if success and item["kind"] == "cape":
             self.capes.grid.refresh()
         self.status.set(message)
+        if success and item["kind"] in cosmetic_packages.KIND_SLOTS:
+            self.on_model_downloaded(cosmetic_packages.KIND_SLOTS[item["kind"]])
 
     # -- catalogue --------------------------------------------------------
     def fetch(self, offset=None, *, force=False):
@@ -1278,9 +1282,10 @@ class CosmeticPane(Pane):
 
     def _cosmetics_stamp(self):
         try:
-            return os.stat(self.ctx.appearance.cosmetics_dir).st_mtime_ns
+            bundled = os.stat(self.ctx.appearance.cosmetics_dir).st_mtime_ns
         except OSError:
-            return 0
+            bundled = 0
+        return bundled, cosmetics.library_revision()
 
     def _sync_selection(self) -> bool:
         active = self.ctx.cfg.get(self.key)
@@ -1289,6 +1294,7 @@ class CosmeticPane(Pane):
         new_disabled = not bool(active)
         changed = self.remove.disabled != new_disabled
         self.remove.disabled = new_disabled
+        self.remove.cubeon_keyboard_button.disabled = new_disabled
         self.remove.opacity = 0.4 if new_disabled else 1.0
         previous = self._selected
         if previous is not self._UNSET and previous == active:
@@ -1529,10 +1535,8 @@ class WardrobeLayout:
         width = cap
         if self.row_width is not None:
             span = 12 if self.compact else (3 if self.row_width >= self.WIDE_FROM else 4)
-            gap = 0 if span == 12 else self.SPACING
-            estimate = self.row_width * span / 12 - gap - self.PANEL_PADDING
-            # estimate lets the preview GROW; measurement keeps it honest.
-            width = min(cap, max(self.preview_measured or 0, estimate))
+            column_width = (self.row_width + self.SPACING) * span / 12 - self.SPACING
+            width = min(cap, column_width - self.PANEL_PADDING)
         return int(picker), int(max(width, 1))
 
     def _ready(self):
@@ -1548,24 +1552,16 @@ class WardrobeLayout:
                 height, width = target
                 self.picker.height = self.preview.height = height
                 if previous is None or previous[1] != width:
-                    self.ctx.appearance.resize(width)
+                    self.ctx.appearance.resize(width, repaint=False)
             reveal = (self.section is not None and self._ready()
                       and self.section.opacity == 0)
             if reveal:
                 self.section.opacity = 1
-        if changed:
-            ui_refresh(self.row)       # one refresh covers picker + preview
         if reveal:
+            # Commit dimensions and visibility in the same native update.
             ui_refresh(self.section)
-
-    def force_reveal(self):
-        try:
-            with tree_lock():
-                if self.section.opacity == 0:
-                    self.section.opacity = 1
-            ui_refresh(self.section)
-        except Exception:
-            pass
+        elif changed and self.section is not None and self.section.opacity == 1:
+            ui_refresh(self.row)
 
 
 # ---------------------------------------------------------------------------
@@ -1586,7 +1582,7 @@ class Wardrobe:
         # A throwaway picker only when none was supplied (e.g. headless smoke test).
         skin = SkinPane(ctx, file_picker or ft.FilePicker())
         cape = CapePane(ctx, cape_file_picker or ft.FilePicker())
-        store = StorePane(ctx, cape)
+        store = StorePane(ctx, cape, self._refresh_downloaded_slot)
         wearables = [CosmeticPane(ctx, slot, store) for slot in self.SLOTS]
         self.panes: dict[str, Pane] = {p.id: p for p in [skin, cape, store, *wearables]}
         skin.refresh_cards()
@@ -1616,9 +1612,6 @@ class Wardrobe:
         if not measure_viewport:
             self.layout.follow_window(page)
 
-        timer = threading.Timer(2.0, self.layout.force_reveal)
-        timer.daemon = True
-        timer.start()
         appearance.refresh()
 
     def switch(self, pid):
@@ -1647,6 +1640,11 @@ class Wardrobe:
                 ui_refresh(self.panes[pid].view)
             ui_refresh(self.header.view)   # action enabled-state may have changed
             self.ctx.worker.flush()
+
+    def _refresh_downloaded_slot(self, slot):
+        with tree_lock():
+            if self.active_id == slot:
+                self.queue.request(slot)
 
 
 def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider,

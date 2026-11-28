@@ -38,12 +38,16 @@ public final class CosmeticPlayers {
                 || !local && (!config.showOtherCosmetics || player.distanceToSqr(client.player) > 4096)) return null;
         CosmeticSelection.Items items = local ? CosmeticSelection.snapshot()
                 : RemoteCosmetics.get(player.getName().getString());
-        if (items.empty()) return null;
+        if (items.empty()) {
+            MOTION.remove(player);
+            return null;
+        }
         var motion = MOTION.computeIfAbsent(player, ignored -> new CosmeticAnimation.Tracker());
         CosmeticAnimation.Frame frame = config.cosmeticAnimations
                 ? motion.sample(age, (float) player.getDeltaMovement().horizontalDistance() * 4,
                     gliding, player.isSprinting(), local
-                        ? WingAction.INSTANCE.elapsed(client.player, client.level, age) : -1f)
+                        ? WingAction.INSTANCE.elapsed(client.player, client.level, age) : -1f,
+                    CosmeticSelection.orbitalAura(items))
                 : motion.disabled();
         return new CosmeticView(items, frame);
     }

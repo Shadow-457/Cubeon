@@ -59,6 +59,7 @@ _REPO_ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 _lock = threading.Lock()
 _catalog = None
 _catalog_dir = None
+_library_revision = 0
 
 
 def assets_dir(override: str | None = None) -> str:
@@ -89,12 +90,19 @@ def catalog(directory: str | None = None) -> dict:
 
 
 def invalidate_cache() -> None:
-    global _catalog, _catalog_dir
+    global _catalog, _catalog_dir, _library_revision
     with _lock:
         _catalog = None
         _catalog_dir = None
+        _library_revision += 1
     from .cosmetic_preview import clear_cache
     clear_cache()
+
+
+def library_revision() -> int:
+    """Revision of the library shared by the catalogue and retained Wardrobe panes."""
+    with _lock:
+        return _library_revision
 
 
 def items(slot: str | None = None, directory: str | None = None) -> list[dict]:

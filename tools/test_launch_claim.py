@@ -20,6 +20,7 @@ Run: python tools/test_launch_claim.py
 import inspect
 import os
 import sys
+import time
 from unittest.mock import patch
 
 sys.path[:0] = [os.path.dirname(__file__),
@@ -217,6 +218,30 @@ with patch("main.threading.Thread", DeferredThread):
     check("the button is usable again after the failure",
           play_text.value == "PLAY" and not play_button.disabled,
           f"disabled={play_button.disabled} text={play_text.value!r}")
+
+from cubeon import watchdog
+
+restarted_page = app_driver.DriverPage()
+session = {"version": "1.20.1", "pid": 1234, "session_id": "restart-fixture"}
+with patch.dict(os.environ, {"CUBEON_RELAUNCH": "1"}), \
+        patch.object(watchdog, "stale_session", return_value=session) as live:
+    stubs.app.run_sync(restarted_page)
+    restarted_controls = list(fz.every_control(restarted_page))
+    restarted_begin = function_from_controls(restarted_controls, "_begin_install_and_launch")
+    restarted_action = function_from_controls(restarted_controls, "_main_action_click")
+    restarted_state = inspect.getclosurevars(restarted_begin).nonlocals["state"]
+    restarted_button = next(c for c in restarted_controls if getattr(c, "on_click", None) is restarted_action)
+    restarted_text = next(c for c in fz.walk(restarted_button) if type(c).__name__ == "Text")
+    check("settings restart restores the live game to the Play button",
+          restarted_state["running_version"] == "1.20.1" and restarted_text.value == "QUIT GAME")
+    check("the restored session prevents a second launch worker",
+          restarted_begin("1.20.1", "tester") is False and restarted_state["installing_version"] is None)
+    live.return_value = None
+    deadline = time.monotonic() + 7
+    while restarted_text.value == "QUIT GAME" and time.monotonic() < deadline:
+        time.sleep(.05)
+    check("the restored game's exit makes Play available again",
+          restarted_state["running_version"] is None and restarted_text.value != "QUIT GAME")
 
 print()
 print(f"{passed} passed, {failed} failed")

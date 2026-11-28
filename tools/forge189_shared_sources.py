@@ -211,6 +211,8 @@ def generate(root, destination):
                             'com.cubeon.compat.Collections8.encode(before.peer())')
         text = text.replace('var merged =', 'java.util.TreeMap<Long, ChatMessage> merged =')
         text = text.replace('var weight =', 'CosmeticGeometry.FeatherWeight weight =')
+        text = text.replace('var rigs = new ArrayList<OrbitRig>();', 'ArrayList<OrbitRig> rigs = new ArrayList<OrbitRig>();')
+        text = text.replace('var pivot = item.orbitRigs.get(rig);', 'CosmeticCatalog.OrbitRig pivot = item.orbitRigs.get(rig);')
         text = text.replace('var f =', 'CosmeticCatalog.Feather f =')
         text = text.replace('for (var box :', 'for (CosmeticCatalog.Box box :')
         text = text.replace('try (var stream =', 'try (java.io.InputStream stream =')

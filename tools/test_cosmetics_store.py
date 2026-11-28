@@ -268,7 +268,7 @@ class Picker(unittest.TestCase):
                 **THEME, assets_dir=str(ROOT / "assets"), mc_version="1.21.11", mc_loader="fabric",
                 file_picker=ft.FilePicker(), cape_file_picker=ft.FilePicker())
             next(c for c in fz.walk(root) if callable(getattr(c, "on_click", None))
-                 and any(getattr(t, "value", None) == "Browse" for t in fz.walk(c))).on_click(None)
+                 and any(getattr(t, "value", None) == "Store" for t in fz.walk(c))).on_click(None)
             jobs[-1]()
             field = next(c for c in fz.walk(root) if c.data == "cosmetics-store-search")
             field.value = "golden"
@@ -333,7 +333,7 @@ class Picker(unittest.TestCase):
             def tab(label):
                 next(c for c in fz.walk(root) if callable(getattr(c, "on_click", None))
                     and any(getattr(t, "value", None) == label for t in fz.walk(c))).on_click(None)
-            tab("Browse")
+            tab("Store")
             fetch.assert_not_called()
             jobs[-1]()
             fetch.assert_called_once_with(0)
@@ -349,7 +349,7 @@ class Picker(unittest.TestCase):
             self.assertIn("downloaded sample cape", fz.subtree_text(root))
             self.assertEqual(images, [c for c in fz.walk(store_pane) if isinstance(c, ft.Image)])
             tab("Skin")
-            tab("Browse")
+            tab("Store")
             fetch.assert_called_once()
             self.assertEqual(page.update_calls, 0)
 
@@ -391,7 +391,7 @@ class Picker(unittest.TestCase):
                 pixel_divider=pixel_divider, **THEME, assets_dir=str(ROOT / "assets"),
                 mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(), cape_file_picker=ft.FilePicker())
             next(c for c in fz.walk(root) if callable(getattr(c, 'on_click', None))
-                 and any(getattr(t, 'value', None) == 'Browse' for t in fz.walk(c))).on_click(None)
+                 and any(getattr(t, 'value', None) == 'Store' for t in fz.walk(c))).on_click(None)
             jobs[-1]()
             self.assertIn("second cape", fz.subtree_text(root))
             self.assertNotIn("sample cape", fz.subtree_text(root))

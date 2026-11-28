@@ -94,7 +94,7 @@ const T = {
   GROUP_LEAVE: "group_leave", VERSION: "version", STATUS: "status",
   HISTORY: "history", CALL_INVITE: "call_invite", CALL_ACCEPT: "call_accept",
   CALL_DECLINE: "call_decline", CALL_END: "call_end", SIGNAL: "signal",
-  TYPING: "typing", METADATA: "metadata",
+  TYPING: "typing", DM_SEEN: "dm_seen", METADATA: "metadata",
   EMOTE_ROOM: "emote_room", EMOTE_READY: "emote_ready", EMOTE: "emote",
   // server -> client
   HELLO_OK: "hello_ok", ERROR: "error", ROSTER: "roster", PRESENCE: "presence",
@@ -189,6 +189,9 @@ export class Hub {
         conv TEXT, sender TEXT, display TEXT, text TEXT, ts INTEGER, mid TEXT
       );
       CREATE INDEX IF NOT EXISTS messages_conv ON messages (conv, ts);
+      CREATE TABLE IF NOT EXISTS dm_reads (
+        reader TEXT, peer TEXT, position INTEGER, mid TEXT, PRIMARY KEY (reader, peer)
+      );
       CREATE TABLE IF NOT EXISTS calls (room TEXT, member TEXT, PRIMARY KEY (room, member));
     `);
     // The E2EE public key column is opaque to this Worker - it just stores and
@@ -411,6 +414,7 @@ export class Hub {
       case T.ACCEPT: return this.onAccept(me, myDisplay, msg);
       case T.DECLINE: return this.onDecline(me, msg);
       case T.DM: return this.onDm(ws, me, myDisplay, msg);
+      case T.DM_SEEN: return this.onDmSeen(me, myDisplay, msg);
       case T.GROUP_NEW: return this.onGroupNew(me, myDisplay, msg);
       case T.GROUP_MSG: return this.onGroupMsg(ws, me, myDisplay, msg);
       case T.GROUP_LEAVE: return this.onGroupLeave(me, msg);
@@ -589,6 +593,8 @@ export class Hub {
     if (!other) return;
     this.sql.exec("DELETE FROM friends WHERE owner=? AND friend=?", me, other);
     this.sql.exec("DELETE FROM friends WHERE owner=? AND friend=?", other, me);
+    this.sql.exec("DELETE FROM dm_reads WHERE (reader=? AND peer=?) OR (reader=? AND peer=?)",
+      me, other, other, me);
     this.sendTo(other, T.FRIEND_REMOVED, { name: this.displayOf(me) });
     this.sendRoster(me);
     this.sendRoster(other);
@@ -647,6 +653,23 @@ export class Hub {
     const to = canonName(msg.to);
     if (!to || !this.areFriends(me, to)) return;
     this.sendTo(to, T.TYPING, { from: myDisplay });
+  }
+
+  onDmSeen(me, myDisplay, msg) {
+    const peer = canonName(msg.to);
+    if (!peer || peer === me || !this.areFriends(me, peer) ||
+        typeof msg.id !== "string" || !msg.id || msg.id.length > 32) return;
+    // The recipient can only acknowledge a message actually sent by this peer
+    // in this conversation. Use server order, including same-second messages.
+    const [message] = this.sql.exec(
+      `SELECT rowid AS position FROM messages WHERE conv=? AND sender=? AND mid=?
+       ORDER BY rowid DESC LIMIT 1`, dmConv(me, peer), peer, msg.id).toArray();
+    if (!message) return;
+    const [updated] = this.sql.exec(`INSERT INTO dm_reads (reader, peer, position, mid) VALUES (?, ?, ?, ?)
+      ON CONFLICT (reader, peer) DO UPDATE SET position=excluded.position, mid=excluded.mid
+      WHERE excluded.position > dm_reads.position RETURNING position`,
+      me, peer, message.position, msg.id).toArray();
+    if (updated) this.sendTo(peer, T.DM_SEEN, { from: myDisplay, id: msg.id, position: updated.position });
   }
 
   onGroupNew(me, myDisplay, msg) {
@@ -806,6 +829,9 @@ export class Hub {
       if (!other || !this.areFriends(me, other)) return;
       conv = dmConv(me, other);
       key = { peer: this.displayOf(other), ...knownIdentityFields(other, "peer") };
+      const [seen] = this.sql.exec("SELECT mid AS id, position FROM dm_reads WHERE reader=? AND peer=?",
+        other, me).toArray();
+      if (seen) key.seen = seen;
     } else if (typeof msg.gid === "string" && this.inGroup(msg.gid, me)) {
       conv = "g:" + msg.gid;
       key = { gid: msg.gid };
@@ -994,7 +1020,7 @@ export class Hub {
     // means history never grows without bound, and DO storage isn't KV-metered.
     this.sql.exec(
       `DELETE FROM messages WHERE conv=? AND rowid NOT IN (
-         SELECT rowid FROM messages WHERE conv=? ORDER BY ts DESC LIMIT ?)`,
+         SELECT rowid FROM messages WHERE conv=? ORDER BY ts DESC, rowid DESC LIMIT ?)`,
       conv, conv, HISTORY_KEEP);
   }
 

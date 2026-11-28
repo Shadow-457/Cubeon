@@ -73,6 +73,9 @@ hides the jacket layer. Floating head ornaments, wings, pets and auras keep
 the skin layers. The client uses per-player model-part visibility, also honored
 by 3D Skin Layers, without editing skins or Minecraft's saved preferences.
 Removing the wearable immediately restores the original visibility setting.
+Fabric keys its fitted skin texture cache by player entity identity. Minecraft
+can change the entity's network ID, so caching by that ID or the entity's
+default hash can strand textures during a world switch.
 
 The first catalog contains one **Cubeon Cape Sample**, using the original
 bundled `assets/capes/cubeon_cape.png` artwork. After installing the client version
@@ -213,10 +216,20 @@ compose hovering with the pet's breathing and glances. `orbit` and
 `orbit_wing_left`/`orbit_wing_right` provide a slow head-centred butterfly orbit
 and local wing beats. `aura` rotates around the box pivot while hovering.
 Motion respects the existing in-game Cosmetic motion setting.
+Set `orbital_burst: true` on an Aura model to attach it to the torso and send
+its `aura` boxes on a five-second lap after a random 45–75 second wait. The orbs
+bank and change height as they accelerate out and ease back into their idle
+positions. Keep each orb's component boxes on the same pivot. `orbit` boxes on
+the same model orbit continuously. Pieces sharing a pivot form one ribbon.
+Consecutive ribbons turn in opposite directions and gently drift farther from
+the player before returning to their authored clearance. The upper ribbons rise
+and the lower ribbons start by drifting down. Older clients can load the same
+geometry with their existing animation.
 An optional `emissive_texture` PNG marks luminous pixels with opaque colour and
 leaves other pixels transparent. It must match the base atlas dimensions and UV
-layout. The client renders it over the same animated geometry at full brightness,
-so glows remain visible in dark scenes. Preview bloom is included in the launcher;
+layout. The client renders most glow masks over the same animated geometry.
+Orbital auras with a glow mask draw the base texture at full brightness in a
+single pass so it stays visible in the dark. The launcher preview includes bloom.
 Minecraft bloom depends on the user's shader setup. Use `flat_emissive_texture`
 for a flat variant's mask. Complete packages allow up to four embedded PNGs.
 Use the exact `emissive_texture` spelling. Opaque black pixels in this overlay

@@ -5421,31 +5421,7 @@ async def main(page: ft.Page):
                     set_button_mode("running")
                     thread_safe_ui.refresh(progress_card)
 
-            # Belt-and-braces liveness watch: on_exit() is the normal path,
-            # but a single callback must never be a single point of failure -
-            # if its thread dies, or the game is killed in a way the watcher
-            # misses, the button would sit on GAME RUNNING... forever. This
-            # daemon polls the watchdog every 5s ONLY while this launch's
-            # claim is live (a psutil probe, no disk, no network) and
-            # self-heals via the same reconcile the Play tab uses if the
-            # game dies without on_exit ever clearing the claim. Each launch
-            # wakes/retires its previous watcher, including a rapid same-instance
-            # relaunch. A sleeping old thread must not suppress the new watcher.
-            def _liveness_watch():
-                while not _liveness_done.wait(5):
-                    with thread_safe_ui.TREE_LOCK:
-                        if (_liveness_done.is_set() or
-                                _running_liveness["stop"] is not _liveness_done or
-                                state.get("running_version") != target_version):
-                            return
-                        _reconcile_running_button()
-                        if state.get("running_version") != target_version:
-                            return
-            try:
-                threading.Thread(target=_liveness_watch,
-                                 name="running-liveness", daemon=True).start()
-            except Exception:
-                logging.getLogger(__name__).warning("game liveness watcher unavailable", exc_info=True)
+            _watch_game_liveness(target_version, _liveness_done)
 
             # Remember this launch for the instance panel's "played" label (see
             # cubeon/instances.py). `target_version` is what actually launched,
@@ -6391,11 +6367,11 @@ async def main(page: ft.Page):
     _tab_cbs: dict = {}   # tab key -> the builder's callbacks, once built
     mods_tab = ft.Container(loading_rows('Loading mods…'), expand=True)
     modpacks_tab = ft.Container(expand=True)
-    server_console_tab = ft.Container(loading_rows('Loading console…'), expand=True)
-    server_plugins_tab = ft.Container(loading_rows('Loading plugins…'), expand=True)
+    server_console_tab = ft.Container(expand=True)
+    server_plugins_tab = ft.Container(expand=True)
     server_settings_tab = ft.Container(expand=True)
     stats_tab_host = ft.Container(expand=True)
-    chat_tab_host = ft.Container(loading_rows('Loading chat…'), expand=True)
+    chat_tab_host = ft.Container(expand=True)
 
     def _cb(key, name):
         """A builder callback that stays a no-op until its tab is built."""
@@ -7698,6 +7674,22 @@ async def main(page: ft.Page):
         with thread_safe_ui.TREE_LOCK:
             _reconcile_running_button_locked()
 
+    def _watch_game_liveness(version_id, stop):
+        """Keep Play in sync when no in-process exit callback runs."""
+        def watch():
+            while not stop.wait(5):
+                with thread_safe_ui.TREE_LOCK:
+                    if (stop.is_set() or _running_liveness["stop"] is not stop
+                            or state.get("running_version") != version_id):
+                        return
+                    _reconcile_running_button_locked()
+                    if state.get("running_version") != version_id:
+                        return
+        try:
+            threading.Thread(target=watch, name="running-liveness", daemon=True).start()
+        except Exception:
+            logging.getLogger(__name__).warning("game liveness watcher unavailable", exc_info=True)
+
     def _reconcile_running_button_locked():
         """Self-heal the play button against a dead session record.
 
@@ -7880,15 +7872,14 @@ async def main(page: ft.Page):
             if view is None:
                 label = next((label for nav_key, icon, label in top_nav_items
                               if nav_key == key or (nav_key == SERVER_TOP_KEY and key in SERVER_GROUP_KEYS)), key.title())
-                initial = tabs[key]
-                if entry_queue.deferred:
-                    # These panes reveal their own measured or populated layout.
-                    initial = (ft.Container() if key in {"profile", "server_settings", "stats"} else
-                               loading_rows(f'Loading {label.lower()}…'))
+                # These tabs own their loading state inside a retained host.
+                use_host = (not entry_queue.deferred or key in SERVER_GROUP_KEYS
+                            or key in {"profile", "chat", "stats"})
+                initial = tabs[key] if use_host else loading_rows(f'Loading {label.lower()}…')
                 view = TabPane(initial, padding=ft.padding.Padding.symmetric(
                     horizontal=32, vertical=24), expand=True,
                     opacity=1.0)
-                view._content_ready = not entry_queue.deferred
+                view._content_ready = use_host
                 _tab_views[key] = view
                 tab_switcher.controls.append(view)
                 tabs[key]._pending_mount = False
@@ -8394,15 +8385,21 @@ async def main(page: ft.Page):
 
     # -----------------------------------------------------------------
     # ORPHANED GAME WATCHDOG
-    # If the previous launcher run died while Minecraft was still up, the
-    # game is still running with no one watching it (holding locks on the
-    # mods folder). Offer to end it - once, non-blocking, easy to dismiss.
+    # A detached Minecraft process can outlive the launcher. Restore the
+    # running button and watch it again, including after a deliberate restart.
     # -----------------------------------------------------------------
     try:
         from cubeon import watchdog as _watchdog
-        _stale = None if os.environ.pop("CUBEON_RELAUNCH", None) \
-            else _watchdog.stale_session()
-        if _stale:
+        _relaunching = bool(os.environ.pop("CUBEON_RELAUNCH", None))
+        _stale = _watchdog.stale_session()
+        if _stale and _stale.get("version"):
+            _stop = threading.Event()
+            with thread_safe_ui.TREE_LOCK:
+                state["running_version"] = _stale["version"]
+                _running_liveness["stop"] = _stop
+                _sync_play_button()
+            _watch_game_liveness(_stale["version"], _stop)
+        if _stale and not _relaunching:
             def _kill_orphan(e=None):
                 _watchdog.terminate(_stale["pid"], _stale["session_id"])
                 _show_snack(f"Ended the leftover Minecraft session "

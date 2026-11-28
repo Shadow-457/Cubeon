@@ -39,13 +39,14 @@ public final class Cosmetics189 implements LayerRenderer<AbstractClientPlayer> {
         boolean local=p==mc.thePlayer;
         if(!local && (!c.showOtherCosmetics || p.getDistanceSqToEntity(mc.thePlayer)>4096)) return;
         CosmeticSelection.Items selection=local?CosmeticSelection.snapshot():RemoteCosmetics.get(p.getName());
-        if(selection.empty()) return;
+        if(selection.empty()) { MOTION.remove(p); return; }
         CosmeticCatalog.Catalog catalog=CosmeticCatalog.get(); if(catalog==null) return;
         CosmeticAnimation.Tracker tracker=MOTION.get(p);
         if(tracker==null) { tracker=new CosmeticAnimation.Tracker(); MOTION.put(p,tracker); }
         float seconds=(p.ticksExisted+partial)/20f;
         CosmeticAnimation.Frame frame=c.cosmeticAnimations?tracker.sample(seconds,(float)Math.hypot(p.motionX,p.motionZ)*4,false,p.isSprinting(),
-                local?WingAction.INSTANCE.elapsed(p,world,seconds):-1):tracker.disabled();
+                local?WingAction.INSTANCE.elapsed(p,world,seconds):-1,
+                catalog.orbitalAura(selection.aura())):tracker.disabled();
         ModelPlayer model=renderer.getMainModel();
         GL11.glPushAttrib(GL11.GL_ENABLE_BIT|GL11.GL_CURRENT_BIT|GL11.GL_COLOR_BUFFER_BIT|GL11.GL_TEXTURE_BIT);
         try {
@@ -54,11 +55,16 @@ public final class Cosmetics189 implements LayerRenderer<AbstractClientPlayer> {
                 if("trail".equals(slot)) continue;
                 CosmeticCatalog.Item chosen=catalog.get(selection.get(slot)); if(chosen==null) continue;
                 CosmeticCatalog.Item item=chosen.forWingDepth(c.wingDepth);
+                boolean fullbright=item.usesAuraFullbright();
+                if(fullbright) GL11.glPushAttrib(GL11.GL_CURRENT_BIT);
                 GlStateManager.pushMatrix();
                 try {
                     if("head".equals(slot)||"face".equals(slot)) model.bipedHead.postRender(scale);
-                    else if("hand".equals(slot) || "aura".equals(slot)) { model.bipedRightArm.postRender(scale); GlStateManager.translate(5*scale,-2*scale,0); }
+                    else if("hand".equals(slot) || "aura".equals(slot) && !item.orbitalBurst) {
+                        model.bipedRightArm.postRender(scale); GlStateManager.translate(5*scale,-2*scale,0);
+                    }
                     else model.bipedBody.postRender(scale);
+                    if(fullbright) OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit,240,240);
                     mc.getTextureManager().bindTexture(new ResourceLocation("cubeon-client","textures/cosmetics/"+item.texture));
                     CosmeticAnimation.Frame animation=frame==null?null:frame.forItem(item);
                     WorldRenderer buffer=Tessellator.getInstance().getWorldRenderer(); buffer.begin(GL11.GL_QUADS,DefaultVertexFormats.POSITION_TEX_NORMAL);
@@ -68,7 +74,10 @@ public final class Cosmetics189 implements LayerRenderer<AbstractClientPlayer> {
                                 .tex(quad.u[i],quad.v[i]).normal(posed.normalX,posed.normalY,posed.normalZ).endVertex();
                     }
                     Tessellator.getInstance().draw();
-                } finally { GlStateManager.popMatrix(); }
+                } finally {
+                    if(fullbright) GL11.glPopAttrib();
+                    GlStateManager.popMatrix();
+                }
             }
         } finally { GL11.glPopAttrib(); GlStateManager.color(1,1,1,1); }
     }

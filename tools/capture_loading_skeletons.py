@@ -80,7 +80,10 @@ async def main(page):
         preview_gate.set()
         await until(lambda: not loading.visible)
         tab(skin, 'Back').on_click(None)
-        placeholders = [c for c in walk(skin) if c.data == 'content-skeleton' and c.width == 76]
+        back = skin.wardrobe.panes['back']
+        await until(lambda: bool(back.cards))
+        placeholders = [card.placeholder for card in back.cards.values()
+                        if isinstance(card.placeholder, ft.Container)]
         assert placeholders and all(c.visible for c in placeholders)
         await capture('cosmetics-library-loading')
         thumb_gate.set()

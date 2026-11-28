@@ -1,7 +1,12 @@
 """Wardrobe selection and navigation retain cards and repaint locally."""
+import base64
 import contextlib
+import hashlib
+import io
 import os
+from pathlib import Path
 import sys
+import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
@@ -19,7 +24,7 @@ from flet.controls.base_control import BaseControl
 from flet.controls.object_patch import ObjectPatch
 from flet.messaging.protocol import configure_encode_object_for_msgpack
 from PIL import Image
-from cubeon import cosmetics, thread_safe_ui
+from cubeon import cosmetic_packages, cosmetics, cosmetics_store, thread_safe_ui
 from cubeon.theme import THEME, section_label, pixel_divider
 import ui.skin_tab as skin_ui
 from ui.appearance_preview import AppearancePreview
@@ -160,11 +165,14 @@ class CosmeticsPicker(unittest.TestCase):
         self.tab('Back')
         self.apply('Apply Ember Wings (Small)')
         remove = self.pane().remove
+        target = remove.cubeon_keyboard_button
         self.assertFalse(remove.disabled)
-        remove.on_click(None)
+        self.assertFalse(target.disabled)
+        target.on_click(None)
         self.assertIsNone(self.cfg['active_back_item'])
         self.assertEqual(self.cfg['active_shoulder_item'], 'shoulder_ember_fox')
         self.assertTrue(remove.disabled)
+        self.assertTrue(target.disabled)
         self.assertFalse(any(card.selected for card in self.pane().cards.values()))
 
     def test_butterfly_aura_equips_independently_and_loads_art_only_on_open(self):
@@ -178,6 +186,71 @@ class CosmeticsPicker(unittest.TestCase):
         self.assertEqual(self.cfg['active_aura_item'], 'aura_butterfly')
         self.assertEqual(self.cfg['active_back_item'], 'back_ember_wings_small')
         self.assertEqual(self.cfg['active_shoulder_item'], 'shoulder_ember_fox')
+
+    def test_store_download_refreshes_aura_before_and_after_switching_back(self):
+        def png(width, height):
+            output = io.BytesIO()
+            Image.new('RGBA', (width, height), 'blue').save(output, 'PNG')
+            return base64.b64encode(output.getvalue()).decode()
+
+        payload = cosmetic_packages.encode(dict(schema=1, kind='aura',
+            item=dict(slot='aura', texture='texture.png', tex_w=8, tex_h=8,
+                      boxes=[dict(origin=[0, 0, 0], size=[1, 1, 1], uv=[0, 0], px=1)]),
+            textures={'texture.png': png(8, 8)}))
+        page_jobs = []
+        self.page.run_thread = page_jobs.append
+        wardrobe = self.root.wardrobe
+        wardrobe.queue.deferred = True
+        store = wardrobe.panes['store']
+        self.cfg['active_aura_item'] = 'aura_butterfly'
+        self.tab('Aura')
+        page_jobs.pop(0)()
+
+        with tempfile.TemporaryDirectory() as storage, \
+                patch.object(cosmetic_packages, 'DIRECTORY', Path(storage)), \
+                patch.object(cosmetics_store, 'download',
+                             side_effect=lambda item: cosmetic_packages.install(payload, item)):
+            self.addCleanup(cosmetics.invalidate_cache)
+            for switch_early in (False, True):
+                with self.subTest(switch_early=switch_early):
+                    before = self.cards()
+                    item = dict(id=f'picker-aura-{int(switch_early)}', kind='aura',
+                                name=f'Fixture Aura {int(switch_early)}', description='Store test',
+                                mime_type=cosmetic_packages.MIME, byte_size=len(payload),
+                                sha256=hashlib.sha256(payload).hexdigest(), preview_png=png(80, 128))
+                    store._paint(store.request, 0, '', dict(items=[item], has_more=False))
+                    self.tab('Store')
+                    page_jobs.pop(0)()
+                    self.apply(f'Download {item["name"]} (Free cosmetic)')
+                    download = self.jobs.pop()
+                    if switch_early:
+                        self.tab('Aura')
+                        page_jobs.pop(0)()
+                        self.assertEqual(self.cards(), before)
+                    download()
+                    saved = cosmetic_packages.installed(item)
+                    self.assertIsNotNone(saved, store.status.value)
+                    if not switch_early:
+                        self.assertFalse(page_jobs)
+                        self.tab('Aura')
+                    page_jobs.pop(0)()
+                    self.assertEqual(self.cards()[:-1], before)
+                    self.assertIn(saved['id'], self.pane().cards)
+                    self.assertFalse(self.pane().cards[saved['id']].selected)
+                    self.assertTrue(self.pane().cards['aura_butterfly'].selected)
+                    self.assertEqual(self.cfg['active_aura_item'], 'aura_butterfly')
+                    self.equip.assert_not_called()
+                    self.assertEqual(self.page.update_calls, 0)
+
+            self.apply(f'Apply {item["name"]}')
+            self.assertEqual(self.cfg['active_aura_item'], saved['id'])
+            remove = self.pane().remove.cubeon_keyboard_button
+            self.assertFalse(remove.disabled)
+            remove.on_click(None)
+            self.assertIsNone(self.cfg['active_aura_item'])
+            self.assertTrue(remove.disabled)
+            self.assertFalse(self.pane().cards[saved['id']].selected)
+            self.assertIsNotNone(cosmetic_packages.installed(item))
 
     def test_head_and_downloaded_feet_use_the_existing_picker(self):
         self.tab('Head')

@@ -74,7 +74,7 @@ public final class CosmeticFeatureRenderer
             try {
                 if ("face".equals(slot) || "head".equals(slot)) {
                     getContextModel().head.applyTransform(matrices);
-                } else if ("hand".equals(slot) || "aura".equals(slot) && !"aura_butterfly".equals(view.items().get(slot))) {
+                } else if ("hand".equals(slot) || "aura".equals(slot) && !catalog.auraUsesTorso(view.items().get(slot))) {
                     getContextModel().rightArm.applyTransform(matrices);
                     // Art is in standing body space; the native arm pivot is (-5, 2, 0).
                     matrices.translate(5 / 16.0f, -2 / 16.0f, 0);
@@ -98,9 +98,9 @@ public final class CosmeticFeatureRenderer
             return;
         }
         final CosmeticAnimation.Frame itemAnimation = view.animation() == null ? null : view.animation().forItem(item);
-        for (int pass = 0; pass < (item.emissiveTexture == null ? 1 : 2); pass++) {
-            // Atlas-matched luminous details stay full-bright in dark scenes.
-            final int passLight = pass == 0 ? light : 0xF000F0;
+        boolean fullbright = item.usesAuraFullbright();
+        for (int pass = 0; pass < (item.emissiveTexture == null || fullbright ? 1 : 2); pass++) {
+            final int passLight = pass == 0 && !fullbright ? light : 0xF000F0;
             Identifier texture = Identifier.of("cubeon-client",
                     "textures/cosmetics/" + (pass == 0 ? item.texture : item.emissiveTexture));
             RenderLayer layer = RenderLayer.getEntityCutoutNoCull(texture);

@@ -63,7 +63,7 @@ public final class CosmeticRenderLayer
             try {
                 if ("face".equals(slot) || "head".equals(slot)) {
                     getParentModel().head.translateAndRotate(pose);
-                } else if ("hand".equals(slot) || "aura".equals(slot) && !"aura_butterfly".equals(view.items().get(slot))) {
+                } else if ("hand".equals(slot) || "aura".equals(slot) && !catalog.auraUsesTorso(view.items().get(slot))) {
                     getParentModel().rightArm.translateAndRotate(pose);
                     pose.translate(5 / 16.0f, -2 / 16.0f, 0);
                 } else {
@@ -86,9 +86,9 @@ public final class CosmeticRenderLayer
             return;
         }
         final CosmeticAnimation.Frame itemAnimation = view.animation() == null ? null : view.animation().forItem(item);
-        for (int pass = 0; pass < (item.emissiveTexture == null ? 1 : 2); pass++) {
-            // Atlas-matched luminous details stay full-bright in dark scenes.
-            final int passLight = pass == 0 ? light : 0xF000F0;
+        boolean fullbright = item.usesAuraFullbright();
+        for (int pass = 0; pass < (item.emissiveTexture == null || fullbright ? 1 : 2); pass++) {
+            final int passLight = pass == 0 && !fullbright ? light : 0xF000F0;
             Identifier texture = Identifier.fromNamespaceAndPath("cubeon-client",
                     "textures/cosmetics/" + (pass == 0 ? item.texture : item.emissiveTexture));
             RenderType type = RenderTypes.entityCutout(texture, false);

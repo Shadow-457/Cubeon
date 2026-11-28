@@ -149,6 +149,17 @@ for label, control in (
     check(f"set_running_ui repaints the {label}", repainted(control, refreshed),
           f"{len(refreshed)} region(s) refreshed")
 
+public_address = sscope["_refresh_public_address_line"]
+address_slot = next(c for c in fz.walk(sscope["console_view"]) if c.data == "server-public-address-slot")
+address_height = address_slot.height
+with patch.dict(scope(public_address)["active_version"], value="1.20.1"):
+    public_address({"installed": True, "endpoint": "", "public": "example.org", "running": True})
+    check("public address arrives inside the existing console slot",
+          address_slot.height == address_height and address_slot.content.controls[0].value.endswith("example.org"))
+    public_address({"installed": False})
+    check("clearing the public address preserves console height",
+          address_slot.height == address_height and not address_slot.content.controls[0].value)
+
 # --- 2. refresh_orphan_notice -----------------------------------------------
 refresh_orphan_notice = function_from_controls(controls, "refresh_orphan_notice")
 oscope = scope(refresh_orphan_notice)

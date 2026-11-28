@@ -132,6 +132,9 @@ class FakeClient:
     def send_dm(self, to, body):
         return self._send("dm", to, body)
 
+    def send_typing(self, *, peer): return self._send("typing", peer)
+    def send_dm_seen(self, peer, mid): return self._send("dm_seen", peer, mid)
+
     def publish_pubkey(self, pubkey_b64):
         self.published_pubkey = pubkey_b64
         return {"ok": True}
@@ -391,6 +394,30 @@ def test_roster_payload():
     service.state["selected_version"] = "1.21.1"
     ok(all(not f["whitelisted"] for f in service.roster_payload()["friends"]),
        "an unreadable whitelist degrades instead of breaking the roster")
+
+
+def test_chat_activity():
+    from unittest.mock import patch
+
+    section("chat typing and read receipts")
+    service, client, _ = build()
+    service._chat_append("alice", "in", "Alice", "Received", 1000, mid="incoming")
+    service._chat_append("alice", "out", "Steve", "Sent", 2000, mid="outgoing")
+    service.chat_payload("Alice", -1, viewing=False)
+    ok(("dm_seen", ("alice", "incoming")) not in client.sent, "hidden conversation sends no receipt")
+    service.chat_payload("Alice", -1)
+    service.chat_payload("Alice", 10)
+    ok(client.sent.count(("dm_seen", ("alice", "incoming"))) == 1, "viewing reports the newest inbound message once")
+    service._on_dm_seen({"from": "Alice", "id": "outgoing", "position": 20})
+    service._on_dm_seen({"from": "Alice", "id": "older", "position": 10})
+    ok(service.chat_payload("Alice", 10, viewing=False)["seen_id"] == "outgoing", "seen marker never regresses")
+    now = time.monotonic()
+    with patch.object(fs.time, "monotonic", return_value=now):
+        service._on_typing({"from": "Alice"})
+        ok(service.chat_payload("Alice", 10, viewing=False)["typing"], "typing reaches the conversation")
+        ok(service.send_chat_typing("Alice") and not service.send_chat_typing("Alice"), "typing pulses are throttled")
+    with patch.object(fs.time, "monotonic", return_value=now + 6):
+        ok(not service.chat_payload("Alice", 10, viewing=False)["typing"], "typing expires after inactivity")
 
 
 def test_chat_read_rail():
@@ -2430,6 +2457,7 @@ def main():
         test_roster_payload()
         test_display_identity()
         test_chat_read_rail()
+        test_chat_activity()
         test_events()
         test_status_payload()
         test_friend_actions()

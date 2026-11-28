@@ -39,6 +39,21 @@ reuses the aggregate for up to 15 seconds and writes no presence history. The
 homepage reads the count every minute while visible. Offline launchers and
 builds with the Friends service disabled are outside the count.
 
+## Direct chat activity
+
+Send `{"t":"typing","to":"<friend>"}` while editing a draft. The relay forwards
+the hint only to the friend and stores nothing. The launcher sends at most one
+hint every 2.5 seconds and clears a received hint after five seconds or when a
+message arrives.
+
+Send `{"t":"dm_seen","to":"<friend>","id":"<message id>"}` when viewing a
+conversation. The relay checks that the friend sent the referenced message in
+that conversation. It stores the latest receipt per reader and friend and
+forwards `{"t":"dm_seen","from":"<reader>","id":"<message id>","position":1}`
+to the sender. Direct-message history also returns the latest receipt as
+`seen: {id, position}` so a sender can catch up after reconnecting. Older clients
+can continue using the existing direct-message and history frames.
+
 ## Why It's a Durable Object, Not KV
 
 Presence is a heartbeat: every online friend's status changes several times a
