@@ -322,8 +322,9 @@ If Quilt reports resource or shader ZIPs under `<mods>`, Cubeon moves those
 misplaced packs to the game folder's `mods_user_backup/` on the next launch.
 To use one in an instance, select that instance and use **Import packs** or
 **Import shaders** in the matching content selector.
-Search pages adjust their card count to the available window space. Larger
-windows show more results at once; paging keeps additional results available.
+In **Mods → Browse**, clear the search to see popular mods. Scroll near the
+bottom or choose **Load more** to append another batch. Search results and other
+Browse catalogues use page controls.
 
 Mod search shows the selected Minecraft version, loader, and category. Keep
 **Compatible only** enabled to find mods for that instance. If a mod seems
@@ -561,7 +562,7 @@ player needs a published skin on one of those services to show a custom skin.
 In **Settings → Appearance → Launcher**, open **Language** and search by native name,
 English name, or language code. Select a language, then click the **Restart** button
 that appears below the saved choice to apply it. Arabic, English, Russian, and Spanish appear first, followed by Chinese, Hindi,
-Portuguese, French, German, Japanese, Turkish, Korean, Italian, Polish, Indonesian,
+Portuguese (Brazil and Portugal), French, German, Japanese, Turkish, Korean, Italian, Polish, Indonesian,
 Ukrainian, Urdu, Bengali, Persian, Malay, Pashto, and Roman Urdu. Core navigation and
 controls are translated; detailed messages without a translation fall back to English.
 Arabic, Urdu, Persian, and Pashto use a right-to-left layout.

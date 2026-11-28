@@ -37,19 +37,20 @@ class LanguagePickerTests(unittest.TestCase):
         selector.on_click(None)
         self.assertEqual([c.data for c in choices.controls[:4]],
                          ['language-option-ar','language-option-en','language-option-ru','language-option-es'])
-        for query, expected in [('العربية','ar'),('russian','ru'),('espanol','es'),('pt-br','pt-br')]:
+        for query, expected in [('العربية','ar'),('russian','ru'),('espanol','es'),
+                                ('pt-br','pt-br'),('português (portugal)','pt-pt')]:
             search.value=query; search.on_change(None)
             self.assertEqual([c.data for c in choices.controls], ['language-option-'+expected])
         search.value='no such language'; search.on_change(None)
         self.assertTrue(empty.visible)
         self.assertFalse(choices.visible)
-        search.value='es'; search.on_change(None)
+        search.value='pt-pt'; search.on_change(None)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/'config.json'
             with patch.object(config,'save_config',side_effect=lambda data:atomicio.write_json(str(path),data)):
-                next(c for c in choices.controls if c.data=='language-option-es').on_click(None)
+                next(c for c in choices.controls if c.data=='language-option-pt-pt').on_click(None)
                 saved=json.loads(path.read_text())
-                self.assertEqual(saved['ui_language'],'es')
+                self.assertEqual(saved['ui_language'],'pt-pt')
                 self.assertEqual(saved['version_labels'],cfg['version_labels'])
                 self.assertEqual(i18n.current(),'en')
                 self.assertFalse(dropdown.visible)

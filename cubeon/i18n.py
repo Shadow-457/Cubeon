@@ -74,6 +74,7 @@ LANGUAGES = (
     ("zh-cn", "简体中文",              "Chinese (Simplified)", False),
     ("hi",    "हिन्दी",                 "Hindi",               False),
     ("pt-br", "Português (Brasil)",   "Portuguese (Brazil)", False),
+    ("pt-pt", "Português (Portugal)", "Portuguese (Portugal)", False),
     ("fr",    "Français",             "French",              False),
     ("de",    "Deutsch",              "German",              False),
     ("ja",    "日本語",                "Japanese",            False),
@@ -203,10 +204,9 @@ def _match_locale(raw: str) -> str | None:
 
     Handles the spellings real systems use: ``pt_BR.UTF-8``, ``zh_CN``,
     ``ar_SA:ar``, ``ru``. Region matters only where we ship a regional table
-    (pt-br, zh-cn); ``pt`` alone still gets Brazilian Portuguese rather than
-    nothing, because that is the table we have.
+    (pt-br, pt-pt, zh-cn). Bare ``pt`` keeps the Brazilian Portuguese default.
     """
-    token = str(raw or "").split(":")[0].split(".")[0].replace("_", "-").lower()
+    token = str(raw or "").split(":")[0].split(".")[0].split("@")[0].replace("_", "-").lower()
     if not token or token in ("c", "posix"):
         return None
     if token in SUPPORTED:
@@ -216,6 +216,9 @@ def _match_locale(raw: str) -> str | None:
         return base
     # Windows may report language names (Arabic_Saudi Arabia) rather than
     # ISO codes. Match the names in the catalog before the regional fallback.
+    for code, _native, english, _rtl in LANGUAGES:
+        if token == english.lower().replace(" (", "-").removesuffix(")"):
+            return code
     for code, _native, english, _rtl in LANGUAGES:
         if english.split(" (")[0].lower() == base:
             return code

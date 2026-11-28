@@ -37,7 +37,9 @@ class LanguageTests(unittest.TestCase):
 
     def test_locale_and_explicit_choice(self):
         for raw, code in [('ar_SA.UTF-8', 'ar'), ('ru_RU', 'ru'),
-                          ('pt_BR.UTF-8', 'pt-br'), ('zh_CN', 'zh-cn'),
+                          ('pt_BR.UTF-8', 'pt-br'), ('pt_PT.UTF-8', 'pt-pt'),
+                          ('pt_PT@euro', 'pt-pt'), ('pt', 'pt-br'), ('zh_CN', 'zh-cn'),
+                          ('Portuguese_Portugal.1252', 'pt-pt'),
                           ('es_MX', 'es'), ('ur_PK', 'ur'),
                           ('Arabic_Saudi Arabia', 'ar'), ('Russian_Russia', 'ru')]:
             self.assertEqual(i18n.resolve_language({}, env={'LANG': raw}), code)
@@ -46,6 +48,19 @@ class LanguageTests(unittest.TestCase):
         self.assertEqual(i18n.resolve_language({'ui_language': 'broken'},
                          env={'LANG': 'ar_SA'}), 'en')
         self.assertEqual(i18n.resolve_language({}, env={'LANGUAGE':'cy:ar'}), 'ar')
+        self.assertEqual(i18n.resolve_language({'ui_language': 'pt-br'},
+                         env={'LANG': 'pt_PT.UTF-8'}), 'pt-br')
+
+    def test_european_portuguese_has_distinct_labels(self):
+        i18n.set_language('pt-pt')
+        self.assertEqual(i18n.language_name('pt-pt'), 'Português (Portugal)')
+        self.assertFalse(i18n.is_rtl())
+        self.assertEqual(i18n.t('Settings'), 'Definições')
+        self.assertEqual(i18n.t('Save'), 'Guardar')
+        self.assertEqual(i18n.t('Username'), 'Nome de utilizador')
+        self.assertEqual(i18n.t('Load more'), 'Carregar mais')
+        i18n.set_language('pt-br')
+        self.assertEqual(i18n.t('Save'), 'Salvar')
 
     def test_rtl_and_fallback(self):
         i18n.set_language('ar')

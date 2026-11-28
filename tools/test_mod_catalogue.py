@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -291,6 +292,7 @@ class CatalogueUITests(unittest.TestCase):
         self.state = dict(selected_mc_version=MC, mod_loader=LOADER)
         self.tab, refresh, load, profile = mods_tab.build_mods_tab(FakePage(), {}, self.state,
             ft.Dropdown(value=MC), section_label=section_label, **THEME)
+        self.view = load.__self__
         self.fns = functions(refresh, load, profile)
         self.search = env(self.fns["run_mod_search"])["mod_search_field"]
         self.search.value = "immersive portals"
@@ -327,6 +329,86 @@ class CatalogueUITests(unittest.TestCase):
         self.assertEqual(len(state["results"]), 48)
         self.assertEqual([h["source"] for h in state["results"][:4]], ["modrinth", "curseforge"] * 2)
         self.assertEqual(len({catalogue.identity(h) for h in state["results"]}), 48)
+
+    def test_popular_mods_scroll_past_old_cap_without_remounting_cards(self):
+        self.search.value = ""
+        view = self.view
+        limit = view.BROWSE_PAGE_SIZE
+        near_end = SimpleNamespace(pixels=900, max_scroll_extent=1000)
+        far_from_end = SimpleNamespace(pixels=200, max_scroll_extent=1000)
+        def recommend(*args, offset, source="modrinth", **kwargs):
+            count = 1 if source == "modrinth" and offset == 6 * limit else (
+                1 if source == "curseforge" and offset == 5 * limit else limit)
+            return [dict(project_id=str(n), title=f"Project {n}") for n in range(offset, offset + count)]
+
+        def drain():
+            while QueuedThread.jobs:
+                QueuedThread.jobs.pop(0)()
+
+        with patch.object(self.ui.core, "get_recommended_mods", side_effect=recommend) as recommend_call, \
+             patch.object(self.ui.scrolling, "to_top") as to_top:
+            view.run_mod_search()
+            drain()
+            original = tuple(view.browse_results_view.controls)
+            view._browse_scrolled(far_from_end)
+            self.assertFalse(QueuedThread.jobs)
+            self.assertFalse(view.browse_pager_next.visible)
+            self.assertTrue(view.browse_load_more.visible)
+            for page in range(1, 7):
+                before = tuple(view.browse_results_view.controls)
+                view._browse_scrolled(near_end)
+                worker_count = len(QueuedThread.jobs)
+                self.assertGreater(worker_count, 0)
+                view._browse_scrolled(near_end)
+                self.assertEqual(len(QueuedThread.jobs), worker_count)
+                self.assertEqual(tuple(view.browse_results_view.controls), before)
+                drain()
+                self.assertEqual(view.browse_state["page"], page)
+                self.assertEqual(tuple(view.browse_results_view.controls[:len(before)]), before)
+            self.assertEqual(tuple(view.browse_results_view.controls[:len(original)]), original)
+            self.assertEqual(len(view.browse_state["results"]), 11 * limit + 2)
+            self.assertFalse(view.browse_load_more.visible)
+            view._browse_scrolled(near_end)
+            self.assertFalse(QueuedThread.jobs)
+            self.assertEqual([call.kwargs["offset"] for call in recommend_call.call_args_list
+                              if call.kwargs.get("source") == "curseforge"], [p * limit for p in range(6)])
+            to_top.assert_called_once()
+
+    def test_popular_mods_retry_tail_preserves_results_and_offsets(self):
+        self.search.value = ""
+        view = self.view
+        limit = view.BROWSE_PAGE_SIZE
+        def recommend(*args, offset, source="modrinth", force=False, **kwargs):
+            if not offset:
+                return [dict(project_id=str(n), title=f"Project {n}") for n in range(limit)]
+            if source == "modrinth" and not force:
+                raise OSError("offline")
+            return [dict(project_id="0", title="Duplicate"), dict(project_id="tail", title="New project")]
+
+        def drain():
+            while QueuedThread.jobs:
+                QueuedThread.jobs.pop(0)()
+
+        with patch.object(self.ui.core, "get_recommended_mods", side_effect=recommend) as recommend_call:
+            view.run_mod_search()
+            drain()
+            original = tuple(view.browse_results_view.controls)
+            view._load_more_browse()
+            drain()
+            self.assertTrue(view.browse_state["provider_errors"])
+            self.assertFalse(view.browse_retry.disabled)
+            self.assertFalse(view.browse_load_more.visible)
+            self.assertEqual(len(view.browse_state["results"]), 2 * limit + 1)
+            view._retry_search()
+            drain()
+            self.assertEqual(tuple(view.browse_results_view.controls[:len(original)]), original)
+            self.assertEqual(len(view.browse_state["results"]), 2 * limit + 2)
+            self.assertTrue(view.browse_retry.disabled)
+            self.assertFalse(view.browse_load_more.visible)
+            forced = [call for call in recommend_call.call_args_list if call.kwargs.get("force")]
+            self.assertEqual(len(forced), 1)
+            self.assertEqual(forced[0].kwargs["offset"], limit)
+            self.assertNotEqual(forced[0].kwargs.get("source"), "curseforge")
 
     def test_provider_failures_keep_healthy_results_and_retry(self):
         for mr, cf in (([dict(project_id="a", title="A")], OSError("CF offline")),

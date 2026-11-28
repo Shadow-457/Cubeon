@@ -272,7 +272,7 @@ class ModsView:
         # "sodium" costs one request instead of six. That's what lets the big
         # green "Search" button disappear - there was nothing left for it to do.
         self.mod_search_field = ft.TextField(
-            hint_text="Search mods... e.g. sodium, iris, jei",
+            hint_text=i18n.t("Search mods... e.g. sodium, iris, jei"),
             border_color=CARD_BORDER,
             focused_border_color=self.ACCENT_DIM,
             color=self.TEXT,
@@ -292,15 +292,12 @@ class ModsView:
         self.mod_search_field.on_change = self._schedule_live_search
 
         self.browse_results_view = tile_grid()
+        self.browse_results_view.scroll_interval = 100
         self.browse_status_text = ft.Text("", size=12, color=self.TEXT_DIM)
         self.browse_status_text.max_lines = 1
         self.browse_status_text.overflow = ft.TextOverflow.ELLIPSIS
-        # Each page fills the available grid. Modrinth permits up to 100 hits
-        # per request. Pages are fetched ON DEMAND (see _load_browse_page):
-        # opening the tab loads page 1 only, and each pager click fetches just the
-        # page it needs instead of pulling all 10 pages up front (which made the
-        # tab slow and heavy). Each fetched page is stashed in browse_state["pages"]
-        # so going back to a page already seen is instant and never re-fetches.
+        # Popular Mods appends provider pages on demand. Other catalogues use
+        # the same batch size with a pager.
         self.BROWSE_PAGE_SIZE = 24  # Stable offsets; viewport changes only lay out tiles.
         self.MAX_BROWSE_PAGES = -(-100 // self.BROWSE_PAGE_SIZE)
         self.browse_state = {
@@ -323,15 +320,18 @@ class ModsView:
             content=ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=self.TEXT),
             padding=8, border_radius=RADIUS, ink=False,
         )
-        self.browse_retry = ft.TextButton('Retry', width=64, height=32, opacity=0,
+        self.browse_retry = ft.TextButton(i18n.t('Retry'), height=32, opacity=0,
                                     disabled=True, on_click=lambda e: self._retry_search(e))
+        self.browse_pager_caption = ft.Container(self.browse_pager_label, width=140, alignment=ft.Alignment.CENTER)
+        self.browse_pager_spacer = ft.Container(width=64)
+        self.browse_load_more = ft.TextButton(i18n.t("Load more"), height=32, visible=False,
+                                             on_click=self._load_more_browse)
         self.browse_pager_row = ft.Row(
-            [ft.Container(width=64), self.browse_pager_prev,
-             ft.Container(self.browse_pager_label, width=140, alignment=ft.Alignment.CENTER),
-             self.browse_pager_next, self.browse_retry],
+            [self.browse_pager_spacer, self.browse_pager_prev, self.browse_pager_caption,
+             self.browse_pager_next, self.browse_load_more, self.browse_retry],
             alignment=ft.MainAxisAlignment.CENTER, spacing=4, height=40,
         )
-        self.browse_title_text = ft.Text("Popular", size=12, max_lines=1,
+        self.browse_title_text = ft.Text(i18n.t("Popular"), size=12, max_lines=1,
                                      overflow=ft.TextOverflow.ELLIPSIS,
                                      color=self.TEXT_DIM, font_family=self.FONT_MONO)
         self.search_scope = {"compatible": True}
@@ -357,6 +357,7 @@ class ModsView:
         self._painted_browse = {'key': None}
         self._rendered_browse_context = None
         self._rendered_browse_results = None
+        self._rendered_browse_items = []
 
         self.detail_host = ft.Column(visible=False, expand=True, spacing=16, data="mod-detail-page")
         self.detail_navigation = {"generation": 0}
@@ -879,7 +880,7 @@ class ModsView:
             return None
         # A local catalogue entry shares the normal Browse grid. Never alter
         # provider pages/offsets or offer a client for an unsupported profile.
-        if (not self._is_mod() or self.browse_state['page'] != 0
+        if (not self._is_mod() or (self.browse_state['page'] != 0 and not self.browse_state.get('infinite'))
                 or self.state.get('mod_loader') not in ('fabric', 'quilt', 'forge')
                 or cubeonfriends.client_support_status(
                     self.state.get('selected_mc_version'), self.state.get('mod_loader')) is None
@@ -1977,7 +1978,8 @@ class ModsView:
         key = self._browse_key()
         cached = self.browse_sessions.get(key)
         if cached and (time.monotonic() - cached.get("fetched_at", time.monotonic()) >= 60
-                       and (not any(cached["pages"].values()) or cached.get("provider_errors"))):
+                       and (not any(cached["pages"].values())
+                            or (cached.get("provider_errors") and not cached.get("infinite")))):
             self.browse_sessions.pop(key, None)
             cached = None
         if cached is not None:
@@ -1994,16 +1996,20 @@ class ModsView:
         return self._browse_current(self.browse_state['token']) and bool(self.browse_state['pages'])
 
     def _retry_search(self, event=None):
-        self.force_search["value"] = True
-        self.browse_sessions.pop(self._browse_key(), None)
-        self.run_mod_search_safe()
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            session = self.browse_state
+            token = session["token"]
+            if session.get("infinite") and self._browse_current(token):
+                if session.get("provider_errors"):
+                    self._load_mod_page(session["page"], token, retry=True)
+                return
+            self.force_search["value"] = True
+            self.browse_sessions.pop(self._browse_key(), None)
+            self.run_mod_search_safe()
 
-    # --- Lazy page fetching -------------------------------------------------
-    # A browse never pulls more than ONE page of results off the network. The
-    # old code asked Modrinth for 100 hits (20 pages) up front and sliced them
-    # locally, which made opening the tab slow and heavy. Now each pager click
-    # fetches just its own offset; already-seen pages are cached in
-    # browse_state["pages"] so stepping back is instant.
+    # Each request fetches one offset per provider. Cached pages belong to the
+    # query, instance and filters captured in the browse token.
     def _browse_query(self) -> str:
         return self.mod_search_field.value.strip()
 
@@ -2045,7 +2051,7 @@ class ModsView:
             content_type, mc_version=mc_version, category=cat or None,
             limit=page_size, offset=offset)
 
-    def _load_mod_page(self, page_num, token):
+    def _load_mod_page(self, page_num, token, *, retry=False):
         session = self.browse_sessions.get(token[1])
         if session is None:
             return
@@ -2056,12 +2062,28 @@ class ModsView:
         link = mod_catalogue.reference(token[1][0])
         sources = (("horizon",) if rust_engine.is_instance(token[1][2]) else
                    (link["source"],) if link else mod_catalogue.SOURCES)
-        progress = mod_catalogue.ProviderPage(sources)
+        ends = session.setdefault("provider_ends", {})
+        infinite = session.get("infinite", False)
+        previous = session.get("provider_page") if retry else None
+        progress = mod_catalogue.ProviderPage(tuple(previous.errors) if previous else sources)
+        if previous:
+            progress.results.update(previous.results)
+        if infinite:
+            session["provider_page"] = progress
         session["provider_pending"] = progress.pending
-        retained_rows = [row for row in self.browse_results_view.controls
-                         if callable(getattr(row, "on_click", None))
-                         and row.data not in ("content-loading", "content-empty", "cubeon-client-browse")]
-        if retained_rows:
+        if infinite and (page_num or retry) and self._browse_current(token):
+            session["provider_errors"] = {}
+            self.browse_status_text.value = i18n.t("Loading…")
+            self.browse_status_text.tooltip = self.browse_status_text.value
+            self.browse_load_more.disabled = True
+            self.browse_retry.opacity, self.browse_retry.disabled = 0, True
+            self.browse_retry.visible = False
+            thread_safe_ui.refresh(self.browse_status_text)
+            thread_safe_ui.refresh(self.browse_pager_row)
+        retained_rows = []
+        if not infinite and any(callable(getattr(row, "on_click", None))
+                                and row.data not in ("content-loading", "content-empty", "cubeon-client-browse")
+                                for row in self.browse_results_view.controls):
             retained_rows = list(self.browse_results_view.controls)
 
         def publish(source, hits, error=None):
@@ -2071,19 +2093,26 @@ class ModsView:
                     return
                 progress.record(source, hits, error)
                 if error is None and len(hits or []) < self.BROWSE_PAGE_SIZE:
-                    session.setdefault("provider_ends", {})[source] = page_num
+                    ends[source] = min(page_num, ends.get(source, page_num))
                 session["provider_errors"] = dict(progress.errors)
+                # Keep all mounted cards stable during a tail fetch. Page one
+                # can still show each provider as soon as it arrives.
+                if infinite and (page_num or retry) and not progress.complete:
+                    return
                 merged = progress.merged()
                 if merged or progress.complete:
                     session["pages"][page_num] = merged
                 if progress.complete:
                     self.browse_inflight.discard(request)
                     session["fetched_at"] = time.monotonic()
-                    ends = session.get("provider_ends", {})
                     if not progress.errors and all(source in ends for source in sources):
                         session["total_pages"] = max(ends[source] for source in sources) + 1
+                    if infinite:
+                        session["has_more"] = any(
+                            source not in progress.errors and page_num < ends.get(source, page_num + 1)
+                            for source in sources)
                 if self._browse_current(token):
-                    if not merged and progress.errors and retained_rows:
+                    if not infinite and not merged and progress.errors and retained_rows:
                         self.browse_results_view.controls[:] = retained_rows
                         for row in retained_rows:
                             row.ignore_interactions = False
@@ -2103,15 +2132,15 @@ class ModsView:
 
         def worker(source):
             try:
-                if page_num > session.get("provider_ends", {}).get(source, self.MAX_BROWSE_PAGES):
-                    hits = []
-                else:
-                    hits = self._browse_fetch(page_num, token[1], source=source, force=session.get("force", False))
+                hits = self._browse_fetch(page_num, token[1], source=source, force=retry or session.get("force", False))
                 publish(source, hits)
             except Exception as error:
                 publish(source, [], error)
 
-        for source in sources:
+        for source in progress.sources:
+            if page_num > ends.get(source, page_num):
+                publish(source, [])
+                continue
             try:
                 threading.Thread(target=lambda source=source: worker(source), daemon=True,
                                  name=f"cubeon-mod-search-{source}").start()
@@ -2214,12 +2243,18 @@ class ModsView:
         if cached is None:
             cached = dict(empty_msg=empty_msg, page=0, pages={}, results=[],
                           paged=self._browse_is_paged(), total_pages=self.MAX_BROWSE_PAGES,
+                          infinite=key[4] == "mod" and not key[0],
                           token=token, force=self.force_search["value"])
             self.force_search["value"] = False
             self.browse_sessions[key] = cached
             while len(self.browse_sessions) > 12:
                 self.browse_sessions.pop(next(iter(self.browse_sessions)))
         self.browse_state = cached
+        infinite = cached["infinite"]
+        self.browse_results_view.on_scroll = self._browse_scrolled if infinite else None
+        for control in (self.browse_pager_spacer, self.browse_pager_prev,
+                        self.browse_pager_caption, self.browse_pager_next):
+            control.visible = not infinite
         self._render_browse_page()
 
     def load_recommended_mods(self):
@@ -2235,11 +2270,11 @@ class ModsView:
             cat = self.active_category["value"]
             if content_type == "mod":
                 cat_label = dict(core.MOD_CATEGORIES).get(cat, "")
-                default_title = "POPULAR"
             else:
                 cat_label = dict(core.category_choices(self._ct())).get(cat, "")
-                default_title = "POPULAR"
-            self.browse_title_text.value = f"TOP {cat_label.upper()}" if cat else default_title
+            self.browse_title_text.value = f"TOP {cat_label.upper()}" if cat else i18n.t("Popular").upper()
+            self.browse_title_text.tooltip = None
+            thread_safe_ui.refresh(self.browse_title_text)
             self.render_browse_results(empty_msg="No results for this Minecraft version and category.")
 
     def run_mod_search(self):
@@ -2255,7 +2290,7 @@ class ModsView:
                 return
             token = self._begin_browse()
             self.browse_state = dict(self.browse_state, token=token)
-            self.browse_title_text.value = 'SEARCH RESULTS'
+            self.browse_title_text.value = i18n.t("Search results").upper()
             self.browse_title_text.tooltip = query
             # Live search repaints only the browse region (title/results), not the
             # whole mounted tree - this fires per debounced keystroke.
@@ -2282,9 +2317,11 @@ class ModsView:
         # Ignore stale tile actions while leaving the native scroll viewport live.
         self.browse_results_view.disabled = False
         self.browse_pager_prev.disabled = self.browse_pager_next.disabled = True
-        self.browse_pager_label.value = 'Loading…'
+        self.browse_pager_label.value = i18n.t('Loading…')
+        self.browse_load_more.visible = False
         self.browse_retry.opacity = 0
         self.browse_retry.disabled = True
+        self.browse_retry.visible = not self.browse_state.get("infinite")
         # Scoped: a full page.update() here re-synced every mounted tab right
         # after switch_tab had already painted the shell - that double diff is
         # part of the "click Mods and everything lags at once" report.
@@ -2300,8 +2337,21 @@ class ModsView:
             return
         page_num = self.browse_state["page"]
         token = self.browse_state["token"]
+        infinite = self.browse_state.get("infinite", False)
 
-        if not self.browse_state["paged"]:
+        if infinite:
+            pages = self.browse_state["pages"]
+            if 0 not in pages:
+                self._show_browse_loading()
+                self._load_mod_page(0, token)
+                return
+            page_results = pages.get(page_num)
+            by_project = {}
+            for items in pages.values():
+                for item in items:
+                    by_project.setdefault(mod_catalogue.identity(item), item)
+            results = list(by_project.values())
+        elif not self.browse_state["paged"]:
             # Legacy non-paged sessions slice their cached results locally.
             all_items = self.browse_state["pages"].get(0)
             if all_items is None:
@@ -2314,6 +2364,7 @@ class ModsView:
             self.browse_state["total_pages"] = total_pages
             results = all_items[page_num * self.BROWSE_PAGE_SIZE:
                                 (page_num + 1) * self.BROWSE_PAGE_SIZE]
+            page_results = results
         else:
             results = self.browse_state["pages"].get(page_num)
             if results is None:
@@ -2321,13 +2372,24 @@ class ModsView:
                 self._load_browse_page(page_num, token, "Search failed")
                 return
             total_pages = max(1, self.browse_state["total_pages"])
+            page_results = results
 
         self.browse_state["results"] = results
 
         client_entry = self._client_browse_entry()
         displayed_results = ([client_entry] if client_entry else []) + [
             item for item in results if not client_entry or item.get('slug') != 'cubeon-client']
-        rows = []
+        painted_key = (token, 0 if infinite else page_num)
+        render_context = self._install_gate_context()
+        retained = 0
+        if (infinite and painted_key == self._painted_browse['key']
+                and self._rendered_browse_context == render_context
+                and len(self._rendered_browse_items) == len(self.browse_results_view.controls)):
+            for old, new in zip(self._rendered_browse_items, displayed_results):
+                if old != new:
+                    break
+                retained += 1
+        rows = self.browse_results_view.controls[:retained]
         if not displayed_results:
             rows.append(
                 empty_state(self.browse_state.get("empty_msg") or "No results",
@@ -2342,7 +2404,7 @@ class ModsView:
             is_mod_now = self._is_mod()
             already = self.installed_slugs() if is_mod_now else set()
             tokens = set() if is_mod_now else self.content_installed_tokens()
-            for mod in displayed_results:
+            for mod in displayed_results[retained:]:
                 if is_mod_now:
                     slug = (mod.get("slug") or "").lower()
                     compact = re.sub(r"[^a-z0-9]+", "", slug)
@@ -2373,23 +2435,29 @@ class ModsView:
         self.browse_results_view.disabled = False
 
         self.browse_status_text.value = (
-            f"{len(displayed_results)} result(s)" if displayed_results else "")
+            i18n.t("{count} result(s)", count=len(displayed_results)) if displayed_results else "")
         self.browse_status_text.tooltip = self.browse_status_text.value
-        self.browse_pager_label.value = f"Page {page_num + 1} of {total_pages}"
         self.browse_pager_row.visible = True
-        self.browse_pager_prev.disabled = page_num <= 0
-        self.browse_pager_next.disabled = page_num >= total_pages - 1
+        self.browse_load_more.visible = infinite and self.browse_state.get("has_more", False)
+        self.browse_load_more.disabled = bool(self.browse_state.get("provider_pending"))
+        if not infinite:
+            self.browse_pager_label.value = f"Page {page_num + 1} of {total_pages}"
+            self.browse_pager_prev.disabled = page_num <= 0
+            self.browse_pager_next.disabled = page_num >= total_pages - 1
         self.browse_retry.opacity = 0
         self.browse_retry.disabled = True
+        self.browse_retry.visible = not infinite
         if self._is_mod():
             errors = self.browse_state.get("provider_errors", {})
             pending = self.browse_state.get("provider_pending", set())
-            notes = [f"{mod_catalogue.LABELS[source]} unavailable" for source in errors]
-            notes.extend(f"Loading {mod_catalogue.LABELS[source]}…" for source in sorted(pending))
+            notes = [i18n.t("{provider} unavailable", provider=mod_catalogue.LABELS[source]) for source in errors]
+            notes.extend(i18n.t("Loading {provider}…", provider=mod_catalogue.LABELS[source])
+                         for source in sorted(pending))
             if notes:
                 self.browse_status_text.value = " · ".join(notes)
                 self.browse_status_text.tooltip = "\n".join(errors.values()) or self.browse_status_text.value
             if errors:
+                self.browse_retry.visible = True
                 self.browse_retry.opacity, self.browse_retry.disabled = 1, False
             if errors and not displayed_results:
                 self.browse_results_view.controls[:] = [empty_state("Search unavailable", "Couldn't load the mod catalogue. Retry the search."),
@@ -2401,9 +2469,9 @@ class ModsView:
         thread_safe_ui.refresh(self.browse_results_view)
         thread_safe_ui.refresh(self.browse_status_text)
         thread_safe_ui.refresh(self.browse_pager_row)
-        self._rendered_browse_context = self._install_gate_context()
-        self._rendered_browse_results = results
-        painted_key = (token, page_num)
+        self._rendered_browse_context = render_context
+        self._rendered_browse_results = page_results
+        self._rendered_browse_items = displayed_results if infinite else []
         if painted_key != self._painted_browse['key']:
             self._painted_browse['key'] = painted_key
             scrolling.to_top(self.page, self.browse_results_view)
@@ -3134,10 +3202,26 @@ class ModsView:
                     detail_body.controls[:] = [empty_state('Couldn\'t load details', str(error))]
                     thread_safe_ui.refresh(detail_body)
 
+    def _browse_scrolled(self, event):
+        ft.context.disable_auto_update()
+        if event.pixels > 0 and event.max_scroll_extent - event.pixels <= 216:
+            self._load_more_browse()
+
+    def _load_more_browse(self, event=None):
+        ft.context.disable_auto_update()
+        with thread_safe_ui.TREE_LOCK:
+            session = self.browse_state
+            token = session["token"]
+            if (session.get("infinite") and session.get("has_more")
+                    and not session.get("provider_pending") and not self.detail_host.visible
+                    and self._browse_current(token)):
+                session["page"] += 1
+                self._load_mod_page(session["page"], token)
+
     def _browse_page_prev(self, e=None):
         ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
-            if self.browse_state["page"] > 0:
+            if not self.browse_state.get("infinite") and self.browse_state["page"] > 0:
                 self.browse_state["page"] -= 1
                 self._render_browse_page()
 
@@ -3145,7 +3229,7 @@ class ModsView:
         ft.context.disable_auto_update()
         with thread_safe_ui.TREE_LOCK:
             total_pages = max(1, self.browse_state["total_pages"])
-            if self.browse_state["page"] < total_pages - 1:
+            if not self.browse_state.get("infinite") and self.browse_state["page"] < total_pages - 1:
                 self.browse_state["page"] += 1
                 self._render_browse_page()
 
@@ -3618,6 +3702,7 @@ class ModsView:
         token = self.browse_state['token']
         session = self.browse_sessions.get(self._browse_key())
         stale = (session and session.get('provider_errors') and
+                 (not session.get('infinite') or not any(session['pages'].values())) and
                  time.monotonic() - session.get('fetched_at', 0) >= 60)
         if not self._browse_current(token) or stale:
             self.run_mod_search()

@@ -198,6 +198,9 @@ Header ("Mods" / "Resource Packs" / "Shaders")
 
 **Key behaviors:**
 - **Live search:** Typing triggers a debounced search (450ms). No search button needed.
+- **Popular Mods:** With an empty search, scrolling near the bottom appends the
+  next batch of up to 24 hits per provider. The grid keeps existing cards and
+  its scroll position. Retry fetches each failed provider again at the same offset.
 - **Category filters:** Collapsed behind a "..." button to save vertical space. Green dot shows when a filter is active.
 - **Content type switching:** The same UI works for Mods, Resource Packs, and Shaders. Mods use per-profile folders; resource packs/shaders go into shared game folders.
 - **Mod icons:** Installed mods only store their Modrinth slug, not the icon URL. A bulk slug→icon lookup fetches real art after the list renders.
