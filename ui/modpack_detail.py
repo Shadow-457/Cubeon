@@ -4,6 +4,8 @@ import threading
 from urllib.parse import quote, urlsplit
 
 import flet as ft
+
+from cubeon.theme import hover_hint
 import launcher_core as core
 from cubeon import i18n, icons, thread_safe_ui
 from ui.image_memory import preview_image
@@ -97,7 +99,7 @@ class ProjectDetailPage:
             label.color = icon.color = theme["TEXT_DIM"] if button.disabled else theme["ON_ACCENT"]
             icon.icon = ft.Icons.CHECK_ROUNDED if installed_now else ft.Icons.DOWNLOAD_ROUNDED
             button.bgcolor = theme["SURFACE_HI"] if button.disabled else theme["ACCENT"]
-            button.tooltip = job.text if job.busy or job.result == "error" else None
+            button.tooltip = hover_hint(job.text if job.busy or job.result == "error" else None)
         feedback.watch(button, paint)
         return button
 
@@ -163,7 +165,7 @@ class ProjectDetailPage:
                 return
             details = {**pack, "game_versions": pack.get("versions") or [], **details}
             title.value = details.get("title") or title.value
-            title.tooltip = title.value
+            title.tooltip = hover_hint(title.value)
             description.value = details.get("description") or description.value
             author = details.get("author") or details.get("author_name")
             subtitle.value = " · ".join(filter(None, [f"by {author}" if author else "", target_label or source.title()]))
@@ -172,7 +174,7 @@ class ProjectDetailPage:
             if self.kind == "plugin" and not versions and not errors.get("versions") and not installed:
                 install.disabled = True
                 install.content.controls[1].value = "No matching build"
-                install.tooltip = "No Paper-compatible release is available for this server version."
+                install.tooltip = hover_hint("No Paper-compatible release is available for this server version.")
             elif self.kind == "plugin" and versions and not any(v.get('url') for v in versions) and not installed:
                 external = next((_http_url(v.get('website_url')) for v in versions if _http_url(v.get('website_url'))), None)
                 if external:

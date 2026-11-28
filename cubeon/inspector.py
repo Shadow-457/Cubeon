@@ -32,8 +32,10 @@ from __future__ import annotations
 import logging
 import os
 import re
+from dataclasses import replace
 
 import flet as ft
+from .theme import hint_message, hover_hint
 
 log = logging.getLogger(__name__)
 
@@ -286,10 +288,10 @@ class InspectorDialog:
         any_edit = False
         for prop, label in _EDITABLE.items():
             cur = getattr(c, prop, None)
-            if cur is None and prop != "tooltip":
+            if cur is None:
                 continue
-            if prop == "tooltip" and cur is None:
-                continue
+            if prop == "tooltip":
+                cur = hint_message(cur)
             any_edit = True
             if prop == "weight":
                 field = ft.Dropdown(
@@ -332,13 +334,16 @@ class InspectorDialog:
 
     def _apply(self, ctrl, prop, new_raw):
         old = getattr(ctrl, prop, None)
-        if new_raw == old:
+        if new_raw == (hint_message(old) if prop == "tooltip" else old):
             return
         try:
             if prop == "size":
                 new = float(new_raw)
             elif prop == "weight":
                 new = new_raw or "normal"
+            elif prop == "tooltip":
+                new = (replace(old, message=new_raw)
+                       if new_raw and isinstance(old, ft.Tooltip) else hover_hint(new_raw))
             else:
                 new = new_raw
             setattr(ctrl, prop, new)

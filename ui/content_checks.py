@@ -7,7 +7,7 @@ import flet as ft
 from cubeon import dialogs, i18n, thread_safe_ui
 from cubeon.content_checks import (allow_run_once, check_content, consume_run_once,
                                    disable_problem_mod, is_missing_dependency)
-from cubeon.theme import THEME, RADIUS, ON_ACCENT
+from cubeon.theme import THEME, RADIUS, ON_ACCENT, hover_hint
 from ui.install_feedback import any_busy
 
 
@@ -19,7 +19,7 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
     action = ft.FilledButton(content=i18n.t("Resolve"), data="content-resolve")
     close = ft.TextButton(content=i18n.t("Close"), data="content-check-close")
     run = ft.TextButton(content=i18n.t("Run anyway"), data="content-run-anyway",
-                       tooltip="Launch this instance once with the listed issues. Minecraft may still refuse to start.",
+                       tooltip=hover_hint("Launch this instance once with the listed issues. Minecraft may still refuse to start."),
                        style=ft.ButtonStyle(color=palette['ACCENT']))
     busy = {"value": False}
     reviewed = {"report": report, "dismissed": False}
@@ -63,8 +63,8 @@ def show_content_issues(page, state, target, report, *, on_done=None, on_status=
                         button = ft.TextButton(content=i18n.t('Disable mod') if len(options) == 1
                                                else f"Disable {label}",
                             icon=ft.Icons.POWER_SETTINGS_NEW_ROUNDED,
-                            tooltip=f"Disable {option['name']} ({option['filename']}) in this instance only. "
-                                    "Keeps the JAR; re-enable it in Mods → Installed.",
+                            tooltip=hover_hint(f"Disable {option['name']} ({option['filename']}) in this instance only. "
+                                    "Keeps the JAR; re-enable it in Mods → Installed."),
                             data='content-disable-' + option['filename'], disabled=busy['value'],
                             on_click=lambda event, selected=option: apply(event, disable_option=selected),
                             style=ft.ButtonStyle(color=palette['ACCENT']))

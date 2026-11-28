@@ -11,6 +11,7 @@ _sandbox_home.isolate()
 import _fuzz_common as fz
 import flet as ft
 from app_driver import DriverPage
+from cubeon.theme import hint_message
 from cubeon import icons, net, thread_safe_ui
 from cubeon.theme import THEME, section_label
 from ui.install_feedback import InstallFeedback, progress_text
@@ -125,8 +126,8 @@ class ContentInstallTests(unittest.TestCase):
             self.assertTrue(all(text(c) == "Cancel · 42%" and not c.disabled for c in details))
             self.assertFalse(button.disabled)
             self.assertEqual(button.content.controls[0].icon, ft.Icons.CLOSE_ROUNDED)
-            self.assertIn("Cancel download", button.tooltip)
-            self.assertTrue(all("42%" in c.tooltip for c in [button, *details]))
+            self.assertIn("Cancel download", hint_message(button.tooltip))
+            self.assertTrue(all("42%" in hint_message(c.tooltip) for c in [button, *details]))
             self.assertEqual(kw["mc_version"], "1.20.1")
             return {"installed": ["demo.jar"], "failed": []}
         self.core.get_mod_download = lambda *a, **kw: {"filename": "demo.jar", "url": "offline"}
@@ -168,9 +169,9 @@ class ContentInstallTests(unittest.TestCase):
             button.on_click(None)
             QueuedThread.jobs.pop()()
             self.assertEqual(text(button), "Installed")
-            self.assertEqual(button.tooltip, "Pack format widened for this Minecraft version.")
+            self.assertEqual(hint_message(button.tooltip), "Pack format widened for this Minecraft version.")
             self.assertIs(fns["build_browse_row"]({"project_id": kind, "title": kind}, True), row)
-            self.assertEqual(button.tooltip, "Pack format widened for this Minecraft version.")
+            self.assertEqual(hint_message(button.tooltip), "Pack format widened for this Minecraft version.")
 
     def test_modpack_lookup_does_not_release_install_button(self):
         self.modpacks_root, refresh, load = build_modpacks_tab(self.page, {}, self.state,

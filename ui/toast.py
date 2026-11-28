@@ -26,6 +26,7 @@ import flet as ft
 from cubeon import dialogs as cubeon_dialogs
 from cubeon import thread_safe_ui
 from cubeon.theme import (
+    hover_hint,
     ACCENT, CARD_BORDER, DANGER, INFO, SURFACE_HI, TEXT, TEXT_DIM,
 )
 
@@ -122,7 +123,7 @@ def _build(text, action, action_label, dismissed):
                                 content=ft.Icon(ft.Icons.CLOSE_ROUNDED, size=15,
                                                 color=TEXT_DIM),
                                 on_click=_close, ink=False, padding=4,
-                                tooltip="Dismiss", data="toast-close"),
+                                tooltip=hover_hint("Dismiss"), data="toast-close"),
                         ],
                         spacing=12, vertical_alignment=ft.CrossAxisAlignment.START,
                     ),

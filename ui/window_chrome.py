@@ -24,6 +24,8 @@ branch would only ever run on real Windows.
 """
 import flet as ft
 
+from cubeon.theme import hover_hint
+
 from cubeon import winchrome
 
 __all__ = [
@@ -57,7 +59,7 @@ def _title_bar_button(icon, tooltip, on_click, *, hover_bg, hover_fg,
         icon=icon,
         icon_size=15,
         icon_color=TEXT_DIM,
-        tooltip=tooltip,
+        tooltip=hover_hint(tooltip),
         on_click=on_click,
         alignment=ft.Alignment.CENTER,
         # Material gives an IconButton a 48x48 minimum; a title-bar button is
@@ -120,7 +122,7 @@ def set_maximized_glyph(controls, maximized):
     if btn is None:
         return controls
     btn.icon = _GLYPH_RESTORE if maximized else _GLYPH_MAXIMIZE
-    btn.tooltip = "Restore" if maximized else "Maximize"
+    btn.tooltip = hover_hint("Restore" if maximized else "Maximize")
     return controls
 
 

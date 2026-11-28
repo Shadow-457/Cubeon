@@ -176,6 +176,7 @@ import _sandbox_home
 _sandbox_home.isolate()
 import cubeon.versions as versions
 import cubeon.csl as csl
+from cubeon.theme import hint_message
 from cubeon import winchrome  # custom-window-frame policy (used by the window probes)
 
 versions.get_available_versions = lambda *a, **kw: [
@@ -215,7 +216,7 @@ def all_tooltips(ctrl):
     """Tooltips across the tree - the top nav is icon-only by design, so the
     destinations are named in tooltips, not Text controls."""
     out = []
-    tip = getattr(ctrl, "tooltip", None)
+    tip = hint_message(getattr(ctrl, "tooltip", None))
     if tip:
         out.append(str(tip))
     for c in getattr(ctrl, "controls", None) or []:
@@ -435,7 +436,7 @@ try:
     for _root in list(page.controls) + list(page.overlay):
         for _c in walk(_root):
             if callable(getattr(_c, "on_click", None)) \
-                    and getattr(_c, "tooltip", None) == "Settings":
+                    and hint_message(getattr(_c, "tooltip", None)) == "Settings":
                 _c.on_click(None)
     _btn = None
     for _root in list(page.controls) + list(page.overlay):
@@ -2389,8 +2390,8 @@ _chrome = build_window_controls(
 _buttons = [c for c in walk(_chrome["row"]) if type(c).__name__ == "IconButton"]
 check("the title-bar row holds exactly min/max/close, in OS order",
       len(_buttons) == 3
-      and [b.tooltip for b in _buttons] == ["Minimize", "Maximize", "Close"],
-      f"got {[b.tooltip for b in _buttons]}")
+      and [hint_message(b.tooltip) for b in _buttons] == ["Minimize", "Maximize", "Close"],
+      f"got {[hint_message(b.tooltip) for b in _buttons]}")
 check("every title-bar button is clickable",
       all(getattr(b, "on_click", None) is not None for b in _buttons),
       "a button with no handler is dead chrome")
@@ -2400,12 +2401,12 @@ check("the buttons reach their handlers",
       _clicks == ["min", "max", "close"], str(_clicks))
 set_maximized_glyph(_chrome, True)
 check("the maximize button becomes Restore while maximized",
-      _chrome["maximize"].tooltip == "Restore"
+      hint_message(_chrome["maximize"].tooltip) == "Restore"
       and _chrome["maximize"].icon == ft.Icons.FILTER_NONE,
       "the glyph must reflect the window's state")
 set_maximized_glyph(_chrome, False)
 check("...and goes back to Maximize",
-      _chrome["maximize"].tooltip == "Maximize"
+      hint_message(_chrome["maximize"].tooltip) == "Maximize"
       and _chrome["maximize"].icon == ft.Icons.CROP_SQUARE)
 
 _edges_resized = []
@@ -2441,7 +2442,7 @@ check("the Settings row exists on every supported platform",
           os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read(),
       "macOS keeps the native frame, so the row is absent there")
 _nav_settings = next(c for c in walk(page.controls[0])
-                     if getattr(c, 'tooltip', '') == 'Settings'
+                     if hint_message(getattr(c, 'tooltip', '')) == 'Settings'
                      and callable(getattr(c, 'on_click', None)))
 _nav_settings.on_click(types.SimpleNamespace(control=_nav_settings))
 _settings_text = [text for control in page.controls for text in all_text(control)]

@@ -323,10 +323,11 @@ class Driver:
         return bad
 
     def visible_text(self):
+        from cubeon.theme import hint_message
         return " | ".join(
             str(v) for c in every_control(self.page)
             for v in (getattr(c, "value", None), getattr(c, "text", None),
-                      getattr(c, "label", None), getattr(c, "tooltip", None))
+                      getattr(c, "label", None), hint_message(getattr(c, "tooltip", None)))
             if isinstance(v, str) and v.strip())
 
     # --------------------------------------------------------------- report ---

@@ -6,7 +6,7 @@ import webbrowser
 import flet as ft
 
 from cubeon import i18n, thread_safe_ui
-from cubeon.theme import RADIUS_LG, ROW_HOVER, attach_hover, keyboard_target
+from cubeon.theme import RADIUS_LG, ROW_HOVER, attach_hover, keyboard_target, hover_hint
 from cubeon.updater import APP_VERSION
 
 PROJECT_URL = "https://github.com/Shadow-457/Cubeon"
@@ -74,7 +74,7 @@ def build_about_section(*, SURFACE_HI, BORDER, ACCENT, TEXT, TEXT_DIM,
         ], spacing=16), padding=20)
         button.height = 76
         button.data = "about-link-" + key
-        button.tooltip = url
+        button.tooltip = hover_hint(url)
         button.on_click = lambda e: open_link(url)
         attach_hover(button, SURFACE_HI, ROW_HOVER)
         return ft.Container(keyboard_target(button, i18n.t(label)), col={"xs": 12, "wide": 6})
@@ -84,7 +84,7 @@ def build_about_section(*, SURFACE_HI, BORDER, ACCENT, TEXT, TEXT_DIM,
             ft.Text(label, size=12, color=TEXT_DIM, font_family=FONT_MONO),
             ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=12, color=TEXT_DIM),
         ], spacing=6), width=width, height=32, padding=8,
-            border_radius=RADIUS_LG, data="about-link-" + key, tooltip=url,
+            border_radius=RADIUS_LG, data="about-link-" + key, tooltip=hover_hint(url),
             on_click=lambda e: open_link(url))
         attach_hover(button, None, ROW_HOVER)
         return keyboard_target(button, label)

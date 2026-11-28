@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 import flet as ft
 
 from cubeon import activity, milestones, thread_safe_ui
-from cubeon.theme import FONT_BODY
+from cubeon.theme import FONT_BODY, hover_hint
 from cubeon.background_refresh import BackgroundRefresh
 from ui.content_states import skeleton_block
 from ui.stats_chart import PlaytimeChart
@@ -197,7 +197,7 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
             control.value, detail.value = value, caption
         servers.controls[:] = [text("No servers in this range.", size=11, muted=True)] if not counts else [
             ft.Row([ft.Container(content=text(server, size=11, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                 expand=True, tooltip=server),
+                                 expand=True, tooltip=hover_hint(server)),
                     text(f"{count} session{'s' if count != 1 else ''}", size=10, muted=True)], spacing=8)
             for server, count in counts.most_common(5)]
         finish_loading()

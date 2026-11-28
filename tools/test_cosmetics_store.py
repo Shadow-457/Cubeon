@@ -19,6 +19,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tools")]
 import _sandbox_home
 _sandbox_home.isolate()
 from PIL import Image
+from cubeon.theme import hint_message
 from cubeon import capes, cosmetics_store as store, local_cache, cosmetic_packages, cosmetics
 
 
@@ -290,7 +291,7 @@ class Picker(unittest.TestCase):
             field.on_submit(None)
             jobs[-1]()
             self.assertEqual(images, [c for c in fz.walk(root) if isinstance(c, ft.Image)])
-            next(c for c in fz.walk(root) if getattr(c, "tooltip", None) == "Next store page").on_click(None)
+            next(c for c in fz.walk(root) if hint_message(getattr(c, "tooltip", None)) == "Next store page").on_click(None)
             jobs[-1]()
             self.assertIn("golden cape 14", fz.subtree_text(root))
             self.assertNotIn("golden cape 00", fz.subtree_text(root))
@@ -340,7 +341,7 @@ class Picker(unittest.TestCase):
             store_pane = next(c for c in fz.walk(root) if c.data == "cosmetics-store")
             images = [c for c in fz.walk(store_pane) if isinstance(c, ft.Image)]
             primary = next(c for c in fz.walk(root) if isinstance(c, ft.Container)
-                and str(c.tooltip).startswith("Download Sample Cape"))
+                and str(hint_message(c.tooltip)).startswith("Download Sample Cape"))
             primary.cubeon_keyboard_button.on_click(None)
             primary.cubeon_keyboard_button.on_click(None)
             jobs[-1]()
@@ -377,7 +378,7 @@ class Picker(unittest.TestCase):
             # already mounted and navigation works before the response arrives.
             self.assertIn("sample cape", fz.subtree_text(root))
             images = [c for c in fz.walk(root) if isinstance(c, ft.Image)]
-            next(c for c in fz.walk(root) if getattr(c, 'tooltip', None) == 'Next store page').on_click(None)
+            next(c for c in fz.walk(root) if hint_message(getattr(c, 'tooltip', None)) == 'Next store page').on_click(None)
             jobs[-1]()  # second page's offline refresh
             self.assertIn("second cape", fz.subtree_text(root))
             self.assertNotEqual(images, [c for c in fz.walk(root) if isinstance(c, ft.Image)])

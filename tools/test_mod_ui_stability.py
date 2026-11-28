@@ -17,6 +17,7 @@ import msgpack
 from flet.controls.base_control import BaseControl
 from flet.controls.object_patch import ObjectPatch
 from flet.messaging.protocol import configure_encode_object_for_msgpack
+from cubeon.theme import hint_message
 from cubeon import icons, motion, thread_safe_ui
 from cubeon.theme import THEME, section_label
 from ui.versions import VersionBanner, BANNER_FADE_MS
@@ -309,7 +310,7 @@ with patch("ui.modpacks_tab.threading.Thread", QueuedThread), patch.object(icons
     check("modpack install status changes preserve the row and icon", action.disabled and action.content.controls[1].value == "Installed" and row.content.controls[0] is image)
     state["selected_mc_version"] = "1.20.1"
     build_pack(changed_pack, False)
-    check("Play-version changes update pack hints without reloading art", row.content.controls[0] is image and "installs its own" in row.tooltip)
+    check("Play-version changes update pack hints without reloading art", row.content.controls[0] is image and "installs its own" in hint_message(row.tooltip))
     check("pack action width stays fixed", action.width == 84 and action.height == 30)
     pack_scope = _fuzz_common.callback_scope(functions["_render_installed_rows"])
     _fuzz_common.callback_scope(functions["_apply_installed_packs"])["active_view"]["value"] = "installed"

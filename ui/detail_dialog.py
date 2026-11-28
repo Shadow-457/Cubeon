@@ -18,6 +18,8 @@ install CTA - never an empty pane.
 import threading
 
 import flet as ft
+
+from cubeon.theme import hover_hint
 from ui.image_memory import preview_image
 from cubeon import i18n
 
@@ -105,7 +107,7 @@ def _versions_section(versions, theme, on_install_version=None, install_feedback
                     button.disabled = job.busy or done["installed"]
                     button.content.value = compact_status(job.text) if job.busy else (
                         i18n.t("Installed") if done["installed"] else i18n.t("Install"))
-                    button.tooltip = job.text if job.busy or job.result == "error" else None
+                    button.tooltip = hover_hint(job.text if job.busy or job.result == "error" else None)
                 install_feedback.watch(v_install, paint)
         rows.append(ft.Container(
             content=ft.Row(
@@ -204,7 +206,7 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                 install_btn.disabled = job.busy or installed
                 install_btn.content.controls[1].value = compact_status(job.text) if job.busy else (
                     i18n.t("Installed") if installed else install_label)
-                install_btn.tooltip = job.text if job.busy or job.result == "error" else None
+                install_btn.tooltip = hover_hint(job.text if job.busy or job.result == "error" else None)
             install_feedback.watch(install_btn, paint)
 
     footer = ft.Row(

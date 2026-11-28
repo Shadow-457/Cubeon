@@ -73,6 +73,7 @@ stubs.core.get_installed_versions = lambda *a, **k: list(INSTALLED)
 stubs.core.get_available_versions = lambda *a, **k: list(AVAILABLE)
 
 from cubeon import instances as instance_info                 # noqa: E402
+from cubeon.theme import hint_message
 from cubeon.mod_loaders import find_installed_loader_version
 import cubeon.mods as mods_mod                                # noqa: E402
 
@@ -358,7 +359,7 @@ check("it lists the Fabric instance", "26.1.2" in dtext, dtext[:200])
 check("it shows loader/mod details", "fabric" in dtext and "2 mods" in dtext,
       dtext[:200])
 # Panel rows are select-only: Rename/Delete live on the Play card's folder row.
-tips = [getattr(c, "tooltip", "") for c in walk(panel)]
+tips = [hint_message(getattr(c, "tooltip", "")) for c in walk(panel)]
 check("rows have no per-row Play / Rename / Delete actions",
       not any(t in ("Play this instance", "Rename", "Delete") for t in tips),
       str(tips[:12]))
@@ -431,7 +432,7 @@ check("the panel lists the single remaining instance",
       [c.data for c in panel_rows] == [f"version-panel-row-{FABRIC_ID}"],
       str([getattr(c, "data", "") for c in panel_rows]))
 row_deletes = [c for c in (walk(panel) if panel is not None else [])
-               if getattr(c, "tooltip", "") == "Delete"]
+               if hint_message(getattr(c, "tooltip", "")) == "Delete"]
 check("that row offers no Delete of its own", not row_deletes,
       f"{len(row_deletes)} delete buttons")
 
@@ -444,7 +445,7 @@ if FABRIC_ID in cards:
 
 def hero_btn(tip):
     for c in every_control(page):
-        if (getattr(c, "tooltip", "") or "") == tip:
+        if (hint_message(getattr(c, "tooltip", "")) or "") == tip:
             return c
     return None
 

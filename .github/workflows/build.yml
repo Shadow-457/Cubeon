@@ -203,6 +203,7 @@ jobs:
           $failed = 0
           $tests = @(
             "tools/test_startup.py",
+            "tools/test_desktop_runtime.py",
             "tools/test_winwindow.py",
             "tools/test_game_environment.py",
             "tools/test_mod_prelaunch_dependencies.py"

@@ -22,6 +22,7 @@ import _sandbox_home  # noqa: E402
 _sandbox_home.isolate()
 
 import cubeon.mods as mods  # noqa: E402
+from cubeon.theme import hint_message
 from cubeon.mods import PROFILE_META_FILENAME  # noqa: E402
 
 _passed = _failed = 0
@@ -870,7 +871,7 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), \
     unsupported_button = unsupported.content.controls[-1]
     check("explicit incompatible results remain inspectable but cannot install",
           unsupported.on_click is not None and unsupported_button.disabled
-          and "1.20.1" in unsupported_button.tooltip
+          and "1.20.1" in hint_message(unsupported_button.tooltip)
           and unsupported_button.content.controls[1].value == "Incompatible")
     with patch.object(_core, "get_mod_download") as download:
         unsupported_button.on_click(None)

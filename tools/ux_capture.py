@@ -64,6 +64,7 @@ from _fuzz_common import (
     FakePage, FakeEvent, every_control, ctrl_text, subtree_text,
     set_fields, find, clickable_with_subtext, walk,
 )
+from cubeon.theme import hint_message
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAPTURE_WIDTH = int(os.environ.get("CUBEON_UX_WIDTH", "1440"))
@@ -96,7 +97,7 @@ def discover_nav(page):
     # actual rail button to similarly named controls inside hidden panes.
     for c in every_control(page):
         if (type(c).__name__ in {"IconButton", "Container"}
-                and (getattr(c, "tooltip", "") or "") == "Settings"
+                and (hint_message(getattr(c, "tooltip", "")) or "") == "Settings"
                 and callable(getattr(c, "on_click", None))):
             out["settings"] = c
             break
@@ -118,7 +119,7 @@ def _click(ctrl):
         except Exception:
             return False
     except Exception as error:
-        print(f"  ! click {getattr(ctrl, 'tooltip', '')}: {type(error).__name__}: {error}")
+        print(f"  ! click {hint_message(getattr(ctrl, 'tooltip', ''))}: {type(error).__name__}: {error}")
         return False
     return True
 
@@ -532,7 +533,7 @@ def reach_delete_dialog(page, nav):
     reach_tab(page, nav, "play")
     set_fields(page, "Dropdown", "Version", "1.20.1")
     opened = False
-    for btn in find(page, lambda c: (getattr(c, "tooltip", "") or "") == "Delete instance"):
+    for btn in find(page, lambda c: (hint_message(getattr(c, "tooltip", "")) or "") == "Delete instance"):
         opened = _click(btn) or opened
     return opened
 
@@ -547,7 +548,7 @@ def reach_account_panel(page, nav):
     """Play tab -> the top bar's person icon -> the sliding Account panel."""
     reach_tab(page, nav, "play")
     opened = False
-    for btn in find(page, lambda c: (getattr(c, "tooltip", "") or "") == "Account"):
+    for btn in find(page, lambda c: (hint_message(getattr(c, "tooltip", "")) or "") == "Account"):
         opened = _click(btn) or opened
     return opened
 

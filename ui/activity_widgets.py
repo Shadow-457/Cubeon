@@ -3,7 +3,7 @@ import flet as ft
 import flet.canvas as canvas
 
 from cubeon import activity, thread_safe_ui
-from cubeon.theme import CARD_BORDER, FONT_MONO, TEXT_DIM
+from cubeon.theme import CARD_BORDER, FONT_MONO, TEXT_DIM, hover_hint
 
 
 def build_badges(state, collections=None):
@@ -20,7 +20,7 @@ def build_badges(state, collections=None):
     return [ft.Container(
         content=ft.Icon(icons[badge["key"]], size=17, color=TEXT_DIM),
         width=26, height=26, alignment=ft.Alignment.CENTER,
-        tooltip=f"{badge['label']}\n{badge['detail']}", data=f"activity-badge:{badge['key']}",
+        tooltip=hover_hint(f"{badge['label']}\n{badge['detail']}"), data=f"activity-badge:{badge['key']}",
     ) for badge in badges]
 
 

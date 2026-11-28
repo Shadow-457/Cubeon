@@ -18,6 +18,7 @@ from test_fastclient_import import FastClientImports
 import ux_capture as ux
 import flet as ft
 from cubeon import versions, instance_import
+from cubeon.theme import hint_message
 from ui.versions import VersionPicker
 OUT = ROOT / 'archive/ui-captures/fastclient-import'
 OUT.mkdir(parents=True, exist_ok=True)
@@ -50,7 +51,7 @@ async def run(page):
         page.update()
         await page.window.to_front()
         await asyncio.sleep(2)
-        button = next(c for c in ux.every_control(page) if getattr(c, 'tooltip', '') == 'Pick a Minecraft version')
+        button = next(c for c in ux.every_control(page) if hint_message(getattr(c, 'tooltip', '')) == 'Pick a Minecraft version')
         picker = next(cell.cell_contents for cell in button.on_click.__closure__
                       if isinstance(cell.cell_contents, VersionPicker))
         stubs.core.get_installed_versions = REAL_SCAN

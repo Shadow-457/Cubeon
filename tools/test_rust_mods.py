@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "tools"), str(ROOT)]
 import _sandbox_home
 _sandbox_home.isolate()
+from cubeon.theme import hint_message
 from cubeon import global_mod_cache, local_cache, mod_catalogue, mods, net, rust_engine, rust_mods
 
 INSTANCE = rust_engine.INSTANCE_ID
@@ -573,7 +574,7 @@ class ZRustModsUITests(unittest.TestCase):
         blocked = dict(self.hit, compatible=False, facet_compatible=False, compatibility_reason=reason)
         row = self.view.build_browse_row(blocked)
         button = row.content.controls[-1]
-        self.assertTrue(button.disabled); self.assertEqual(button.tooltip, reason)
+        self.assertTrue(button.disabled); self.assertEqual(hint_message(button.tooltip), reason)
         self.core.get_mod_details = lambda *a, **k: blocked
         self.core.get_mod_versions = lambda *a, **k: [dict(filename="demo.hmod", url="offline", compatible=False,
             compatibility_reason=reason, file_id="1", version_number="1")]

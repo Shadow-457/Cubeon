@@ -27,12 +27,24 @@ async def wait_window_ready(window, *, platform=None, timeout=5.0):
 
 
 def configure():
-    if not getattr(sys, "frozen", False) or sys.platform != "linux":
+    if not getattr(sys, "frozen", False) or sys.platform not in {"linux", "win32"}:
         return
     import flet_desktop
 
-    requested = flet_desktop.get_artifact_filename()
     package = Path(flet_desktop.get_package_bin_dir())
+    if sys.platform == "win32":
+        # The installer already contains the unpacked client. Flet expects a
+        # parent of flet/flet.exe here, which avoids touching its shared cache.
+        def bundled_client():
+            if not (package / "flet" / "flet.exe").is_file():
+                raise FileNotFoundError(
+                    "Cubeon's bundled Windows desktop client is missing. Reinstall Cubeon.")
+            return package
+
+        flet_desktop.ensure_client_cached = bundled_client
+        return
+
+    requested = flet_desktop.get_artifact_filename()
     if (package / requested).is_file():
         return
     match = _ARCHIVE.fullmatch(requested)

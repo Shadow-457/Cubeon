@@ -37,6 +37,7 @@ import flet as ft
 
 from cubeon import i18n
 from cubeon.theme import (
+    hover_hint,
     RADIUS,
     attach_hover,
     ACCENT_TINT, ACCENT_TINT_HI,
@@ -160,7 +161,7 @@ def make_action_button(tokens: Tokens, label, on_click, tooltip=None,
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=8, tight=True),
         bgcolor=ACCENT_TINT, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
-        alignment=ft.Alignment.CENTER, ink=False, tooltip=tooltip,
+        alignment=ft.Alignment.CENTER, ink=False, tooltip=hover_hint(tooltip),
         on_click=on_click,
     ), ACCENT_TINT, ACCENT_TINT_HI)
 
@@ -183,7 +184,7 @@ class StatusLine:
     def set(self, message: str = ""):
         with tree_lock():
             self.text.value = message or ""
-            self.text.tooltip = message or None
+            self.text.tooltip = hover_hint(message or None)
         ui_refresh(self.text)
 
 
@@ -251,7 +252,7 @@ class Card:
             content=ft.Column([artwork, self._name, self._subtitle], spacing=5,
                               horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             padding=8, border_radius=RADIUS, ink=False,
-            tooltip=f"{action_label} {label}" + (f" ({sublabel})" if sublabel else ""),
+            tooltip=hover_hint(f"{action_label} {label}" + (f" ({sublabel})" if sublabel else "")),
             on_click=self._apply,
             on_hover=lambda e: self.control.on_hover(e),
         )
@@ -260,18 +261,18 @@ class Card:
             menu.append(ft.PopupMenuItem(
                 content=ft.Text(f"Arms: {model_label}", size=12, color=t.text),
                 icon=ft.Icons.ACCESSIBILITY_NEW_ROUNDED, on_click=on_model,
-                tooltip="Change arms: Auto → Alex (3 px) → Steve (4 px)"))
+                tooltip=hover_hint("Change arms: Auto → Alex (3 px) → Steve (4 px)")))
         if on_delete is not None:
             menu.append(ft.PopupMenuItem(
                 content=ft.Text(i18n.t("Delete"), size=12, color=t.danger),
                 icon=ft.Icons.DELETE_OUTLINE_ROUNDED, on_click=on_delete,
-                tooltip=i18n.t("Delete")))
-        contents = [keyboard_target(primary, primary.tooltip)]
+                tooltip=hover_hint(i18n.t("Delete"))))
+        contents = [keyboard_target(primary)]
         if menu:
             contents.append(ft.PopupMenuButton(
                 items=menu, icon=ft.Icons.MORE_HORIZ_ROUNDED, icon_size=16,
                 icon_color=t.text_dim, bgcolor=t.surface_hi, width=30, height=30,
-                padding=4, right=4, top=4, tooltip=f"Manage {label}"))
+                padding=4, right=4, top=4, tooltip=hover_hint(f"Manage {label}")))
         self.control = ft.Container(
             content=ft.Stack(contents), width=self.WIDTH,
             bgcolor=ACCENT_TINT if active else TILE_FILL,
@@ -1022,13 +1023,13 @@ class StorePane(Pane):
             on_change=self._search_changed, on_submit=self._search_submitted,
             expand=True, data="cosmetics-store-search")
         self.refresh_button = ft.IconButton(
-            ft.Icons.REFRESH_ROUNDED, tooltip="Refresh cosmetics",
+            ft.Icons.REFRESH_ROUNDED, tooltip=hover_hint("Refresh cosmetics"),
             on_click=lambda e: self.fetch(force=True))
         self.previous = ft.IconButton(
-            ft.Icons.CHEVRON_LEFT_ROUNDED, tooltip="Previous store page", disabled=True,
+            ft.Icons.CHEVRON_LEFT_ROUNDED, tooltip=hover_hint("Previous store page"), disabled=True,
             on_click=lambda e: self.fetch(self.offset - cosmetics_store.PAGE_SIZE))
         self.next = ft.IconButton(
-            ft.Icons.CHEVRON_RIGHT_ROUNDED, tooltip="Next store page", disabled=True,
+            ft.Icons.CHEVRON_RIGHT_ROUNDED, tooltip=hover_hint("Next store page"), disabled=True,
             on_click=lambda e: self.fetch(self.offset + cosmetics_store.PAGE_SIZE))
         self.toolbar = ft.Column(
             [ft.Row([self.search, self.refresh_button], spacing=8),
@@ -1197,7 +1198,7 @@ class StorePane(Pane):
                             active=bool(owned[item["id"]]),
                             on_use=lambda e, v=item: self.download(v),
                             on_delete=None, action_label="Download")
-                        card.control.tooltip = item["description"]
+                        card.control.tooltip = hover_hint(item["description"])
                         self.cards[item["id"]] = card
                         self.grid.append(card)
                     self.grid.fit()
@@ -1255,7 +1256,7 @@ class CosmeticPane(Pane):
             icon=ft.Icons.CLOSE_ROUNDED,
         )
         self.remove.disabled, self.remove.opacity = True, 0.4
-        self.remove.tooltip = "Remove the equipped item\n\n" + self._tip()
+        self.remove.tooltip = hover_hint("Remove the equipped item\n\n" + self._tip())
         self.header_action = keyboard_target(self.remove, "Remove equipped item")
         self.view = ft.Column([self.grid.view, self.status.control], spacing=12,
                               expand=True,
@@ -1370,7 +1371,7 @@ class CosmeticPane(Pane):
             on_use=lambda e, i=item["id"]: self.choose(i),
             on_delete=((lambda e, i=item["id"]: self.delete(i))
                        if item.get("_store_directory") else None))
-        card.control.tooltip = item["blurb"]
+        card.control.tooltip = hover_hint(item["blurb"])
         return card
 
     def choose(self, item_id):

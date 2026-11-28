@@ -4,6 +4,8 @@ import threading
 
 import flet as ft
 
+from cubeon.theme import hover_hint
+
 from cubeon import instance_import, instances, theme, thread_safe_ui
 from cubeon.config import run_dir_picker
 
@@ -19,7 +21,7 @@ class FastClientImport:
         self.path = ft.TextField(label="Selected FastClient folder", visible=False,
                                  color=theme.TEXT, border_color=theme.BORDER, text_size=12)
         self.browse = ft.TextButton("Choose folder", icon=ft.Icons.FOLDER_OPEN_ROUNDED,
-                                    tooltip="Choose your FastClient folder", on_click=self._browse)
+                                    tooltip=hover_hint("Choose your FastClient folder"), on_click=self._browse)
         self.scan = ft.FilledButton("Find instances", icon=ft.Icons.SEARCH_ROUNDED,
                                     on_click=lambda e: self._scan())
         self.name = ft.TextField(label="Name in Cubeon", color=theme.TEXT,

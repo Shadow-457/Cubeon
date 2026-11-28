@@ -13,6 +13,7 @@ from cubeon import screenshot_gallery as store
 from cubeon import thread_safe_ui
 from cubeon.background_refresh import BackgroundRefresh
 from cubeon.theme import (
+    hover_hint,
     ACCENT, ACCENT_TINT, CARD_BORDER, CARD_FILL, DANGER,
     FONT_MONO, RADIUS, ROW_HOVER, SURFACE, SURFACE_MAX,
     TEXT, TEXT_DIM, TEXT_FAINT, attach_hover,
@@ -98,7 +99,7 @@ def build_screenshot_gallery_tab(page: ft.Page, *, on_back=None) -> tuple[ft.Con
         "Copy",
         icon=ft.Icons.CONTENT_COPY_ROUNDED,
         icon_color=ACCENT,
-        tooltip="Copy the selected screenshot",
+        tooltip=hover_hint("Copy the selected screenshot"),
         disabled=True,
         width=104, height=34,
         style=ft.ButtonStyle(color=TEXT_DIM,
@@ -140,12 +141,12 @@ def build_screenshot_gallery_tab(page: ft.Page, *, on_back=None) -> tuple[ft.Con
         state["generation"] += 1
         generation = state["generation"]
         selected_name.value = item["name"]
-        selected_name.tooltip = item["name"]
+        selected_name.tooltip = hover_hint(item["name"])
         selected_meta.value = (
             f"{item['date']}  ·  {item['width']}×{item['height']}  ·  "
             f"{item['bytes'] / 1024:.0f} KB"
         )
-        selected_meta.tooltip = selected_meta.value
+        selected_meta.tooltip = hover_hint(selected_meta.value)
         status.value = "Loading preview…"
         selected_image.visible = False
         selected_empty.visible = True
@@ -239,7 +240,7 @@ def build_screenshot_gallery_tab(page: ft.Page, *, on_back=None) -> tuple[ft.Con
                 width=224, height=68, padding=8, bgcolor=CARD_FILL,
                 border=ft.border.Border.all(1, CARD_BORDER),
                 border_radius=RADIUS, ink=False,
-                tooltip=item['name'],
+                tooltip=hover_hint(item['name']),
                 on_click=lambda e, data=item: _select(data),
             ), CARD_FILL, ROW_HOVER)
             thumb_refs[filename] = (card, image, loading)
@@ -354,7 +355,7 @@ def build_screenshot_gallery_tab(page: ft.Page, *, on_back=None) -> tuple[ft.Con
 
     folder_button = ft.IconButton(
         icon=ft.Icons.FOLDER_OPEN_ROUNDED, icon_color=TEXT_DIM,
-        tooltip="Open screenshots folder", on_click=_open_folder,
+        tooltip=hover_hint("Open screenshots folder"), on_click=_open_folder,
         data="screenshot-folder",
     )
 
@@ -364,20 +365,20 @@ def build_screenshot_gallery_tab(page: ft.Page, *, on_back=None) -> tuple[ft.Con
                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
     back = [ft.IconButton(
         icon=ft.Icons.ARROW_BACK_ROUNDED, icon_color=TEXT_DIM,
-        width=34, height=34, tooltip=i18n.t("Back"), on_click=on_back,
+        width=34, height=34, tooltip=hover_hint(i18n.t("Back")), on_click=on_back,
         data="screenshots-back",
     )] if on_back is not None else [ft.Icon(ft.Icons.PHOTO_LIBRARY_OUTLINED,
                                           color=TEXT_DIM, size=20)]
     gallery_header = ft.Row([
         *back, header_title, capture_count,
         ft.IconButton(icon=ft.Icons.REFRESH_ROUNDED, icon_color=TEXT_DIM,
-                      width=34, height=34, tooltip=i18n.t("Refresh"), on_click=_refresh),
+                      width=34, height=34, tooltip=hover_hint(i18n.t("Refresh")), on_click=_refresh),
         folder_button,
     ], spacing=8, height=36, data="screenshots-toolbar")
 
     delete_button = ft.IconButton(
         icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=DANGER,
-        tooltip=i18n.t("Delete screenshot"), width=34, height=34,
+        tooltip=hover_hint(i18n.t("Delete screenshot")), width=34, height=34,
         on_click=_delete_selected, data="screenshot-delete",
     )
     gallery_body = ft.Container(

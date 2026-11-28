@@ -12,6 +12,7 @@ from cubeon import osnotify
 from cubeon import thread_safe_ui, scrolling
 from cubeon.config import LAUNCHER_EDGES, launcher_layout
 from cubeon.theme import (
+    hover_hint,
     BORDER, RADIUS, RADIUS_LG, ROW_HOVER, ACCENT_TINT, TEXT_FAINT, keyboard_target,
 )
 from ui.about_settings import build_about_section
@@ -401,7 +402,7 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
             # that puts its noun first still reads correctly.
             summary.value = f"{applied} {i18n.t('flags added')}" + (
                 f", {skipped} {i18n.t('not on this machine')}" if skipped else "")
-        summary.tooltip = summary.value
+        summary.tooltip = hover_hint(summary.value)
         # Repaint only this panel: the rest of Settings is untouched.
         thread_safe_ui.refresh(rows)
         thread_safe_ui.refresh(summary)
@@ -462,8 +463,8 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
             overlay_color=ROW_HOVER,
             shape=ft.RoundedRectangleBorder(radius=RADIUS)),
         on_click=_toggle,
-        tooltip="The JVM options Cubeon passes to Java on every launch, "
-                "and why each one is there",
+        tooltip=hover_hint("The JVM options Cubeon passes to Java on every launch, "
+                "and why each one is there"),
     )
 
     for control in (ram_slider, custom_jvm_field):
@@ -566,7 +567,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             f"{i18n.t('Found')}: {detected_java}" if detected_java else i18n.t("Detected automatically"),
             size=11.5, color=TEXT_FAINT, font_family=FONT_MONO,
             rtl=False, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
-            tooltip=detected_java,
+            tooltip=hover_hint(detected_java),
         )
 
     def row(title, subtitle, control):
@@ -647,7 +648,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     motion_switch = ft.Switch(
         value=motion.transforms(), active_color=ACCENT, scale=0.85,
         data="settings-motion-enabled",
-        tooltip=i18n.t("Turn off movement animations and keep fades."),
+        tooltip=hover_hint(i18n.t("Turn off movement animations and keep fades.")),
     )
 
     def _on_motion_change(_e, sw=motion_switch):
@@ -723,9 +724,9 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # ======================================================================
     memory_status = ft.Text("", size=11.5, color=TEXT_DIM,
                             data="memory-limit-status")
-    ram_label.tooltip = i18n.t(
+    ram_label.tooltip = hover_hint(i18n.t(
         "In Minecraft's F3 screen, check the maximum after the slash on the Mem line. "
-        "Allocated shows the memory Java has reserved so far and can be lower.")
+        "Allocated shows the memory Java has reserved so far and can be lower."))
     if len(ram_range_row.controls) >= 3:
         minimum, recommendation, maximum = ram_range_row.controls[:3]
         recommendation.expand = False

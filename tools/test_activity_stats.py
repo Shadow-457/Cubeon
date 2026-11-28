@@ -99,6 +99,7 @@ check("badges show only the highest earned tier per track",
 check("the old hats/unlock state never returns", "hats" not in state and "unlocks" not in state)
 
 import flet as ft
+from cubeon.theme import hint_message
 import app_driver
 from _fuzz_common import every_control, walk
 from ui.activity_widgets import ActivityHistogram, build_badges
@@ -195,7 +196,7 @@ check("badges have no filled pills or visible labels",
           and badge.width == 26 and badge.height == 26 for badge in compact_badges))
 library_badge = next(badge for badge in compact_badges if badge.data == "activity-badge:library")
 check("one Library badge preserves all collection details on hover",
-      all(detail in library_badge.tooltip for detail in ("4 versions installed", "93 mods installed", "6 server plugins", "Playing since")))
+      all(detail in hint_message(library_badge.tooltip) for detail in ("4 versions installed", "93 mods installed", "6 server plugins", "Playing since")))
 check("membership alone does not add badge clutter", build_badges({"first_seen_at": time.time()}) == [])
 check("empty accounts have no badge placeholder", build_badges({}) == [])
 library_stats.collect_library = lambda: collections

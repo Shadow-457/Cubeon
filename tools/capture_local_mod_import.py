@@ -20,6 +20,7 @@ os.environ.setdefault('CUBEON_UX_HEIGHT', '720')
 import ux_capture as ux
 import flet as ft
 from cubeon import local_mods, mods, updater
+from cubeon.theme import hint_message
 REAL_PROFILE_DIR = mods.get_profile_dir
 NATIVE_POPEN = subprocess.Popen
 
@@ -66,7 +67,7 @@ async def run(page):
         await page.window.to_front()
         await asyncio.sleep(1)
         from ui.versions import VersionPicker
-        pick_control = next(c for c in ux.every_control(page) if getattr(c, 'tooltip', '') == 'Pick a Minecraft version')
+        pick_control = next(c for c in ux.every_control(page) if hint_message(getattr(c, 'tooltip', '')) == 'Pick a Minecraft version')
         picker = next(cell.cell_contents for cell in pick_control.on_click.__closure__
                       if isinstance(cell.cell_contents, VersionPicker))
         fabric = next(item['id'] for item in picker.get_instances()

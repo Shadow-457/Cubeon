@@ -29,6 +29,7 @@ from ui.image_memory import preview_image
 from cubeon import i18n
 
 from cubeon.theme import (
+    hover_hint,
     RADIUS, RADIUS_LG, ACCENT, ACCENT_TINT, TEXT, TEXT_DIM,
     TEXT_FAINT, SURFACE, SURFACE_HI, BORDER, DANGER,
     FONT_MONO, FONT_DISPLAY, WARNING, section_label,
@@ -127,8 +128,8 @@ class ClientSupportBadge(ft.Container):
         self.visible = status is not None
         self.data = "cubeon-client-" + (status or "unsupported")
         self.content.color = WARNING if status == "beta" else ACCENT
-        self.tooltip = ("Cubeon Client supported · Beta" if status == "beta"
-                        else "Cubeon Client supported")
+        self.tooltip = hover_hint("Cubeon Client supported · Beta" if status == "beta"
+                                  else "Cubeon Client supported")
 
 
 def format_release(value) -> str:
@@ -240,7 +241,7 @@ class VersionPicker:
             height=48,
             padding=ft.padding.Padding.symmetric(horizontal=12),
             ink=False,
-            tooltip="Pick a Minecraft version",
+            tooltip=hover_hint("Pick a Minecraft version"),
             on_click=lambda e: self.open(),
         )
 
@@ -375,10 +376,10 @@ class VersionPicker:
         self.title = ft.Text("Instances", size=22, color=TEXT,
                              font_family=FONT_DISPLAY, expand=True)
         self.custom_icon_preview = preview_image(src='', width=28, height=28, fit=ft.BoxFit.CONTAIN,
-                                           tooltip='Custom icon', visible=False)
+                                           tooltip=hover_hint('Custom icon'), visible=False)
         self.icon_upload = ft.IconButton(
             icon=ft.Icons.UPLOAD_ROUNDED, icon_size=16, icon_color=TEXT_DIM,
-            width=32, height=32, tooltip='Upload custom icon', data='instance-icon-upload',
+            width=32, height=32, tooltip=hover_hint('Upload custom icon'), data='instance-icon-upload',
             on_click=lambda e: self._upload_icon(), visible=callable(on_upload_icon),
         )
         self.icon_categories = ft.Row([
@@ -429,7 +430,7 @@ class VersionPicker:
                             self.title,
                             ft.IconButton(
                                 icon=ft.Icons.CLOSE_ROUNDED, icon_size=20,
-                                icon_color=TEXT_DIM, tooltip=i18n.t("Close"),
+                                icon_color=TEXT_DIM, tooltip=hover_hint(i18n.t("Close")),
                                 on_click=lambda e: self.close(),
                             ),
                         ],
@@ -875,7 +876,7 @@ class VersionPicker:
                 ],spacing=4,horizontal_alignment=ft.CrossAxisAlignment.CENTER,tight=True),
                 expand=True,bgcolor=ACCENT_TINT if active else SURFACE_HI,
                 border=ft.border.Border.all(1,ACCENT if active else BORDER),
-                border_radius=RADIUS,padding=8,tooltip=icon['name'],ink=False,
+                border_radius=RADIUS,padding=8,tooltip=hover_hint(icon['name']),ink=False,
                 on_click=lambda e,key=icon['id']:self._choose_icon(key),
             ))
         self.list.controls[:] = [ft.Row(tiles[i:i+4],spacing=8) for i in range(0,len(tiles),4)]
@@ -924,7 +925,7 @@ class VersionPicker:
         thumb = preview_image(src=instance_icons.source(self.get_icon(vid),loader=loader),
                          fit=ft.BoxFit.CONTAIN,width=104,height=118)
         edit = ft.IconButton(icon=ft.Icons.EDIT_ROUNDED,icon_size=16,icon_color=TEXT_DIM,
-                             tooltip=i18n.t('Choose icon'),data='instance-icon-edit-' + vid,
+                             tooltip=hover_hint(i18n.t('Choose icon')),data='instance-icon-edit-' + vid,
                              on_click=lambda e,v=vid:self._open_icons(v),
                              visible=callable(self.on_set_icon),right=4,top=4)
         art = ft.Container(

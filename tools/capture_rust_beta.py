@@ -12,6 +12,7 @@ os.environ["CUBEON_UX_WIDTH"] = "1280"
 os.environ["CUBEON_UX_HEIGHT"] = "720"
 import ux_capture as ux
 import flet as ft
+from cubeon.theme import hint_message
 
 OUT = ROOT / "archive/ui-captures/rust-beta"
 
@@ -24,7 +25,7 @@ async def inspect(page):
     OUT.mkdir(parents=True, exist_ok=True)
     from ui.versions import VersionPicker
     from cubeon import rust_engine
-    control = next(c for c in ux.every_control(page) if getattr(c, "tooltip", None) == "Pick a Minecraft version")
+    control = next(c for c in ux.every_control(page) if hint_message(getattr(c, "tooltip", None)) == "Pick a Minecraft version")
     picker = next(cell.cell_contents for cell in control.on_click.__closure__
                   if isinstance(cell.cell_contents, VersionPicker))
     nav = ux.discover_nav(page)

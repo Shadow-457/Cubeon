@@ -13,7 +13,8 @@ from cubeon import theme
 
 clicks = []
 art = ft.Container(ft.Text('Play'), width=300, height=64,
-                   tooltip='Launch Minecraft', on_click=lambda e: clicks.append(e.control))
+                   tooltip=theme.hover_hint('Launch Minecraft'),
+                   on_click=lambda e: clicks.append(e.control))
 host = theme.keyboard_target(art, 'Play')
 target = host.controls[1]
 target.on_click(SimpleNamespace(data=None))
@@ -24,6 +25,7 @@ assert clicks == [art], 'native button bypassed a disabled action'
 assert host.controls[0] is art and host.width == 300 and host.height == 64
 assert target.tooltip == art.tooltip, 'keyboard overlay swallowed the artwork tooltip'
 assert target.content.content is not None, 'native Semantics requires a visible child'
+assert theme.keyboard_target(art).controls[1].content.label == 'Launch Minecraft'
 
 stubs = fz.install_safe_stubs()
 load = stubs.core.load_config

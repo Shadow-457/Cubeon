@@ -16,6 +16,7 @@ sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve
 import _sandbox_home
 _sandbox_home.isolate()
 import flet as ft
+from cubeon.theme import hint_message
 from cubeon import thread_safe_ui
 from cubeon import emoji
 from cubeon._emoji_data import UNICODE_SHORTCODES
@@ -172,7 +173,7 @@ class ChatUXTests(unittest.TestCase):
         self.assertEqual(host.height, 0)
         self.assertFalse(suggestions.visible)
         self.type(':FLAG_US')
-        choice = next(button for button in buttons if button.visible and button.tooltip == 'Insert :flag_us:')
+        choice = next(button for button in buttons if button.visible and hint_message(button.tooltip) == 'Insert :flag_us:')
         choice.on_click(None)
         self.assertEqual(self.composer.value, '🇺🇸')
         self.assertGreater(self.page.focus_calls, before)
@@ -575,7 +576,7 @@ async def native_emoji(page):
     assert state.get('chat_composing') and not blur_events
     print('NATIVE_EMOJI: full codes', flush=True)
     await command('type', '--clearmodifiers', '--delay', '40', ' :melting')
-    assert choices.controls[0].tooltip == 'Insert :melting_face:'
+    assert hint_message(choices.controls[0].tooltip) == 'Insert :melting_face:'
     ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'searched.png')
     await command('mousemove', '384', str(int(page.height - 248)), 'click', '1')
     ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(out / 'clicked.png')

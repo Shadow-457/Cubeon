@@ -447,7 +447,8 @@ def do_directed(ctx, bot, kind):
         _goto_tab(ctx, "play")                       # the instance card lives here
         set_fields(pg, "Dropdown", "Version", "1.20.1")
         ctx.set_caption("🗑  valid flow: delete instance → confirm", C_OK)
-        for btn in find(pg, lambda c: (getattr(c, "tooltip", "") or "") == "Delete instance"):
+        from cubeon.theme import hint_message
+        for btn in find(pg, lambda c: (hint_message(getattr(c, "tooltip", "")) or "") == "Delete instance"):
             _move_cursor(ctx, bot, btn, "delete")
             _flash(ctx, btn)
             _fire_and_account(ctx, btn)          # opens confirm dialog

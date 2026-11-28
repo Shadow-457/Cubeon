@@ -1526,7 +1526,7 @@ async def main(page: ft.Page):
             animate=NAV_ANIM,
             # EXACTLY the label, no suffix: tests/tools navigate by this
             # string (tools/_fuzz_common.py ctrl_text + goto, ux_capture).
-            tooltip=label,
+            tooltip=theme.hover_hint(label),
         )
         btn.cubeon_top_icon = True
         _style_nav_button(btn, is_active)
@@ -1826,7 +1826,7 @@ async def main(page: ft.Page):
             if control is not None:
                 control.disabled = native
                 control.opacity = 0.4 if native else 1.0
-                control.tooltip = i18n.t("Servers unavailable for Rust beta") if native else None
+                control.tooltip = theme.hover_hint(i18n.t("Servers unavailable for Rust beta") if native else None)
                 thread_safe_ui.refresh(control)
         if native and active_tab["value"] in {"server_console", "server_plugins", "server_settings"}:
             switch_tab("play")
@@ -1853,7 +1853,7 @@ async def main(page: ft.Page):
         if _inspector_enabled:
             inspector_slot = ft.Container(ft.IconButton(
                 icon=ft.Icons.BUG_REPORT, icon_size=16, icon_color=TEXT_FAINT,
-                tooltip="Inspect UI",
+                tooltip=theme.hover_hint("Inspect UI"),
                 size_constraints=ft.BoxConstraints(min_width=0, min_height=0),
                 width=30, height=30,
                 on_click=lambda e: _open_inspector(),
@@ -1903,7 +1903,7 @@ async def main(page: ft.Page):
                 padding=ft.padding.Padding.only(left=8, right=12, top=4, bottom=4),
                 border_radius=RADIUS_LG,
                 ink=False,
-                tooltip=i18n.t("Account"),
+                tooltip=theme.hover_hint(i18n.t("Account")),
                 on_click=lambda e: _open_account_panel(),
             ),
             None, ROW_HOVER,
@@ -1911,7 +1911,7 @@ async def main(page: ft.Page):
         screenshots_button = ft.IconButton(
             icon=ft.Icons.PHOTO_LIBRARY_ROUNDED, icon_size=18,
             icon_color=TEXT_DIM, width=32, height=32,
-            tooltip=i18n.t("Screenshots"), data="screenshots-button",
+            tooltip=theme.hover_hint(i18n.t("Screenshots")), data="screenshots-button",
             on_click=lambda e, k="screenshots": switch_tab(k),
             style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
         )
@@ -2417,14 +2417,14 @@ async def main(page: ft.Page):
         bgcolor=ACCENT, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
         ink=False, on_click=open_pfp_picker,
-        tooltip="Choose a profile picture for your Cubeon account",
+        tooltip=theme.hover_hint("Choose a profile picture for your Cubeon account"),
     )
     profile_pfp_remove_btn = ft.Container(
         content=ft.Text(i18n.t("Remove profile picture"), color=DANGER, weight=ft.FontWeight.W_700, size=12),
         border=ft.border.Border.all(1, DANGER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
         ink=False, on_click=on_remove_pfp, alignment=ft.Alignment.CENTER,
-        tooltip="Remove your Cubeon profile picture",
+        tooltip=theme.hover_hint("Remove your Cubeon profile picture"),
     )
 
     # -----------------------------------------------------------------
@@ -3179,7 +3179,7 @@ async def main(page: ft.Page):
     # Version catalogue filters live beside the New Instance version list.
     show_snapshots = ft.Checkbox(
         label="Snapshots", value=False, active_color=ACCENT,
-        tooltip="Include preview builds", data="install-filter-snapshots",
+        tooltip=theme.hover_hint("Include preview builds"), data="install-filter-snapshots",
         on_change=lambda e: refresh_version_list(online=True),
     )
     browse_online_row = ft.Row([show_snapshots])
@@ -3237,7 +3237,7 @@ async def main(page: ft.Page):
 
     legacy_btn = ft.Checkbox(
         label="Legacy", value=bool(state.get("legacy_ok")), active_color=ACCENT,
-        tooltip="Include older versions; 1.8.9 is already available. Client support varies.",
+        tooltip=theme.hover_hint("Include older versions; 1.8.9 is already available. Client support varies."),
         data="install-filter-legacy", on_change=on_enable_legacy,
     )
     version_filters = ft.Row([show_snapshots, legacy_btn], spacing=12)
@@ -3937,8 +3937,8 @@ async def main(page: ft.Page):
             play_button_icon.icon = ft.Icons.STOP_CIRCLE_ROUNDED
             play_button_text.value = i18n.t("QUIT GAME")
             play_button.disabled = False
-            play_button.tooltip = ("Close Minecraft now. Unsaved progress "
-                                   "since the game's last autosave is lost.")
+            play_button.tooltip = theme.hover_hint(
+                "Close Minecraft now. Unsaved progress since the game's last autosave is lost.")
         elif mode == "working":
             # Cubeon is still busy with this profile (the post-install doctor /
             # mod repair, cubeon/doctor.py). Nothing to cancel here - unlike an
@@ -3961,9 +3961,8 @@ async def main(page: ft.Page):
             play_button_icon.icon = ft.Icons.PLAY_ARROW_ROUNDED
             play_button_text.value = i18n.t("PLAY")
             play_button.disabled = False
-            play_button.tooltip = ("Cubeon is also checking this profile's "
-                                   "mods in the background - Play launches "
-                                   "anyway.")
+            play_button.tooltip = theme.hover_hint(
+                "Cubeon is also checking this profile's mods in the background - Play launches anyway.")
         elif mode == "installing":
             # A pack install is still writing this instance (base version,
             # loader, then every mod into its profile). It is NOT cancellable
@@ -3974,8 +3973,8 @@ async def main(page: ft.Page):
             play_button_icon.icon = ft.Icons.HOURGLASS_TOP_ROUNDED
             play_button_text.value = i18n.t("INSTALLING...")
             play_button.disabled = True
-            play_button.tooltip = ("Cubeon is still installing this instance - "
-                                   "Play unlocks when it finishes.")
+            play_button.tooltip = theme.hover_hint(
+                "Cubeon is still installing this instance - Play unlocks when it finishes.")
         else:  # incomplete
             paint(SURFACE_HI, DANGER)
             play_button_icon.icon = ft.Icons.ERROR_OUTLINE_ROUNDED
@@ -6065,7 +6064,7 @@ async def main(page: ft.Page):
 
     rename_instance_btn = ft.IconButton(
         ft.Icons.EDIT_ROUNDED, icon_color=TEXT_DIM, icon_size=18,
-        tooltip=i18n.t("Rename instance"), on_click=on_rename_instance,
+        tooltip=theme.hover_hint(i18n.t("Rename instance")), on_click=on_rename_instance,
         style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
     )
     delete_instance_btn = ft.IconButton(
@@ -6074,7 +6073,7 @@ async def main(page: ft.Page):
         # reads as destructive before anyone hovers it.
         icon_color=ft.Colors.with_opacity(0.9, DANGER),
         icon_size=18,
-        tooltip="Delete instance", on_click=on_delete_instance,
+        tooltip=theme.hover_hint("Delete instance"), on_click=on_delete_instance,
         # Secondary until the pointer is on it - the destructive action then
         # reads red without the row looking alarming at rest.
         style=ft.ButtonStyle(color={ft.ControlState.HOVERED: DANGER}),
@@ -6118,8 +6117,7 @@ async def main(page: ft.Page):
             ),
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-            tooltip=("Open the Minecraft game folder "
-                     "(versions, mods, saves, screenshots)"),
+            tooltip=theme.hover_hint("Open the Minecraft game folder (versions, mods, saves, screenshots)"),
         ),
         None, ROW_HOVER,
     )
@@ -6278,8 +6276,9 @@ async def main(page: ft.Page):
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS,
         padding=ft.padding.Padding.only(left=12, right=4, top=4, bottom=4),
-        tooltip=("Adds compatible performance mods. Enable Sync game settings to reapply the video preset "
-                 "at every launch. Off restores previous unchanged graphics settings at next launch."),
+        tooltip=theme.hover_hint(
+            "Adds compatible performance mods. Enable Sync game settings to reapply the video preset "
+            "at every launch. Off restores previous unchanged graphics settings at next launch."),
         data="play-fps-tile",
     )
 
@@ -6308,7 +6307,7 @@ async def main(page: ft.Page):
             padding=ft.padding.Padding.symmetric(horizontal=14),
             bgcolor=ft.Colors.with_opacity(.90, BG), border_radius=RADIUS,
             border=ft.border.Border.all(1, CARD_BORDER),
-            tooltip="Edit username in Settings", on_click=_open_account_panel,
+            tooltip=theme.hover_hint("Edit username in Settings"), on_click=_open_account_panel,
         ), "Edit username in Settings",
     )
     play_header = ft.Column([
@@ -6706,10 +6705,9 @@ async def main(page: ft.Page):
                 f"⚠ Above the recommended {recommended_ram_mb} MB. "
                 "Leave memory for your system and other apps."
             )
-            ram_warning.tooltip = (
-                f"Allocating too much RAM to Minecraft can starve your computer "
-                f"and other apps, or cause instability."
-            )
+            ram_warning.tooltip = theme.hover_hint(
+                "Allocating too much RAM to Minecraft can starve your computer "
+                "and other apps, or cause instability.")
             ram_warning.visible = True
         else:
             ram_warning.visible = False
@@ -6764,7 +6762,7 @@ async def main(page: ft.Page):
                 thread_safe_ui.refresh(ram_slider)
                 thread_safe_ui.refresh(ram_label)
                 ram_warning.value = f"⚠ Couldn't save the RAM setting: {ex}"
-                ram_warning.tooltip = ram_warning.value
+                ram_warning.tooltip = theme.hover_hint(ram_warning.value)
                 ram_warning.visible = True
                 thread_safe_ui.refresh(ram_warning)
             else:
@@ -6954,7 +6952,7 @@ async def main(page: ft.Page):
 
     def _java_runtime_ready(java_path):
         detected_java_label.value = f"{i18n.t('Found')}: {java_path}"
-        detected_java_label.tooltip = java_path
+        detected_java_label.tooltip = theme.hover_hint(java_path)
         thread_safe_ui.refresh(detected_java_label)
 
     java_runtime_pane = build_java_runtime_pane(
@@ -6987,7 +6985,7 @@ async def main(page: ft.Page):
                      f"({core.backup_module.human_size(newest.size_bytes)}).")
         with thread_safe_ui.TREE_LOCK:
             backup_status_text.value = value
-            backup_status_text.tooltip = value
+            backup_status_text.tooltip = theme.hover_hint(value)
             backup_status_text.color = TEXT_DIM
             thread_safe_ui.refresh(backup_status_text)
 
@@ -7098,7 +7096,8 @@ async def main(page: ft.Page):
             restore_btn.content.controls[1].value = "Restore from a backup zip..."
             _sync_backup_busy()
             if message.startswith(("Backup failed", "Restore failed", "Couldn't start")):
-                backup_status_text.value = backup_status_text.tooltip = message
+                backup_status_text.value = message
+                backup_status_text.tooltip = theme.hover_hint(message)
                 backup_status_text.color = DANGER
                 thread_safe_ui.refresh(backup_status_text)
             set_status(message)
@@ -7396,7 +7395,7 @@ async def main(page: ft.Page):
         padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         border_radius=RADIUS,
         ink=False,
-        tooltip=CUBEON_WEB_URL,
+        tooltip=theme.hover_hint(CUBEON_WEB_URL),
         on_click=_open_cubeon_web,
         # Matches the rail rows: the hover wash fades rather than snapping.
         animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT_CUBIC),
@@ -7405,7 +7404,7 @@ async def main(page: ft.Page):
     minekube_badge = ft.IconButton(
         ft.Icons.DNS_ROUNDED,
         icon_size=16, icon_color=TEXT_DIM,
-        tooltip="We back Minekube - open source, free addresses",
+        tooltip=theme.hover_hint("We back Minekube - open source, free addresses"),
         on_click=_open_minekube_info,
     )
 
@@ -8251,7 +8250,7 @@ async def main(page: ft.Page):
             with thread_safe_ui.TREE_LOCK:
                 detected_java_label.value = (f"{i18n.t('Found')}: {detected}"
                                              if detected else i18n.t("Detected automatically"))
-                detected_java_label.tooltip = detected
+                detected_java_label.tooltip = theme.hover_hint(detected)
                 thread_safe_ui.refresh(detected_java_label)
         except Exception:
             logging.getLogger(__name__).debug("Java label discovery failed", exc_info=True)

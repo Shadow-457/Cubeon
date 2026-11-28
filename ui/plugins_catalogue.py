@@ -9,6 +9,7 @@ from cubeon import scrolling, storage, thread_safe_ui, mod_catalogue
 from cubeon import icons
 from cubeon.background_refresh import BackgroundRefresh
 from cubeon.icon_loader import IconLoader
+from cubeon.theme import hover_hint
 from cubeon.theme import RADIUS, TEXT_FAINT, CARD_FILL, CARD_BORDER, ROW_HOVER, ON_ACCENT, animated_switch
 from ui.content_states import empty_state
 from ui.content_tiles import tile_grid, layout_tiles, loading_tiles, style_tile, downloads_label, update_view_action, catalogue_views
@@ -53,7 +54,7 @@ def build_plugins_catalogue(page, active_version, *, section_label,
 
     def say(message):
         feedback_text.value = str(message)
-        feedback_text.tooltip = str(message)
+        feedback_text.tooltip = hover_hint(str(message))
         thread_safe_ui.refresh(feedback_text)
 
     def _plugin_icon(hit):
@@ -206,14 +207,14 @@ def build_plugins_catalogue(page, active_version, *, section_label,
             ], spacing=4, expand=True),
         ]
         if data.get('protected'):
-            controls.append(ft.Icon(ft.Icons.LOCK_ROUNDED, size=18, color=TEXT_DIM, tooltip='Managed by Cubeon'))
+            controls.append(ft.Icon(ft.Icons.LOCK_ROUNDED, size=18, color=TEXT_DIM, tooltip=hover_hint('Managed by Cubeon')))
         else:
             controls.extend([
                 animated_switch(value=data['enabled'], active_color=ACCENT, scale=.85,
                                 on_change=lambda e: action(enabled=bool(e.control.value)),
-                                tooltip='Enable or disable on the next server start'),
+                                tooltip=hover_hint('Enable or disable on the next server start')),
                 ft.IconButton(ft.Icons.DELETE_OUTLINE_ROUNDED, icon_size=18, icon_color=TEXT_FAINT,
-                              tooltip='Remove', on_click=lambda e: action(remove=True)),
+                              tooltip=hover_hint('Remove'), on_click=lambda e: action(remove=True)),
             ])
         row = style_tile(ft.Container(ft.Row(controls, vertical_alignment=ft.CrossAxisAlignment.CENTER)),
                          SURFACE, BORDER, ROW_HOVER)
@@ -367,7 +368,7 @@ def build_plugins_catalogue(page, active_version, *, section_label,
             icon.icon = ft.Icons.CHECK_ROUNDED if installed['value'] else ft.Icons.DOWNLOAD_ROUNDED
             icon.color = label.color
             button.bgcolor = SURFACE_HI if feedback.busy else None if installed['value'] else ACCENT
-            button.tooltip = feedback.text if feedback.busy or feedback.result == 'error' else None
+            button.tooltip = hover_hint(feedback.text if feedback.busy or feedback.result == 'error' else None)
         def sync(value):
             installed['value'] = value
             paint(job)
@@ -378,11 +379,11 @@ def build_plugins_catalogue(page, active_version, *, section_label,
                 ft.Text(hit.get('author') or 'Community project', size=11.5, color=TEXT_DIM,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Row([ft.Image(src=f'provider-icons/{source}.svg', width=12, height=12,
-                                tooltip=mod_catalogue.LABELS[source]),
+                                tooltip=hover_hint(mod_catalogue.LABELS[source])),
                         ft.Icon(ft.Icons.DOWNLOAD_OUTLINED, size=12, color=TEXT_FAINT),
                         ft.Text(downloads_label(hit.get('downloads')), size=10.5, color=TEXT_FAINT)], spacing=4),
             ], spacing=4, expand=True), button,
-        ], vertical_alignment=ft.CrossAxisAlignment.CENTER), tooltip=hit.get('description')),
+        ], vertical_alignment=ft.CrossAxisAlignment.CENTER), tooltip=hover_hint(hit.get('description'))),
             SURFACE, BORDER, ROW_HOVER)
         def _open_plugin_detail(e=None):
             if version == active_version['value']:

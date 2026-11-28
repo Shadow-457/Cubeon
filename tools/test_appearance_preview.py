@@ -17,6 +17,7 @@ from flet.controls.object_patch import ObjectPatch
 from flet.messaging.protocol import configure_encode_object_for_msgpack
 from PIL import Image, ImageChops
 from cubeon import skins
+from cubeon.theme import hint_message
 from cubeon import cosmetics
 from cubeon.appearance import CharacterModel, Face, RenderCancelled, render_faces
 from ui.appearance_preview import AppearancePreview, RENDER_SIZE, render_frame
@@ -402,8 +403,8 @@ controls = list(walk(cosmetics_root))
 check("Cosmetics mounts exactly one character preview", sum(control.data == "appearance-orbit" for control in controls) == 1)
 check("Cosmetics keeps Skin and Cape, not Images", not any(getattr(control, "value", None) == "Images" for control in controls))
 check("Cosmetics offers drag rotation and accessible rotation buttons",
-      any(getattr(c, "tooltip", None) == "Rotate left" for c in controls)
-      and any(getattr(c, "tooltip", None) == "Rotate right" for c in controls)
+      any(hint_message(getattr(c, "tooltip", None)) == "Rotate left" for c in controls)
+      and any(hint_message(getattr(c, "tooltip", None)) == "Rotate right" for c in controls)
       and any(type(c).__name__ == "GestureDetector" and callable(c.on_pan_update) for c in controls))
 check("Cosmetics has no global arm dropdown or separate Apply button",
       not any(getattr(c, "label", None) == "Arm model" for c in controls)

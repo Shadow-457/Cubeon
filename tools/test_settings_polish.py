@@ -17,6 +17,7 @@ _sandbox_home.isolate()
 import flet as ft
 import app_driver
 from _fuzz_common import walk
+from cubeon.theme import hint_message
 from cubeon import atomicio, backup, config, thread_safe_ui
 from ui.chrome import BAR_HEIGHT, BAR_WIDTH, HORIZONTAL_EDGES, SIDEBAR_WIDTH
 from test_content_install_feedback import QueuedThread
@@ -160,7 +161,7 @@ class SettingsPolish(unittest.TestCase):
                         'horizon':'https://github.com/horizon-rust/horizon',
                         'minekube':'https://github.com/minekube/connect-java'}.items():
             control=self.control(data='about-link-'+key)
-            self.assertEqual(control.tooltip,url)
+            self.assertEqual(hint_message(control.tooltip),url)
             self.assertIsNotNone(control.cubeon_keyboard_button)
 
     def test_about_hero_resizes_without_replacing_brand_or_links(self):

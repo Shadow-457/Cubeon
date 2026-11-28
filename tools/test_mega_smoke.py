@@ -554,7 +554,8 @@ def section_runtime():
               traceback.format_exc())
     else:
         names = [type(c).__name__ for c in app_driver.every_control(d3.page)]
-        tips = [getattr(c, "tooltip", None)
+        from cubeon.theme import hint_message
+        tips = [hint_message(getattr(c, "tooltip", None))
                 for c in app_driver.every_control(d3.page)]
         check("the Windows custom frame builds when the policy says yes",
               "WindowDragArea" in names

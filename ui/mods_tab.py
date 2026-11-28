@@ -31,6 +31,7 @@ from cubeon.icon_loader import IconLoader
 from cubeon.mod_loaders import MOD_CAPABLE_LOADERS
 from cubeon.mods import resolve_profile_dir
 from cubeon.theme import (
+    hover_hint,
     ACCENT_HI, ACCENT_TINT, CARD_BORDER, CARD_FILL, INFO, ON_ACCENT,
     RADIUS, ROW_HOVER, TEXT_FAINT, animated_switch, attach_hover,
     pixel_divider, quiet_chip,
@@ -219,7 +220,7 @@ class ModsView:
                          weight=ft.FontWeight.W_600)], spacing=4, tight=True),
             border=ft.border.Border.all(1, CARD_BORDER), border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
-            tooltip="Check for missing dependencies and conflicts on this instance.",
+            tooltip=hover_hint("Check for missing dependencies and conflicts on this instance."),
             ink=False, on_click=self.run_mod_repair, data="mods-check-compatibility",
         ), "transparent", ROW_HOVER)
 
@@ -455,7 +456,7 @@ class ModsView:
         self.client_preference_switch = animated_switch(
             value=bool(self.cfg.get('client_mod_enabled', True)), active_color=self.ACCENT, scale=0.85,
             on_change=lambda e: self._change_client_enabled(bool(self.client_preference_switch.value)),
-            tooltip='Enable or disable Cubeon Client for all instances on the next launch',
+            tooltip=hover_hint('Enable or disable Cubeon Client for all instances on the next launch'),
         )
         self.client_preference_switch.data = 'installed-cubeon-client-enabled'
         self.client_preference_row = style_tile(ft.Container(ft.Row([
@@ -543,7 +544,7 @@ class ModsView:
             border_radius=RADIUS,
             height=36, alignment=ft.Alignment.CENTER,
             padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
-            tooltip="Install from a file on your computer",
+            tooltip=hover_hint("Install from a file on your computer"),
             ink=False, on_click=self.open_local_mod_picker,
         ), "transparent", ROW_HOVER)
         self._apply_type_labels()
@@ -604,7 +605,7 @@ class ModsView:
     def _set_installed_status(self, t):
         with thread_safe_ui.TREE_LOCK:
             self.installed_status.value = t
-            self.installed_status.tooltip = t
+            self.installed_status.tooltip = hover_hint(t)
             self.installed_status.visible = True
             thread_safe_ui.refresh(self.installed_status)
 
@@ -1149,9 +1150,9 @@ class ModsView:
         with thread_safe_ui.TREE_LOCK:
             self.repair_status.value = i18n.t(text)
             self.repair_status.visible = bool(text)
-            self.repair_status.tooltip = detail
+            self.repair_status.tooltip = hover_hint(detail)
             self.repair_details.value = detail or ""
-            self.repair_details.tooltip = detail
+            self.repair_details.tooltip = hover_hint(detail)
             self.repair_details.visible = bool(detail)
             thread_safe_ui.refresh(self.repair_status)
             thread_safe_ui.refresh(self.repair_details)
@@ -1272,10 +1273,10 @@ class ModsView:
             return [ft.Text(
                 "Incompatible — check compatibility",
                 size=10.5, color=self.DANGER,
-                tooltip=detail or "The game would show this as incompatible.")]
+                tooltip=hover_hint(detail or "The game would show this as incompatible."))]
         return [ft.Text(
             "Can't check the format for this version", size=10.5,
-            color=TEXT_FAINT, tooltip=detail)]
+            color=TEXT_FAINT, tooltip=hover_hint(detail))]
 
     def _run_row_action(self, target, row, action, success, *, pending="Applying change…", enabled_before=None):
         ft.context.disable_auto_update()
@@ -1369,7 +1370,7 @@ class ModsView:
                 if not pending and (not m.get("protected") or self._is_client_mod(m)):
                     row.content.controls[2].value = m["enabled"]
                     row.content.controls[2].disabled = bool(m.get("issue"))
-                    row.content.controls[2].tooltip = m.get("issue")
+                    row.content.controls[2].tooltip = hover_hint(m.get("issue"))
                 row.on_click = (
                     (lambda event, metadata=metadata: self.open_mod_detail(metadata))
                     if not m.get("protected") and (m.get("project_id") or m.get("slug")) else None
@@ -1386,8 +1387,9 @@ class ModsView:
                 if not pending:
                     labels[1].value = f"{m['size_kb']:,.0f} KB · {'Enabled' if m.get('enabled', True) else 'Disabled'}"
                     row.content.controls[2].value = m.get('enabled', True)
-                row.content.controls[2].tooltip = ('Disable for this instance on next launch' if m.get('enabled', True)
-                                                   else 'Enable for this instance on next launch')
+                row.content.controls[2].tooltip = hover_hint(
+                    'Disable for this instance on next launch' if m.get('enabled', True)
+                    else 'Enable for this instance on next launch')
                 return row
         m = dict(m)
         if not self._is_mod():
@@ -1422,7 +1424,7 @@ class ModsView:
                                     ft.Text(m["display_name"], size=13.5,
                                             color=self.TEXT if m.get('enabled', True) else self.TEXT_DIM,
                                             weight=ft.FontWeight.W_600, max_lines=1,
-                                            overflow=ft.TextOverflow.ELLIPSIS, tooltip=m['display_name']),
+                                            overflow=ft.TextOverflow.ELLIPSIS, tooltip=hover_hint(m['display_name'])),
                                     ft.Text(f"{m['size_kb']:,.0f} KB · {'Enabled' if m.get('enabled', True) else 'Disabled'}", size=10.5,
                                             color=self.TEXT_DIM, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                                     *self._compat_lines(m),
@@ -1431,10 +1433,10 @@ class ModsView:
                             ),
                             animated_switch(value=m.get('enabled', True), active_color=self.ACCENT,
                                             on_change=on_toggle_content, scale=0.85,
-                                            tooltip='Disable for this instance on next launch' if m.get('enabled', True)
-                                            else 'Enable for this instance on next launch'),
+                                            tooltip=hover_hint('Disable for this instance on next launch' if m.get('enabled', True)
+                                            else 'Enable for this instance on next launch')),
                             ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_color=TEXT_FAINT,
-                                          icon_size=17, tooltip=i18n.t("Remove"),
+                                          icon_size=17, tooltip=hover_hint(i18n.t("Remove")),
                                           on_click=on_delete_content),
                         ],
                         spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -1498,7 +1500,7 @@ class ModsView:
                         *(
                             [animated_switch(value=m['enabled'], active_color=self.ACCENT,
                                              on_change=on_toggle, scale=0.85,
-                                             tooltip='Enable or disable Cubeon Client for all instances on the next launch')]
+                                             tooltip=hover_hint('Enable or disable Cubeon Client for all instances on the next launch'))]
                             if self._is_client_mod(m) else
                             [ft.Container(
                                 content=ft.Row([
@@ -1510,10 +1512,10 @@ class ModsView:
                             if m.get("protected") else [
                                 # Toggle switch
                                 animated_switch(value=m["enabled"], active_color=self.ACCENT, on_change=on_toggle, scale=0.85,
-                                                disabled=bool(m.get("issue")), tooltip=m.get("issue")),
+                                                disabled=bool(m.get("issue")), tooltip=hover_hint(m.get("issue"))),
                                 # Delete button
                                 ft.IconButton(ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=TEXT_FAINT,
-                                              icon_size=18, tooltip=i18n.t("Remove"), on_click=on_delete),
+                                              icon_size=18, tooltip=hover_hint(i18n.t("Remove")), on_click=on_delete),
                             ]
                         ),
                     ],
@@ -1839,8 +1841,9 @@ class ModsView:
     def _sync_local_install_action(self):
         allowed = self._can_install(verify=False)
         disabled = self.local_install_busy or self.picker_target is not None or not allowed
-        tooltip = None if allowed else ('This Rust beta supports Horizon content mods.' if self._is_rust()
-                                       else 'Choose a mod loader on the Play tab first.')
+        tooltip = None if allowed else hover_hint(
+            'This Rust beta supports Horizon content mods.' if self._is_rust()
+            else 'Choose a mod loader on the Play tab first.')
         if (self.local_install_btn.disabled, self.local_install_btn.tooltip) != (disabled, tooltip):
             self.local_install_btn.disabled, self.local_install_btn.tooltip = disabled, tooltip
             thread_safe_ui.refresh(self.local_install_btn)
@@ -1961,9 +1964,9 @@ class ModsView:
             label += f" · {dict(choices).get(category, category)}"
         self.browse_scope_text.value = label
         self.header_subtitle.value = label
-        self.header_subtitle.tooltip = label
+        self.header_subtitle.tooltip = hover_hint(label)
         self.installed_context.value = label
-        self.installed_context.tooltip = label
+        self.installed_context.tooltip = hover_hint(label)
         thread_safe_ui.refresh(self.header_subtitle)
         thread_safe_ui.refresh(self.installed_context)
 
@@ -2074,7 +2077,7 @@ class ModsView:
         if infinite and (page_num or retry) and self._browse_current(token):
             session["provider_errors"] = {}
             self.browse_status_text.value = i18n.t("Loading…")
-            self.browse_status_text.tooltip = self.browse_status_text.value
+            self.browse_status_text.tooltip = hover_hint(self.browse_status_text.value)
             self.browse_load_more.disabled = True
             self.browse_retry.opacity, self.browse_retry.disabled = 0, True
             self.browse_retry.visible = False
@@ -2291,7 +2294,7 @@ class ModsView:
             token = self._begin_browse()
             self.browse_state = dict(self.browse_state, token=token)
             self.browse_title_text.value = i18n.t("Search results").upper()
-            self.browse_title_text.tooltip = query
+            self.browse_title_text.tooltip = hover_hint(query)
             # Live search repaints only the browse region (title/results), not the
             # whole mounted tree - this fires per debounced keystroke.
             thread_safe_ui.refresh(self.browse_title_text)
@@ -2436,7 +2439,7 @@ class ModsView:
 
         self.browse_status_text.value = (
             i18n.t("{count} result(s)", count=len(displayed_results)) if displayed_results else "")
-        self.browse_status_text.tooltip = self.browse_status_text.value
+        self.browse_status_text.tooltip = hover_hint(self.browse_status_text.value)
         self.browse_pager_row.visible = True
         self.browse_load_more.visible = infinite and self.browse_state.get("has_more", False)
         self.browse_load_more.disabled = bool(self.browse_state.get("provider_pending"))
@@ -2455,7 +2458,7 @@ class ModsView:
                          for source in sorted(pending))
             if notes:
                 self.browse_status_text.value = " · ".join(notes)
-                self.browse_status_text.tooltip = "\n".join(errors.values()) or self.browse_status_text.value
+                self.browse_status_text.tooltip = hover_hint("\n".join(errors.values()) or self.browse_status_text.value)
             if errors:
                 self.browse_retry.visible = True
                 self.browse_retry.opacity, self.browse_retry.disabled = 1, False
@@ -2493,7 +2496,7 @@ class ModsView:
         label = mod_catalogue.LABELS[source]
         asset = 'loader-icons/rust.png' if source == 'horizon' else f'provider-icons/{source}.svg'
         return ft.Image(src=asset, width=16, height=16,
-                        fit=ft.BoxFit.CONTAIN, tooltip=label, semantics_label=label)
+                        fit=ft.BoxFit.CONTAIN, tooltip=hover_hint(label), semantics_label=label)
 
     def _detail_badge(self, text, tone="dim"):
         """A tiny metadata pill. Quiet by default; green only for the one
@@ -2556,7 +2559,7 @@ class ModsView:
         hero_action = ft.Container(content=ft.Text("Loading…", color=self.TEXT_DIM, size=12), width=180)
         hero_title = ft.Text(title, size=22, color=self.ACCENT, font_family=self.FONT_DISPLAY,
                              weight=ft.FontWeight.W_700, max_lines=1,
-                             overflow=ft.TextOverflow.ELLIPSIS, tooltip=title)
+                             overflow=ft.TextOverflow.ELLIPSIS, tooltip=hover_hint(title))
         hero_description = ft.Text(blurb, size=12.5, color=self.TEXT_DIM, max_lines=2)
         hero_meta = ft.Text(f"{(detail_loader or 'vanilla').title()} · {detail_mc or 'Choose an instance'}",
                             size=11.5, color=self.TEXT_DIM)
@@ -2740,7 +2743,7 @@ class ModsView:
                 padding=ft.padding.Padding.symmetric(
                     horizontal=16 if big else 12, vertical=12 if big else 8),
                 ink=False, disabled=done["v"] or blocked,
-                tooltip=blocked_note if blocked else None,
+                tooltip=hover_hint(blocked_note if blocked else None),
             )
 
             seen = {"result": feedback.result_id}
@@ -2757,8 +2760,8 @@ class ModsView:
                 icon.icon = ft.Icons.CLOSE_ROUNDED if job.busy and job.cancellable else ft.Icons.CHECK_ROUNDED if done["v"] and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
                 icon.color = text.color
                 btn.bgcolor = ROW_HOVER if job.busy else ACCENT_TINT if done["v"] or not big else self.ACCENT
-                btn.tooltip = job.text if job.busy or job.result == "error" else (
-                    blocked_note if blocked else None)
+                btn.tooltip = hover_hint(job.text if job.busy or job.result == "error" else (
+                    blocked_note if blocked else None))
 
             def on_click(e):
                 if feedback.busy:
@@ -2843,7 +2846,7 @@ class ModsView:
                                     "No matching build for this Minecraft version and loader."))
                     holder.content = ft.Column([
                         ft.Text(message, size=12.5, color=self.TEXT_DIM,
-                                tooltip=release_state["error"]),
+                                tooltip=hover_hint(release_state["error"])),
                         ft.TextButton(content="Retry", on_click=lambda event: self.open_mod_detail(mod, content_type, force=True),
                                       style=ft.ButtonStyle(color=self.ACCENT))], spacing=4)
                 else:
@@ -3019,7 +3022,7 @@ class ModsView:
                             thread_safe_ui.refresh(hero_icon)
                     self.artwork.request(resolved_icon, ready)
             hero_title.value = details.get("title") or title
-            hero_title.tooltip = hero_title.value
+            hero_title.tooltip = hover_hint(hero_title.value)
             hero_description.value = details.get("description") or blurb
             author = details.get("author") or mod.get("author")
             target = " ".join(filter(None, [(detail_loader or "vanilla").title(), detail_mc]))
@@ -3052,7 +3055,7 @@ class ModsView:
                 if safe_url:
                     sidebar.controls.append(ft.TextButton(content=i18n.t(label), url=safe_url,
                         icon=ft.Icons.OPEN_IN_NEW_ROUNDED, style=ft.ButtonStyle(color=self.ACCENT),
-                        tooltip=safe_url))
+                        tooltip=hover_hint(safe_url)))
             metadata = ft.Container(content=sidebar, padding=16, bgcolor=self.SURFACE_HI,
                 border_radius=RADIUS, col={"xs": 12, "md": 3}, data="mod-detail-metadata")
             panes = {}
@@ -3284,9 +3287,9 @@ class ModsView:
             padding=ft.padding.Padding.symmetric(horizontal=8),
             ink=False,
             disabled=is_installed or not compatible or not self._can_install(row_content_type, verify=False),
-            tooltip=(compatibility_note or
-                     ("Choose a compatible mod loader on the Play tab first."
-                      if not self._can_install(row_content_type, verify=False) else None)),
+            tooltip=hover_hint(compatibility_note or (
+                "Choose a compatible mod loader on the Play tab first."
+                if not self._can_install(row_content_type, verify=False) else None)),
         )
 
         def on_download(e):
@@ -3487,7 +3490,7 @@ class ModsView:
                 ], spacing=3, expand=True, alignment=ft.MainAxisAlignment.CENTER),
                 download_btn,
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            tooltip=compatibility_note or description or f"{mod.get('downloads', 0):,} downloads · Open details",
+            tooltip=hover_hint(compatibility_note or description or f"{mod.get('downloads', 0):,} downloads · Open details"),
         ), self.SURFACE, self.BORDER, ROW_HOVER)
         row.on_click = None if builtin else lambda e: self.open_mod_detail(mod, row_content_type)
         if builtin:
@@ -3514,9 +3517,9 @@ class ModsView:
             icon.color = download_btn_text.color
             download_btn.bgcolor = self.SURFACE_HI if job.busy else self.ACCENT if can_install and job.result != 'error' else None
             download_btn.disabled = job.cancelling if job.busy and job.cancellable else job.busy or (installed and not builtin) or not compatible or not self._can_install(row_content_type, verify=False)
-            download_btn.tooltip = (f"Cancel download · {job.text}" if job.busy and job.cancellable and not job.cancelling
+            download_btn.tooltip = hover_hint((f"Cancel download · {job.text}" if job.busy and job.cancellable and not job.cancelling
                                     else job.text) if job.busy or job.result == "error" else (
-                job.note if installed else compatibility_note or None)
+                job.note if installed else compatibility_note or None))
             download_btn.on_click = None if installed and not builtin and not job.busy else on_download
 
         def sync_action(installed):

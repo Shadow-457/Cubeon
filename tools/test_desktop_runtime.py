@@ -1,4 +1,4 @@
-"""Bundled Linux selection and macOS helper/native process lifetime checks."""
+"""Packaged desktop client resolution and macOS native process lifetime checks."""
 import ast
 import asyncio
 import os
@@ -67,13 +67,67 @@ class DesktopRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'missing or incompatible'):
             configure()
 
-    def test_source_and_windows_keep_flet_selection(self):
+    def test_source_and_macos_keep_flet_selection(self):
         original = self.client.get_artifact_filename
         with patch.object(sys, 'frozen', False):
             configure()
-        with patch.object(sys, 'platform', 'win32'):
+        with patch.object(sys, 'platform', 'darwin'):
             configure()
         self.assertIs(self.client.get_artifact_filename, original)
+
+
+class WindowsBundledClientTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import flet_desktop
+
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        self.folder = Path(work.name)
+        self.package = self.folder / "_internal" / "flet_desktop" / "app"
+        self.executable = self.package / "flet" / "flet.exe"
+        self.blocked_cache = Mock(side_effect=PermissionError("Windows denied Flet cache rename"))
+        self.spawn = AsyncMock(return_value=object())
+        for context in (
+            patch.object(sys, "frozen", True, create=True),
+            patch.object(sys, "platform", "win32"),
+            patch.object(flet_desktop, "is_windows", return_value=True),
+            patch.object(flet_desktop, "get_package_bin_dir", return_value=str(self.package)),
+            patch.object(flet_desktop, "ensure_client_cached", self.blocked_cache),
+            patch.object(flet_desktop.os, "getcwd", return_value=str(self.folder)),
+            patch.object(flet_desktop.asyncio, "create_subprocess_exec", self.spawn),
+            patch.dict(os.environ, {"FLET_VIEW_PATH": ""}),
+        ):
+            context.start()
+            self.addCleanup(context.stop)
+        self.desktop = flet_desktop
+
+    async def test_launch_uses_installed_executable_without_home_cache(self):
+        self.executable.parent.mkdir(parents=True)
+        self.executable.touch()
+        configure()
+        _, pid_file = await self.desktop.open_flet_view_async("page", "assets", True)
+        self.assertEqual(self.spawn.call_args.args,
+                         (str(self.executable), "page", pid_file, "assets"))
+        self.assertEqual(self.spawn.call_args.kwargs["env"]["FLET_HIDE_WINDOW_ON_START"], "true")
+        self.blocked_cache.assert_not_called()
+
+    async def test_missing_bundle_reports_reinstall_without_cache_or_spawn(self):
+        configure()
+        with self.assertRaisesRegex(FileNotFoundError, "bundled Windows desktop client is missing"):
+            await self.desktop.open_flet_view_async("page", None, False)
+        self.spawn.assert_not_awaited()
+        self.blocked_cache.assert_not_called()
+
+    async def test_explicit_flet_view_path_still_takes_precedence(self):
+        override = self.folder / "custom"
+        override.mkdir()
+        executable = override / "flet.exe"
+        executable.touch()
+        os.environ["FLET_VIEW_PATH"] = str(override)
+        configure()
+        await self.desktop.open_flet_view_async("page", None, False)
+        self.assertEqual(self.spawn.call_args.args[0], str(executable))
+        self.blocked_cache.assert_not_called()
 
 
 class MacClientLifetimeTests(unittest.IsolatedAsyncioTestCase):

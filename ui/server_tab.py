@@ -18,7 +18,7 @@ import threading
 import flet as ft
 from cubeon import i18n, storage
 from cubeon import scrolling
-from cubeon.theme import (  # design system (radius, toggles, faint text tier, underline tabs, accent fg)
+from cubeon.theme import (hover_hint,   # design system (radius, toggles, faint text tier, underline tabs, accent fg)
     RADIUS, animated_switch, TEXT_FAINT,
     attach_hover, ROW_HOVER, CARD_BORDER, CARD_FILL,
 )
@@ -181,7 +181,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         content=ft.Text("Install server", color=BG, weight=ft.FontWeight.W_700, size=14),
         bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=12, horizontal=16),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_install_click, width=180,
-        tooltip="Paper server - works with normal Minecraft and supports plugins.",
+        tooltip=hover_hint("Paper server - works with normal Minecraft and supports plugins."),
     )
 
     # --- Server type -------------------------------------------------------
@@ -206,8 +206,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         value=False,
         label="I accept the Minecraft EULA",
         check_color=BG, active_color=ACCENT, label_style=ft.TextStyle(color=TEXT, size=13),
-        tooltip="Read it at aka.ms/MinecraftEULA. The server won't start "
-                "until it's accepted - Mojang's rule, not ours.",
+        tooltip=hover_hint("Read it at aka.ms/MinecraftEULA. The server won't start "
+                "until it's accepted - Mojang's rule, not ours."),
         on_change=on_eula_toggle,
     )
 
@@ -276,8 +276,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     endpoint_hint = ft.Text(
         "Blank = random free name.",
         size=11, color=TEXT_DIM,
-        tooltip="Your server's free public address. A full domain pointed "
-                "at Minekube works too.",
+        tooltip=hover_hint("Your server's free public address. A full domain pointed "
+                "at Minekube works too."),
     )
 
     # --- Whitelist manager ------------------------------------------------
@@ -300,7 +300,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         if not names:
             whitelist_list.controls.append(ft.Text(
                 "Nobody whitelisted yet.", size=11, color=TEXT_DIM,
-                tooltip="With the gate on, only names listed here can join.",
+                tooltip=hover_hint("With the gate on, only names listed here can join."),
             ))
         for name in names:
             def _remove(e, n=name):
@@ -316,7 +316,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                     ft.Text(name, size=12, color=TEXT, font_family=FONT_MONO),
                     ft.IconButton(
                         icon=ft.Icons.CLOSE_ROUNDED, icon_size=13,
-                        icon_color=TEXT_DIM, tooltip=f"Remove {name}",
+                        icon_color=TEXT_DIM, tooltip=hover_hint(f"Remove {name}"),
                         on_click=_remove,
                     ),
                 ], spacing=8, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -358,8 +358,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     # across restarts. Only a salted PBKDF2 hash is ever stored.
     gate_password_field = text_field(
         "Server password", width=240, password=True, can_reveal_password=True,
-        tooltip="Players verify once per account. 3 wrong tries locks them "
-                "out, starting at 10 minutes.")
+        tooltip=hover_hint("Players verify once per account. 3 wrong tries locks them "
+                "out, starting at 10 minutes."))
     gate_status = ft.Text("", size=11, color=TEXT_DIM)
 
     def update_gate_status(password=None):
@@ -419,14 +419,12 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     _simulation_distance_options = ["4", "6", "8", "10", "12", "16", "32"]
     view_distance_dropdown = gradient_dropdown(
         "Render distance", _render_distance_options, width=200)
-    view_distance_dropdown.tooltip = (
-        "The server never sends chunks beyond this cap, no matter what "
-        "clients set. Lower = better ping.")
+    view_distance_dropdown.tooltip = hover_hint(
+        "The server never sends chunks beyond this cap, no matter what clients set. Lower = better ping.")
     sim_distance_dropdown = gradient_dropdown(
         "Simulation distance", _simulation_distance_options, width=200)
-    sim_distance_dropdown.tooltip = (
-        "How far from each player the server keeps things ticking. "
-        "Lower = better tick rate on weak machines.")
+    sim_distance_dropdown.tooltip = hover_hint(
+        "How far from each player the server keeps things ticking. Lower = better tick rate on weak machines.")
 
     gamemode_dropdown = tagged_dropdown(
         "Gamemode", ["survival", "creative", "adventure", "spectator"],
@@ -475,7 +473,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             height=SWITCH_CARD_HEIGHT,
         )
         if hint:
-            card.tooltip = hint
+            card.tooltip = hover_hint(hint)
         return sw, card
 
     pvp_switch, pvp_row = switch_row("PvP")
@@ -1463,7 +1461,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                                 ),
                                 padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
                                 border_radius=RADIUS, ink=False, on_click=clear_console,
-                                tooltip="Clear the log",
+                                tooltip=hover_hint("Clear the log"),
                             ),
                         ],
                         spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -1585,7 +1583,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         else:
             public_text.value = ""
             public_hint_text.value = ""
-        public_text.tooltip = public_text.value or None
+        public_text.tooltip = hover_hint(public_text.value or None)
 
     def _public_watcher():
         """Keeps the public-address line live without any user action -
@@ -1602,7 +1600,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 addr = core.minekube.read_public_address(version_id)
                 if addr and f"Public address: {addr}" != public_text.value:
                     public_text.value = f"Public address: {addr}"
-                    public_text.tooltip = public_text.value
+                    public_text.tooltip = hover_hint(public_text.value)
                     public_hint_text.value = ("Share this with friends. "
                                               "No port forwarding needed.")
                     # The address belongs in the player's Minecraft chat too:

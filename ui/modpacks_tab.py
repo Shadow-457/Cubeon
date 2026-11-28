@@ -27,7 +27,7 @@ import flet as ft
 from ui.image_memory import preview_image
 from cubeon import i18n
 
-from cubeon.theme import (  # design system: corner radius, hover helper/tokens/underline tabs
+from cubeon.theme import (hover_hint,   # design system: corner radius, hover helper/tokens/underline tabs
     RADIUS, attach_hover, ACCENT_HI, ON_ACCENT, text_tab,
     ROW_HOVER, ACCENT_TINT, TEXT_FAINT, CARD_BORDER, CARD_FILL,
 )
@@ -177,7 +177,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     install_cancel_btn = ft.TextButton(
         i18n.t("Cancel"), visible=False,
         style=ft.ButtonStyle(color=TEXT_DIM),
-        tooltip="Stop this modpack install",
+        tooltip=hover_hint("Stop this modpack install"),
         on_click=on_cancel_install,
     )
     install_card = ft.Container(
@@ -909,9 +909,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 # sentence on the page.
                 browse_status.value = "Includes CurseForge classics."
                 browse_status.tooltip = (
-                    "Popular CurseForge packs like RLCraft and SkyFactory are "
+                    hover_hint("Popular CurseForge packs like RLCraft and SkyFactory are "
                     "included. A free CurseForge key unlocks the full catalogue "
-                    "and faster installs.")
+                    "and faster installs."))
             pager_label.value = f"Page {page_num + 1} of {total_pages}"
             pager_row.visible = total_pages > 1
             pager_prev.disabled = page_num <= 0
@@ -1005,7 +1005,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             labels[0].controls[0].value = pack["title"]
             labels[1].value = pack.get('author') or pack.get('author_name') or 'Community project'
             labels[2].controls[1].value = downloads_label(pack.get('downloads'))
-            row.tooltip = ' · '.join(filter(None, _pack_presentation(pack)))
+            row.tooltip = hover_hint(' · '.join(filter(None, _pack_presentation(pack))))
             sync_action(is_installed)
             return row
         pack = dict(pack)
@@ -1151,7 +1151,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 border_radius=RADIUS,
                 padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
                 on_click=_open_pack_detail,
-                tooltip=' · '.join(filter(None, (description, meta_line))),
+                tooltip=hover_hint(' · '.join(filter(None, (description, meta_line)))),
             ),
             SURFACE, BORDER, ROW_HOVER,
         )
@@ -1172,7 +1172,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             icon.color = install_btn_text.color
             install_btn.bgcolor = ROW_HOVER if job.busy else None if is_installed or job.result == 'error' else ACCENT
             install_btn.disabled = job.busy or is_installed
-            install_btn.tooltip = job.text if job.busy or job.result == "error" else None
+            install_btn.tooltip = hover_hint(job.text if job.busy or job.result == "error" else None)
             install_btn.on_click = None if is_installed and not job.busy else on_install
 
         def sync_action(installed):
@@ -1355,7 +1355,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
         delete_btn = ft.IconButton(
             ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=DANGER, icon_size=20,
-            tooltip="Delete this modpack",
+            tooltip=hover_hint("Delete this modpack"),
             on_click=lambda e, m=meta: do_delete(m),
         )
 
@@ -1377,9 +1377,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                                 ft.Text(meta.get("name", "Modpack"), size=13.5, color=TEXT,
                                         weight=ft.FontWeight.W_600, max_lines=1,
                                         overflow=ft.TextOverflow.ELLIPSIS,
-                                        tooltip=meta.get("name", "Modpack")),
+                                        tooltip=hover_hint(meta.get("name", "Modpack"))),
                                 ft.Text(subtitle, size=11, color=TEXT_DIM,
-                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, tooltip=subtitle),
+                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, tooltip=hover_hint(subtitle)),
                             ],
                             spacing=4, expand=True,
                         ),

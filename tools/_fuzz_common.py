@@ -244,8 +244,12 @@ def ctrl_text(c):
     """Best-effort visible label of a control (own text/value/tooltip, or its
     content wrapper - a nav button wraps a Row/Text, and in Flet 0.86.5 a
     TextButton/ElevatedButton keeps its label in .content as a plain string)."""
+    from cubeon.theme import hint_message
+
     for attr in ("text", "value", "tooltip", "label"):
         v = getattr(c, attr, None)
+        if attr == "tooltip":
+            v = hint_message(v)
         if isinstance(v, str) and v.strip():
             return v
     inner = getattr(c, "content", None)

@@ -304,6 +304,15 @@ def attach_hover(container, base_bg, hover_bg):
     return motion.polish(container, base_bg, hover_bg)
 
 
+def hover_hint(message: str | None) -> ft.Tooltip | None:
+    """Use the page theme for hover timing. Flet's string shorthand fixes it at 800 ms."""
+    return ft.Tooltip(message=message) if message else None
+
+
+def hint_message(hint: ft.Tooltip | str | None) -> str | None:
+    return hint.message if isinstance(hint, ft.Tooltip) else hint
+
+
 def keyboard_target(control, label=None):
     """Give custom button artwork native keyboard focus without changing its tree.
 
@@ -334,7 +343,7 @@ def keyboard_target(control, label=None):
 
     target = ft.TextButton(
         content=ft.Semantics(content=ft.Container(width=0, height=0),
-                             label=label or control.tooltip, button=True),
+                             label=label or hint_message(control.tooltip), button=True),
         left=0, top=0, right=0, bottom=0,
         tooltip=control.tooltip, disabled=control.disabled,
         on_click=click, on_hover=hover,
@@ -434,6 +443,18 @@ def apply_page_theme(page):
         outlined_button_theme=ft.OutlinedButtonTheme(style=shaped_btn),
         card_theme=ft.CardTheme(shape=shape),
         chip_theme=ft.ChipTheme(shape=shape),
+        tooltip_theme=ft.TooltipTheme(
+            wait_duration=3000,
+            exit_duration=0,
+            text_style=ft.TextStyle(size=12, color=TEXT),
+            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
+            size_constraints=ft.BoxConstraints(max_width=280),
+            decoration=ft.BoxDecoration(
+                bgcolor=SURFACE_MAX,
+                border=ft.border.Border.all(1, BORDER),
+                border_radius=RADIUS,
+            ),
+        ),
         # A quiet, on-brand scrollbar instead of the stock translucent white.
         scrollbar_theme=ft.ScrollbarTheme(
             thumb_color={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.6, BORDER_HI),

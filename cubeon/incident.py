@@ -190,6 +190,16 @@ def client_binary(env=None) -> str:
     """
     env = os.environ if env is None else env
     try:
+        if sys.platform == "win32" and getattr(sys, "frozen", False):
+            from flet_desktop import get_package_bin_dir
+
+            bundle = Path(get_package_bin_dir()) / "flet"
+            executable = bundle / "flet.exe"
+            if not executable.is_file():
+                return "client_bin=<bundled Windows client: NO flet binary>"
+            engine = (bundle / "flutter_windows.dll").is_file()
+            return (f"client_bin=bundled Windows client ({executable.stat().st_size} B, "
+                    f"engine={'yes' if engine else 'NO'})")
         home = env.get("HOME") or os.path.expanduser("~")
         root = os.path.join(home, ".flet", "client")
         if not os.path.isdir(root):

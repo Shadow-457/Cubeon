@@ -45,6 +45,7 @@ import _sandbox_home
 _sandbox_home.isolate()
 
 import _fuzz_common as fz
+from cubeon.theme import hint_message
 from _fuzz_common import (
     FUZZ, FakePage, walk, every_control, fire, DEFECT_EXC,
     ctrl_text, find, subtree_text, clickable_with_subtext, set_fields,
@@ -241,7 +242,7 @@ for btn in actions:
 pgB = fresh_build()
 check("directed Delete selects the installed instance through the picker",
       select_instance(pgB, "1.20.1"))
-for btn in find(pgB, lambda c: (getattr(c, "tooltip", "") or "") == "Delete instance"):
+for btn in find(pgB, lambda c: (hint_message(getattr(c, "tooltip", "")) or "") == "Delete instance"):
     fire_control(btn, "__directed_delete_open__")      # opens the confirm dialog
 for btn in find(pgB, lambda c: type(c).__name__ == "TextButton"
                 and ctrl_text(c).strip().lower() == "delete"):

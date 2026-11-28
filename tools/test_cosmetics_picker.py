@@ -19,6 +19,7 @@ _sandbox_home.isolate()
 import _fuzz_common as fz
 from app_driver import DriverPage
 import flet as ft
+from cubeon.theme import hint_message
 import msgpack
 from flet.controls.base_control import BaseControl
 from flet.controls.object_patch import ObjectPatch
@@ -86,7 +87,7 @@ class CosmeticsPicker(unittest.TestCase):
 
     def apply(self, tooltip):
         next(c for c in self.picker_controls() if isinstance(c, ft.Container)
-             and c.tooltip == tooltip).cubeon_keyboard_button.on_click(None)
+             and hint_message(c.tooltip) == tooltip).cubeon_keyboard_button.on_click(None)
 
     def test_one_click_retains_cards_images_and_skips_repeated_apply(self):
         self.tab('Back')
@@ -286,7 +287,7 @@ class CosmeticsPicker(unittest.TestCase):
             downloaded = next(card for card in cards if "downloaded wings" in fz.subtree_text(card))
             images = [c for card in cards if card is not downloaded for c in fz.walk(card) if isinstance(c, ft.Image)]
             self.preview.reset_mock()
-            button = next(c for c in fz.walk(downloaded) if isinstance(c, ft.PopupMenuItem) and c.tooltip == "Delete")
+            button = next(c for c in fz.walk(downloaded) if isinstance(c, ft.PopupMenuItem) and hint_message(c.tooltip) == "Delete")
             button.on_click(None)
             remove.assert_called_once_with(self.cfg, entry["id"])
             self.assertEqual(self.cards(), [card for card in cards if card is not downloaded])
@@ -511,7 +512,7 @@ class CosmeticsPicker(unittest.TestCase):
             self.assertTrue(all(card in self.cards() for card in before))
             added = next(card for card in self.cards() if 'new skin' in fz.subtree_text(card))
             menu = next(c for c in fz.walk(added) if isinstance(c, ft.PopupMenuItem)
-                        and str(c.tooltip).startswith('Change arms:'))
+                        and str(hint_message(c.tooltip)).startswith('Change arms:'))
             with patch.object(skin_ui.core, 'set_skin_model', side_effect=lambda *args: entry.update(model='slim', slim=True) or True):
                 menu.on_click(None)
             self.assertTrue(all(card in self.cards() for card in before))

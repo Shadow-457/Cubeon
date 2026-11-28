@@ -34,6 +34,7 @@ def check(label, condition, detail=""):
 
 
 driver = app_driver.build_headless()
+from cubeon.theme import hint_message
 from cubeon import motion, thread_safe_ui
 from cubeon.theme import ACCENT, TEXT_DIM
 
@@ -199,7 +200,7 @@ picture_button.on_click(None)
 check("Screenshots uses a small native picture button",
       isinstance(picture_button, ft.IconButton)
       and picture_button.width == 32 and picture_button.height == 32
-      and picture_button.tooltip == "Screenshots")
+      and hint_message(picture_button.tooltip) == "Screenshots")
 check("Screenshots opens its own visible page",
       [key for key, pane in views.items() if pane.visible] == ["screenshots"])
 gallery_pane = views["screenshots"]
@@ -344,7 +345,7 @@ _chat_btn = nav_buttons.get("chat")
 if _chat_btn is not None:
     _chat_texts = [getattr(control, "value", "")
                    for control in walk(_chat_btn)]
-    check("Chat is a first-class sidebar entry", _chat_btn.tooltip == "Chat"
+    check("Chat is a first-class sidebar entry", hint_message(_chat_btn.tooltip) == "Chat"
           and _chat_btn.cubeon_keyboard_button is not None)
     check("the sidebar BETA chip stays gone",
           "BETA" not in _chat_texts, str(_chat_texts))
@@ -382,9 +383,9 @@ check("the rail has one designed width",
 check("nav tiles retain the icon-only rail layout",
       getattr(nav_buttons["mods"], "cubeon_top_icon", False)
       and isinstance(nav_buttons["mods"].content, ft.Icon)
-      and nav_buttons["mods"].tooltip == 'Mods')
+      and hint_message(nav_buttons["mods"].tooltip) == 'Mods')
 check("the old collapse affordance stays gone",
-      not any((getattr(control, "tooltip", "") or "").lower().startswith(
+      not any((hint_message(getattr(control, "tooltip", "")) or "").lower().startswith(
                   ("collapse sidebar", "expand sidebar", "toggle sidebar"))
               for control in walk(driver.page)))
 

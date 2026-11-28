@@ -76,6 +76,7 @@ from ui.content_states import skeleton_block
 from cubeon import i18n
 
 from cubeon.theme import (
+    hover_hint,
     RADIUS, ON_ACCENT, WARNING, TEXT_FAINT, ACCENT_HI,
     CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT,
     AVATAR_COLORS, attach_hover, keyboard_target,
@@ -416,7 +417,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     copy_id_btn = ft.IconButton(
         icon=ft.Icons.CONTENT_COPY_ROUNDED, icon_size=14,
-        icon_color=TEXT_DIM, tooltip="Copy your Cubeon ID",
+        icon_color=TEXT_DIM, tooltip=hover_hint("Copy your Cubeon ID"),
         visible=False,
         on_click=_do_copy,
     )
@@ -433,7 +434,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             _rebuild_friends(_last_roster["v"] or {})
 
     add_submit = ft.TextButton(
-        i18n.t("Add"), height=36, tooltip="Send a friend request to an 8-digit Cubeon ID",
+        i18n.t("Add"), height=36, tooltip=hover_hint("Send a friend request to an 8-digit Cubeon ID"),
         on_click=lambda e: _do_add(), style=ft.ButtonStyle(color=ACCENT), data="chat-add-friend",
     )
 
@@ -493,13 +494,13 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                  visible=False)
     peer_id_btn = ft.IconButton(
         icon=ft.Icons.CONTENT_COPY_ROUNDED, icon_size=16, icon_color=TEXT_DIM,
-        tooltip="Copy friend's Cubeon ID", visible=False,
+        tooltip=hover_hint("Copy friend's Cubeon ID"), visible=False,
         on_click=lambda e: _copy_peer_id(),
     )
     remove_btn = ft.IconButton(icon=ft.Icons.PERSON_REMOVE_ROUNDED,
                                icon_size=18, icon_color=TEXT_DIM,
                                hover_color=DANGER,
-                               tooltip="Remove friend", visible=False)
+                               tooltip=hover_hint("Remove friend"), visible=False)
     # Index zero is the newest message and the viewport starts at the bottom.
     # A reversed lazy list draws only nearby messages on tab return; an eager
     # transcript laid out the entire conversation again whenever shown.
@@ -578,7 +579,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         content=ft.Icon(ft.Icons.SEND_ROUNDED, size=20, color=ACCENT),
         border_radius=RADIUS, width=44, height=44,
         alignment=ft.Alignment.CENTER, ink=False,
-        tooltip="Send message · Enter",
+        tooltip=hover_hint("Send message · Enter"),
         on_click=lambda e: _do_send(),
     ), None, ROW_HOVER)
     send_target = keyboard_target(send_btn, "Send message")
@@ -628,7 +629,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             button = emoji_pool[index]
             button.content.value = _EMOJI_CODES[code]
             button.style.bgcolor = ACCENT_TINT if index == 0 else CARD_FILL
-            button.tooltip = f"Insert :{code}:"
+            button.tooltip = hover_hint(f"Insert :{code}:")
             button.on_click = lambda e, c=code: _complete_emoji(c)
         emoji_results["loaded"] = end
         emoji_suggestions.controls = emoji_pool[:end]
@@ -825,7 +826,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _pill(label, fill, fg, on_click):
         return ft.TextButton(
             ft.Text(label, size=11), style=ft.ButtonStyle(color=fg, bgcolor=fill, padding=8),
-            on_click=on_click, tooltip=label,
+            on_click=on_click, tooltip=hover_hint(label),
         )
 
     def _row_bg(is_sel):
@@ -921,11 +922,11 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             cached["preview"].color = preview_color
             cached["stamp"].value = stamp
             cached["stamp"].color = ACCENT if unread else TEXT_FAINT
-            cached["stamp"].tooltip = _full_date(last_ts) if last_ts else None
+            cached["stamp"].tooltip = hover_hint(_full_date(last_ts) if last_ts else None)
             cached["badge"].visible = bool(unread)
             cached["badge"].content.value = str(unread) if unread < 100 else "99+"
             row.bgcolor = _row_bg(is_sel)
-            row.tooltip = _recipient(name, f)
+            row.tooltip = hover_hint(_recipient(name, f))
             attach_hover(row, _row_bg(is_sel), ROW_HOVER)
             return row
         avatar = _avatar(label, 36)
@@ -938,7 +939,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             [
                 ft.Text(stamp, size=11,
                         color=ACCENT if unread else TEXT_FAINT,
-                        tooltip=_full_date(last_ts) if last_ts else None),
+                        tooltip=hover_hint(_full_date(last_ts) if last_ts else None)),
                 badge,
             ],
             spacing=4, tight=True,
@@ -969,7 +970,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             border_radius=RADIUS,
             ink=False,
             padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
-            tooltip=_recipient(name, f),
+            tooltip=hover_hint(_recipient(name, f)),
             on_click=lambda e, n=name: _select(n),
         )
         attach_hover(row, _row_bg(is_sel), ROW_HOVER)
@@ -990,7 +991,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             _paint_avatar(cached["avatar"], label, 30)
             cached["title"].value = title
             cached["uid"].value = _uid_line(uid)
-            cached["row"].tooltip = _recipient(name)
+            cached["row"].tooltip = hover_hint(_recipient(name))
             return cached["row"]
         avatar = _avatar(label, 30)
         actions = (
@@ -998,15 +999,15 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             if outgoing else [
                 ft.IconButton(icon=ft.Icons.CHECK_ROUNDED, icon_size=18,
                               width=32, height=32, padding=4, icon_color=ACCENT,
-                              tooltip=f"Accept {label}'s request",
+                              tooltip=hover_hint(f"Accept {label}'s request"),
                               on_click=lambda e, n=name: _accept(n)),
                 ft.IconButton(icon=ft.Icons.CLOSE_ROUNDED, icon_size=18,
                               width=32, height=32, padding=4, icon_color=TEXT_DIM,
-                              tooltip=f"Decline {label}'s request",
+                              tooltip=hover_hint(f"Decline {label}'s request"),
                               on_click=lambda e, n=name: _decline(n)),
             ])
         row = ft.Container(
-            tooltip=_recipient(name),
+            tooltip=hover_hint(_recipient(name)),
             content=ft.Row(
                 [
                     avatar,
@@ -1098,7 +1099,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         you_text.value = shown
         your_id_text.value = uid or "Waiting for your ID…"
         copy_id_btn.visible = bool(uid)
-        you_avatar.tooltip = _uid_line(uid)
+        you_avatar.tooltip = hover_hint(_uid_line(uid))
         _paint_avatar(you_avatar, shown, 34, source=you_source)
         if not connected:
             conn_banner_text.value = (connection.get("message") or
@@ -1107,7 +1108,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             retry_in = connection.get("retry_in")
             if retry_in:
                 conn_banner_text.value += f" Next attempt in {retry_in}s."
-            conn_banner_text.tooltip = conn_banner_text.value
+            conn_banner_text.tooltip = hover_hint(conn_banner_text.value)
             reconnect_btn.visible = available
             conn_banner.visible = True
         else:
@@ -1218,15 +1219,15 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             return
         _header_sig["v"] = sig
         transcript_header.value = label
-        transcript_header.tooltip = _recipient(name, f)
+        transcript_header.tooltip = hover_hint(_recipient(name, f))
         transcript_sub.value = f"{sub}  ·  {_uid_line(uid)}"
         transcript_sub.color = sub_color
         composer.hint_text = f"Message {label}…"
         peer_id_btn.visible = bool(uid)
-        peer_id_btn.tooltip = f"Copy Cubeon ID {uid}"
+        peer_id_btn.tooltip = hover_hint(f"Copy Cubeon ID {uid}")
         _paint_avatar(header_avatar, label, 36, f.get("online"))
-        header_avatar.tooltip = _recipient(name, f)
-        remove_btn.tooltip = f"Remove {_recipient(name, f)}"
+        header_avatar.tooltip = hover_hint(_recipient(name, f))
+        remove_btn.tooltip = hover_hint(f"Remove {_recipient(name, f)}")
         for ctrl in (transcript_header, transcript_sub, header_avatar, remove_btn, peer_id_btn, composer):
             thread_safe_ui.refresh(ctrl)
 
@@ -1348,7 +1349,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 width=width, height=height, padding=ft.Padding(10, 8, 10, 8),
                 bgcolor=ft.Colors.with_opacity(0.35, SURFACE),
-                border_radius=10, ink=False, tooltip=preview["label"],
+                border_radius=10, ink=False, tooltip=hover_hint(preview["label"]),
                 on_click=lambda e, url=preview["url"]: _open_link(url),
             )
             target = keyboard_target(visual, preview["label"])
@@ -1393,7 +1394,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             width=width, height=height, bgcolor=SURFACE,
             border_radius=10,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS, ink=False,
-            tooltip=preview["label"],
+            tooltip=hover_hint(preview["label"]),
             on_click=lambda e, url=preview["url"]: _open_link(url),
         )
         target = keyboard_target(visual, preview["label"])
@@ -1501,12 +1502,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             rows.append(ft.Row(
                 [ft.Text(meta + ("  ·  " + status if meta else status),
                          size=10, color=DANGER if failed else TEXT_FAINT,
-                         tooltip=_full_date(ts) if ts else None)],
+                         tooltip=hover_hint(_full_date(ts) if ts else None))],
                 alignment=(ft.MainAxisAlignment.END if mine
                            else ft.MainAxisAlignment.START)))
         elif meta and with_time:
             rows.append(ft.Text(meta, size=10, color=TEXT_FAINT,
-                                tooltip=_full_date(ts) if ts else None,
+                                tooltip=hover_hint(_full_date(ts) if ts else None),
                                 text_align=(ft.TextAlign.RIGHT if mine
                                             else ft.TextAlign.LEFT)))
         # No outlines: "mine" is the green wash, "theirs" the neutral surface.
@@ -1523,8 +1524,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             border_radius=ft.BorderRadius(16, 16, 4 if mine else 16, 16 if mine else 4),
             padding=ft.padding.Padding.symmetric(horizontal=13, vertical=9),
             ink=False,
-            tooltip=((_full_date(ts) + "  ·  click to copy") if ts
-                     else "Click to copy this message"),
+            tooltip=hover_hint(_full_date(ts) + "  ·  click to copy" if ts else "Click to copy this message"),
             on_click=lambda e, t=text: _copy_message(t),
         )
 
@@ -1924,7 +1924,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         header_avatar.visible = False
         header_row.visible = False
         peer_id_btn.visible = False
-        remove_btn.tooltip = "Remove friend"
+        remove_btn.tooltip = hover_hint("Remove friend")
         remove_btn.visible = False
         header_rule.visible = False
         composer_row.visible = False
@@ -2095,7 +2095,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         spacing=12,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    tooltip="Share your Cubeon ID so friends can add you",
+                    tooltip=hover_hint("Share your Cubeon ID so friends can add you"),
                     padding=ft.padding.Padding.symmetric(horizontal=10,
                                                          vertical=2),
                 ),

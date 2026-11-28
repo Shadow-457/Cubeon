@@ -10,27 +10,25 @@ mod/brackets.json is bundled: Java sources and Gradle build files are release
 tooling, not runtime data. Connect is downloaded during server setup, not bundled.
 
 FLET DESKTOP CLIENT (the window itself):
---collect-data flet_desktop --collect-submodules flet_desktop
---collect-binaries flet_desktop is REQUIRED (the --collect-all trio, without
-the .py data files collect_all would also copy). Without it the frozen exe
+--collect-submodules flet_desktop and --collect-binaries flet_desktop keep
+the desktop integration in the frozen launcher. Without it the frozen exe
 can't `import flet_desktop`, and flet's startup then tries to PIP-INSTALL it at
 runtime - which fails inside PyInstaller (no pip, frozen) and exits before a
 window ever appears. Symptom: the exe closes instantly.
 
-The flet-desktop wheel normally carries the client binary in
-flet_desktop/app/, but the PyPI wheel ships it EMPTY and flet downloads
-flet-windows.zip from GitHub Releases on first run. That download fails
-offline and confuses first impressions, so the client zip is downloaded at
-BUILD time here and bundled via --collect-data. At runtime
-ensure_client_cached() finds it at get_package_bin_dir()/flet-windows.zip
-(frozen: _MEIPASS/flet_desktop/app/) and extracts it locally - no network
-needed, ever.
+The PyPI wheel lacks the client. Download and extract flet-windows.zip
+during the build, then place the native files in flet_desktop/app/flet/.
+The packaged launcher uses them directly. First launch needs neither a
+download nor a directory rename in the user's Flet cache.
 """
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
+import zipfile
+from pathlib import Path
 from runtime_assets import make_runtime_assets
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -56,39 +54,41 @@ FLET_VERSION = "0.86.5"  # keep in sync with requirements.txt (flet>=0.86,<0.87)
 FLET_CLIENT_URL = f"https://github.com/flet-dev/flet/releases/download/v{FLET_VERSION}/flet-windows.zip"
 
 
-def _fetch_flet_client() -> str:
-    """Download flet-windows.zip into flet_desktop/app/ inside the site
-    packages of THIS interpreter, so --collect-data flet_desktop picks it up.
-    Returns the path it was saved to; skips silently if already present."""
-    try:
-        import flet_desktop
-        pkg_dir = os.path.dirname(flet_desktop.__file__)
-    except ImportError:
-        raise SystemExit("flet-desktop is not installed in this environment")
-    app_dir = os.path.join(pkg_dir, "app")
-    os.makedirs(app_dir, exist_ok=True)
-    dest = os.path.join(app_dir, "flet-windows.zip")
-    if os.path.isfile(dest) and os.path.getsize(dest) > 1_000_000:
-        print(f"+ flet client already bundled: {dest}")
-        return dest
-    print(f"+ downloading {FLET_CLIENT_URL}")
-    urllib.request.urlretrieve(FLET_CLIENT_URL, dest)
-    size = os.path.getsize(dest) // (1024 * 1024)
-    print(f"+ bundled flet client ({size} MB) -> {dest}")
-    return dest
+def _check_flet_client(client):
+    for relative in ("flet.exe", "flutter_windows.dll", "data/icudtl.dat"):
+        file = client / relative
+        if not file.is_file() or file.stat().st_size == 0:
+            raise FileNotFoundError(f"Windows desktop client file is missing or empty: {file}")
+
+
+def _stage_flet_client(work):
+    from flet.utils import safe_zip_extractall
+    from flet_desktop import get_package_bin_dir
+
+    archive = Path(get_package_bin_dir()) / "flet-windows.zip"
+    if not archive.is_file():
+        archive = work / archive.name
+        print(f"+ downloading {FLET_CLIENT_URL}")
+        urllib.request.urlretrieve(FLET_CLIENT_URL, archive)
+    with zipfile.ZipFile(archive) as client_zip:
+        safe_zip_extractall(client_zip, str(work))
+    client = work / "flet"
+    _check_flet_client(client)
+    return client
 
 
 def main():
     os.chdir(ROOT)
-    _fetch_flet_client()
-    assets = make_runtime_assets(ROOT)
-    try:
-        _build_payload(assets)
-    finally:
-        shutil.rmtree(assets, ignore_errors=True)
+    with tempfile.TemporaryDirectory(prefix="cubeon-flet-windows-") as work:
+        client = _stage_flet_client(Path(work))
+        assets = make_runtime_assets(ROOT)
+        try:
+            _build_payload(assets, client)
+        finally:
+            shutil.rmtree(assets, ignore_errors=True)
 
 
-def _build_payload(assets):
+def _build_payload(assets, client):
     cmd = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir",
         "--windowed",
@@ -99,6 +99,7 @@ def _build_payload(assets):
         "--icon=assets/icon.ico",
         f"--add-data={assets}{SEP}assets",
         f"--add-data=mod/brackets.json{SEP}mod",
+        f"--add-data={client}{SEP}flet_desktop/app/flet",
         # NO --add-data for templates/: palettes ship as bytecode via
         # explicit hidden imports - raw .py data would put
         # readable source in the shipped exe.
@@ -113,8 +114,6 @@ def _build_payload(assets):
         "--collect-submodules", "minecraft_launcher_lib",
 
         "--collect-binaries", "minecraft_launcher_lib",
-        "--collect-data", "flet_desktop",
-
         "--collect-submodules", "flet_desktop",
 
         "--collect-binaries", "flet_desktop",
@@ -124,6 +123,7 @@ def _build_payload(assets):
     ]
     print("+", " ".join(cmd))
     subprocess.run(cmd, check=True)
+    _check_flet_client(Path("dist/Cubeon/_internal/flet_desktop/app/flet"))
 
     # A windowed PyInstaller build runs without a console; main.py expects to
     # find its assets next to the executable (resolve_assets_dir handles both

@@ -34,6 +34,10 @@ Current jar assembly needs Gradle and JDK 25 or newer. The script reads
 `mod/brackets.json` and verifies the bracket-specific contents. A Java stub
 compile test is not equivalent to rebuilding these jars.
 
+The Windows build extracts Flet into the installer payload and checks for its
+executable, engine and ICU data. Packaged Cubeon starts that installed client
+directly, so first launch does not need to create or rename a user Flet cache.
+
 Forge 1.8.9 uses a separate Java 8/SRG companion build:
 
 ```bash

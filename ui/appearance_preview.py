@@ -16,7 +16,7 @@ from PIL import Image
 
 from cubeon.appearance import CharacterModel, RenderCancelled, render_faces
 from cubeon import thread_safe_ui
-from cubeon.theme import TEXT_DIM
+from cubeon.theme import TEXT_DIM, hover_hint
 from ui.content_states import skeleton_block
 
 STAGE_W, STAGE_H = 320, 440
@@ -92,7 +92,7 @@ class AppearancePreview:
         self.scene = ft.Stack([self.shadow, self.image, self.skeleton], width=STAGE_W, height=STAGE_H,
                               clip_behavior=ft.ClipBehavior.NONE, data="appearance-model")
         self.note = ft.Text("Loading preview…", size=11, color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
-        self.note.tooltip = "Drag to rotate, use the arrows to turn, or reset to center."
+        self.note.tooltip = hover_hint("Drag to rotate, use the arrows to turn, or reset to center.")
         self.gesture = ft.GestureDetector(
             content=self.scene, data="appearance-orbit", mouse_cursor=ft.MouseCursor.GRAB,
             drag_interval=16, on_pan_start=self._drag_start,
@@ -106,11 +106,11 @@ class AppearancePreview:
         self.control = ft.Column([
             self.viewport,
             ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, icon_size=18, tooltip="Rotate left",
+                ft.IconButton(ft.Icons.ARROW_BACK_ROUNDED, icon_size=18, tooltip=hover_hint("Rotate left"),
                               on_click=lambda event: self._turn_click(event, -30)),
-                ft.IconButton(ft.Icons.RESTART_ALT_ROUNDED, icon_size=18, tooltip="Reset view",
+                ft.IconButton(ft.Icons.RESTART_ALT_ROUNDED, icon_size=18, tooltip=hover_hint("Reset view"),
                               on_click=self._reset_click),
-                ft.IconButton(ft.Icons.ARROW_FORWARD_ROUNDED, icon_size=18, tooltip="Rotate right",
+                ft.IconButton(ft.Icons.ARROW_FORWARD_ROUNDED, icon_size=18, tooltip=hover_hint("Rotate right"),
                               on_click=lambda event: self._turn_click(event, 30)),
             ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
             self.note,

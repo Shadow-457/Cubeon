@@ -32,6 +32,7 @@ from cubeon import i18n
 from cubeon import dialogs as cubeon_dialogs
 from cubeon import thread_safe_ui
 from cubeon.theme import (
+    hover_hint,
     ACCENT, BG, BORDER, DANGER, FONT_DISPLAY, FONT_MONO, ON_ACCENT,
     RADIUS, SURFACE, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT,
 )
@@ -245,10 +246,10 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         "Check compatibility", icon=ft.Icons.FACT_CHECK_OUTLINED,
         on_click=_run_local_doctor, data="crash-local-doctor",
         disabled=not local_doctor_available,
-        tooltip=("Quick offline mod check. Review missing dependencies and conflicts before making changes."
+        tooltip=(hover_hint("Quick offline mod check. Review missing dependencies and conflicts before making changes."
                  if local_doctor_available else
                  "Cubeon couldn't tell which instance crashed, so the local "
-                 "check has nothing to inspect."),
+                 "check has nothing to inspect.")),
         style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
     )
 
@@ -339,8 +340,8 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
             ft.TextButton(
                 i18n.t("Analyze log"), icon=ft.Icons.MANAGE_SEARCH_ROUNDED,
                 on_click=_doctor, data="crash-web-doctor",
-                tooltip="Open a redacted excerpt in your browser. "
-                        "Doctor sends it for online analysis when you choose Analyze log.",
+                tooltip=hover_hint("Open a redacted excerpt in your browser. "
+                        "Doctor sends it for online analysis when you choose Analyze log."),
                 style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
             ),
             ft.TextButton(

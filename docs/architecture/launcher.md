@@ -403,6 +403,9 @@ The code is an indirection layer: the address behind it can change (tunnel reass
 **Color discipline:** 60% dark canvas, 30% structural neutrals, 10% chromatic. Green (ACCENT) is the hero. Diamond cyan (INFO) is the secondary. Gold (WARNING) and redstone (DANGER) are semantic. Every fill has an explicit `on_*` foreground chosen for contrast.
 
 **`apply_page_theme(page)`:** Installs the design system onto Flet's own controls (dialogs, buttons, menus, scrollbars) so they match the hand-built Container widgets.
+Use `theme.hover_hint()` for launcher tooltips so they inherit the 3-second
+hover delay and compact styling. Keep the hint message available to accessible
+labels through `theme.hint_message()`.
 
 ---
 

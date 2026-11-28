@@ -18,6 +18,7 @@ import _sandbox_home
 _sandbox_home.isolate()
 import _fuzz_common as fz
 import flet as ft
+from cubeon.theme import hint_message
 from PIL import Image
 from app_driver import DriverPage
 from cubeon import cosmetics, thread_safe_ui
@@ -94,7 +95,7 @@ async def native(page):
                        on_size_change=lambda event: root.set_viewport_height(event.height)))
     thread_safe_ui.mark_mounted(page)
     scene = next(c for c in fz.walk(root) if c.data == 'appearance-model')
-    rotate = next(c for c in fz.walk(root) if getattr(c, 'tooltip', None) == 'Rotate right')
+    rotate = next(c for c in fz.walk(root) if hint_message(getattr(c, 'tooltip', None)) == 'Rotate right')
     preview = inspect.getclosurevars(rotate.on_click).nonlocals['self']
     deadline = time.monotonic() + 20
     while (preview._shown is None or root.opacity == 0) and time.monotonic() < deadline:
@@ -205,7 +206,7 @@ async def native_gif(page):
             capture.save(out / f'frame-{index}.png')
     assert len(seen) == 3, f'Native cape card did not paint all GIF colors: {seen}'
     apply_none = next(c for c in fz.walk(root) if isinstance(c, ft.Container)
-                      and c.tooltip == 'Apply None (No cape on your screen)')
+                      and hint_message(c.tooltip) == 'Apply None (No cape on your screen)')
     apply_none.cubeon_keyboard_button.on_click(None)
     assert cfg.get('hide_cubeon_cape') and cfg.get('active_cape') is None
     print('NATIVE_GIF_PASS: upload, saved animation, all three painted GIF frames and hide.', flush=True)
@@ -259,7 +260,7 @@ async def native_picker(page):
                 if near and all(card.image.visible for card in near):
                     return
                 await asyncio.sleep(.03)
-            states = [(card.control.tooltip, card.image.visible) for card in grid.window_cards()]
+            states = [(hint_message(card.control.tooltip), card.image.visible) for card in grid.window_cards()]
             raise AssertionError(f'Nearby thumbnails did not finish: {raster.call_count=}, {states=}')
         def current_grid():
             wardrobe = root.wardrobe

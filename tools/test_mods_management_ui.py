@@ -15,6 +15,7 @@ _sandbox_home.isolate()
 import _fuzz_common as fz
 import flet as ft
 from app_driver import DriverPage
+from cubeon.theme import hint_message
 from cubeon import icons, thread_safe_ui
 from cubeon.theme import THEME, section_label
 from ui import mods_tab as ui_mods
@@ -192,7 +193,7 @@ class ManagementUI(unittest.TestCase):
         self.assertTrue(self.cfg['client_mod_enabled'])
         self.assertFalse(button.disabled)
         self.assertEqual(button.content.controls[1].value, 'Reinstall')
-        self.assertIn('installed', button.tooltip)
+        self.assertIn('installed', hint_message(button.tooltip))
 
     def test_client_install_reports_failed_preference_save_and_can_retry(self):
         self.cfg['client_mod_enabled'] = False
@@ -203,7 +204,7 @@ class ManagementUI(unittest.TestCase):
         self.assertFalse(self.cfg['client_mod_enabled'])
         self.assertEqual(QueuedThread.jobs, [])
         self.assertEqual(button.content.controls[1].value, 'Try again')
-        self.assertIn('disk full', button.tooltip)
+        self.assertIn('disk full', hint_message(button.tooltip))
         self.assertFalse(button.disabled)
         with patch.object(self.core, 'save_config'):
             button.on_click(None)
@@ -222,7 +223,7 @@ class ManagementUI(unittest.TestCase):
             self.dropdown.value = 'instance-A'
             button.on_click(None)
             QueuedThread.jobs.pop()()
-        self.assertIn('unavailable', button.tooltip)
+        self.assertIn('unavailable', hint_message(button.tooltip))
         self.assertEqual(button.content.controls[1].value, 'Try again')
         self.assertFalse(button.disabled)
 
@@ -815,7 +816,7 @@ class ManagementUI(unittest.TestCase):
         with patch.object(QueuedThread, 'start', side_effect=RuntimeError('no thread')):
             button.on_click(None)
         self.assertFalse(button.disabled)
-        self.assertIn("Couldn't start", button.tooltip)
+        self.assertIn("Couldn't start", hint_message(button.tooltip))
         button.on_click(None)
         self.assertEqual(len(QueuedThread.jobs), 1)
 
