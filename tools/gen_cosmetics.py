@@ -1206,8 +1206,8 @@ def render_item(item):
 
 
 def generated_items():
-    from gen_store_collection import butterfly_aura
-    return [*ITEMS, butterfly_aura()]
+    from gen_store_collection import butterfly_aura, fire_aura
+    return [*ITEMS, butterfly_aura(), fire_aura()]
 
 
 def main():
@@ -1246,6 +1246,15 @@ def main():
                 for folder in (LAUNCHER_DIR, MOD_TEXTURE_DIR):
                     glow.save(os.path.join(folder, glow_name), optimize=True)
                 entry["emissive_texture"] = glow_name
+        if item["id"] == "aura_fire-aura":
+            glow = glow_texture(image, "fire-aura")
+            if glow is not None:
+                glow_name = item["id"] + "_glow.png"
+                for folder in (LAUNCHER_DIR, MOD_TEXTURE_DIR):
+                    glow.save(os.path.join(folder, glow_name), optimize=True)
+                entry["emissive_texture"] = glow_name
+            if item.get("orbital_burst"):
+                entry["orbital_burst"] = True
         if item.get("_flat"):
             flat_image, flat_boxes = render_item(item["_flat"])
             flat_name = item["id"] + "_flat.png"

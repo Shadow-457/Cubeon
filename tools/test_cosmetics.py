@@ -83,11 +83,11 @@ def test_catalog():
     every = cosmetics.items()
     shoulder = cosmetics.items("shoulder")
     back = cosmetics.items("back")
-    check("42 cosmetics", len(every) == 42, str(len(every)))
+    check("43 cosmetics", len(every) == 43, str(len(every)))
     check("13 shoulder items", len(shoulder) == 13, str(len(shoulder)))
     check("15 back items", len(back) == 15, str(len(back)))
     check("every item is in one slot", sum(len(cosmetics.items(s)) for s in cosmetics.SLOTS) == len(every))
-    for slot, count in {"face": 4, "head": 1, "waist": 3, "hand": 3, "trail": 2, "aura": 1}.items():
+    for slot, count in {"face": 4, "head": 1, "waist": 3, "hand": 3, "trail": 2, "aura": 2}.items():
         check(f"{count} {slot} cosmetics", len(cosmetics.items(slot)) == count)
 
     ids = [item["id"] for item in every]

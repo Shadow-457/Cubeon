@@ -414,6 +414,97 @@ def butterfly_aura():
     return aura.item()
 
 
+def fire_aura():
+    aura = Model("aura", "fire-aura", "Blazing Fire Aura",
+        "Four counter-rotating helical fire ribbons, rising flame tongues and glowing shoulder embers swirl around your body.")
+    # 4 continuous counter-rotating helical fire ribbons (rigs 0..3).
+    core_colors = ['#fff6cc', '#ffe37a', '#ffbe2e', '#ff6a14', '#e0310c']
+    outer_colors = ['#ff5510', '#d42608', '#9e1708']
+    for r_idx in range(4):
+        base_a = r_idx * (math.tau / 4)
+        twist_dir = 1 if r_idx % 2 == 0 else -1
+        y_start = 22.0 - (r_idx % 2) * 2.0
+        y_end = -0.5 - (r_idx % 2) * 1.5
+        r_base = 14.0 + (r_idx % 2) * 1.2
+        steps = 30
+        pts = []
+        for s in range(steps):
+            t = s / (steps - 1)
+            ang = base_a + twist_dir * t * 1.75
+            rad = r_base + 1.8 * math.sin(t * math.pi)
+            y = y_start + (y_end - y_start) * t
+            pts.append((math.cos(ang) * rad, y, math.sin(ang) * rad))
+        px = round(sum(p[0] for p in pts) / len(pts), 3)
+        py = round(sum(p[1] for p in pts) / len(pts), 3)
+        pz = round(sum(p[2] for p in pts) / len(pts), 3)
+        piv = (px, py, pz)
+        for s, (x, y, z) in enumerate(pts):
+            t = s / (steps - 1)
+            thick = 1.0 if t < 0.3 else (0.75 if t < 0.65 else (0.5 if t < 0.88 else 0.375))
+            c_idx = min(len(core_colors) - 1, int(t * len(core_colors)))
+            aura.box((round(x - thick / 2, 3), round(y - thick * 0.625, 3), round(z - thick / 2, 3)),
+                     (thick, thick * 1.25, thick), core_colors[c_idx], motion="orbit", pivot=piv)
+            if s < steps - 6 and s % 3 == 0:
+                ang = base_a + twist_dir * t * 1.75
+                ox = x + math.cos(ang) * 0.45
+                oz = z + math.sin(ang) * 0.45
+                o_idx = min(len(outer_colors) - 1, int(t * 1.3 * len(outer_colors)))
+                aura.box((round(ox - 0.375, 3), round(y - 0.375, 3), round(oz - 0.375, 3)),
+                         (0.625, 0.875, 0.625), outer_colors[o_idx], motion="orbit", pivot=piv)
+        # Trailing ember sparks above the ribbon tip.
+        tx, ty, tz = pts[-1]
+        for k, (dy, dr, col, sz) in enumerate(((-1.25, 0.4, '#ffe57f', 0.375), (-2.5, -0.3, '#ff6814', 0.25))):
+            aura.box((round(tx + dr, 3), round(ty + dy, 3), round(tz + (k - 0.5) * 0.4, 3)),
+                     (sz, sz, sz), col, motion="orbit", pivot=piv)
+
+    # 4 sculpted S-curved rising flame-tongue plumes (rigs 4..7).
+    for p_idx in range(4):
+        ang = (p_idx + 0.5) * (math.tau / 4)
+        rad = 13.8 + (p_idx % 2) * 0.9
+        cx = round(math.cos(ang) * rad, 3)
+        cz = round(math.sin(ang) * rad, 3)
+        cy = 14.5 - (p_idx % 2) * 5.5
+        piv = (cx, cy, cz)
+        tx_dir, tz_dir = -math.sin(ang), math.cos(ang)
+        flame_steps = (
+            (0.0, 1.0, 1.5, 1.25, '#9e1708'),
+            (0.15, 0.0, 1.375, 1.375, '#d92b0c'),
+            (0.3, -1.0, 1.125, 1.375, '#ff5e14'),
+            (0.15, -2.0, 0.875, 1.25, '#ff941a'),
+            (-0.15, -3.0, 0.625, 1.125, '#ffbd2e'),
+            (-0.4, -3.9, 0.375, 0.875, '#ffe57f'),
+        )
+        for sway, dy, w, h, col in flame_steps:
+            fx = round(cx + tx_dir * sway - w / 2, 3)
+            fz = round(cz + tz_dir * sway - w / 2, 3)
+            aura.box((fx, cy + dy, fz), (w, h, w), col, motion="orbit", pivot=piv)
+        # Incandescent white-hot inner heart
+        aura.box((cx - 0.375, cy - 0.75, cz - 0.375), (0.75, 1.25, 0.75), '#fff6cc', motion="orbit", pivot=piv)
+        # Floating ember sparks above the tip
+        aura.box((round(cx - tx_dir * 0.5, 3), cy - 4.9, round(cz - tz_dir * 0.5, 3)),
+                 (0.375, 0.375, 0.375), '#fff0a8', motion="orbit", pivot=piv)
+        aura.box((round(cx + tx_dir * 0.3, 3), cy - 5.9, round(cz + tz_dir * 0.3, 3)),
+                 (0.25, 0.25, 0.25), '#ff7818', motion="orbit", pivot=piv)
+
+    # 2 sleek blazing shoulder flame-wisps (aura motion + orbital_burst lap).
+    for side in (-1, 1):
+        px, py, pz = side * 10.5, -4.5, 5.5
+        piv = (px, py, pz)
+        # Curved teardrop flame-wisp silhouette
+        aura.box((px - 0.75, py - 0.5, pz - 0.75), (1.5, 1.375, 1.5), '#d92b0c', motion="aura", pivot=piv)
+        aura.box((px - 0.625, py - 1.125, pz - 0.625), (1.25, 1.5, 1.25), '#ff5e14', motion="aura", pivot=piv)
+        aura.box((px - 0.5, py - 0.75, pz - 0.5), (1.0, 1.125, 1.0), '#ffbd2e', motion="aura", pivot=piv)
+        aura.box((px - 0.375, py - 0.5, pz - 0.375), (0.75, 0.75, 0.75), '#fff8d6', motion="aura", pivot=piv)
+        # Tapered licking flame tail curving inward/upward
+        aura.box((px - side * 0.25 - 0.375, py - 2.0, pz - 0.375), (0.75, 1.0, 0.75), '#ff8814', motion="aura", pivot=piv)
+        aura.box((px - side * 0.5 - 0.25, py - 2.75, pz - 0.25), (0.5, 0.75, 0.5), '#ffe073', motion="aura", pivot=piv)
+        aura.box((px - side * 0.625 - 0.125, py - 3.625, pz - 0.125), (0.25, 0.25, 0.25), '#fff6cc', motion="aura", pivot=piv)
+
+    item = aura.item()
+    item["orbital_burst"] = True
+    return item
+
+
 def headwear():
     output=[]
     halo=Model("head","sunward-halo","Sunward Halo","A substantial floating gold halo with ivory bevels, chamfered corners and a warm polished interior.")
@@ -907,9 +998,11 @@ def footwear():
 
 def generate(folder=None):
     folder=Path(folder) if folder else ROOT/"cosmetics"
-    items=[*wings(),*pets(),*headwear(),*footwear()]
+    items=[*wings(),*pets(),*headwear(),*footwear(),fire_aura()]
     for item in items:
-        directory=folder/{"back":"wings","shoulder":"pets","head":"head","feet":"feet"}[item["slot"]]/"collection"
+        directory=folder/{"back":"wings","shoulder":"pets","head":"head","feet":"feet","aura":"auras"}[item["slot"]]
+        if item["slot"] != "aura":
+            directory = directory / "collection"
         directory.mkdir(parents=True,exist_ok=True)
         key=item["id"].removeprefix(item["slot"]+"_")
         texture=key+".png"
@@ -918,6 +1011,8 @@ def generate(folder=None):
         model=dict(slot=item["slot"],texture=texture,tex_w=image.width,tex_h=image.height,
                    boxes=boxes,feathers=item.get("feathers",[]),wing_flare=item.get("wing_flare",False),
                    separate_feathers=item.get("separate_feathers",False))
+        if item.get("orbital_burst"):
+            model["orbital_burst"]=True
         from cubeon.cosmetic_packages import normalize_wing_attachment
         model=normalize_wing_attachment(model)
         glow=glow_texture(image,key)
@@ -935,7 +1030,7 @@ def glow_texture(image,key):
     modes={"ivory-tide":"white","cloud-fan":"white","cloudlet-headwings":"white",
            "obsidian-seraph":"gold","amethyst-fae":"violet","glacial-morpho":"blue",
            "crimson-archfiend":"red","sunward-halo":"gold","dawnflare-halo":"gold",
-           "tidal-crown":"cyan","morpho-orbit":"blue","zephyr-sprite":"spirit",
+           "tidal-crown":"cyan","morpho-orbit":"blue","fire-aura":"fire","zephyr-sprite":"spirit",
            "lantern-pilot":"beacon","jade-cloud-dragon":"beacon","midnight-cowl":"lenses",
            "crimson-web-mask":"lenses"}
     mode=modes.get(key)
@@ -951,6 +1046,7 @@ def glow_texture(image,key):
                       mode=='blue' and b>215 and g>180 and r>90 or
                       mode=='red' and r>185 and g<120 and b<135 or
                       mode=='cyan' and g>165 and b>150 and r<g*.9 or
+                      mode=='fire' and r>205 and g>85 and b<225 or
                       mode=='lenses' and min(r,g,b)>205 or
                       mode=='spirit' and (min(r,g,b)>205 or r>215 and g>180 and b<175) or
                       mode=='beacon' and (r>215 and 165<g<225 and b<150 or g>190 and b>175 and r<170))
